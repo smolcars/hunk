@@ -15,6 +15,7 @@ icon = ["assets/icons/Hunk.icns"]
 anyhow = "1.0"
 dirs = "6.0"
 futures = "0.3"
+gix = { version = "0.78.0", default-features = false }
 gpui = { package = "gpui", version = "*", features = ["runtime_shaders"] }
 gpui-component = { version = "0.5.1", features = ["tree-sitter-languages"] }
 gpui-component-assets = "0.5.1"

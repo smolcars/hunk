@@ -759,21 +759,49 @@ pub(super) fn reorder_bookmark_tip_older(
         .get(2)
         .map(|revision| revision.id.clone())
         .unwrap_or_else(|| context.repo.store().root_commit_id().hex());
+    let Some(anchor_commit_id) = jj_lib::backend::CommitId::try_from_hex(anchor_revision.as_str())
+    else {
+        return Err(anyhow!(
+            "failed to resolve reorder anchor revision '{anchor_revision}'"
+        ));
+    };
+    let anchor_child_ids = direct_child_revision_ids(context.repo.as_ref(), &anchor_commit_id)
+        .context("failed to resolve reorder anchor descendants")?;
 
-    // Use JJ's native rebase semantics to demote the tip by one position, then
-    // repoint the bookmark to the new top revision.
-    run_jj_command(
-        context.root.as_path(),
-        &["rebase", "-r", tip_revision_id.as_str(), "-A", anchor_revision.as_str()],
-        "failed to reorder bookmark stack",
-    )?;
-
-    let root = context.root.clone();
-    *context = load_repo_context_at_root(root.as_path(), true)?;
+    let mut tx = context.repo.start_transaction();
+    let location = MoveCommitsLocation {
+        new_parent_ids: vec![anchor_commit_id],
+        new_child_ids: anchor_child_ids,
+        target: MoveCommitsTarget::Commits(vec![tip_commit_id]),
+    };
+    move_commits(tx.repo_mut(), &location, &RebaseOptions::default())
+        .context("failed to reorder bookmark stack")?;
+    tx.repo_mut()
+        .rebase_descendants()
+        .context("failed to rebase descendants after bookmark reorder")?;
+    let repo = tx
+        .commit(format!("reorder bookmark {branch_name} tip older"))
+        .context("failed to finalize bookmark reorder")?;
+    persist_working_copy_state(context, repo, "after bookmark tip reorder")?;
     move_bookmark_to_parent_of_working_copy(context, branch_name)?
         .then_some(())
         .ok_or_else(|| anyhow!("bookmark '{branch_name}' no longer exists after reorder"))?;
     Ok(())
+}
+
+fn direct_child_revision_ids(
+    repo: &ReadonlyRepo,
+    commit_id: &jj_lib::backend::CommitId,
+) -> Result<Vec<jj_lib::backend::CommitId>> {
+    let revset = RevsetExpression::commits(vec![commit_id.clone()])
+        .children()
+        .evaluate(repo)
+        .context("failed to evaluate child revision revset")?;
+    let mut child_ids = Vec::new();
+    for child_id in revset.iter() {
+        child_ids.push(child_id.context("failed to resolve child revision id")?);
+    }
+    Ok(child_ids)
 }
 
 pub(super) fn push_bookmark(context: &mut RepoContext, branch_name: &str) -> Result<()> {
@@ -1076,7 +1104,7 @@ pub(super) fn bookmark_review_url(
     provider_mappings: &[crate::config::ReviewProviderMapping],
 ) -> Result<Option<String>> {
     let remote_name = resolve_push_remote_name(context, branch_name)?;
-    let Some(remote_url) = resolve_remote_url_from_cli(context.root.as_path(), remote_name.as_str())?
+    let Some(remote_url) = resolve_remote_url_from_jj_lib(context, remote_name.as_str())?
     else {
         return Ok(None);
     };
@@ -1088,39 +1116,18 @@ pub(super) fn bookmark_review_url(
     ))
 }
 
-fn resolve_remote_url_from_cli(repo_root: &Path, remote_name: &str) -> Result<Option<String>> {
-    let output = Command::new("jj")
-        .args(["git", "remote", "list"])
-        .current_dir(repo_root)
-        .output()
-        .context("failed to query jj remotes for review URL")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!(
-            "failed to query jj remotes for review URL: {}",
-            stderr.trim()
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let mut parts = trimmed.split_whitespace();
-        let Some(name) = parts.next() else {
-            continue;
-        };
-        let Some(url) = parts.next() else {
-            continue;
-        };
-        if name == remote_name {
-            return Ok(Some(url.to_string()));
-        }
-    }
-
-    Ok(None)
+fn resolve_remote_url_from_jj_lib(context: &RepoContext, remote_name: &str) -> Result<Option<String>> {
+    let git_repo = git::get_git_repo(context.repo.store())
+        .context("failed to load backing Git repository for review URL")?;
+    let Some(remote_result) = git_repo.try_find_remote(remote_name) else {
+        return Ok(None);
+    };
+    let remote = remote_result.with_context(|| {
+        format!("failed to load configured remote '{remote_name}' for review URL")
+    })?;
+    Ok(remote
+        .url(gix::remote::Direction::Fetch)
+        .map(|url| url.to_string()))
 }
 
 fn review_url_for_remote(
@@ -1276,23 +1283,4 @@ fn percent_encode(value: &str) -> String {
         }
     }
     encoded
-}
-
-fn run_jj_command(repo_root: &Path, args: &[&str], failure_context: &str) -> Result<()> {
-    let output = Command::new("jj")
-        .args(args)
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("{failure_context}: failed to run jj command"))?;
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let message = stderr.trim();
-    if message.is_empty() {
-        return Err(anyhow!("{failure_context}: jj command failed"));
-    }
-
-    Err(anyhow!("{failure_context}: {message}"))
 }

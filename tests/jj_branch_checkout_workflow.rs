@@ -7,9 +7,9 @@ use hunk::config::{ReviewProviderKind, ReviewProviderMapping};
 use hunk::jj::{
     abandon_bookmark_head, checkout_or_create_bookmark,
     checkout_or_create_bookmark_with_change_transfer, commit_staged, describe_bookmark_head,
-    load_snapshot, rename_bookmark, reorder_bookmark_tip_older, restore_working_copy_from_revision,
-    review_url_for_bookmark, review_url_for_bookmark_with_provider_map,
-    squash_bookmark_head_into_parent,
+    load_snapshot, move_bookmark_to_revision, rename_bookmark, reorder_bookmark_tip_older,
+    restore_working_copy_from_revision, review_url_for_bookmark,
+    review_url_for_bookmark_with_provider_map, squash_bookmark_head_into_parent,
 };
 
 #[test]
@@ -637,6 +637,75 @@ fn reordering_requires_bookmark_to_be_active() {
 }
 
 #[test]
+fn reordering_bookmark_tip_matches_cli_insert_after_behavior() {
+    let jjlib_fixture = TempRepo::new("reorder-parity-jjlib");
+    let cli_fixture = TempRepo::new("reorder-parity-cli");
+
+    seed_three_revision_stack(jjlib_fixture.path(), "stack");
+    seed_three_revision_stack(cli_fixture.path(), "stack");
+
+    reorder_bookmark_tip_older(jjlib_fixture.path(), "stack")
+        .expect("jj-lib reorder should succeed");
+    reorder_bookmark_tip_with_cli_equivalent(cli_fixture.path(), "stack");
+
+    let jjlib_snapshot =
+        load_snapshot(jjlib_fixture.path()).expect("jj-lib snapshot should load after reorder");
+    let cli_snapshot =
+        load_snapshot(cli_fixture.path()).expect("cli snapshot should load after reorder");
+
+    let jjlib_subjects: Vec<_> = jjlib_snapshot
+        .bookmark_revisions
+        .iter()
+        .take(3)
+        .map(|revision| revision.subject.clone())
+        .collect();
+    let cli_subjects: Vec<_> = cli_snapshot
+        .bookmark_revisions
+        .iter()
+        .take(3)
+        .map(|revision| revision.subject.clone())
+        .collect();
+    assert_eq!(
+        jjlib_subjects, cli_subjects,
+        "reorder should match jj rebase -r <tip> -A <anchor> behavior"
+    );
+}
+
+#[test]
+fn review_url_uses_same_fetch_remote_as_jj_remote_list() {
+    let fixture = TempRepo::new("review-url-fetch-parity");
+
+    write_file(fixture.path().join("tracked.txt"), "line one\n");
+    commit_staged(fixture.path(), "initial commit").expect("initial commit should succeed");
+    checkout_or_create_bookmark(fixture.path(), "feature/fetch-url")
+        .expect("creating bookmark should succeed");
+
+    run_jj(
+        fixture.path(),
+        [
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://gitlab.com/example-org/hunk.git",
+        ],
+    );
+
+    let cli_fetch_url = remote_url_from_cli_list(fixture.path(), "origin")
+        .expect("origin remote should be listed by jj git remote list");
+    assert_eq!(cli_fetch_url, "https://gitlab.com/example-org/hunk.git");
+
+    let review_url = review_url_for_bookmark(fixture.path(), "feature/fetch-url")
+        .expect("review URL should be computed")
+        .expect("fetch remote should produce review URL");
+    assert_eq!(
+        review_url,
+        "https://gitlab.com/example-org/hunk/-/merge_requests/new?merge_request[source_branch]=feature%2Ffetch-url",
+        "review URL should be derived from the same fetch URL shown by jj remote list"
+    );
+}
+
+#[test]
 fn describing_requires_bookmark_to_be_active() {
     let fixture = TempRepo::new("describe-requires-active");
 
@@ -824,6 +893,95 @@ fn write_file(path: PathBuf, contents: &str) {
         fs::create_dir_all(parent).expect("parent directories should be created");
     }
     fs::write(path, contents).expect("file should be written");
+}
+
+fn seed_three_revision_stack(repo_root: &Path, bookmark_name: &str) {
+    write_file(repo_root.join("tracked-1.txt"), "line one\n");
+    commit_staged(repo_root, "initial commit").expect("initial commit should succeed");
+    checkout_or_create_bookmark(repo_root, bookmark_name)
+        .expect("creating bookmark should succeed");
+
+    write_file(repo_root.join("tracked-2.txt"), "line two\n");
+    commit_staged(repo_root, "stack second commit").expect("second commit should succeed");
+
+    write_file(repo_root.join("tracked-3.txt"), "line three\n");
+    commit_staged(repo_root, "stack third commit").expect("third commit should succeed");
+}
+
+fn reorder_bookmark_tip_with_cli_equivalent(repo_root: &Path, bookmark_name: &str) {
+    let before = load_snapshot(repo_root).expect("snapshot should load before CLI reorder");
+    let tip_id = before
+        .bookmark_revisions
+        .first()
+        .map(|revision| revision.id.clone())
+        .expect("bookmark should include a tip revision");
+    let anchor_id = before
+        .bookmark_revisions
+        .get(2)
+        .map(|revision| revision.id.clone())
+        .unwrap_or_else(|| root_revision_id(repo_root));
+
+    run_jj(
+        repo_root,
+        ["rebase", "-r", tip_id.as_str(), "-A", anchor_id.as_str()],
+    );
+
+    let wc_parent = run_jj_capture(
+        repo_root,
+        [
+            "log",
+            "-r",
+            "parents(@)",
+            "-n",
+            "1",
+            "--no-graph",
+            "-T",
+            "commit_id",
+        ],
+    )
+    .trim()
+    .to_string();
+    move_bookmark_to_revision(repo_root, bookmark_name, wc_parent.as_str())
+        .expect("bookmark should move to parent of working copy after CLI reorder");
+}
+
+fn root_revision_id(repo_root: &Path) -> String {
+    run_jj_capture(
+        repo_root,
+        [
+            "log",
+            "-r",
+            "root()",
+            "-n",
+            "1",
+            "--no-graph",
+            "-T",
+            "commit_id",
+        ],
+    )
+    .trim()
+    .to_string()
+}
+
+fn remote_url_from_cli_list(repo_root: &Path, remote_name: &str) -> Option<String> {
+    let output = run_jj_capture(repo_root, ["git", "remote", "list"]);
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut parts = trimmed.split_whitespace();
+        let Some(name) = parts.next() else {
+            continue;
+        };
+        let Some(url) = parts.next() else {
+            continue;
+        };
+        if name == remote_name {
+            return Some(url.to_string());
+        }
+    }
+    None
 }
 
 fn current_working_copy_revision(cwd: &Path) -> String {

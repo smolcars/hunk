@@ -3496,6 +3496,7 @@ dependencies = [
  "anyhow",
  "dirs 6.0.0",
  "futures",
+ "gix",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
