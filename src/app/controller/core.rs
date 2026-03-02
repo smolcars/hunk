@@ -190,6 +190,7 @@ impl DiffViewer {
             bookmark_revisions: Vec::new(),
             graph_nodes: Vec::new(),
             graph_edges: Vec::new(),
+            graph_lane_rows: Vec::new(),
             graph_has_more: false,
             graph_next_offset: None,
             graph_active_bookmark: None,
@@ -527,6 +528,8 @@ impl DiffViewer {
         self.bookmark_revisions = bookmark_revisions;
         self.graph_nodes = graph_nodes;
         self.graph_edges = graph_edges;
+        self.graph_lane_rows =
+            hunk::jj_graph_tree::build_graph_lane_rows(&self.graph_nodes, &self.graph_edges);
         self.graph_has_more = graph_has_more;
         self.graph_next_offset = graph_next_offset;
         self.graph_active_bookmark = graph_active_bookmark;
@@ -633,6 +636,7 @@ impl DiffViewer {
         self.bookmark_revisions.clear();
         self.graph_nodes.clear();
         self.graph_edges.clear();
+        self.graph_lane_rows.clear();
         self.graph_has_more = false;
         self.graph_next_offset = None;
         self.graph_active_bookmark = None;

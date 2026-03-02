@@ -257,11 +257,13 @@ impl DiffViewer {
         let is_dark = cx.theme().mode.is_dark();
         let nodes_len = self.graph_nodes.len();
         let view = cx.entity();
-        let lane_rows = Rc::new(build_graph_lane_rows(&self.graph_nodes, &self.graph_edges));
         let working_copy_color = self.graph_working_copy_color(is_dark);
         let active_target_color = self.graph_active_target_color(is_dark);
         let merge_color = self.graph_merge_color(is_dark);
         let legend_text_color = cx.theme().muted_foreground.opacity(if is_dark { 0.94 } else { 0.88 });
+        let lane_focus = self.graph_selected_lane_hint();
+        let max_lane_count = self.graph_max_lane_count();
+        let (preferred_lane_start, _) = self.graph_lane_window(max_lane_count, lane_focus);
 
         v_flex()
             .size_full()
@@ -393,16 +395,16 @@ impl DiffViewer {
                         .into_any_element();
                 }
 
-                let list = list(graph_list_state.clone(), {
-                    let lane_rows = lane_rows.clone();
+                let list = list(
+                    graph_list_state.clone(),
                     cx.processor(move |this, ix: usize, _window, cx| {
                         let Some(node) = this.graph_nodes.get(ix) else {
                             return div().into_any_element();
                         };
-                        let lane_row = lane_rows.get(ix);
-                        this.render_jj_graph_row(ix, node, lane_row, cx)
-                    })
-                })
+                        let lane_row = this.graph_lane_rows.get(ix);
+                        this.render_jj_graph_row(ix, node, lane_row, preferred_lane_start, cx)
+                    }),
+                )
                 .flex_grow()
                 .size_full()
                 .with_sizing_behavior(ListSizingBehavior::Auto);
@@ -546,6 +548,7 @@ impl DiffViewer {
         row_ix: usize,
         node: &GraphNode,
         lane_row: Option<&GraphLaneRow>,
+        preferred_lane_start: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let lane_row = lane_row.filter(|lane_row| lane_row.node_id == node.id);
@@ -568,8 +571,12 @@ impl DiffViewer {
             .iter()
             .filter(|edge| edge.from == node.id)
             .count();
-        let lane_count = lane_row.map(|row| row.lane_count.max(1)).unwrap_or(1);
-        let gutter_width = self.tree_lane_gutter_width(lane_count);
+        let lane_count = lane_row.map_or(1, |row| row.lane_count.max(1));
+        let node_lane = lane_row.map_or(0, |row| row.node_lane);
+        let (lane_start, lane_end) =
+            self.graph_lane_window_for_row(lane_count, preferred_lane_start, node_lane);
+        let visible_lane_count = lane_end.saturating_sub(lane_start).max(1);
+        let gutter_width = self.tree_lane_gutter_width(visible_lane_count);
         let short_id = node.id.chars().take(12).collect::<String>();
 
         let row = div()
@@ -577,7 +584,7 @@ impl DiffViewer {
             .relative()
             .w_full()
             .py_0p5()
-            .pl(px(gutter_width + 10.0))
+            .pl(px(gutter_width + 14.0))
             .pr_2()
             .rounded(px(6.0))
             .border_1()
@@ -594,7 +601,7 @@ impl DiffViewer {
             .child(
                 div()
                     .absolute()
-                    .left(px(8.0))
+                    .left(px(12.0))
                     .top_0()
                     .bottom_0()
                     .w(px(gutter_width))
@@ -603,14 +610,14 @@ impl DiffViewer {
                             node,
                             lane_row,
                             parent_count > 1,
-                            lane_count,
+                            (lane_start, lane_end),
                             cx,
                         ),
                     ),
             )
             .child(
                 v_flex()
-                    .flex_1()
+                    .w_full()
                     .min_w_0()
                     .gap_0p5()
                     .child(
@@ -668,9 +675,10 @@ impl DiffViewer {
         node: &GraphNode,
         lane_row: Option<&GraphLaneRow>,
         is_merge_commit: bool,
-        lane_count: usize,
+        lane_window: (usize, usize),
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let (lane_start, lane_end) = lane_window;
         let is_dark = cx.theme().mode.is_dark();
         let lane_row = match lane_row {
             Some(lane_row) if lane_row.lane_count > 0 => lane_row,
@@ -726,24 +734,25 @@ impl DiffViewer {
             None
         };
 
+        let visible_lane_count = lane_end.saturating_sub(lane_start).max(1);
         let lane_spacing = 14.0_f32;
         let node_center_y = 9.0_f32;
         let node_size = 12.0_f32;
-        let node_lane_x = lane_row.node_lane as f32 * lane_spacing + 7.0;
+        let node_lane_x = lane_row.node_lane.saturating_sub(lane_start) as f32 * lane_spacing + 7.0;
         let mut gutter = div()
             .relative()
             .h_full()
-            .w(px(self.tree_lane_gutter_width(lane_count)))
+            .w(px(self.tree_lane_gutter_width(visible_lane_count)))
             .min_h(px(26.0));
 
-        for lane_ix in 0..lane_count {
+        for lane_ix in lane_start..lane_end {
             let top_vertical = lane_row.top_vertical.get(lane_ix).copied().unwrap_or(false);
             let bottom_vertical = lane_row.bottom_vertical.get(lane_ix).copied().unwrap_or(false);
             let has_vertical = top_vertical || bottom_vertical;
             if !has_vertical {
                 continue;
             }
-            let lane_x = lane_ix as f32 * lane_spacing + 7.0;
+            let lane_x = lane_ix.saturating_sub(lane_start) as f32 * lane_spacing + 7.0;
             gutter = gutter.child(
                 div()
                     .absolute()
@@ -756,9 +765,14 @@ impl DiffViewer {
         }
 
         for secondary_lane in &lane_row.secondary_parent_lanes {
+            if *secondary_lane < lane_start || *secondary_lane >= lane_end {
+                continue;
+            }
             let start_lane = (*secondary_lane).min(lane_row.node_lane);
             let end_lane = (*secondary_lane).max(lane_row.node_lane);
-            let left = start_lane as f32 * lane_spacing + 7.0;
+            let start_lane = start_lane.max(lane_start);
+            let end_lane = end_lane.min(lane_end.saturating_sub(1));
+            let left = start_lane.saturating_sub(lane_start) as f32 * lane_spacing + 7.0;
             let width = (end_lane.saturating_sub(start_lane)) as f32 * lane_spacing + 2.0;
             gutter = gutter.child(
                 div()
@@ -807,6 +821,85 @@ impl DiffViewer {
 
     fn tree_lane_gutter_width(&self, lane_count: usize) -> f32 {
         lane_count.saturating_mul(14).saturating_add(2) as f32
+    }
+
+    fn graph_selected_lane_hint(&self) -> usize {
+        let active_lane = self
+            .graph_nodes
+            .iter()
+            .find(|node| node.is_active_bookmark_target)
+            .and_then(|node| {
+                self.graph_lane_rows
+                    .iter()
+                    .find(|row| row.node_id == node.id)
+                    .map(|row| row.node_lane)
+            });
+        if let Some(active_lane) = active_lane {
+            return active_lane;
+        }
+
+        self.graph_nodes
+            .iter()
+            .find(|node| node.is_working_copy_parent)
+            .and_then(|node| {
+                self.graph_lane_rows
+                    .iter()
+                    .find(|row| row.node_id == node.id)
+                    .map(|row| row.node_lane)
+            })
+            .unwrap_or(0)
+    }
+
+    fn graph_max_lane_count(&self) -> usize {
+        self.graph_lane_rows
+            .iter()
+            .map(|row| row.lane_count)
+            .max()
+            .unwrap_or(1)
+            .max(1)
+    }
+
+    fn graph_lane_window(&self, lane_count: usize, node_lane: usize) -> (usize, usize) {
+        let lane_count = lane_count.max(1);
+        let max_visible = 12usize;
+        if lane_count <= max_visible {
+            return (0, lane_count);
+        }
+
+        let half = max_visible / 2;
+        let mut start = node_lane.saturating_sub(half);
+        let max_start = lane_count.saturating_sub(max_visible);
+        if start > max_start {
+            start = max_start;
+        }
+
+        (start, start.saturating_add(max_visible).min(lane_count))
+    }
+
+    fn graph_lane_window_for_row(
+        &self,
+        lane_count: usize,
+        preferred_lane_start: usize,
+        node_lane: usize,
+    ) -> (usize, usize) {
+        let lane_count = lane_count.max(1);
+        let max_visible = 12usize;
+        if lane_count <= max_visible {
+            return (0, lane_count);
+        }
+
+        let max_start = lane_count.saturating_sub(max_visible);
+        let mut start = preferred_lane_start.min(max_start);
+        if node_lane < start {
+            start = node_lane;
+        } else if node_lane >= start.saturating_add(max_visible) {
+            start = node_lane
+                .saturating_add(1)
+                .saturating_sub(max_visible)
+                .min(max_start);
+        }
+
+        (start, start.saturating_add(max_visible).min(lane_count))
     }
 
     fn graph_working_copy_color(&self, is_dark: bool) -> gpui::Hsla {
