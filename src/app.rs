@@ -751,6 +751,7 @@ struct DiffViewer {
     branch_name: String,
     branch_has_upstream: bool,
     branch_ahead_count: usize,
+    can_redo_operation: bool,
     branches: Vec<LocalBranch>,
     bookmark_revisions: Vec<BookmarkRevision>,
     graph_nodes: Vec<GraphNode>,

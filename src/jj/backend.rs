@@ -116,6 +116,7 @@ pub(super) fn load_repo_context_at_root(
 include!("backend/settings.rs");
 include!("backend/snapshot_diff.rs");
 include!("backend/graph.rs");
+include!("backend/operation_history.rs");
 include!("backend/operations.rs");
 include!("backend/workspace.rs");
 
@@ -191,6 +192,29 @@ mod parity_tests {
         assert_eq!(jjlib_subjects, cli_subjects);
     }
 
+    #[test]
+    fn redo_last_operation_with_jj_lib_matches_cli_redo() {
+        let jjlib_fixture = TempRepo::new("unit-redo-parity-jjlib");
+        let cli_fixture = TempRepo::new("unit-redo-parity-cli");
+
+        seed_linear_bookmark_history(jjlib_fixture.path(), "main");
+        seed_linear_bookmark_history(cli_fixture.path(), "main");
+
+        run_jj(jjlib_fixture.path(), ["undo"]);
+        run_jj(cli_fixture.path(), ["undo"]);
+
+        let mut context = load_repo_context_at_root(jjlib_fixture.path(), false)
+            .expect("jj-lib context should load before redo");
+        redo_last_operation(&mut context).expect("jj-lib redo should succeed");
+        run_jj(cli_fixture.path(), ["redo"]);
+
+        let jjlib_snapshot =
+            load_snapshot(jjlib_fixture.path()).expect("jj-lib snapshot should load after redo");
+        let cli_snapshot =
+            load_snapshot(cli_fixture.path()).expect("cli snapshot should load after redo");
+        assert_snapshot_equivalent(&jjlib_snapshot, &cli_snapshot);
+    }
+
     struct TempRepo {
         path: PathBuf,
     }
@@ -230,6 +254,46 @@ mod parity_tests {
 
         write_file(repo_root.join("tracked-3.txt"), "line three\n");
         commit_staged(repo_root, "stack third commit").expect("third commit should succeed");
+    }
+
+    fn seed_linear_bookmark_history(repo_root: &Path, bookmark_name: &str) {
+        write_file(repo_root.join("tracked.txt"), "line one\n");
+        commit_staged(repo_root, "initial commit").expect("initial commit should succeed");
+        checkout_or_create_bookmark(repo_root, bookmark_name)
+            .expect("creating bookmark should succeed");
+        write_file(repo_root.join("tracked.txt"), "line one\nline two\n");
+        commit_staged(repo_root, "second commit").expect("second commit should succeed");
+    }
+
+    fn assert_snapshot_equivalent(left: &crate::jj::RepoSnapshot, right: &crate::jj::RepoSnapshot) {
+        assert_eq!(left.branch_name, right.branch_name);
+        assert_eq!(left.branch_has_upstream, right.branch_has_upstream);
+        assert_eq!(left.branch_ahead_count, right.branch_ahead_count);
+        assert_eq!(left.last_commit_subject, right.last_commit_subject);
+
+        let left_subjects: Vec<_> = left
+            .bookmark_revisions
+            .iter()
+            .map(|revision| revision.subject.as_str())
+            .collect();
+        let right_subjects: Vec<_> = right
+            .bookmark_revisions
+            .iter()
+            .map(|revision| revision.subject.as_str())
+            .collect();
+        assert_eq!(left_subjects, right_subjects);
+
+        let left_files: Vec<_> = left
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.status, file.untracked))
+            .collect();
+        let right_files: Vec<_> = right
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.status, file.untracked))
+            .collect();
+        assert_eq!(left_files, right_files);
     }
 
     fn reorder_bookmark_tip_with_cli_equivalent(repo_root: &Path, bookmark_name: &str) {

@@ -537,6 +537,7 @@ impl DiffViewer {
         let can_reorder_tip =
             !self.git_action_loading && actions_enabled && revisions.len() >= 2;
         let can_undo_all_working_copy = !self.git_action_loading && !self.files.is_empty();
+        let can_redo_operation = !self.git_action_loading && self.can_redo_operation;
 
         v_flex()
             .w_full()
@@ -639,6 +640,27 @@ impl DiffViewer {
                             .on_click(move |_, _, cx| {
                                 view.update(cx, |this, cx| {
                                     this.undo_all_working_copy_changes(cx);
+                                });
+                            })
+                    })
+                    .child({
+                        let view = view.clone();
+                        Button::new("redo-last-operation")
+                            .outline()
+                            .compact()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(7.0))
+                            .label("Redo")
+                            .tooltip("Redo the most recently undone JJ operation.")
+                            .bg(cx.theme().accent.opacity(if is_dark { 0.28 } else { 0.16 }))
+                            .border_color(
+                                cx.theme().accent.opacity(if is_dark { 0.78 } else { 0.58 }),
+                            )
+                            .text_color(cx.theme().foreground)
+                            .disabled(!can_redo_operation)
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.redo_last_operation(cx);
                                 });
                             })
                     }),

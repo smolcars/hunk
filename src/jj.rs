@@ -15,9 +15,10 @@ mod backend;
 
 use backend::{
     abandon_bookmark_head as abandon_local_bookmark_head, bookmark_remote_sync_state,
-    bookmark_review_url, build_graph_snapshot_from_context, checkout_existing_bookmark,
-    checkout_existing_bookmark_with_change_transfer, collect_materialized_diff_entries_for_paths,
-    commit_working_copy_changes, commit_working_copy_selected_paths, conflict_materialize_options,
+    bookmark_review_url, build_graph_snapshot_from_context, can_redo_operation,
+    checkout_existing_bookmark, checkout_existing_bookmark_with_change_transfer,
+    collect_materialized_diff_entries_for_paths, commit_working_copy_changes,
+    commit_working_copy_selected_paths, conflict_materialize_options,
     create_bookmark_at_working_copy, current_bookmarks_from_context,
     current_commit_id_from_context, describe_bookmark_head as describe_local_bookmark_head,
     discover_repo_root, git_head_branch_name_from_context, last_commit_subject_from_context,
@@ -25,6 +26,7 @@ use backend::{
     load_changed_files_from_context, load_repo_context, load_repo_context_at_root,
     load_tracked_paths_from_context, materialized_entry_matches_path,
     move_bookmark_to_parent_of_working_copy, normalize_path, push_bookmark,
+    redo_last_operation as redo_last_operation_in_context,
     rename_bookmark as rename_local_bookmark, render_patch_for_entry,
     reorder_bookmark_tip_older as reorder_local_bookmark_tip_older, repo_line_stats_from_context,
     restore_all_working_copy_changes as restore_all_wc_changes,
@@ -109,6 +111,7 @@ pub struct RepoSnapshot {
     pub branch_name: String,
     pub branch_has_upstream: bool,
     pub branch_ahead_count: usize,
+    pub can_redo_operation: bool,
     pub branches: Vec<LocalBranch>,
     pub bookmark_revisions: Vec<BookmarkRevision>,
     pub files: Vec<ChangedFile>,
@@ -339,6 +342,7 @@ pub fn load_snapshot(cwd: &Path) -> Result<RepoSnapshot> {
     } else {
         bookmark_remote_sync_state(&context, branch_name.as_str())
     };
+    let can_redo_operation = can_redo_operation(&context)?;
     let last_commit_subject = last_commit_subject_from_context(&context)?;
 
     Ok(RepoSnapshot {
@@ -346,6 +350,7 @@ pub fn load_snapshot(cwd: &Path) -> Result<RepoSnapshot> {
         branch_name,
         branch_has_upstream,
         branch_ahead_count,
+        can_redo_operation,
         branches,
         bookmark_revisions,
         files,
@@ -597,6 +602,16 @@ pub fn restore_working_copy_paths(repo_root: &Path, paths: &[String]) -> Result<
 pub fn restore_all_working_copy_changes(repo_root: &Path) -> Result<()> {
     let mut context = load_repo_context_at_root(repo_root, true)?;
     restore_all_wc_changes(&mut context)
+}
+
+pub fn can_redo_last_operation(repo_root: &Path) -> Result<bool> {
+    let context = load_repo_context_at_root(repo_root, false)?;
+    can_redo_operation(&context)
+}
+
+pub fn redo_last_operation(repo_root: &Path) -> Result<()> {
+    let mut context = load_repo_context_at_root(repo_root, true)?;
+    redo_last_operation_in_context(&mut context)
 }
 
 pub fn create_bookmark_at_revision(
