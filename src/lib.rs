@@ -1,7 +1,6 @@
-pub mod config;
-pub mod db;
-pub mod diff;
-pub mod jj;
-pub mod jj_graph_tree;
-pub mod markdown_preview;
-pub mod state;
+//! Workspace root placeholder.
+//!
+//! The Rust crates now live under `crates/`:
+//! - `hunk-domain`
+//! - `hunk-jj`
+//! - `hunk-desktop`

@@ -185,4 +185,4 @@ HUNK_PERF_SCROLL_VIEWPORT_ROWS="$viewport_rows" \
 HUNK_PERF_SCROLL_STEP_ROWS="$scroll_step_rows" \
 HUNK_PERF_SCROLL_PREFETCH_RADIUS_ROWS="$prefetch_radius_rows" \
 HUNK_PERF_SCROLL_ROW_BUDGET="$scroll_row_budget" \
-cargo test $build_profile --test performance_harness large_diff_perf_harness -- --ignored --nocapture
+cargo test $build_profile -p hunk-desktop --test performance_harness large_diff_perf_harness -- --ignored --nocapture

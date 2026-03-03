@@ -1,17 +1,17 @@
 start:
-    cargo run
+    cargo run -p hunk-desktop
 
 build:
-    cargo build
+    cargo build -p hunk-desktop
 
 release:
-    cargo build --release
+    cargo build -p hunk-desktop --release
 
 dev:
     bacon
 
 bundle:
-    cargo bundle --release
+    cargo bundle -p hunk-desktop --release
 
 prod:
     osascript -e 'tell application "Hunk" to quit' || true

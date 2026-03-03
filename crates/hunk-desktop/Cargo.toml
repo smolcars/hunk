@@ -1,0 +1,34 @@
+[package]
+name = "hunk-desktop"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.bundle]
+name = "Hunk"
+identifier = "com.prodata.hunk"
+short_description = "Fast JJ diff viewer."
+long_description = "A fast, simple JJ diff viewer built with GPUI."
+category = "public.app-category.developer-tools"
+icon = ["../../assets/icons/Hunk.icns"]
+
+[dependencies]
+anyhow = "1.0"
+futures = "0.3"
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
+  "font-kit",
+  "x11",
+  "wayland",
+  "runtime_shaders",
+] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", features = [
+  "tree-sitter-languages",
+] }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+notify = "8.2.0"
+syntect = "5.3"
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+hunk-domain = { path = "../hunk-domain" }
+hunk-jj = { path = "../hunk-jj" }
