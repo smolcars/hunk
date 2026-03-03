@@ -17,6 +17,12 @@ Nobody writes code anymore, people just review code. So we need the best diff vi
 - `anyhow`-based error handling
 - `tracing` + `tracing-subscriber` logging
 
+## Workspace Layout
+
+- `crates/hunk-domain`: config/state/db/diff/markdown domain logic
+- `crates/hunk-jj`: JJ backend and graph/tree logic
+- `crates/hunk-desktop`: GPUI desktop app binary
+
 ## Requirements
 
 - macOS
@@ -26,18 +32,26 @@ Nobody writes code anymore, people just review code. So we need the best diff vi
 ### Run Dev Locally
 
 ```bash
-cargo run
+cargo run -p hunk-desktop
 ```
 
 Launch from anywhere, then use `File > Open Project...` (or `Cmd/Ctrl+Shift+O`) to choose a Git repository.
 
-`cargo run` starts from Terminal, so macOS may still present it like a terminal-launched app.
+`cargo run -p hunk-desktop` starts from Terminal, so macOS may still present it like a terminal-launched app.
+
+### Validate Workspace
+
+```bash
+cargo check --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
 
 ### For Production builds
 
 ```bash
 cargo install cargo-bundle
-cargo bundle --release
+cargo bundle -p hunk-desktop --release
 open target/release/bundle/osx/Hunk.app
 ```
 
@@ -109,7 +123,7 @@ Generate git-diff icon variants and rebuild the bundle:
 ```bash
 ./scripts/generate_diff_icons.py
 ./scripts/build_macos_icon.sh
-cargo bundle --release
+cargo bundle -p hunk-desktop --release
 ```
 
 Generated assets:

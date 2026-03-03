@@ -6,9 +6,9 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - ONLY USE JJ AS THE UNDERLYING GIT IMPLEMENTATION WHEN RUNNING GIT RELATED COMMANDS. JJ CLI IS AVAILABLE VIA `jj` ON THE PATH.
 - Make sure code is scalable.
 - Don't make files over 1000 lines long.
-- Tests always in the tests directory
-- Make sure clippy passes
-- Make sure builds pass
+- Tests always in crate-level `tests` directories (for example `crates/hunk-jj/tests`)
+- Make sure workspace clippy passes
+- Make sure workspace builds pass
 - GPUI docs https://raw.githubusercontent.com/zed-industries/zed/refs/heads/main/crates/gpui/README.md
 - GPUI component library docs https://docs.rs/gpui-component/latest/gpui_component/
 - List of available prebuilt components https://longbridge.github.io/gpui-component/docs/components/

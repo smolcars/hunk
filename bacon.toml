@@ -5,35 +5,47 @@ default_job = "run"
 env.CARGO_TERM_COLOR = "always"
 
 [jobs.run]
-command = ["cargo", "run", "--bin", "hunk", "--color", "always"]
+command = ["cargo", "run", "-p", "hunk-desktop", "--color", "always"]
 need_stdout = true
 allow_warnings = true
 background = false
 on_change_strategy = "kill_then_restart"
 kill = ["kill", "-s", "INT"]
-watch = ["Cargo.toml", "Cargo.lock", "src", "tests"]
+watch = ["Cargo.toml", "Cargo.lock", "bacon.toml", "crates"]
 
 [jobs.check]
-command = ["cargo", "check", "--color", "always"]
+command = ["cargo", "check", "--workspace", "--color", "always"]
 need_stdout = false
-watch = ["Cargo.toml", "Cargo.lock", "src", "tests"]
+watch = ["Cargo.toml", "Cargo.lock", "bacon.toml", "crates"]
 
 [jobs.test]
-command = ["cargo", "test", "--color", "always", "--", "--color", "always"]
+command = [
+  "cargo",
+  "test",
+  "--workspace",
+  "--color",
+  "always",
+  "--",
+  "--color",
+  "always"
+]
 need_stdout = true
-watch = ["Cargo.toml", "Cargo.lock", "src", "tests"]
+watch = ["Cargo.toml", "Cargo.lock", "bacon.toml", "crates"]
 
 [jobs.clippy]
 command = [
   "cargo",
   "clippy",
+  "--workspace",
   "--all-targets",
-  "--all-features",
   "--color",
-  "always"
+  "always",
+  "--",
+  "-D",
+  "warnings"
 ]
 need_stdout = false
-watch = ["Cargo.toml", "Cargo.lock", "src", "tests"]
+watch = ["Cargo.toml", "Cargo.lock", "bacon.toml", "crates"]
 
 [keybindings]
 r = "job:run"

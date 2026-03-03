@@ -3587,26 +3587,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
-name = "hunk"
+name = "hunk-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "gpui",
+ "gpui-component",
+ "gpui-component-assets",
+ "gpui_platform",
+ "hunk-domain",
+ "hunk-jj",
+ "notify 8.2.0",
+ "syntect",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "hunk-domain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 6.0.0",
+ "markdown",
+ "rusqlite",
+ "serde",
+ "syntect",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "hunk-jj"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
  "futures",
  "gix",
- "gpui",
- "gpui-component",
- "gpui-component-assets",
- "gpui_platform",
+ "hunk-domain",
  "jj-lib",
- "markdown",
- "notify 8.2.0",
- "rusqlite",
- "serde",
- "syntect",
- "toml 0.9.12+spec-1.1.0",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
