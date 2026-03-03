@@ -186,12 +186,14 @@ impl DiffViewer {
                                     )
                                     .child(
                                         div()
+                                            .id("settings-scroll-content")
                                             .flex_1()
                                             .h_full()
                                             .min_w_0()
                                             .min_h_0()
                                             .p_4()
-                                            .overflow_y_scrollbar()
+                                            .overflow_y_scroll()
+                                            .occlude()
                                             .child(match settings.category {
                                                 SettingsCategory::Ui => {
                                                     self.render_settings_ui_category(settings, cx)

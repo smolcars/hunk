@@ -778,9 +778,11 @@ impl DiffViewer {
                 }
 
                 v_flex()
+                    .id("jj-revision-stack-scroll")
                     .w_full()
                     .max_h(px(180.0))
-                    .overflow_y_scrollbar()
+                    .overflow_y_scroll()
+                    .occlude()
                     .gap_0p5()
                     .children(revisions.iter().enumerate().map(|(ix, revision)| {
                         let short_id = revision.id.chars().take(12).collect::<String>();
@@ -896,9 +898,11 @@ impl DiffViewer {
                 }
 
                 v_flex()
+                    .id("jj-working-copy-scroll")
                     .w_full()
                     .max_h(px(220.0))
-                    .overflow_y_scrollbar()
+                    .overflow_y_scroll()
+                    .occlude()
                     .gap_0p5()
                     .children(self.files.iter().enumerate().map(|(row_ix, file)| {
                         self.render_workspace_change_row(row_ix, file, cx)

@@ -146,8 +146,10 @@ impl DiffViewer {
             )
             .child(
                 div()
+                    .id("jj-bookmark-picker-scroll")
                     .max_h(px(144.0))
-                    .overflow_y_scrollbar()
+                    .overflow_y_scroll()
+                    .occlude()
                     .child(
                         v_flex().w_full().gap_1().children(
                             self.branches

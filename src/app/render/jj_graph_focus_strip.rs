@@ -160,9 +160,11 @@ impl DiffViewer {
                         .into_any_element()
                 } else {
                     v_flex()
+                        .id("jj-graph-focus-strip-scroll")
                         .w_full()
                         .max_h(px(220.0))
-                        .overflow_y_scrollbar()
+                        .overflow_y_scroll()
+                        .occlude()
                         .gap_0p5()
                         .children(focused_nodes.iter().enumerate().map(|(ix, node)| {
                             let is_selected = self.graph_node_is_selected(node.id.as_str());
