@@ -22,6 +22,11 @@ impl DiffViewer {
             .on_action(cx.listener(Self::repo_tree_new_file_action))
             .on_action(cx.listener(Self::repo_tree_new_folder_action))
             .on_action(cx.listener(Self::repo_tree_rename_file_action))
+            .on_action(cx.listener(
+                |this: &mut Self, _: &RepoTreeCancelInlineEdit, _: &mut Window, cx| {
+                    this.cancel_repo_tree_inline_edit(cx);
+                },
+            ))
             .on_mouse_down(MouseButton::Left, {
                 let view = view.clone();
                 move |_, window, cx| {
@@ -115,6 +120,7 @@ impl DiffViewer {
 
         self.sync_sidebar_repo_list_state(self.repo_tree.rows.len());
         let list_state = self.repo_tree.list_state.clone();
+        let view = cx.entity();
 
         let list = list(list_state.clone(), {
             cx.processor(move |this, ix: usize, _window, cx| {
@@ -143,6 +149,21 @@ impl DiffViewer {
                     .overflow_y_scrollbar()
                     .px_1()
                     .py_1()
+                    .on_mouse_down(MouseButton::Right, {
+                        let view = view.clone();
+                        move |event, window, cx| {
+                            cx.stop_propagation();
+                            view.update(cx, |this, cx| {
+                                this.repo_tree_focus_handle.focus(window, cx);
+                                this.open_repo_tree_context_menu(
+                                    None,
+                                    RepoTreeNodeKind::Directory,
+                                    event.position,
+                                    cx,
+                                );
+                            });
+                        }
+                    })
                     .child(list),
             )
             .into_any_element()
@@ -156,7 +177,6 @@ impl DiffViewer {
             .filter(|value| !value.is_empty())
             .map(|value| value.split('/').count())
             .unwrap_or(0);
-        let location_hint = repo_tree_inline_location_hint(base_dir.as_deref());
         let icon = if is_folder {
             IconName::FolderClosed
         } else {
@@ -164,52 +184,56 @@ impl DiffViewer {
         };
 
         Some(
-            v_flex()
+            h_flex()
                 .w_full()
+                .h(px(SIDEBAR_REPO_LIST_ESTIMATED_ROW_HEIGHT))
                 .px_1()
-                .pt_1()
+                .items_center()
+                .gap_1()
+                .rounded_sm()
+                .bg(cx.theme().accent.opacity(if is_dark { 0.14 } else { 0.08 }))
+                .child(div().w(px(depth as f32 * 14.0)))
+                .child(div().w(px(14.0)))
                 .child(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .gap_1()
-                        .px_1()
-                        .py_1()
-                        .rounded(px(6.0))
-                        .border_1()
-                        .border_color(cx.theme().accent.opacity(if is_dark { 0.74 } else { 0.56 }))
-                        .bg(cx.theme().accent.opacity(if is_dark { 0.16 } else { 0.10 }))
-                        .child(div().w(px(depth as f32 * 14.0)))
-                        .child(div().w(px(14.0)))
+                    div().w(px(18.0)).child(
+                        Icon::new(icon)
+                            .size(px(14.0))
+                            .text_color(cx.theme().muted_foreground),
+                    ),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_mouse_down(MouseButton::Right, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
                         .child(
-                            div().w(px(18.0)).child(
-                                Icon::new(icon)
-                                    .size(px(14.0))
-                                    .text_color(cx.theme().muted_foreground),
-                            ),
-                        )
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .gap_0p5()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(location_hint),
-                                )
-                                .child(
-                                    Input::new(&input_state)
-                                        .h(px(24.0))
-                                        .rounded(px(6.0))
-                                        .border_1()
-                                        .border_color(
-                                            cx.theme().border.opacity(if is_dark { 0.90 } else { 0.74 }),
-                                        )
-                                        .bg(cx.theme().background),
-                                ),
+                            Input::new(&input_state)
+                                .h(px(20.0))
+                                .rounded(px(4.0))
+                                .border_1()
+                                .border_color(cx.theme().border.opacity(if is_dark { 0.90 } else { 0.72 }))
+                                .bg(cx.theme().background),
                         ),
+                )
+                .when_some(
+                    base_dir
+                        .as_ref()
+                        .filter(|value| !value.is_empty())
+                        .map(std::string::String::as_str),
+                    |this, dir| {
+                        this.child(
+                            div()
+                                .pr_1()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("in {dir}")),
+                        )
+                    },
                 )
                 .into_any_element(),
         )
@@ -220,8 +244,11 @@ impl DiffViewer {
         let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
         let allow_manage = self.workspace_view_mode == WorkspaceViewMode::Files && self.repo_root.is_some();
-        let allow_rename = allow_manage && menu_state.target_kind == RepoTreeNodeKind::File;
-        let allow_delete = allow_manage && menu_state.target_kind == RepoTreeNodeKind::File;
+        let allow_target_path = menu_state.target_path.is_some();
+        let allow_rename =
+            allow_manage && allow_target_path && menu_state.target_kind == RepoTreeNodeKind::File;
+        let allow_delete = allow_rename;
+        let allow_copy = allow_target_path;
         let allow_collapse = !self.repo_tree.expanded_dirs.is_empty();
 
         Some(
@@ -252,6 +279,7 @@ impl DiffViewer {
                             .child(
                                 self.render_repo_tree_context_menu_item(
                                     "New File",
+                                    self.repo_tree_shortcut_label(RepoTreeMenuShortcut::NewFile),
                                     allow_manage,
                                     {
                                         let view = view.clone();
@@ -261,7 +289,9 @@ impl DiffViewer {
                                             view.update(cx, |this, cx| {
                                                 this.close_repo_tree_context_menu(cx);
                                                 this.open_repo_tree_new_file_prompt_at(
-                                                    Some((target_path.clone(), target_kind)),
+                                                    target_path
+                                                        .as_ref()
+                                                        .map(|path| (path.clone(), target_kind)),
                                                     window,
                                                     cx,
                                                 );
@@ -274,6 +304,7 @@ impl DiffViewer {
                             .child(
                                 self.render_repo_tree_context_menu_item(
                                     "New Folder",
+                                    self.repo_tree_shortcut_label(RepoTreeMenuShortcut::NewFolder),
                                     allow_manage,
                                     {
                                         let view = view.clone();
@@ -283,7 +314,9 @@ impl DiffViewer {
                                             view.update(cx, |this, cx| {
                                                 this.close_repo_tree_context_menu(cx);
                                                 this.open_repo_tree_new_folder_prompt_at(
-                                                    Some((target_path.clone(), target_kind)),
+                                                    target_path
+                                                        .as_ref()
+                                                        .map(|path| (path.clone(), target_kind)),
                                                     window,
                                                     cx,
                                                 );
@@ -297,6 +330,7 @@ impl DiffViewer {
                             .child(
                                 self.render_repo_tree_context_menu_item(
                                     "Rename File",
+                                    self.repo_tree_shortcut_label(RepoTreeMenuShortcut::RenameFile),
                                     allow_rename,
                                     {
                                         let view = view.clone();
@@ -304,11 +338,13 @@ impl DiffViewer {
                                         move |window, cx| {
                                             view.update(cx, |this, cx| {
                                                 this.close_repo_tree_context_menu(cx);
-                                                this.open_repo_tree_rename_prompt_for_file(
-                                                    target_path.clone(),
-                                                    window,
-                                                    cx,
-                                                );
+                                                if let Some(path) = target_path.as_ref() {
+                                                    this.open_repo_tree_rename_prompt_for_file(
+                                                        path.clone(),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                }
                                             });
                                         }
                                     },
@@ -318,6 +354,7 @@ impl DiffViewer {
                             .child(
                                 self.render_repo_tree_context_menu_item(
                                     "Delete File",
+                                    None,
                                     allow_delete,
                                     {
                                         let view = view.clone();
@@ -325,7 +362,9 @@ impl DiffViewer {
                                         move |_, cx| {
                                             view.update(cx, |this, cx| {
                                                 this.close_repo_tree_context_menu(cx);
-                                                this.delete_repo_tree_file_at(target_path.as_str(), cx);
+                                                if let Some(path) = target_path.as_ref() {
+                                                    this.delete_repo_tree_file_at(path.as_str(), cx);
+                                                }
                                             });
                                         }
                                     },
@@ -336,14 +375,17 @@ impl DiffViewer {
                             .child(
                                 self.render_repo_tree_context_menu_item(
                                     "Copy Path",
-                                    true,
+                                    None,
+                                    allow_copy,
                                     {
                                         let view = view.clone();
                                         let target_path = menu_state.target_path.clone();
                                         move |_, cx| {
                                             view.update(cx, |this, cx| {
                                                 this.close_repo_tree_context_menu(cx);
-                                                this.copy_repo_tree_absolute_path(target_path.as_str(), cx);
+                                                if let Some(path) = target_path.as_ref() {
+                                                    this.copy_repo_tree_absolute_path(path.as_str(), cx);
+                                                }
                                             });
                                         }
                                     },
@@ -353,14 +395,17 @@ impl DiffViewer {
                             .child(
                                 self.render_repo_tree_context_menu_item(
                                     "Copy Relative Path",
-                                    true,
+                                    None,
+                                    allow_copy,
                                     {
                                         let view = view.clone();
                                         let target_path = menu_state.target_path.clone();
                                         move |_, cx| {
                                             view.update(cx, |this, cx| {
                                                 this.close_repo_tree_context_menu(cx);
-                                                this.copy_repo_tree_relative_path(target_path.as_str(), cx);
+                                                if let Some(path) = target_path.as_ref() {
+                                                    this.copy_repo_tree_relative_path(path.as_str(), cx);
+                                                }
                                             });
                                         }
                                     },
@@ -371,6 +416,7 @@ impl DiffViewer {
                             .child(
                                 self.render_repo_tree_context_menu_item(
                                     "Collapse All Folders",
+                                    None,
                                     allow_collapse,
                                     {
                                         let view = view.clone();
@@ -394,6 +440,7 @@ impl DiffViewer {
     fn render_repo_tree_context_menu_item(
         &self,
         label: &'static str,
+        shortcut: Option<String>,
         enabled: bool,
         on_click: impl Fn(&mut Window, &mut App) + 'static,
         cx: &mut Context<Self>,
@@ -413,10 +460,26 @@ impl DiffViewer {
             .when(enabled, |this| {
                 this.cursor_pointer()
                     .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                        cx.stop_propagation();
                         on_click(window, cx);
                     })
             })
-            .child(label)
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(div().min_w_0().truncate().child(label))
+                    .when_some(shortcut, |this, value| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(value),
+                        )
+                    }),
+            )
             .into_any_element()
     }
 
@@ -524,10 +587,10 @@ impl DiffViewer {
         h_flex()
             .id(("repo-tree-row", row_id))
             .w_full()
+            .h(px(SIDEBAR_REPO_LIST_ESTIMATED_ROW_HEIGHT))
             .items_center()
             .gap_1()
             .px_1()
-            .py_0p5()
             .rounded_sm()
             .bg(row_bg)
             .child(div().w(px(row.depth as f32 * 14.0)))
@@ -545,31 +608,39 @@ impl DiffViewer {
                         .text_color(icon_color),
                 ),
             )
-            .when_some(file_status, |this, status| {
-                let (status_label, status_color) = change_status_label_color(status, cx);
-                this.child(
-                    div()
-                        .px_1()
-                        .py_0p5()
-                        .rounded(px(4.0))
-                        .text_xs()
-                        .font_semibold()
-                        .bg(status_color.opacity(if is_dark { 0.24 } else { 0.16 }))
-                        .text_color(cx.theme().foreground)
-                        .child(status_label),
-                )
+            .when(!rename_active, |this| {
+                this.when_some(file_status, |this, status| {
+                    let (status_label, status_color) = change_status_label_color(status, cx);
+                    this.child(
+                        div()
+                            .px_1()
+                            .py_0p5()
+                            .rounded(px(4.0))
+                            .text_xs()
+                            .font_semibold()
+                            .bg(status_color.opacity(if is_dark { 0.24 } else { 0.16 }))
+                            .text_color(cx.theme().foreground)
+                            .child(status_label),
+                    )
+                })
             })
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .when_some(rename_input.clone(), |this, input_state| {
-                        this.child(
+                        this.on_mouse_down(MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_mouse_down(MouseButton::Right, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .child(
                             Input::new(&input_state)
-                                .h(px(22.0))
-                                .rounded(px(6.0))
+                                .h(px(20.0))
+                                .rounded(px(4.0))
                                 .border_1()
-                                .border_color(cx.theme().accent.opacity(if is_dark { 0.78 } else { 0.62 }))
+                                .border_color(cx.theme().accent.opacity(if is_dark { 0.74 } else { 0.58 }))
                                 .bg(cx.theme().background),
                         )
                     })
@@ -587,7 +658,7 @@ impl DiffViewer {
                     view.update(cx, |this, cx| {
                         this.repo_tree_focus_handle.focus(window, cx);
                         this.open_repo_tree_context_menu(
-                            menu_target_path.clone(),
+                            Some(menu_target_path.clone()),
                             menu_target_kind,
                             event.position,
                             cx,
@@ -624,6 +695,51 @@ fn stable_row_id_for_path(path: &str) -> u64 {
     hasher.finish()
 }
 
+#[derive(Clone, Copy)]
+enum RepoTreeMenuShortcut {
+    NewFile,
+    NewFolder,
+    RenameFile,
+}
+
+impl DiffViewer {
+    fn repo_tree_shortcut_label(&self, shortcut: RepoTreeMenuShortcut) -> Option<String> {
+        let shortcuts = &self.config.keyboard_shortcuts;
+        let values = match shortcut {
+            RepoTreeMenuShortcut::NewFile => shortcuts.repo_tree_new_file.as_slice(),
+            RepoTreeMenuShortcut::NewFolder => shortcuts.repo_tree_new_folder.as_slice(),
+            RepoTreeMenuShortcut::RenameFile => shortcuts.repo_tree_rename_file.as_slice(),
+        };
+        let preferred = if cfg!(target_os = "macos") {
+            values
+                .iter()
+                .find(|shortcut| shortcut.to_ascii_lowercase().contains("cmd"))
+        } else {
+            values
+                .iter()
+                .find(|shortcut| shortcut.to_ascii_lowercase().contains("ctrl"))
+        }
+        .or_else(|| values.first())?;
+        Some(format_shortcut_label(preferred.as_str()))
+    }
+}
+
+fn format_shortcut_label(shortcut: &str) -> String {
+    shortcut
+        .split('-')
+        .map(|part| match part.to_ascii_lowercase().as_str() {
+            "cmd" => "Cmd".to_string(),
+            "ctrl" => "Ctrl".to_string(),
+            "alt" => "Alt".to_string(),
+            "shift" => "Shift".to_string(),
+            "super" => "Super".to_string(),
+            "secondary" => "Secondary".to_string(),
+            _ => part.to_ascii_uppercase(),
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
 fn path_extension(path: &str) -> Option<String> {
     std::path::Path::new(path)
         .extension()
@@ -641,12 +757,5 @@ fn file_icon_for_path(path: &str) -> IconName {
         }
         Some("md") => IconName::BookOpen,
         _ => IconName::File,
-    }
-}
-
-fn repo_tree_inline_location_hint(base_dir: Option<&str>) -> String {
-    match base_dir {
-        Some(path) => format!("Target directory: `{path}`"),
-        None => "Target directory: repository root".to_string(),
     }
 }

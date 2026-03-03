@@ -105,7 +105,7 @@ struct RepoTreeInlineEditState {
 
 #[derive(Debug, Clone)]
 struct RepoTreeContextMenuState {
-    target_path: String,
+    target_path: Option<String>,
     target_kind: RepoTreeNodeKind,
     position: Point<gpui::Pixels>,
 }
@@ -159,6 +159,7 @@ actions!(
         RepoTreeNewFile,
         RepoTreeNewFolder,
         RepoTreeRenameFile,
+        RepoTreeCancelInlineEdit,
     ]
 );
 
@@ -497,6 +498,11 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
             KeyBinding::new(shortcut.as_str(), RepoTreeRenameFile, Some("RepoTree"))
         }),
     );
+    bindings.push(KeyBinding::new(
+        "escape",
+        RepoTreeCancelInlineEdit,
+        Some("RepoTree"),
+    ));
 
     cx.bind_keys(bindings);
 }

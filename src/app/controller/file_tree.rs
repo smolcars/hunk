@@ -331,7 +331,7 @@ impl DiffViewer {
 
     pub(super) fn open_repo_tree_context_menu(
         &mut self,
-        target_path: String,
+        target_path: Option<String>,
         target_kind: RepoTreeNodeKind,
         position: Point<gpui::Pixels>,
         cx: &mut Context<Self>,
@@ -425,7 +425,6 @@ impl DiffViewer {
             if !initial_value.is_empty() {
                 input.set_value(initial_value, window, cx);
             }
-            input.focus(window, cx);
         });
 
         let input_for_events = prompt_input.clone();
@@ -452,6 +451,11 @@ impl DiffViewer {
             action,
             input_state: prompt_input,
         });
+        if let Some(edit) = self.repo_tree_inline_edit.as_ref() {
+            edit.input_state.update(cx, |input, cx| {
+                input.focus(window, cx);
+            });
+        }
         cx.notify();
     }
 
