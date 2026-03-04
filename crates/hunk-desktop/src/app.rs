@@ -16,7 +16,7 @@ use gpui::{
     deferred, div, list, prelude::FluentBuilder as _, px,
 };
 use gpui_component::{
-    ActiveTheme as _, Colorize as _, Root, StyledExt as _, Theme, ThemeMode, h_flex,
+    ActiveTheme as _, Colorize as _, GlobalState, Root, StyledExt as _, Theme, ThemeMode, h_flex,
     highlighter::HighlightThemeStyle,
     input::{Enter as InputEnter, InputEvent, InputState},
     menu::AppMenuBar,
@@ -359,6 +359,16 @@ fn build_application_menus() -> Vec<Menu> {
     }
 }
 
+fn install_application_menus(cx: &mut App) {
+    cx.set_menus(build_application_menus());
+    GlobalState::global_mut(cx).set_app_menus(
+        build_application_menus()
+            .into_iter()
+            .map(|menu| menu.owned())
+            .collect(),
+    );
+}
+
 fn load_keyboard_shortcuts() -> KeyboardShortcuts {
     let store = match ConfigStore::new() {
         Ok(store) => store,
@@ -562,7 +572,7 @@ pub fn run() -> Result<()> {
         apply_soft_dark_theme(cx);
         cx.on_action(quit_app);
         bind_keyboard_shortcuts(cx, &keyboard_shortcuts);
-        cx.set_menus(build_application_menus());
+        install_application_menus(cx);
         cx.activate(true);
         open_main_window(cx);
     });
