@@ -39,7 +39,6 @@ impl DiffViewer {
         let in_progress_turn = selected_thread_id
             .as_ref()
             .and_then(|thread_id| self.current_ai_in_progress_turn_id(thread_id.as_str()));
-        let thread_hover_bg = cx.theme().accent.opacity(if is_dark { 0.16 } else { 0.10 });
         let (connection_label, connection_color) = ai_connection_label(self.ai_connection_state, cx);
 
         v_flex()
@@ -77,6 +76,11 @@ impl DiffViewer {
                                     .gap_3()
                                     .flex_wrap()
                                     .justify_end()
+                                    .child(render_ai_account_actions_for_view(
+                                        self,
+                                        view.clone(),
+                                        cx,
+                                    ))
                                     .child(
                                         div()
                                             .text_xs()
@@ -129,12 +133,7 @@ impl DiffViewer {
                                             .child(connection_label),
                                     ),
                             )
-                            .child(render_ai_account_panel_for_view(self, view.clone(), cx))
-                            .child(render_ai_account_actions_for_view(
-                                self,
-                                view.clone(),
-                                cx,
-                            )),
+                            .child(render_ai_account_panel_for_view(self, view.clone(), cx)),
                     ),
             )
             .child(
@@ -246,6 +245,11 @@ impl DiffViewer {
                                                                         let selected = selected_thread_id
                                                                             .as_deref()
                                                                             == Some(thread.id.as_str());
+                                                                        let thread_hover_bg = if selected {
+                                                                            cx.theme().secondary_active
+                                                                        } else {
+                                                                            cx.theme().secondary_hover
+                                                                        };
                                                                         let (status_label, status_color) =
                                                                             ai_thread_status_label(thread.status, cx);
                                                                         let view = view.clone();

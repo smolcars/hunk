@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::io;
 use std::net::TcpListener;
@@ -51,10 +52,15 @@ use hunk_codex::host::HostRuntime;
 use hunk_codex::state::AiState;
 use hunk_codex::state::ServerRequestDecision;
 use hunk_codex::state::TurnStatus as StateTurnStatus;
+use hunk_codex::threads::RolloutFallbackItem;
+use hunk_codex::threads::RolloutFallbackTurn;
 use hunk_codex::threads::ThreadService;
 use hunk_codex::tools::DynamicToolRegistry;
 use hunk_codex::ws_client::JsonRpcSession;
 use hunk_codex::ws_client::WebSocketEndpoint;
+
+use crate::app::ai_rollout_fallback::find_rollout_path_for_thread;
+use crate::app::ai_rollout_fallback::parse_rollout_fallback;
 
 const HOST_START_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -240,6 +246,7 @@ struct AiWorkerRuntime {
     host: HostRuntime,
     session: JsonRpcSession,
     service: ThreadService,
+    codex_home: PathBuf,
     cwd_key: String,
     request_timeout: Duration,
     last_command_result: Option<String>,
@@ -330,7 +337,7 @@ impl AiWorkerRuntime {
         let host_config = HostConfig::codex_app_server(
             config.codex_executable,
             config.cwd.clone(),
-            config.codex_home,
+            config.codex_home.clone(),
             port,
         );
         let mut host = HostRuntime::new(host_config);
@@ -344,6 +351,7 @@ impl AiWorkerRuntime {
             host,
             session,
             service: ThreadService::new(config.cwd),
+            codex_home: config.codex_home,
             cwd_key,
             request_timeout: config.request_timeout,
             last_command_result: None,
@@ -396,7 +404,10 @@ impl AiWorkerRuntime {
                 prompt,
                 session_overrides,
             } => {
-                let mut params = ThreadStartParams::default();
+                let mut params = ThreadStartParams {
+                    persist_extended_history: true,
+                    ..ThreadStartParams::default()
+                };
                 apply_thread_start_policy(self.mad_max_mode, &mut params);
                 apply_thread_start_session_overrides(&session_overrides, &mut params);
                 let response =
@@ -411,14 +422,23 @@ impl AiWorkerRuntime {
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::SelectThread { thread_id } => {
+                let selected_thread_id = thread_id.clone();
                 self.service.resume_thread(
                     &mut self.session,
                     ThreadResumeParams {
                         thread_id,
+                        persist_extended_history: true,
                         ..ThreadResumeParams::default()
                     },
                     self.request_timeout,
                 )?;
+                self.service.read_thread(
+                    &mut self.session,
+                    selected_thread_id.clone(),
+                    true,
+                    self.request_timeout,
+                )?;
+                self.hydrate_thread_from_rollout_fallback_if_needed(selected_thread_id.as_str());
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::SendPrompt {
@@ -597,28 +617,51 @@ impl AiWorkerRuntime {
             .state_mut()
             .set_active_thread_for_cwd(self.cwd_key.clone(), thread_id.clone());
 
+        let input = vec![UserInput::Text {
+            text: trimmed.to_string(),
+            text_elements: Vec::new(),
+        }];
+
         if let Some(in_progress_turn_id) = self.in_progress_turn_id(thread_id.as_str()) {
-            self.service.steer_turn(
+            let steer_result = self.service.steer_turn(
                 &mut self.session,
                 TurnSteerParams {
-                    thread_id,
-                    input: vec![UserInput::Text {
-                        text: trimmed.to_string(),
-                        text_elements: Vec::new(),
-                    }],
+                    thread_id: thread_id.clone(),
+                    input: input.clone(),
                     expected_turn_id: in_progress_turn_id,
                 },
                 self.request_timeout,
-            )?;
-            return Ok(());
+            );
+
+            match steer_result {
+                Ok(_) => return Ok(()),
+                Err(error) if should_retry_stale_turn_after_steer_error(&error) => {
+                    self.service.read_thread(
+                        &mut self.session,
+                        thread_id.clone(),
+                        true,
+                        self.request_timeout,
+                    )?;
+                    if let Some(refreshed_turn_id) = self.in_progress_turn_id(thread_id.as_str()) {
+                        self.service.steer_turn(
+                            &mut self.session,
+                            TurnSteerParams {
+                                thread_id: thread_id.clone(),
+                                input: input.clone(),
+                                expected_turn_id: refreshed_turn_id,
+                            },
+                            self.request_timeout,
+                        )?;
+                        return Ok(());
+                    }
+                }
+                Err(error) => return Err(error),
+            }
         }
 
         let mut params = TurnStartParams {
             thread_id,
-            input: vec![UserInput::Text {
-                text: trimmed.to_string(),
-                text_elements: Vec::new(),
-            }],
+            input,
             ..TurnStartParams::default()
         };
         apply_turn_start_policy(self.mad_max_mode, &mut params);
@@ -638,6 +681,45 @@ impl AiWorkerRuntime {
             })
             .max_by_key(|turn| turn.last_sequence)
             .map(|turn| turn.id.clone())
+    }
+
+    fn hydrate_thread_from_rollout_fallback_if_needed(&mut self, thread_id: &str) {
+        if !thread_needs_rollout_fallback(self.service.state(), thread_id) {
+            return;
+        }
+
+        let rollout_path = match find_rollout_path_for_thread(self.codex_home.as_path(), thread_id)
+        {
+            Ok(Some(path)) => path,
+            Ok(None) => return,
+            Err(_) => return,
+        };
+        let parsed_turns = match parse_rollout_fallback(rollout_path.as_path()) {
+            Ok(turns) => turns,
+            Err(_) => return,
+        };
+        if parsed_turns.is_empty() {
+            return;
+        }
+
+        self.service.ingest_rollout_fallback_history(
+            thread_id.to_string(),
+            &parsed_turns
+                .into_iter()
+                .map(|turn| RolloutFallbackTurn {
+                    turn_id: turn.turn_id,
+                    completed: turn.completed,
+                    items: turn
+                        .items
+                        .into_iter()
+                        .map(|item| RolloutFallbackItem {
+                            kind: item.kind,
+                            content: item.content,
+                        })
+                        .collect(),
+                })
+                .collect::<Vec<_>>(),
+        );
     }
 
     fn apply_turn_session_overrides(
@@ -1188,6 +1270,27 @@ fn split_command_line(raw: &str) -> Vec<String> {
     raw.split_whitespace().map(ToOwned::to_owned).collect()
 }
 
+fn thread_needs_rollout_fallback(state: &AiState, thread_id: &str) -> bool {
+    let turn_ids = state
+        .turns
+        .values()
+        .filter(|turn| turn.thread_id == thread_id)
+        .map(|turn| turn.id.clone())
+        .collect::<BTreeSet<_>>();
+    if turn_ids.is_empty() {
+        return false;
+    }
+
+    !state
+        .items
+        .values()
+        .any(|item| turn_ids.contains(item.turn_id.as_str()))
+}
+
+fn should_retry_stale_turn_after_steer_error(error: &CodexIntegrationError) -> bool {
+    matches!(error, CodexIntegrationError::JsonRpcServerError { .. })
+}
+
 fn map_command_approval_decision(decision: AiApprovalDecision) -> CommandExecutionApprovalDecision {
     match decision {
         AiApprovalDecision::Accept => CommandExecutionApprovalDecision::Accept,
@@ -1384,6 +1487,10 @@ mod ai_tests {
     use codex_app_server_protocol::SandboxPolicy;
     use codex_app_server_protocol::ThreadStartParams;
     use codex_app_server_protocol::TurnStartParams;
+    use hunk_codex::errors::CodexIntegrationError;
+    use hunk_codex::state::AiState;
+    use hunk_codex::state::ReducerEvent;
+    use hunk_codex::state::StreamEvent;
 
     use super::AiApprovalDecision;
     use super::apply_login_completed_state;
@@ -1392,7 +1499,9 @@ mod ai_tests {
     use super::command_exec_sandbox_policy;
     use super::map_command_approval_decision;
     use super::map_file_change_approval_decision;
+    use super::should_retry_stale_turn_after_steer_error;
     use super::split_command_line;
+    use super::thread_needs_rollout_fallback;
 
     #[test]
     fn split_command_line_handles_repeated_whitespace() {
@@ -1481,5 +1590,55 @@ mod ai_tests {
         assert_eq!(message, "ChatGPT login failed: token expired");
         assert_eq!(pending_login_id, None);
         assert_eq!(pending_auth_url, None);
+    }
+
+    #[test]
+    fn stale_turn_retry_helper_matches_jsonrpc_server_errors_only() {
+        assert!(should_retry_stale_turn_after_steer_error(
+            &CodexIntegrationError::JsonRpcServerError {
+                code: -32602,
+                message: "invalid turn".to_string(),
+            }
+        ));
+        assert!(!should_retry_stale_turn_after_steer_error(
+            &CodexIntegrationError::WebSocketTransport("closed".to_string())
+        ));
+    }
+
+    #[test]
+    fn thread_rollout_fallback_is_needed_when_turns_exist_without_items() {
+        let mut state = AiState::default();
+        let _ = state.apply_stream_event(StreamEvent {
+            sequence: 1,
+            dedupe_key: None,
+            payload: ReducerEvent::TurnStarted {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+            },
+        });
+        assert!(thread_needs_rollout_fallback(&state, "thread-1"));
+    }
+
+    #[test]
+    fn thread_rollout_fallback_is_not_needed_when_items_exist() {
+        let mut state = AiState::default();
+        let _ = state.apply_stream_event(StreamEvent {
+            sequence: 1,
+            dedupe_key: None,
+            payload: ReducerEvent::TurnStarted {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+            },
+        });
+        let _ = state.apply_stream_event(StreamEvent {
+            sequence: 2,
+            dedupe_key: None,
+            payload: ReducerEvent::ItemStarted {
+                turn_id: "turn-1".to_string(),
+                item_id: "item-1".to_string(),
+                kind: "agentMessage".to_string(),
+            },
+        });
+        assert!(!thread_needs_rollout_fallback(&state, "thread-1"));
     }
 }

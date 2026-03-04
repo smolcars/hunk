@@ -8,6 +8,7 @@ use std::time::Duration;
 use codex_app_server_protocol::AskForApproval;
 use codex_app_server_protocol::CommandExecParams;
 use codex_app_server_protocol::CommandExecResponse;
+use codex_app_server_protocol::ErrorNotification;
 use codex_app_server_protocol::JSONRPCError;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::JSONRPCMessage;
@@ -29,6 +30,7 @@ use codex_app_server_protocol::SkillsConfigWriteResponse;
 use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadArchiveResponse;
+use codex_app_server_protocol::ThreadClosedNotification;
 use codex_app_server_protocol::ThreadCompactStartResponse;
 use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadForkResponse;
@@ -47,6 +49,7 @@ use codex_app_server_protocol::ThreadUnarchiveResponse;
 use codex_app_server_protocol::ThreadUnsubscribeResponse;
 use codex_app_server_protocol::ThreadUnsubscribeStatus;
 use codex_app_server_protocol::Turn;
+use codex_app_server_protocol::TurnError;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnInterruptResponse;
 use codex_app_server_protocol::TurnStartParams;
@@ -65,6 +68,8 @@ use hunk_codex::state::ReducerEvent;
 use hunk_codex::state::ServerRequestDecision;
 use hunk_codex::state::StreamEvent;
 use hunk_codex::state::ThreadLifecycleStatus;
+use hunk_codex::threads::RolloutFallbackItem;
+use hunk_codex::threads::RolloutFallbackTurn;
 use hunk_codex::threads::ThreadService;
 use hunk_codex::ws_client::JsonRpcSession;
 use hunk_codex::ws_client::WebSocketEndpoint;
@@ -496,6 +501,232 @@ fn known_thread_not_loaded_status_is_preserved() {
             .expect("thread should exist")
             .status,
         ThreadLifecycleStatus::NotLoaded
+    );
+}
+
+#[test]
+fn idle_status_notification_completes_in_progress_turns() {
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::ThreadStarted {
+            thread_id: "thread-known".to_string(),
+            cwd: WORKSPACE_CWD.to_string(),
+            title: None,
+            updated_at: None,
+        },
+    });
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::TurnStarted {
+            thread_id: "thread-known".to_string(),
+            turn_id: "turn-known".to_string(),
+        },
+    });
+
+    service.apply_server_notification(ServerNotification::ThreadStatusChanged(
+        ThreadStatusChangedNotification {
+            thread_id: "thread-known".to_string(),
+            status: ThreadStatus::Idle,
+        },
+    ));
+
+    assert_eq!(
+        service
+            .state()
+            .turns
+            .get("turn-known")
+            .expect("turn should exist")
+            .status,
+        hunk_codex::state::TurnStatus::Completed
+    );
+}
+
+#[test]
+fn thread_closed_notification_marks_not_loaded_and_completes_in_progress_turns() {
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::ThreadStarted {
+            thread_id: "thread-known".to_string(),
+            cwd: WORKSPACE_CWD.to_string(),
+            title: None,
+            updated_at: None,
+        },
+    });
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::TurnStarted {
+            thread_id: "thread-known".to_string(),
+            turn_id: "turn-known".to_string(),
+        },
+    });
+
+    service.apply_server_notification(ServerNotification::ThreadClosed(ThreadClosedNotification {
+        thread_id: "thread-known".to_string(),
+    }));
+
+    assert_eq!(
+        service
+            .state()
+            .threads
+            .get("thread-known")
+            .expect("thread should exist")
+            .status,
+        ThreadLifecycleStatus::NotLoaded
+    );
+    assert_eq!(
+        service
+            .state()
+            .turns
+            .get("turn-known")
+            .expect("turn should exist")
+            .status,
+        hunk_codex::state::TurnStatus::Completed
+    );
+}
+
+#[test]
+fn non_retryable_error_notification_completes_turn() {
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::ThreadStarted {
+            thread_id: "thread-known".to_string(),
+            cwd: WORKSPACE_CWD.to_string(),
+            title: None,
+            updated_at: None,
+        },
+    });
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::TurnStarted {
+            thread_id: "thread-known".to_string(),
+            turn_id: "turn-known".to_string(),
+        },
+    });
+
+    service.apply_server_notification(ServerNotification::Error(ErrorNotification {
+        error: TurnError {
+            message: "upstream error".to_string(),
+            codex_error_info: None,
+            additional_details: None,
+        },
+        will_retry: false,
+        thread_id: "thread-known".to_string(),
+        turn_id: "turn-known".to_string(),
+    }));
+
+    assert_eq!(
+        service
+            .state()
+            .turns
+            .get("turn-known")
+            .expect("turn should exist")
+            .status,
+        hunk_codex::state::TurnStatus::Completed
+    );
+}
+
+#[test]
+fn retryable_error_notification_keeps_turn_in_progress() {
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::ThreadStarted {
+            thread_id: "thread-known".to_string(),
+            cwd: WORKSPACE_CWD.to_string(),
+            title: None,
+            updated_at: None,
+        },
+    });
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::TurnStarted {
+            thread_id: "thread-known".to_string(),
+            turn_id: "turn-known".to_string(),
+        },
+    });
+
+    service.apply_server_notification(ServerNotification::Error(ErrorNotification {
+        error: TurnError {
+            message: "transient overload".to_string(),
+            codex_error_info: None,
+            additional_details: None,
+        },
+        will_retry: true,
+        thread_id: "thread-known".to_string(),
+        turn_id: "turn-known".to_string(),
+    }));
+
+    assert_eq!(
+        service
+            .state()
+            .turns
+            .get("turn-known")
+            .expect("turn should exist")
+            .status,
+        hunk_codex::state::TurnStatus::InProgress
+    );
+}
+
+#[test]
+fn rollout_fallback_history_is_ingested_into_turn_items() {
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::ThreadStarted {
+            thread_id: "thread-known".to_string(),
+            cwd: WORKSPACE_CWD.to_string(),
+            title: None,
+            updated_at: None,
+        },
+    });
+
+    service.ingest_rollout_fallback_history(
+        "thread-known".to_string(),
+        &[RolloutFallbackTurn {
+            turn_id: "turn-known".to_string(),
+            completed: true,
+            items: vec![
+                RolloutFallbackItem {
+                    kind: "userMessage".to_string(),
+                    content: "hello".to_string(),
+                },
+                RolloutFallbackItem {
+                    kind: "agentMessage".to_string(),
+                    content: "world".to_string(),
+                },
+            ],
+        }],
+    );
+
+    assert_eq!(
+        service
+            .state()
+            .turns
+            .get("turn-known")
+            .expect("turn should exist")
+            .status,
+        hunk_codex::state::TurnStatus::Completed
+    );
+    assert_eq!(
+        service
+            .state()
+            .items
+            .values()
+            .filter(|item| item.turn_id == "turn-known")
+            .count(),
+        2
     );
 }
 

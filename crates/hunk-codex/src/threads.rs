@@ -77,6 +77,7 @@ use crate::state::ReducerEvent;
 use crate::state::ServerRequestDecision;
 use crate::state::StreamEvent;
 use crate::state::ThreadLifecycleStatus;
+use crate::state::TurnStatus as StateTurnStatus;
 use crate::ws_client::JsonRpcSession;
 
 #[derive(Debug, Clone)]
@@ -84,6 +85,19 @@ pub struct ThreadService {
     cwd: PathBuf,
     state: AiState,
     next_sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RolloutFallbackItem {
+    pub kind: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RolloutFallbackTurn {
+    pub turn_id: String,
+    pub completed: bool,
+    pub items: Vec<RolloutFallbackItem>,
 }
 
 impl ThreadService {
@@ -596,9 +610,13 @@ impl ThreadService {
             ServerNotification::ThreadStatusChanged(notification) => {
                 if self.is_known_thread(&notification.thread_id) {
                     self.apply_event(ReducerEvent::ThreadStatusChanged {
-                        thread_id: notification.thread_id,
+                        thread_id: notification.thread_id.clone(),
                         status: lifecycle_status_from_thread_status(&notification.status),
                     });
+                    self.reconcile_thread_turns_for_status(
+                        notification.thread_id.as_str(),
+                        &notification.status,
+                    );
                 }
             }
             ServerNotification::ThreadArchived(notification) => {
@@ -618,9 +636,10 @@ impl ThreadService {
             ServerNotification::ThreadClosed(notification) => {
                 if self.is_known_thread(&notification.thread_id) {
                     self.apply_event(ReducerEvent::ThreadStatusChanged {
-                        thread_id: notification.thread_id,
-                        status: ThreadLifecycleStatus::Closed,
+                        thread_id: notification.thread_id.clone(),
+                        status: ThreadLifecycleStatus::NotLoaded,
                     });
+                    self.complete_in_progress_turns(notification.thread_id.as_str());
                 }
             }
             ServerNotification::ThreadNameUpdated(notification) => {
@@ -729,6 +748,17 @@ impl ThreadService {
                     });
                 }
             }
+            ServerNotification::Error(notification) => {
+                if self.is_known_thread(&notification.thread_id) && !notification.will_retry {
+                    self.apply_event(ReducerEvent::TurnStarted {
+                        thread_id: notification.thread_id.clone(),
+                        turn_id: notification.turn_id.clone(),
+                    });
+                    self.apply_event(ReducerEvent::TurnCompleted {
+                        turn_id: notification.turn_id,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -766,6 +796,56 @@ impl ThreadService {
             item_id,
             decision,
         });
+    }
+
+    pub fn ingest_rollout_fallback_history(
+        &mut self,
+        thread_id: String,
+        turns: &[RolloutFallbackTurn],
+    ) {
+        if turns.is_empty() {
+            return;
+        }
+
+        self.ensure_local_thread(thread_id.clone());
+
+        for turn in turns {
+            self.apply_event(ReducerEvent::TurnStarted {
+                thread_id: thread_id.clone(),
+                turn_id: turn.turn_id.clone(),
+            });
+
+            for (item_index, item) in turn.items.iter().enumerate() {
+                let item_id = format!(
+                    "rollout:{}:{}:{}",
+                    thread_id,
+                    turn.turn_id,
+                    item_index.saturating_add(1)
+                );
+                if self.state.items.contains_key(&item_id) {
+                    continue;
+                }
+
+                self.apply_event(ReducerEvent::ItemStarted {
+                    turn_id: turn.turn_id.clone(),
+                    item_id: item_id.clone(),
+                    kind: item.kind.clone(),
+                });
+                if !item.content.is_empty() {
+                    self.apply_event(ReducerEvent::ItemDelta {
+                        item_id: item_id.clone(),
+                        delta: item.content.clone(),
+                    });
+                }
+                self.apply_event(ReducerEvent::ItemCompleted { item_id });
+            }
+
+            if turn.completed {
+                self.apply_event(ReducerEvent::TurnCompleted {
+                    turn_id: turn.turn_id.clone(),
+                });
+            }
+        }
     }
 
     fn ensure_thread_id_in_workspace(&self, thread_id: &str) -> Result<()> {
@@ -893,6 +973,8 @@ impl ThreadService {
                 self.apply_item_snapshot(&thread.id, &turn.id, item);
             }
         }
+
+        self.reconcile_thread_turns_for_status(thread.id.as_str(), &thread.status);
     }
 
     fn replace_thread_turns_from_snapshot(&mut self, thread: &Thread) {
@@ -925,6 +1007,31 @@ impl ThreadService {
             expected_cwd: self.cwd_key(),
             actual_cwd: thread.cwd.to_string_lossy().to_string(),
         })
+    }
+
+    fn reconcile_thread_turns_for_status(&mut self, thread_id: &str, status: &ThreadStatus) {
+        match status {
+            ThreadStatus::Active { .. } => {}
+            ThreadStatus::Idle | ThreadStatus::NotLoaded | ThreadStatus::SystemError => {
+                self.complete_in_progress_turns(thread_id);
+            }
+        }
+    }
+
+    fn complete_in_progress_turns(&mut self, thread_id: &str) {
+        let in_progress_turn_ids = self
+            .state
+            .turns
+            .values()
+            .filter(|turn| {
+                turn.thread_id == thread_id && turn.status == StateTurnStatus::InProgress
+            })
+            .map(|turn| turn.id.clone())
+            .collect::<Vec<_>>();
+
+        for turn_id in in_progress_turn_ids {
+            self.apply_event(ReducerEvent::TurnCompleted { turn_id });
+        }
     }
 
     fn thread_matches_workspace(&self, thread: &Thread) -> bool {

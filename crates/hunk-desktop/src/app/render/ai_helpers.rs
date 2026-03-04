@@ -175,9 +175,7 @@ fn render_ai_account_actions_for_view(
     let login_pending = this.ai_pending_chatgpt_login_id.is_some();
 
     h_flex()
-        .w_full()
         .items_center()
-        .justify_end()
         .gap_1()
         .flex_wrap()
         .child({

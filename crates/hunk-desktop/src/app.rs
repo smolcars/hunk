@@ -141,6 +141,7 @@ struct PendingBookmarkSwitch {
     unix_time: i64,
 }
 
+mod ai_rollout_fallback;
 mod ai_runtime;
 mod controller;
 mod data;
