@@ -63,6 +63,52 @@ cargo bundle -p hunk-desktop --release
 open target/release/bundle/osx/Hunk.app
 ```
 
+## Build Codex App-Server Binaries For Embedding
+
+Hunk embeds a native `codex` runtime and launches app-server mode with:
+`codex app-server --listen ws://127.0.0.1:<port>`.
+
+Expected embedded runtime paths:
+
+- `assets/codex-runtime/macos/codex`
+- `assets/codex-runtime/linux/codex`
+- `assets/codex-runtime/windows/codex.exe`
+
+Runtime layout details also live in [`assets/codex-runtime/README.md`](./assets/codex-runtime/README.md).
+
+### Build `codex` from source (upstream pin)
+
+The pinned upstream baseline is tracked in [`docs/AI_CODEX_SPEC.md`](./docs/AI_CODEX_SPEC.md).
+
+```bash
+jj git clone https://github.com/openai/codex.git
+cd codex
+jj edit <pinned-commit-from-docs/AI_CODEX_SPEC.md>
+cd codex-rs
+cargo build -p codex-cli --release
+```
+
+From the Hunk repo root, copy the generated binary into this repo for the platform you built on:
+
+- macOS: `cp /path/to/codex/codex-rs/target/release/codex assets/codex-runtime/macos/codex && chmod +x assets/codex-runtime/macos/codex`
+- Linux: `cp /path/to/codex/codex-rs/target/release/codex assets/codex-runtime/linux/codex && chmod +x assets/codex-runtime/linux/codex`
+- Windows: `copy C:/path/to/codex/codex-rs/target/release/codex.exe assets/codex-runtime/windows/codex.exe`
+
+### Validate + stage + bundle (macOS workflow today)
+
+If you already have `codex` installed on your PATH (npm/homebrew/releases), use:
+
+```bash
+./scripts/install_codex_runtime_macos.sh
+./scripts/validate_codex_runtime_bundle.sh --strict --platform macos
+./scripts/stage_codex_runtime_macos.sh
+cargo test -p hunk-codex --test real_runtime_smoke -- --ignored
+just bundle
+```
+
+You can also pass an explicit source binary path to the installer:
+`./scripts/install_codex_runtime_macos.sh /absolute/path/to/codex`
+
 ## Large Diff Stress Fixture
 
 Generate a synthetic JJ repository with a very large working-copy diff:
