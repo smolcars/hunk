@@ -12,6 +12,7 @@ dev:
 
 bundle:
     cargo bundle -p hunk-desktop --release
+    ./scripts/inject_codex_runtime_into_macos_bundle.sh
 
 prod:
     osascript -e 'tell application "Hunk" to quit' || true
