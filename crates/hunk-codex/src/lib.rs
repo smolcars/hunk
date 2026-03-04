@@ -4,6 +4,7 @@ pub mod host;
 pub mod rpc;
 pub mod state;
 pub mod threads;
+pub mod tools;
 pub mod ws_client;
 
 /// Pinned upstream Codex commit selected during implementation kickoff.

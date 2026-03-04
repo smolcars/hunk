@@ -1,5 +1,6 @@
 use std::net::TcpListener;
 use std::net::TcpStream;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -13,6 +14,9 @@ use codex_app_server_protocol::JSONRPCMessage;
 use codex_app_server_protocol::JSONRPCNotification;
 use codex_app_server_protocol::JSONRPCRequest;
 use codex_app_server_protocol::JSONRPCResponse;
+use codex_app_server_protocol::LoginAccountParams;
+use codex_app_server_protocol::LoginAccountResponse;
+use codex_app_server_protocol::LogoutAccountResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::ReviewStartResponse;
@@ -21,6 +25,8 @@ use codex_app_server_protocol::SandboxPolicy;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequestResolvedNotification;
 use codex_app_server_protocol::SessionSource;
+use codex_app_server_protocol::SkillsConfigWriteResponse;
+use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadArchiveResponse;
 use codex_app_server_protocol::ThreadCompactStartResponse;
@@ -48,6 +54,9 @@ use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::TurnSteerParams;
 use codex_app_server_protocol::TurnSteerResponse;
 use codex_app_server_protocol::UserInput;
+use codex_app_server_protocol::{AppInfo, AppsListResponse};
+use codex_app_server_protocol::{CancelLoginAccountStatus, GetAccountRateLimitsResponse};
+use codex_app_server_protocol::{GetAccountResponse, RateLimitSnapshot, RateLimitWindow};
 use hunk_codex::api;
 use hunk_codex::api::InitializeOptions;
 use hunk_codex::errors::CodexIntegrationError;
@@ -302,6 +311,97 @@ fn loaded_list_read_and_fork_are_wired_with_workspace_cwd() {
         .expect("thread/fork should succeed");
     assert_eq!(fork.thread.id, "thread-forked");
     assert_eq!(service.active_thread_for_workspace(), Some("thread-forked"));
+
+    server.join();
+}
+
+#[test]
+fn skills_and_apps_metadata_endpoints_are_wired() {
+    let server = TestServer::spawn(Scenario::SkillsAndAppsMetadata);
+    let mut session = connect_initialized_session(server.port);
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+
+    let skills = service
+        .list_skills(&mut session, true, TIMEOUT)
+        .expect("skills/list should succeed");
+    assert_eq!(skills.data.len(), 1);
+    assert_eq!(
+        skills.data[0].skills[0].name,
+        "repo-workspace-skill".to_string()
+    );
+
+    let write_result = service
+        .write_skills_config(
+            &mut session,
+            PathBuf::from(format!(
+                "{WORKSPACE_CWD}/.codex/skills/repo-workspace-skill/SKILL.md"
+            )),
+            false,
+            TIMEOUT,
+        )
+        .expect("skills/config/write should succeed");
+    assert!(!write_result.effective_enabled);
+
+    let apps = service
+        .list_apps(
+            &mut session,
+            Some("cursor-1".to_string()),
+            Some(5),
+            true,
+            TIMEOUT,
+        )
+        .expect("app/list should succeed");
+    assert_eq!(apps.data.len(), 1);
+    assert_eq!(apps.data[0].id, "github".to_string());
+    assert_eq!(apps.next_cursor, Some("next-cursor".to_string()));
+
+    server.join();
+}
+
+#[test]
+fn account_endpoints_are_wired() {
+    let server = TestServer::spawn(Scenario::AccountEndpoints);
+    let mut session = connect_initialized_session(server.port);
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+
+    let account = service
+        .read_account(&mut session, false, TIMEOUT)
+        .expect("account/read should succeed");
+    assert!(account.account.is_none());
+    assert!(account.requires_openai_auth);
+
+    let login = service
+        .login_account(&mut session, LoginAccountParams::Chatgpt, TIMEOUT)
+        .expect("account/login/start should succeed");
+    match login {
+        LoginAccountResponse::Chatgpt { login_id, auth_url } => {
+            assert_eq!(login_id, "login-1".to_string());
+            assert_eq!(auth_url, "https://auth.example/login".to_string());
+        }
+        other => panic!("expected chatgpt login response, got: {other:?}"),
+    }
+
+    let cancel = service
+        .cancel_account_login(&mut session, "login-1".to_string(), TIMEOUT)
+        .expect("account/login/cancel should succeed");
+    assert_eq!(cancel.status, CancelLoginAccountStatus::Canceled);
+
+    let rate_limits = service
+        .read_account_rate_limits(&mut session, TIMEOUT)
+        .expect("account/rateLimits/read should succeed");
+    assert_eq!(
+        rate_limits
+            .rate_limits
+            .primary
+            .as_ref()
+            .expect("primary rate limit should exist")
+            .used_percent,
+        42
+    );
+
+    service
+        .logout_account(&mut session, TIMEOUT)
+        .expect("account/logout should succeed");
 
     server.join();
 }
@@ -677,6 +777,8 @@ enum Scenario {
     ReviewStartDetached,
     CommandExecRoundTrip,
     CommandExecServerError,
+    SkillsAndAppsMetadata,
+    AccountEndpoints,
 }
 
 struct TestServer {
@@ -716,6 +818,8 @@ impl TestServer {
                 Scenario::ReviewStartDetached => run_review_start_detached(&mut socket),
                 Scenario::CommandExecRoundTrip => run_command_exec_round_trip(&mut socket),
                 Scenario::CommandExecServerError => run_command_exec_server_error(&mut socket),
+                Scenario::SkillsAndAppsMetadata => run_skills_and_apps_metadata(&mut socket),
+                Scenario::AccountEndpoints => run_account_endpoints(&mut socket),
             }
         });
 
@@ -1254,6 +1358,163 @@ fn run_command_exec_server_error(socket: &mut WebSocket<TcpStream>) {
         Some(WORKSPACE_CWD.to_string())
     );
     send_error_response(socket, command_exec.id, -32003, "command failed");
+}
+
+fn run_skills_and_apps_metadata(socket: &mut WebSocket<TcpStream>) {
+    let skills_list = expect_request(socket, api::method::SKILLS_LIST);
+    let skills_list_params = skills_list
+        .params
+        .expect("skills/list params should be present");
+    assert_eq!(
+        skills_list_params["cwds"],
+        serde_json::json!([WORKSPACE_CWD])
+    );
+    assert_eq!(skills_list_params["forceReload"], serde_json::json!(true));
+    send_typed_success_response(
+        socket,
+        skills_list.id,
+        &SkillsListResponse {
+            data: vec![
+                serde_json::from_value(serde_json::json!({
+                    "cwd": WORKSPACE_CWD,
+                    "skills": [
+                        {
+                            "name": "repo-workspace-skill",
+                            "description": "Workspace skill",
+                            "path": format!("{WORKSPACE_CWD}/.codex/skills/repo-workspace-skill"),
+                            "scope": "repo",
+                            "enabled": true
+                        }
+                    ],
+                    "errors": []
+                }))
+                .expect("skills list entry should deserialize"),
+            ],
+        },
+    );
+
+    let skills_config_write = expect_request(socket, api::method::SKILLS_CONFIG_WRITE);
+    let skills_config_write_params = skills_config_write
+        .params
+        .expect("skills/config/write params should be present");
+    assert_eq!(
+        param_string(&skills_config_write_params, "path"),
+        Some(format!(
+            "{WORKSPACE_CWD}/.codex/skills/repo-workspace-skill/SKILL.md"
+        ))
+    );
+    assert_eq!(
+        skills_config_write_params["enabled"],
+        serde_json::json!(false)
+    );
+    send_typed_success_response(
+        socket,
+        skills_config_write.id,
+        &SkillsConfigWriteResponse {
+            effective_enabled: false,
+        },
+    );
+
+    let app_list = expect_request(socket, api::method::APP_LIST);
+    let app_list_params = app_list.params.expect("app/list params should be present");
+    assert_eq!(
+        param_string(&app_list_params, "cursor"),
+        Some("cursor-1".to_string())
+    );
+    assert_eq!(app_list_params["limit"], serde_json::json!(5));
+    assert_eq!(app_list_params["forceRefetch"], serde_json::json!(true));
+    assert_eq!(app_list_params["threadId"], serde_json::Value::Null);
+    send_typed_success_response(
+        socket,
+        app_list.id,
+        &AppsListResponse {
+            data: vec![AppInfo {
+                id: "github".to_string(),
+                name: "GitHub".to_string(),
+                description: Some("GitHub app".to_string()),
+                logo_url: None,
+                logo_url_dark: None,
+                distribution_channel: None,
+                branding: None,
+                app_metadata: None,
+                labels: None,
+                install_url: None,
+                is_accessible: true,
+                is_enabled: true,
+            }],
+            next_cursor: Some("next-cursor".to_string()),
+        },
+    );
+}
+
+fn run_account_endpoints(socket: &mut WebSocket<TcpStream>) {
+    let account_read = expect_request(socket, api::method::ACCOUNT_READ);
+    let account_read_params = account_read
+        .params
+        .expect("account/read params should be present");
+    assert_eq!(
+        account_read_params["refreshToken"],
+        serde_json::json!(false)
+    );
+    send_typed_success_response(
+        socket,
+        account_read.id,
+        &GetAccountResponse {
+            account: None,
+            requires_openai_auth: true,
+        },
+    );
+
+    let login_start = expect_request(socket, api::method::ACCOUNT_LOGIN_START);
+    let login_start_params = login_start
+        .params
+        .expect("account/login/start params should be present");
+    assert_eq!(login_start_params["type"], serde_json::json!("chatgpt"));
+    send_typed_success_response(
+        socket,
+        login_start.id,
+        &LoginAccountResponse::Chatgpt {
+            login_id: "login-1".to_string(),
+            auth_url: "https://auth.example/login".to_string(),
+        },
+    );
+
+    let login_cancel = expect_request(socket, api::method::ACCOUNT_LOGIN_CANCEL);
+    let login_cancel_params = login_cancel
+        .params
+        .expect("account/login/cancel params should be present");
+    assert_eq!(login_cancel_params["loginId"], serde_json::json!("login-1"));
+    send_typed_success_response(
+        socket,
+        login_cancel.id,
+        &codex_app_server_protocol::CancelLoginAccountResponse {
+            status: CancelLoginAccountStatus::Canceled,
+        },
+    );
+
+    let rate_limits = expect_request(socket, api::method::ACCOUNT_RATE_LIMITS_READ);
+    send_typed_success_response(
+        socket,
+        rate_limits.id,
+        &GetAccountRateLimitsResponse {
+            rate_limits: RateLimitSnapshot {
+                limit_id: Some("codex".to_string()),
+                limit_name: Some("Codex".to_string()),
+                primary: Some(RateLimitWindow {
+                    used_percent: 42,
+                    window_duration_mins: Some(60),
+                    resets_at: Some(1_700_000_000),
+                }),
+                secondary: None,
+                credits: None,
+                plan_type: None,
+            },
+            rate_limits_by_limit_id: None,
+        },
+    );
+
+    let logout = expect_request(socket, api::method::ACCOUNT_LOGOUT);
+    send_typed_success_response(socket, logout.id, &LogoutAccountResponse {});
 }
 
 fn connect_initialized_session(port: u16) -> JsonRpcSession {

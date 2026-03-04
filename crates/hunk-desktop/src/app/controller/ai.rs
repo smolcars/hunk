@@ -51,6 +51,23 @@ impl DiffViewer {
         self.send_ai_worker_command(AiWorkerCommand::RefreshThreads, cx);
     }
 
+    pub(super) fn ai_refresh_account(&mut self, cx: &mut Context<Self>) {
+        self.send_ai_worker_command(AiWorkerCommand::RefreshAccount, cx);
+        self.send_ai_worker_command(AiWorkerCommand::RefreshRateLimits, cx);
+    }
+
+    pub(super) fn ai_start_chatgpt_login_action(&mut self, cx: &mut Context<Self>) {
+        self.send_ai_worker_command(AiWorkerCommand::StartChatgptLogin, cx);
+    }
+
+    pub(super) fn ai_cancel_chatgpt_login_action(&mut self, cx: &mut Context<Self>) {
+        self.send_ai_worker_command(AiWorkerCommand::CancelChatgptLogin, cx);
+    }
+
+    pub(super) fn ai_logout_account_action(&mut self, cx: &mut Context<Self>) {
+        self.send_ai_worker_command(AiWorkerCommand::LogoutAccount, cx);
+    }
+
     pub(super) fn ai_create_thread_action(
         &mut self,
         window: &mut Window,
@@ -257,6 +274,66 @@ impl DiffViewer {
         self.ai_pending_approvals.clone()
     }
 
+    pub(super) fn ai_visible_pending_user_inputs(&self) -> Vec<AiPendingUserInputRequest> {
+        self.ai_pending_user_inputs.clone()
+    }
+
+    pub(super) fn ai_select_pending_user_input_option_action(
+        &mut self,
+        request_id: String,
+        question_id: String,
+        option: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(request) = self
+            .ai_pending_user_inputs
+            .iter()
+            .find(|request| request.request_id == request_id)
+        else {
+            return;
+        };
+
+        let answers = self
+            .ai_pending_user_input_answers
+            .entry(request_id)
+            .or_insert_with(|| normalized_user_input_answers(request, None));
+        answers.insert(question_id, vec![option]);
+        cx.notify();
+    }
+
+    pub(super) fn ai_submit_pending_user_input_action(
+        &mut self,
+        request_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(request) = self
+            .ai_pending_user_inputs
+            .iter()
+            .find(|request| request.request_id == request_id)
+        else {
+            self.ai_status_message = Some("User input request no longer exists.".to_string());
+            cx.notify();
+            return;
+        };
+
+        let answers = self
+            .ai_pending_user_input_answers
+            .get(request_id.as_str())
+            .cloned()
+            .unwrap_or_else(|| normalized_user_input_answers(request, None));
+
+        if self.send_ai_worker_command(
+            AiWorkerCommand::SubmitUserInput {
+                request_id: request_id.clone(),
+                answers,
+            },
+            cx,
+        ) {
+            self.ai_status_message = Some(format!("Submitted user input for request {request_id}."));
+            cx.notify();
+        }
+    }
+
     pub(super) fn current_ai_thread_id(&self) -> Option<String> {
         if let Some(selected) = self.ai_selected_thread_id.as_ref()
             && self.ai_state_snapshot.threads.contains_key(selected)
@@ -387,6 +464,13 @@ impl DiffViewer {
                                     this.ai_command_tx = None;
                                     this.ai_worker_thread = None;
                                     this.ai_pending_approvals.clear();
+                                    this.ai_pending_user_inputs.clear();
+                                    this.ai_pending_user_input_answers.clear();
+                                    this.ai_account = None;
+                                    this.ai_requires_openai_auth = false;
+                                    this.ai_rate_limits = None;
+                                    this.ai_pending_chatgpt_login_id = None;
+                                    this.ai_pending_chatgpt_auth_url = None;
                                     if this.ai_error_message.is_none() {
                                         this.ai_connection_state = AiConnectionState::Disconnected;
                                         this.ai_status_message = Some(
@@ -433,6 +517,13 @@ impl DiffViewer {
                 self.ai_command_tx = None;
                 self.ai_worker_thread = None;
                 self.ai_pending_approvals.clear();
+                self.ai_pending_user_inputs.clear();
+                self.ai_pending_user_input_answers.clear();
+                self.ai_account = None;
+                self.ai_requires_openai_auth = false;
+                self.ai_rate_limits = None;
+                self.ai_pending_chatgpt_login_id = None;
+                self.ai_pending_chatgpt_auth_url = None;
                 Self::push_error_notification(format!("Codex AI failed: {message}"), cx);
             }
         }
@@ -444,6 +535,13 @@ impl DiffViewer {
         self.ai_state_snapshot = snapshot.state;
         self.ai_last_command_result = snapshot.last_command_result;
         self.ai_pending_approvals = snapshot.pending_approvals;
+        self.ai_pending_user_inputs = snapshot.pending_user_inputs;
+        self.sync_ai_pending_user_input_answers();
+        self.ai_account = snapshot.account;
+        self.ai_requires_openai_auth = snapshot.requires_openai_auth;
+        self.ai_pending_chatgpt_login_id = snapshot.pending_chatgpt_login_id;
+        self.ai_pending_chatgpt_auth_url = snapshot.pending_chatgpt_auth_url;
+        self.ai_rate_limits = snapshot.rate_limits;
         self.ai_mad_max_mode = snapshot.mad_max_mode;
 
         if let Some(active_thread_id) = snapshot.active_thread_id {
@@ -466,6 +564,21 @@ impl DiffViewer {
             self.ai_selected_thread_id = Some(first_thread.id.clone());
         }
     }
+
+    fn sync_ai_pending_user_input_answers(&mut self) {
+        let existing_answers = std::mem::take(&mut self.ai_pending_user_input_answers);
+        let mut next_answers = BTreeMap::new();
+
+        for request in &self.ai_pending_user_inputs {
+            let normalized = normalized_user_input_answers(
+                request,
+                existing_answers.get(request.request_id.as_str()),
+            );
+            next_answers.insert(request.request_id.clone(), normalized);
+        }
+
+        self.ai_pending_user_input_answers = next_answers;
+    }
 }
 
 fn sorted_threads(state: &hunk_codex::state::AiState) -> Vec<ThreadSummary> {
@@ -486,6 +599,31 @@ fn workspace_mad_max_mode(state: &AppState, workspace_key: Option<&str>) -> bool
         .unwrap_or(false)
 }
 
+fn normalized_user_input_answers(
+    request: &AiPendingUserInputRequest,
+    previous: Option<&BTreeMap<String, Vec<String>>>,
+) -> BTreeMap<String, Vec<String>> {
+    request
+        .questions
+        .iter()
+        .map(|question| {
+            let answer = previous
+                .and_then(|answers| answers.get(question.id.as_str()))
+                .cloned()
+                .unwrap_or_else(|| default_user_input_question_answers(question));
+            (question.id.clone(), answer)
+        })
+        .collect::<BTreeMap<_, _>>()
+}
+
+fn default_user_input_question_answers(question: &AiPendingUserInputQuestion) -> Vec<String> {
+    question
+        .options
+        .first()
+        .map(|option| vec![option.label.clone()])
+        .unwrap_or_else(|| vec![String::new()])
+}
+
 #[cfg(test)]
 fn item_status_chip(status: hunk_codex::state::ItemStatus) -> &'static str {
     match status {
@@ -498,8 +636,12 @@ fn item_status_chip(status: hunk_codex::state::ItemStatus) -> &'static str {
 #[cfg(test)]
 mod ai_tests {
     use super::item_status_chip;
+    use super::normalized_user_input_answers;
     use super::sorted_threads;
     use super::workspace_mad_max_mode;
+    use crate::app::ai_runtime::AiPendingUserInputQuestion;
+    use crate::app::ai_runtime::AiPendingUserInputQuestionOption;
+    use crate::app::ai_runtime::AiPendingUserInputRequest;
     use hunk_codex::state::AiState;
     use hunk_codex::state::ItemStatus;
     use hunk_codex::state::ThreadLifecycleStatus;
@@ -563,5 +705,79 @@ mod ai_tests {
         assert!(workspace_mad_max_mode(&state, Some("/repo-a")));
         assert!(!workspace_mad_max_mode(&state, Some("/repo-b")));
         assert!(!workspace_mad_max_mode(&state, Some("/repo-c")));
+    }
+
+    #[test]
+    fn normalized_user_input_answers_defaults_to_first_option_or_blank() {
+        let request = AiPendingUserInputRequest {
+            request_id: "req-1".to_string(),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            item_id: "item-1".to_string(),
+            questions: vec![
+                AiPendingUserInputQuestion {
+                    id: "q-option".to_string(),
+                    header: "Header".to_string(),
+                    question: "Pick one".to_string(),
+                    is_other: false,
+                    is_secret: false,
+                    options: vec![
+                        AiPendingUserInputQuestionOption {
+                            label: "first".to_string(),
+                            description: "first option".to_string(),
+                        },
+                        AiPendingUserInputQuestionOption {
+                            label: "second".to_string(),
+                            description: "second option".to_string(),
+                        },
+                    ],
+                },
+                AiPendingUserInputQuestion {
+                    id: "q-empty".to_string(),
+                    header: "Free text".to_string(),
+                    question: "Enter value".to_string(),
+                    is_other: true,
+                    is_secret: false,
+                    options: Vec::new(),
+                },
+            ],
+        };
+
+        let answers = normalized_user_input_answers(&request, None);
+        assert_eq!(
+            answers.get("q-option"),
+            Some(&vec!["first".to_string()])
+        );
+        assert_eq!(answers.get("q-empty"), Some(&vec![String::new()]));
+    }
+
+    #[test]
+    fn normalized_user_input_answers_preserves_existing_answers() {
+        let request = AiPendingUserInputRequest {
+            request_id: "req-2".to_string(),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            item_id: "item-2".to_string(),
+            questions: vec![AiPendingUserInputQuestion {
+                id: "q-option".to_string(),
+                header: "Header".to_string(),
+                question: "Pick one".to_string(),
+                is_other: false,
+                is_secret: false,
+                options: vec![AiPendingUserInputQuestionOption {
+                    label: "default".to_string(),
+                    description: "default option".to_string(),
+                }],
+            }],
+        };
+        let previous = [("q-option".to_string(), vec!["custom".to_string()])]
+            .into_iter()
+            .collect();
+
+        let answers = normalized_user_input_answers(&request, Some(&previous));
+        assert_eq!(
+            answers.get("q-option"),
+            Some(&vec!["custom".to_string()])
+        );
     }
 }

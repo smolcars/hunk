@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::TcpListener;
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -9,6 +10,8 @@ use std::time::Duration;
 
 use codex_app_server_protocol::CommandExecutionApprovalDecision;
 use codex_app_server_protocol::CommandExecutionRequestApprovalResponse;
+use codex_app_server_protocol::DynamicToolCallOutputContentItem;
+use codex_app_server_protocol::DynamicToolCallResponse;
 use codex_app_server_protocol::FileChangeApprovalDecision;
 use codex_app_server_protocol::FileChangeRequestApprovalResponse;
 use codex_app_server_protocol::JSONRPCError;
@@ -20,6 +23,8 @@ use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
+use codex_app_server_protocol::ToolRequestUserInputAnswer;
+use codex_app_server_protocol::ToolRequestUserInputResponse;
 use hunk_codex::api::InitializeOptions;
 use hunk_codex::errors::CodexIntegrationError;
 use hunk_codex::ws_client::JsonRpcSession;
@@ -254,6 +259,183 @@ fn turn_start_with_mad_max_policy_does_not_wait_for_approval_requests() {
     server.join();
 }
 
+#[test]
+fn poll_captures_dynamic_tool_call_and_returns_structured_response() {
+    let server = TestServer::spawn(Scenario::DynamicToolCallRoundTrip);
+    let endpoint = WebSocketEndpoint::loopback(server.port);
+    let mut session = JsonRpcSession::connect(&endpoint).expect("session should connect");
+
+    session
+        .initialize(InitializeOptions::default(), Duration::from_secs(2))
+        .expect("initialize should succeed");
+
+    let captured = session
+        .poll_server_notifications(Duration::from_secs(2))
+        .expect("poll should succeed");
+    assert_eq!(captured, 1);
+
+    let requests = session.drain_server_requests();
+    assert_eq!(requests.len(), 1);
+    let request_id = match &requests[0] {
+        ServerRequest::DynamicToolCall { request_id, params } => {
+            assert_eq!(params.thread_id, "thread-live");
+            assert_eq!(params.turn_id, "turn-live");
+            assert_eq!(params.call_id, "call-live");
+            assert_eq!(params.tool, "hunk.workspace_summary");
+            assert_eq!(params.arguments, serde_json::json!({ "path": "." }));
+            request_id.clone()
+        }
+        other => panic!("unexpected server request: {other:?}"),
+    };
+
+    session
+        .respond_typed(
+            request_id,
+            &DynamicToolCallResponse {
+                content_items: vec![DynamicToolCallOutputContentItem::InputText {
+                    text: "workspace summary".to_string(),
+                }],
+                success: true,
+            },
+        )
+        .expect("response should be sent");
+
+    server.join();
+}
+
+#[test]
+fn request_user_input_round_trip_allows_follow_up_notifications() {
+    let server = TestServer::spawn(Scenario::ToolRequestUserInputRoundTrip);
+    let endpoint = WebSocketEndpoint::loopback(server.port);
+    let mut session = JsonRpcSession::connect(&endpoint).expect("session should connect");
+
+    session
+        .initialize(InitializeOptions::default(), Duration::from_secs(2))
+        .expect("initialize should succeed");
+
+    let captured = session
+        .poll_server_notifications(Duration::from_secs(2))
+        .expect("poll should succeed");
+    assert_eq!(captured, 1);
+
+    let requests = session.drain_server_requests();
+    assert_eq!(requests.len(), 1);
+    let request_id = match &requests[0] {
+        ServerRequest::ToolRequestUserInput { request_id, params } => {
+            assert_eq!(params.thread_id, "thread-live");
+            assert_eq!(params.turn_id, "turn-live");
+            assert_eq!(params.item_id, "item-input");
+            assert_eq!(params.questions.len(), 1);
+            assert_eq!(params.questions[0].id, "approval_mode");
+            request_id.clone()
+        }
+        other => panic!("unexpected server request: {other:?}"),
+    };
+
+    let answers = [(
+        "approval_mode".to_string(),
+        ToolRequestUserInputAnswer {
+            answers: vec!["Apply now".to_string()],
+        },
+    )]
+    .into_iter()
+    .collect::<HashMap<_, _>>();
+    session
+        .respond_typed(request_id, &ToolRequestUserInputResponse { answers })
+        .expect("response should be sent");
+
+    let follow_up = session
+        .poll_server_notifications(Duration::from_secs(2))
+        .expect("follow-up poll should succeed");
+    assert_eq!(follow_up, 1);
+    let notifications = session.drain_server_notifications();
+    assert_eq!(notifications.len(), 1);
+    match &notifications[0] {
+        ServerNotification::TurnDiffUpdated(notification) => {
+            assert_eq!(notification.thread_id, "thread-live");
+            assert_eq!(notification.turn_id, "turn-live");
+        }
+        other => panic!("unexpected follow-up notification: {other:?}"),
+    }
+
+    server.join();
+}
+
+#[test]
+fn chatgpt_login_lifecycle_notifications_are_emitted() {
+    let server = TestServer::spawn(Scenario::AccountLoginLifecycleNotifications);
+    let endpoint = WebSocketEndpoint::loopback(server.port);
+    let mut session = JsonRpcSession::connect(&endpoint).expect("session should connect");
+
+    session
+        .initialize(InitializeOptions::default(), Duration::from_secs(2))
+        .expect("initialize should succeed");
+
+    let response = session
+        .request(
+            "account/login/start",
+            Some(serde_json::json!({
+                "type": "chatgpt"
+            })),
+            Duration::from_secs(2),
+        )
+        .expect("account/login/start should succeed");
+    assert_eq!(response["type"], serde_json::json!("chatgpt"));
+    assert_eq!(response["loginId"], serde_json::json!("login-live"));
+    assert_eq!(
+        response["authUrl"],
+        serde_json::json!("https://auth.example/login")
+    );
+
+    let captured = session
+        .poll_server_notifications(Duration::from_secs(2))
+        .expect("poll should succeed");
+    assert_eq!(captured, 1);
+    let additional = session
+        .poll_server_notifications(Duration::from_secs(2))
+        .expect("second poll should succeed");
+    assert!(additional <= 1);
+
+    let notifications = session.drain_server_notifications();
+    assert!(!notifications.is_empty());
+    assert!(notifications.iter().any(|notification| matches!(
+        notification,
+        ServerNotification::AccountLoginCompleted(completed)
+            if completed.success && completed.login_id.as_deref() == Some("login-live")
+    )));
+
+    server.join();
+}
+
+#[test]
+fn logout_and_account_updated_notifications_propagate() {
+    let server = TestServer::spawn(Scenario::AccountLogoutAndUpdatedNotification);
+    let endpoint = WebSocketEndpoint::loopback(server.port);
+    let mut session = JsonRpcSession::connect(&endpoint).expect("session should connect");
+
+    session
+        .initialize(InitializeOptions::default(), Duration::from_secs(2))
+        .expect("initialize should succeed");
+
+    session
+        .request("account/logout", None, Duration::from_secs(2))
+        .expect("account/logout should succeed");
+
+    let captured = session
+        .poll_server_notifications(Duration::from_secs(2))
+        .expect("poll should succeed");
+    assert_eq!(captured, 1);
+
+    let notifications = session.drain_server_notifications();
+    assert_eq!(notifications.len(), 1);
+    assert!(matches!(
+        notifications[0],
+        ServerNotification::AccountUpdated(_)
+    ));
+
+    server.join();
+}
+
 #[derive(Clone)]
 enum Scenario {
     InitializeSuccess,
@@ -263,6 +445,10 @@ enum Scenario {
     CommandApprovalRequestRoundTrip,
     FileChangeApprovalRequestRoundTrip,
     MadMaxTurnStartNoApprovalPrompt,
+    DynamicToolCallRoundTrip,
+    ToolRequestUserInputRoundTrip,
+    AccountLoginLifecycleNotifications,
+    AccountLogoutAndUpdatedNotification,
     OverloadedThenSuccess {
         overload_attempts: usize,
         attempts: Arc<AtomicUsize>,
@@ -301,6 +487,16 @@ impl TestServer {
                 }
                 Scenario::MadMaxTurnStartNoApprovalPrompt => {
                     run_mad_max_turn_start_no_approval_prompt(&mut socket)
+                }
+                Scenario::DynamicToolCallRoundTrip => run_dynamic_tool_call_round_trip(&mut socket),
+                Scenario::ToolRequestUserInputRoundTrip => {
+                    run_tool_request_user_input_round_trip(&mut socket)
+                }
+                Scenario::AccountLoginLifecycleNotifications => {
+                    run_account_login_lifecycle_notifications(&mut socket)
+                }
+                Scenario::AccountLogoutAndUpdatedNotification => {
+                    run_account_logout_and_updated_notification(&mut socket)
                 }
                 Scenario::OverloadedThenSuccess {
                     overload_attempts,
@@ -477,6 +673,176 @@ fn run_mad_max_turn_start_no_approval_prompt(socket: &mut WebSocket<TcpStream>) 
                 "id": "turn-live",
                 "status": "inProgress"
             }
+        }),
+    );
+}
+
+fn run_dynamic_tool_call_round_trip(socket: &mut WebSocket<TcpStream>) {
+    let initialize = expect_request(socket, "initialize");
+    send_success_response(
+        socket,
+        initialize.id,
+        serde_json::json!({ "userAgent": "hunk-test-server" }),
+    );
+    expect_notification(socket, "initialized");
+
+    send_jsonrpc(
+        socket,
+        JSONRPCMessage::Request(JSONRPCRequest {
+            id: RequestId::Integer(111),
+            method: "item/tool/call".to_string(),
+            params: Some(serde_json::json!({
+                "threadId": "thread-live",
+                "turnId": "turn-live",
+                "callId": "call-live",
+                "tool": "hunk.workspace_summary",
+                "arguments": {
+                    "path": "."
+                }
+            })),
+            trace: None,
+        }),
+    );
+
+    let response = read_jsonrpc(socket);
+    match response {
+        JSONRPCMessage::Response(response) => {
+            assert_eq!(response.id, RequestId::Integer(111));
+            assert_eq!(response.result["success"], serde_json::json!(true));
+            assert_eq!(
+                response.result["contentItems"][0]["text"],
+                serde_json::json!("workspace summary")
+            );
+        }
+        other => panic!("expected dynamic tool response, got: {other:?}"),
+    }
+}
+
+fn run_tool_request_user_input_round_trip(socket: &mut WebSocket<TcpStream>) {
+    let initialize = expect_request(socket, "initialize");
+    send_success_response(
+        socket,
+        initialize.id,
+        serde_json::json!({ "userAgent": "hunk-test-server" }),
+    );
+    expect_notification(socket, "initialized");
+
+    send_jsonrpc(
+        socket,
+        JSONRPCMessage::Request(JSONRPCRequest {
+            id: RequestId::Integer(112),
+            method: "item/tool/requestUserInput".to_string(),
+            params: Some(serde_json::json!({
+                "threadId": "thread-live",
+                "turnId": "turn-live",
+                "itemId": "item-input",
+                "questions": [
+                    {
+                        "id": "approval_mode",
+                        "header": "Execution mode",
+                        "question": "How should we continue?",
+                        "isOther": false,
+                        "isSecret": false,
+                        "options": [
+                            {
+                                "label": "Apply now",
+                                "description": "Apply edits immediately."
+                            },
+                            {
+                                "label": "Hold",
+                                "description": "Prepare patch without applying."
+                            }
+                        ]
+                    }
+                ]
+            })),
+            trace: None,
+        }),
+    );
+
+    let response = read_jsonrpc(socket);
+    match response {
+        JSONRPCMessage::Response(response) => {
+            assert_eq!(response.id, RequestId::Integer(112));
+            assert_eq!(
+                response.result["answers"]["approval_mode"]["answers"],
+                serde_json::json!(["Apply now"])
+            );
+        }
+        other => panic!("expected tool request user input response, got: {other:?}"),
+    }
+
+    send_notification(
+        socket,
+        "turn/diff/updated",
+        serde_json::json!({
+            "threadId": "thread-live",
+            "turnId": "turn-live",
+            "diff": "diff --git a/src/main.rs b/src/main.rs"
+        }),
+    );
+}
+
+fn run_account_login_lifecycle_notifications(socket: &mut WebSocket<TcpStream>) {
+    let initialize = expect_request(socket, "initialize");
+    send_success_response(
+        socket,
+        initialize.id,
+        serde_json::json!({ "userAgent": "hunk-test-server" }),
+    );
+    expect_notification(socket, "initialized");
+
+    let login = expect_request(socket, "account/login/start");
+    let params = login
+        .params
+        .expect("account/login/start params should exist");
+    assert_eq!(params["type"], serde_json::json!("chatgpt"));
+    send_success_response(
+        socket,
+        login.id,
+        serde_json::json!({
+            "type": "chatgpt",
+            "loginId": "login-live",
+            "authUrl": "https://auth.example/login"
+        }),
+    );
+
+    send_notification(
+        socket,
+        "account/login/completed",
+        serde_json::json!({
+            "loginId": "login-live",
+            "success": true,
+            "error": null
+        }),
+    );
+    send_notification(
+        socket,
+        "account/updated",
+        serde_json::json!({
+            "authMode": null,
+            "planType": null
+        }),
+    );
+}
+
+fn run_account_logout_and_updated_notification(socket: &mut WebSocket<TcpStream>) {
+    let initialize = expect_request(socket, "initialize");
+    send_success_response(
+        socket,
+        initialize.id,
+        serde_json::json!({ "userAgent": "hunk-test-server" }),
+    );
+    expect_notification(socket, "initialized");
+
+    let logout = expect_request(socket, "account/logout");
+    send_success_response(socket, logout.id, serde_json::json!({}));
+    send_notification(
+        socket,
+        "account/updated",
+        serde_json::json!({
+            "authMode": null,
+            "planType": null
         }),
     );
 }

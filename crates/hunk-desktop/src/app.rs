@@ -46,6 +46,8 @@ use ai_runtime::AiApprovalDecision;
 use ai_runtime::AiApprovalKind;
 use ai_runtime::AiConnectionState;
 use ai_runtime::AiPendingApproval;
+use ai_runtime::AiPendingUserInputQuestion;
+use ai_runtime::AiPendingUserInputRequest;
 use ai_runtime::AiSnapshot;
 use ai_runtime::AiWorkerCommand;
 use ai_runtime::AiWorkerEvent;
@@ -928,6 +930,13 @@ struct DiffViewer {
     ai_selected_thread_id: Option<String>,
     ai_last_command_result: Option<String>,
     ai_pending_approvals: Vec<AiPendingApproval>,
+    ai_pending_user_inputs: Vec<AiPendingUserInputRequest>,
+    ai_pending_user_input_answers: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    ai_account: Option<codex_app_server_protocol::Account>,
+    ai_requires_openai_auth: bool,
+    ai_pending_chatgpt_login_id: Option<String>,
+    ai_pending_chatgpt_auth_url: Option<String>,
+    ai_rate_limits: Option<codex_app_server_protocol::RateLimitSnapshot>,
     ai_mad_max_mode: bool,
     ai_event_epoch: usize,
     ai_event_task: Task<()>,

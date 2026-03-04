@@ -3,11 +3,21 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use codex_app_server_protocol::AppsListParams;
+use codex_app_server_protocol::AppsListResponse;
+use codex_app_server_protocol::CancelLoginAccountParams;
+use codex_app_server_protocol::CancelLoginAccountResponse;
 use codex_app_server_protocol::CollabAgentToolCallStatus;
 use codex_app_server_protocol::CommandExecParams;
 use codex_app_server_protocol::CommandExecResponse;
 use codex_app_server_protocol::CommandExecutionStatus;
 use codex_app_server_protocol::DynamicToolCallStatus;
+use codex_app_server_protocol::GetAccountParams;
+use codex_app_server_protocol::GetAccountRateLimitsResponse;
+use codex_app_server_protocol::GetAccountResponse;
+use codex_app_server_protocol::LoginAccountParams;
+use codex_app_server_protocol::LoginAccountResponse;
+use codex_app_server_protocol::LogoutAccountResponse;
 use codex_app_server_protocol::McpToolCallStatus;
 use codex_app_server_protocol::PatchApplyStatus;
 use codex_app_server_protocol::RequestId;
@@ -15,6 +25,10 @@ use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::ReviewStartResponse;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
+use codex_app_server_protocol::SkillsConfigWriteParams;
+use codex_app_server_protocol::SkillsConfigWriteResponse;
+use codex_app_server_protocol::SkillsListParams;
+use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadArchiveParams;
 use codex_app_server_protocol::ThreadArchiveResponse;
@@ -156,6 +170,120 @@ impl ThreadService {
         let params = ThreadLoadedListParams { cursor, limit };
         let response: ThreadLoadedListResponse =
             session.request_typed(api::method::THREAD_LOADED_LIST, Some(&params), timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn list_skills(
+        &mut self,
+        session: &mut JsonRpcSession,
+        force_reload: bool,
+        timeout: Duration,
+    ) -> Result<SkillsListResponse> {
+        let params = SkillsListParams {
+            cwds: vec![self.cwd.clone()],
+            force_reload,
+            per_cwd_extra_user_roots: None,
+        };
+        let response: SkillsListResponse =
+            session.request_typed(api::method::SKILLS_LIST, Some(&params), timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn write_skills_config(
+        &mut self,
+        session: &mut JsonRpcSession,
+        path: PathBuf,
+        enabled: bool,
+        timeout: Duration,
+    ) -> Result<SkillsConfigWriteResponse> {
+        let params = SkillsConfigWriteParams { path, enabled };
+        let response: SkillsConfigWriteResponse =
+            session.request_typed(api::method::SKILLS_CONFIG_WRITE, Some(&params), timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn list_apps(
+        &mut self,
+        session: &mut JsonRpcSession,
+        cursor: Option<String>,
+        limit: Option<u32>,
+        force_refetch: bool,
+        timeout: Duration,
+    ) -> Result<AppsListResponse> {
+        let params = AppsListParams {
+            cursor,
+            limit,
+            thread_id: self.active_thread_for_workspace().map(ToOwned::to_owned),
+            force_refetch,
+        };
+        let response: AppsListResponse =
+            session.request_typed(api::method::APP_LIST, Some(&params), timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn read_account(
+        &mut self,
+        session: &mut JsonRpcSession,
+        refresh_token: bool,
+        timeout: Duration,
+    ) -> Result<GetAccountResponse> {
+        let params = GetAccountParams { refresh_token };
+        let response: GetAccountResponse =
+            session.request_typed(api::method::ACCOUNT_READ, Some(&params), timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn login_account(
+        &mut self,
+        session: &mut JsonRpcSession,
+        params: LoginAccountParams,
+        timeout: Duration,
+    ) -> Result<LoginAccountResponse> {
+        let response: LoginAccountResponse =
+            session.request_typed(api::method::ACCOUNT_LOGIN_START, Some(&params), timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn cancel_account_login(
+        &mut self,
+        session: &mut JsonRpcSession,
+        login_id: String,
+        timeout: Duration,
+    ) -> Result<CancelLoginAccountResponse> {
+        let params = CancelLoginAccountParams { login_id };
+        let response: CancelLoginAccountResponse =
+            session.request_typed(api::method::ACCOUNT_LOGIN_CANCEL, Some(&params), timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn logout_account(
+        &mut self,
+        session: &mut JsonRpcSession,
+        timeout: Duration,
+    ) -> Result<LogoutAccountResponse> {
+        let response: LogoutAccountResponse =
+            session.request_typed(api::method::ACCOUNT_LOGOUT, Option::<&()>::None, timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn read_account_rate_limits(
+        &mut self,
+        session: &mut JsonRpcSession,
+        timeout: Duration,
+    ) -> Result<GetAccountRateLimitsResponse> {
+        let response: GetAccountRateLimitsResponse = session.request_typed(
+            api::method::ACCOUNT_RATE_LIMITS_READ,
+            Option::<&()>::None,
+            timeout,
+        )?;
         self.apply_queued_notifications(session);
         Ok(response)
     }
@@ -552,9 +680,18 @@ impl ThreadService {
     }
 
     pub fn apply_queued_notifications(&mut self, session: &mut JsonRpcSession) {
-        for notification in session.drain_server_notifications() {
+        let _ = self.drain_and_apply_queued_notifications(session);
+    }
+
+    pub fn drain_and_apply_queued_notifications(
+        &mut self,
+        session: &mut JsonRpcSession,
+    ) -> Vec<ServerNotification> {
+        let notifications = session.drain_server_notifications();
+        for notification in notifications.iter().cloned() {
             self.apply_server_notification(notification);
         }
+        notifications
     }
 
     pub fn drain_queued_server_requests(

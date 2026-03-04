@@ -1,24 +1,37 @@
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::io;
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use codex_app_server_protocol::Account;
 use codex_app_server_protocol::AskForApproval;
+use codex_app_server_protocol::CancelLoginAccountStatus;
 use codex_app_server_protocol::CommandExecParams;
 use codex_app_server_protocol::CommandExecutionApprovalDecision;
 use codex_app_server_protocol::CommandExecutionRequestApprovalResponse;
+use codex_app_server_protocol::DynamicToolCallOutputContentItem;
 use codex_app_server_protocol::FileChangeApprovalDecision;
 use codex_app_server_protocol::FileChangeRequestApprovalResponse;
+use codex_app_server_protocol::LoginAccountParams;
+use codex_app_server_protocol::LoginAccountResponse;
+use codex_app_server_protocol::RateLimitSnapshot;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::ReviewTarget;
 use codex_app_server_protocol::SandboxMode;
 use codex_app_server_protocol::SandboxPolicy;
+use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::ThreadStartParams;
+use codex_app_server_protocol::ToolRequestUserInputAnswer;
+use codex_app_server_protocol::ToolRequestUserInputQuestion;
+use codex_app_server_protocol::ToolRequestUserInputResponse;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnSteerParams;
@@ -31,6 +44,7 @@ use hunk_codex::state::AiState;
 use hunk_codex::state::ServerRequestDecision;
 use hunk_codex::state::TurnStatus as StateTurnStatus;
 use hunk_codex::threads::ThreadService;
+use hunk_codex::tools::DynamicToolRegistry;
 use hunk_codex::ws_client::JsonRpcSession;
 use hunk_codex::ws_client::WebSocketEndpoint;
 
@@ -72,12 +86,43 @@ pub struct AiPendingApproval {
     pub grant_root: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiPendingUserInputQuestionOption {
+    pub label: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiPendingUserInputQuestion {
+    pub id: String,
+    pub header: String,
+    pub question: String,
+    pub is_other: bool,
+    pub is_secret: bool,
+    pub options: Vec<AiPendingUserInputQuestionOption>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiPendingUserInputRequest {
+    pub request_id: String,
+    pub thread_id: String,
+    pub turn_id: String,
+    pub item_id: String,
+    pub questions: Vec<AiPendingUserInputQuestion>,
+}
+
 #[derive(Debug, Clone)]
 pub struct AiSnapshot {
     pub state: AiState,
     pub active_thread_id: Option<String>,
     pub last_command_result: Option<String>,
     pub pending_approvals: Vec<AiPendingApproval>,
+    pub pending_user_inputs: Vec<AiPendingUserInputRequest>,
+    pub account: Option<Account>,
+    pub requires_openai_auth: bool,
+    pub pending_chatgpt_login_id: Option<String>,
+    pub pending_chatgpt_auth_url: Option<String>,
+    pub rate_limits: Option<RateLimitSnapshot>,
     pub mad_max_mode: bool,
 }
 
@@ -92,6 +137,8 @@ pub enum AiWorkerEvent {
 #[derive(Debug)]
 pub enum AiWorkerCommand {
     RefreshThreads,
+    RefreshAccount,
+    RefreshRateLimits,
     StartThread {
         prompt: Option<String>,
     },
@@ -117,9 +164,16 @@ pub enum AiWorkerCommand {
         request_id: String,
         decision: AiApprovalDecision,
     },
+    SubmitUserInput {
+        request_id: String,
+        answers: BTreeMap<String, Vec<String>>,
+    },
     SetMadMaxMode {
         enabled: bool,
     },
+    StartChatgptLogin,
+    CancelChatgptLogin,
+    LogoutAccount,
 }
 
 #[derive(Debug, Clone)]
@@ -163,14 +217,29 @@ struct AiWorkerRuntime {
     request_timeout: Duration,
     last_command_result: Option<String>,
     mad_max_mode: bool,
+    account: Option<Account>,
+    requires_openai_auth: bool,
+    pending_chatgpt_login_id: Option<String>,
+    pending_chatgpt_auth_url: Option<String>,
+    rate_limits: Option<RateLimitSnapshot>,
+    tool_registry: DynamicToolRegistry,
     pending_approvals: BTreeMap<String, PendingApproval>,
+    pending_user_inputs: BTreeMap<String, PendingUserInput>,
     next_approval_sequence: u64,
+    next_user_input_sequence: u64,
 }
 
 #[derive(Debug, Clone)]
 struct PendingApproval {
     request_id: RequestId,
     approval: AiPendingApproval,
+    sequence: u64,
+}
+
+#[derive(Debug, Clone)]
+struct PendingUserInput {
+    request_id: RequestId,
+    request: AiPendingUserInputRequest,
     sequence: u64,
 }
 
@@ -185,6 +254,16 @@ fn run_ai_worker(
         "Codex App Server connected over WebSocket".to_string(),
     ));
     runtime.refresh_thread_list()?;
+    if let Err(error) = runtime.refresh_account_state() {
+        let _ = event_tx.send(AiWorkerEvent::Status(format!(
+            "Unable to read account state: {error}"
+        )));
+    }
+    if let Err(error) = runtime.refresh_account_rate_limits() {
+        let _ = event_tx.send(AiWorkerEvent::Status(format!(
+            "Unable to read account rate limits: {error}"
+        )));
+    }
     runtime.emit_snapshot_after_sync(event_tx)?;
 
     loop {
@@ -233,8 +312,16 @@ impl AiWorkerRuntime {
             request_timeout: config.request_timeout,
             last_command_result: None,
             mad_max_mode: config.mad_max_mode,
+            account: None,
+            requires_openai_auth: false,
+            pending_chatgpt_login_id: None,
+            pending_chatgpt_auth_url: None,
+            rate_limits: None,
+            tool_registry: DynamicToolRegistry::new(),
             pending_approvals: BTreeMap::new(),
+            pending_user_inputs: BTreeMap::new(),
             next_approval_sequence: 1,
+            next_user_input_sequence: 1,
         })
     }
 
@@ -246,6 +333,14 @@ impl AiWorkerRuntime {
         match command {
             AiWorkerCommand::RefreshThreads => {
                 self.refresh_thread_list()?;
+                self.emit_snapshot_after_sync(event_tx)?;
+            }
+            AiWorkerCommand::RefreshAccount => {
+                self.refresh_account_state()?;
+                self.emit_snapshot_after_sync(event_tx)?;
+            }
+            AiWorkerCommand::RefreshRateLimits => {
+                self.refresh_account_rate_limits()?;
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::StartThread { prompt } => {
@@ -337,8 +432,87 @@ impl AiWorkerRuntime {
                 self.resolve_pending_approval(request_id.as_str(), decision)?;
                 self.emit_snapshot_after_sync(event_tx)?;
             }
+            AiWorkerCommand::SubmitUserInput {
+                request_id,
+                answers,
+            } => {
+                self.submit_pending_user_input(request_id.as_str(), answers)?;
+                self.emit_snapshot_after_sync(event_tx)?;
+            }
             AiWorkerCommand::SetMadMaxMode { enabled } => {
                 self.mad_max_mode = enabled;
+                self.emit_snapshot_after_sync(event_tx)?;
+            }
+            AiWorkerCommand::StartChatgptLogin => {
+                let response = self.service.login_account(
+                    &mut self.session,
+                    LoginAccountParams::Chatgpt,
+                    self.request_timeout,
+                )?;
+                match response {
+                    LoginAccountResponse::Chatgpt { login_id, auth_url } => {
+                        self.pending_chatgpt_login_id = Some(login_id.clone());
+                        self.pending_chatgpt_auth_url = Some(auth_url.clone());
+                        match open_url_in_system_browser(auth_url.as_str()) {
+                            Ok(()) => {
+                                let _ = event_tx.send(AiWorkerEvent::Status(
+                                    "Opened browser for ChatGPT login.".to_string(),
+                                ));
+                            }
+                            Err(_) => {
+                                let _ = event_tx.send(AiWorkerEvent::Status(format!(
+                                    "Open this URL to continue ChatGPT login: {auth_url}"
+                                )));
+                            }
+                        }
+                    }
+                    LoginAccountResponse::ApiKey { .. } => {
+                        let _ = event_tx.send(AiWorkerEvent::Status(
+                            "Server returned API-key login mode; expected ChatGPT login."
+                                .to_string(),
+                        ));
+                    }
+                    LoginAccountResponse::ChatgptAuthTokens { .. } => {
+                        let _ = event_tx.send(AiWorkerEvent::Status(
+                            "Server returned external auth token mode.".to_string(),
+                        ));
+                    }
+                }
+                self.emit_snapshot_after_sync(event_tx)?;
+            }
+            AiWorkerCommand::CancelChatgptLogin => {
+                if let Some(login_id) = self.pending_chatgpt_login_id.clone() {
+                    let result = self.service.cancel_account_login(
+                        &mut self.session,
+                        login_id.clone(),
+                        self.request_timeout,
+                    )?;
+                    self.pending_chatgpt_login_id = None;
+                    self.pending_chatgpt_auth_url = None;
+                    let message = match result.status {
+                        CancelLoginAccountStatus::Canceled => {
+                            format!("Canceled ChatGPT login attempt {login_id}.")
+                        }
+                        CancelLoginAccountStatus::NotFound => {
+                            "No active ChatGPT login attempt to cancel.".to_string()
+                        }
+                    };
+                    let _ = event_tx.send(AiWorkerEvent::Status(message));
+                } else {
+                    let _ = event_tx.send(AiWorkerEvent::Status(
+                        "No active ChatGPT login attempt.".to_string(),
+                    ));
+                }
+                self.emit_snapshot_after_sync(event_tx)?;
+            }
+            AiWorkerCommand::LogoutAccount => {
+                self.service
+                    .logout_account(&mut self.session, self.request_timeout)?;
+                self.pending_chatgpt_login_id = None;
+                self.pending_chatgpt_auth_url = None;
+                self.account = None;
+                self.rate_limits = None;
+                self.refresh_account_state()?;
                 self.emit_snapshot_after_sync(event_tx)?;
             }
         }
@@ -417,6 +591,32 @@ impl AiWorkerRuntime {
         Ok(())
     }
 
+    fn refresh_account_state(&mut self) -> Result<(), CodexIntegrationError> {
+        let response = self
+            .service
+            .read_account(&mut self.session, false, self.request_timeout)?;
+        self.account = response.account;
+        self.requires_openai_auth = response.requires_openai_auth;
+        Ok(())
+    }
+
+    fn refresh_account_rate_limits(&mut self) -> Result<(), CodexIntegrationError> {
+        match self
+            .service
+            .read_account_rate_limits(&mut self.session, self.request_timeout)
+        {
+            Ok(response) => {
+                self.rate_limits = Some(response.rate_limits);
+                Ok(())
+            }
+            Err(CodexIntegrationError::JsonRpcServerError { .. }) => {
+                self.rate_limits = None;
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     fn poll_notifications(
         &mut self,
         event_tx: &Sender<AiWorkerEvent>,
@@ -424,12 +624,17 @@ impl AiWorkerRuntime {
         let captured = self
             .session
             .poll_server_notifications(NOTIFICATION_POLL_TIMEOUT)?;
+        let mut notifications = Vec::new();
         if captured > 0 {
-            self.service.apply_queued_notifications(&mut self.session);
+            notifications = self
+                .service
+                .drain_and_apply_queued_notifications(&mut self.session);
         }
 
+        let account_changed =
+            self.sync_account_notifications(notifications.as_slice(), event_tx)?;
         let approvals_changed = self.sync_server_requests()?;
-        if captured == 0 && !approvals_changed {
+        if captured == 0 && !approvals_changed && !account_changed {
             return Ok(());
         }
 
@@ -446,12 +651,69 @@ impl AiWorkerRuntime {
         Ok(())
     }
 
+    fn sync_account_notifications(
+        &mut self,
+        notifications: &[ServerNotification],
+        event_tx: &Sender<AiWorkerEvent>,
+    ) -> Result<bool, CodexIntegrationError> {
+        let mut changed = false;
+        let mut refresh_account = false;
+        let mut refresh_rate_limits = false;
+
+        for notification in notifications {
+            match notification {
+                ServerNotification::AccountUpdated(_) => {
+                    refresh_account = true;
+                    refresh_rate_limits = true;
+                }
+                ServerNotification::AccountRateLimitsUpdated(update) => {
+                    self.rate_limits = Some(update.rate_limits.clone());
+                    changed = true;
+                }
+                ServerNotification::AccountLoginCompleted(completed) => {
+                    let message = apply_login_completed_state(
+                        &mut self.pending_chatgpt_login_id,
+                        &mut self.pending_chatgpt_auth_url,
+                        completed,
+                    );
+                    refresh_account = true;
+                    refresh_rate_limits = true;
+                    changed = true;
+                    let _ = event_tx.send(AiWorkerEvent::Status(message));
+                }
+                _ => {}
+            }
+        }
+
+        if refresh_account {
+            self.refresh_account_state()?;
+            changed = true;
+        }
+        if refresh_rate_limits {
+            self.refresh_account_rate_limits()?;
+            changed = true;
+        }
+        Ok(changed)
+    }
+
     fn sync_server_requests(&mut self) -> Result<bool, CodexIntegrationError> {
         let mut changed = false;
         if self.mad_max_mode && !self.pending_approvals.is_empty() {
             let queued = self.pending_approvals.keys().cloned().collect::<Vec<_>>();
             for request_id in queued {
                 self.resolve_pending_approval(request_id.as_str(), AiApprovalDecision::Accept)?;
+            }
+            changed = true;
+        }
+        if self.mad_max_mode && !self.pending_user_inputs.is_empty() {
+            let queued = self.pending_user_inputs.keys().cloned().collect::<Vec<_>>();
+            for request_id in queued {
+                let answers = self
+                    .pending_user_inputs
+                    .get(request_id.as_str())
+                    .map(|pending| default_user_input_answers(&pending.request.questions))
+                    .unwrap_or_default();
+                self.submit_pending_user_input(request_id.as_str(), answers)?;
             }
             changed = true;
         }
@@ -477,7 +739,7 @@ impl AiWorkerRuntime {
                         continue;
                     }
 
-                    let sequence = self.request_sequence_for_key(request_id_key.as_str());
+                    let sequence = self.request_sequence_for_approval(request_id_key.as_str());
                     let approval = AiPendingApproval {
                         request_id: request_id_key.clone(),
                         thread_id: params.thread_id,
@@ -517,7 +779,7 @@ impl AiWorkerRuntime {
                         continue;
                     }
 
-                    let sequence = self.request_sequence_for_key(request_id_key.as_str());
+                    let sequence = self.request_sequence_for_approval(request_id_key.as_str());
                     let approval = AiPendingApproval {
                         request_id: request_id_key.clone(),
                         thread_id: params.thread_id,
@@ -537,6 +799,64 @@ impl AiWorkerRuntime {
                             sequence,
                         },
                     );
+                    changed = true;
+                }
+                ServerRequest::ToolRequestUserInput { request_id, params } => {
+                    let request_id_key = request_id_key(&request_id);
+                    let mapped_questions = params
+                        .questions
+                        .into_iter()
+                        .map(map_pending_user_input_question)
+                        .collect::<Vec<_>>();
+                    if self.mad_max_mode {
+                        let answers = default_user_input_answers(&mapped_questions);
+                        self.session.respond_typed(
+                            request_id.clone(),
+                            &ToolRequestUserInputResponse {
+                                answers: map_user_input_answers(answers),
+                            },
+                        )?;
+                        changed = true;
+                        continue;
+                    }
+
+                    let sequence = self.request_sequence_for_user_input(request_id_key.as_str());
+                    let user_input = AiPendingUserInputRequest {
+                        request_id: request_id_key.clone(),
+                        thread_id: params.thread_id,
+                        turn_id: params.turn_id,
+                        item_id: params.item_id,
+                        questions: mapped_questions,
+                    };
+                    self.pending_user_inputs.insert(
+                        request_id_key,
+                        PendingUserInput {
+                            request_id,
+                            request: user_input,
+                            sequence,
+                        },
+                    );
+                    changed = true;
+                }
+                ServerRequest::DynamicToolCall { request_id, params } => {
+                    let response = self.tool_registry.execute(self.service.cwd(), &params);
+                    self.session.respond_typed(request_id, &response)?;
+                    let status = if response.success {
+                        format!("Tool '{}' completed.", params.tool)
+                    } else {
+                        let failure_reason = response
+                            .content_items
+                            .iter()
+                            .find_map(|content| match content {
+                                DynamicToolCallOutputContentItem::InputText { text } => {
+                                    Some(text.clone())
+                                }
+                                DynamicToolCallOutputContentItem::InputImage { .. } => None,
+                            })
+                            .unwrap_or_else(|| "tool execution failed".to_string());
+                        format!("Tool '{}' failed: {failure_reason}", params.tool)
+                    };
+                    self.last_command_result = Some(status);
                     changed = true;
                 }
                 _ => {}
@@ -587,6 +907,23 @@ impl AiWorkerRuntime {
         Ok(())
     }
 
+    fn submit_pending_user_input(
+        &mut self,
+        request_id: &str,
+        answers: BTreeMap<String, Vec<String>>,
+    ) -> Result<(), CodexIntegrationError> {
+        let Some(pending) = self.pending_user_inputs.remove(request_id) else {
+            return Ok(());
+        };
+
+        self.session.respond_typed(
+            pending.request_id,
+            &ToolRequestUserInputResponse {
+                answers: map_user_input_answers(answers),
+            },
+        )
+    }
+
     fn prune_resolved_approvals(&mut self) -> bool {
         let resolved_request_ids = self
             .service
@@ -609,7 +946,7 @@ impl AiWorkerRuntime {
         previous_count != self.pending_approvals.len()
     }
 
-    fn request_sequence_for_key(&mut self, request_id_key: &str) -> u64 {
+    fn request_sequence_for_approval(&mut self, request_id_key: &str) -> u64 {
         if let Some(existing) = self.pending_approvals.get(request_id_key) {
             return existing.sequence;
         }
@@ -619,8 +956,19 @@ impl AiWorkerRuntime {
         sequence
     }
 
+    fn request_sequence_for_user_input(&mut self, request_id_key: &str) -> u64 {
+        if let Some(existing) = self.pending_user_inputs.get(request_id_key) {
+            return existing.sequence;
+        }
+
+        let sequence = self.next_user_input_sequence;
+        self.next_user_input_sequence = self.next_user_input_sequence.saturating_add(1);
+        sequence
+    }
+
     fn emit_snapshot(&self, event_tx: &Sender<AiWorkerEvent>) {
         let pending_approvals = ordered_pending_approvals(&self.pending_approvals);
+        let pending_user_inputs = ordered_pending_user_inputs(&self.pending_user_inputs);
         let _ = event_tx.send(AiWorkerEvent::Snapshot(Box::new(AiSnapshot {
             state: self.service.state().clone(),
             active_thread_id: self
@@ -629,6 +977,12 @@ impl AiWorkerRuntime {
                 .map(ToOwned::to_owned),
             last_command_result: self.last_command_result.clone(),
             pending_approvals,
+            pending_user_inputs,
+            account: self.account.clone(),
+            requires_openai_auth: self.requires_openai_auth,
+            pending_chatgpt_login_id: self.pending_chatgpt_login_id.clone(),
+            pending_chatgpt_auth_url: self.pending_chatgpt_auth_url.clone(),
+            rate_limits: self.rate_limits.clone(),
             mad_max_mode: self.mad_max_mode,
         })));
     }
@@ -702,6 +1056,81 @@ fn ordered_pending_approvals(
         .collect::<Vec<_>>()
 }
 
+fn ordered_pending_user_inputs(
+    pending_user_inputs: &BTreeMap<String, PendingUserInput>,
+) -> Vec<AiPendingUserInputRequest> {
+    let mut requests = pending_user_inputs.values().cloned().collect::<Vec<_>>();
+    requests.sort_by_key(|pending| pending.sequence);
+    requests
+        .into_iter()
+        .map(|pending| pending.request)
+        .collect::<Vec<_>>()
+}
+
+fn map_pending_user_input_question(
+    question: ToolRequestUserInputQuestion,
+) -> AiPendingUserInputQuestion {
+    AiPendingUserInputQuestion {
+        id: question.id,
+        header: question.header,
+        question: question.question,
+        is_other: question.is_other,
+        is_secret: question.is_secret,
+        options: question
+            .options
+            .unwrap_or_default()
+            .into_iter()
+            .map(|option| AiPendingUserInputQuestionOption {
+                label: option.label,
+                description: option.description,
+            })
+            .collect::<Vec<_>>(),
+    }
+}
+
+fn default_user_input_answers(
+    questions: &[AiPendingUserInputQuestion],
+) -> BTreeMap<String, Vec<String>> {
+    questions
+        .iter()
+        .map(|question| {
+            let answer = question
+                .options
+                .first()
+                .map(|option| option.label.clone())
+                .unwrap_or_default();
+            (question.id.clone(), vec![answer])
+        })
+        .collect::<BTreeMap<_, _>>()
+}
+
+fn map_user_input_answers(
+    answers: BTreeMap<String, Vec<String>>,
+) -> HashMap<String, ToolRequestUserInputAnswer> {
+    answers
+        .into_iter()
+        .map(|(question_id, answers)| (question_id, ToolRequestUserInputAnswer { answers }))
+        .collect::<HashMap<_, _>>()
+}
+
+fn apply_login_completed_state(
+    pending_chatgpt_login_id: &mut Option<String>,
+    pending_chatgpt_auth_url: &mut Option<String>,
+    completed: &codex_app_server_protocol::AccountLoginCompletedNotification,
+) -> String {
+    *pending_chatgpt_login_id = None;
+    *pending_chatgpt_auth_url = None;
+    if completed.success {
+        return "ChatGPT login completed.".to_string();
+    }
+
+    completed
+        .error
+        .clone()
+        .map(|error| format!("ChatGPT login failed: {error}"))
+        .unwrap_or_else(|| "ChatGPT login failed.".to_string())
+}
+
 fn allocate_loopback_port() -> Result<u16, CodexIntegrationError> {
     let listener =
         TcpListener::bind(("127.0.0.1", 0)).map_err(CodexIntegrationError::HostProcessIo)?;
@@ -713,8 +1142,36 @@ fn allocate_loopback_port() -> Result<u16, CodexIntegrationError> {
     Ok(port)
 }
 
+fn open_url_in_system_browser(url: &str) -> Result<(), CodexIntegrationError> {
+    let mut command = if cfg!(target_os = "windows") {
+        let mut command = Command::new("cmd");
+        command.arg("/C").arg("start").arg("").arg(url);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(url);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(url);
+        command
+    };
+
+    let status = command
+        .status()
+        .map_err(CodexIntegrationError::HostProcessIo)?;
+    if status.success() {
+        return Ok(());
+    }
+
+    Err(CodexIntegrationError::HostProcessIo(io::Error::other(
+        format!("failed to open browser for URL '{url}'"),
+    )))
+}
+
 #[cfg(test)]
 mod ai_tests {
+    use codex_app_server_protocol::AccountLoginCompletedNotification;
     use codex_app_server_protocol::AskForApproval;
     use codex_app_server_protocol::SandboxMode;
     use codex_app_server_protocol::SandboxPolicy;
@@ -722,6 +1179,7 @@ mod ai_tests {
     use codex_app_server_protocol::TurnStartParams;
 
     use super::AiApprovalDecision;
+    use super::apply_login_completed_state;
     use super::apply_thread_start_policy;
     use super::apply_turn_start_policy;
     use super::command_exec_sandbox_policy;
@@ -778,5 +1236,43 @@ mod ai_tests {
             map_file_change_approval_decision(AiApprovalDecision::Decline),
             codex_app_server_protocol::FileChangeApprovalDecision::Decline
         );
+    }
+
+    #[test]
+    fn login_completion_clears_pending_state_on_success() {
+        let mut pending_login_id = Some("login-1".to_string());
+        let mut pending_auth_url = Some("https://auth.example/login".to_string());
+        let message = apply_login_completed_state(
+            &mut pending_login_id,
+            &mut pending_auth_url,
+            &AccountLoginCompletedNotification {
+                login_id: Some("login-1".to_string()),
+                success: true,
+                error: None,
+            },
+        );
+
+        assert_eq!(message, "ChatGPT login completed.");
+        assert_eq!(pending_login_id, None);
+        assert_eq!(pending_auth_url, None);
+    }
+
+    #[test]
+    fn login_completion_failure_prefers_server_error_message() {
+        let mut pending_login_id = Some("login-2".to_string());
+        let mut pending_auth_url = Some("https://auth.example/login".to_string());
+        let message = apply_login_completed_state(
+            &mut pending_login_id,
+            &mut pending_auth_url,
+            &AccountLoginCompletedNotification {
+                login_id: Some("login-2".to_string()),
+                success: false,
+                error: Some("token expired".to_string()),
+            },
+        );
+
+        assert_eq!(message, "ChatGPT login failed: token expired");
+        assert_eq!(pending_login_id, None);
+        assert_eq!(pending_auth_url, None);
     }
 }

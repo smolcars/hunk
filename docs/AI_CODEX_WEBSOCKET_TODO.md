@@ -228,17 +228,19 @@ A phase is complete only when all items below are done.
 ---
 
 ## Phase 9: Dynamic Tool Calls + request_user_input
-- [ ] Handle `item/tool/call` server request end-to-end.
-- [ ] Add dynamic tool registry in `hunk-codex`.
-- [ ] Implement v1 built-in tools needed for desktop workflow.
-- [ ] Handle `item/tool/requestUserInput` with structured UI forms.
-- [ ] Implement metadata discovery endpoints: `skills/list`, `skills/config/write`, `app/list`.
-- [ ] Ensure tool failures are returned as structured responses (no panics).
+- [x] Handle `item/tool/call` server request end-to-end.
+- [x] Add dynamic tool registry in `hunk-codex`.
+- [x] Implement v1 built-in tools needed for desktop workflow.
+- [x] Handle `item/tool/requestUserInput` with structured UI forms.
+- [x] Implement metadata discovery endpoints: `skills/list`, `skills/config/write`, `app/list`.
+- [x] Ensure tool failures are returned as structured responses (no panics).
 
 ### Required Tests
-- [ ] Integration test: dynamic tool call request/response round-trip.
-- [ ] Integration test: request-user-input round-trip and continuation.
-- [ ] Unit tests for tool argument validation + serialization.
+- [x] Integration test: dynamic tool call request/response round-trip.
+- [x] Integration test: request-user-input round-trip and continuation.
+- [x] Unit tests for tool argument validation + serialization.
+- [x] Deep phase review gate complete.
+- Phase 9 review note (2026-03-03): dynamic `item/tool/call` and `item/tool/requestUserInput` are now wired through the desktop worker with structured response handling, per-request UI selection/submit flow, and defensive failure mapping; `hunk-codex` now exposes a built-in tool registry (`workspace_summary`, `list_directory`, `read_file`) plus `skills/list`, `skills/config/write`, and `app/list` service endpoints, with integration coverage for both request round-trips and continuation events.
 
 ---
 

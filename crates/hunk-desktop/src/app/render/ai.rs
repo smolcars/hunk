@@ -32,6 +32,9 @@ impl DiffViewer {
         let pending_approvals = self.ai_visible_pending_approvals();
         let pending_approvals_for_timeline = pending_approvals.clone();
         let pending_approval_count = pending_approvals.len();
+        let pending_user_inputs = self.ai_visible_pending_user_inputs();
+        let pending_user_inputs_for_timeline = pending_user_inputs.clone();
+        let pending_user_input_count = pending_user_inputs.len();
         let selected_thread_id = self.current_ai_thread_id();
         let in_progress_turn = selected_thread_id
             .as_ref()
@@ -90,6 +93,16 @@ impl DiffViewer {
                                         cx.theme().muted_foreground
                                     })
                                     .child(format!("Approvals: {pending_approval_count}")),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(if pending_user_input_count > 0 {
+                                        cx.theme().warning
+                                    } else {
+                                        cx.theme().muted_foreground
+                                    })
+                                    .child(format!("Inputs: {pending_user_input_count}")),
                             )
                             .child({
                                 let view = view.clone();
@@ -373,13 +386,24 @@ impl DiffViewer {
                                                                     cx.theme().muted_foreground,
                                                                 )
                                                                 .whitespace_normal()
-                                                                .child(status),
+                                                            .child(status),
                                                         )
                                                     },
                                                 )
+                                                .child(render_ai_account_panel(
+                                                    self.ai_account.as_ref(),
+                                                    self.ai_requires_openai_auth,
+                                                    self.ai_pending_chatgpt_login_id.as_deref(),
+                                                    self.ai_pending_chatgpt_auth_url.as_deref(),
+                                                    self.ai_rate_limits.as_ref(),
+                                                    view.clone(),
+                                                    is_dark,
+                                                    cx,
+                                                ))
                                                 .when(
                                                     self.ai_mad_max_mode
-                                                        || !pending_approvals_for_timeline.is_empty(),
+                                                        || !pending_approvals_for_timeline.is_empty()
+                                                        || !pending_user_inputs_for_timeline.is_empty(),
                                                     |this| {
                                                         this.child(
                                                             v_flex()
@@ -598,6 +622,23 @@ impl DiffViewer {
                                                                                             },
                                                                                         ),
                                                                                 ),
+                                                                        )
+                                                                    },
+                                                                )
+                                                                .when(
+                                                                    !pending_user_inputs_for_timeline
+                                                                        .is_empty(),
+                                                                    |this| {
+                                                                        this.child(
+                                                                            render_ai_pending_user_inputs_panel(
+                                                                                pending_user_inputs_for_timeline
+                                                                                    .as_slice(),
+                                                                                &self
+                                                                                    .ai_pending_user_input_answers,
+                                                                                view.clone(),
+                                                                                is_dark,
+                                                                                cx,
+                                                                            ),
                                                                         )
                                                                     },
                                                                 ),

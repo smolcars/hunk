@@ -63,6 +63,9 @@ pub mod method {
     pub const THREAD_ROLLBACK: &str = "thread/rollback";
     pub const THREAD_LOADED_LIST: &str = "thread/loaded/list";
     pub const THREAD_READ: &str = "thread/read";
+    pub const SKILLS_LIST: &str = "skills/list";
+    pub const SKILLS_CONFIG_WRITE: &str = "skills/config/write";
+    pub const APP_LIST: &str = "app/list";
 
     pub const TURN_START: &str = "turn/start";
     pub const TURN_STEER: &str = "turn/steer";
@@ -71,7 +74,9 @@ pub mod method {
 
     pub const ACCOUNT_READ: &str = "account/read";
     pub const ACCOUNT_LOGIN_START: &str = "account/login/start";
+    pub const ACCOUNT_LOGIN_CANCEL: &str = "account/login/cancel";
     pub const ACCOUNT_LOGOUT: &str = "account/logout";
+    pub const ACCOUNT_RATE_LIMITS_READ: &str = "account/rateLimits/read";
 
     pub const COMMAND_EXEC: &str = "command/exec";
 }
