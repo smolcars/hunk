@@ -24,6 +24,7 @@ use codex_app_server_protocol::LoginAccountParams;
 use codex_app_server_protocol::LoginAccountResponse;
 use codex_app_server_protocol::Model;
 use codex_app_server_protocol::RateLimitSnapshot;
+use codex_app_server_protocol::ReadOnlyAccess;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::ReviewTarget;
@@ -1370,8 +1371,9 @@ fn apply_thread_start_policy(mad_max_mode: bool, params: &mut ThreadStartParams)
     if mad_max_mode {
         params.approval_policy = Some(AskForApproval::Never);
         params.sandbox = Some(SandboxMode::DangerFullAccess);
-    } else if params.approval_policy.is_none() {
+    } else {
         params.approval_policy = Some(AskForApproval::OnRequest);
+        params.sandbox = Some(non_mad_max_thread_sandbox_mode());
     }
 }
 
@@ -1379,8 +1381,23 @@ fn apply_turn_start_policy(mad_max_mode: bool, params: &mut TurnStartParams) {
     if mad_max_mode {
         params.approval_policy = Some(AskForApproval::Never);
         params.sandbox_policy = Some(SandboxPolicy::DangerFullAccess);
-    } else if params.approval_policy.is_none() {
+    } else {
         params.approval_policy = Some(AskForApproval::OnRequest);
+        params.sandbox_policy = Some(non_mad_max_turn_sandbox_policy());
+    }
+}
+
+fn non_mad_max_thread_sandbox_mode() -> SandboxMode {
+    SandboxMode::WorkspaceWrite
+}
+
+fn non_mad_max_turn_sandbox_policy() -> SandboxPolicy {
+    SandboxPolicy::WorkspaceWrite {
+        writable_roots: Vec::new(),
+        read_only_access: ReadOnlyAccess::FullAccess,
+        network_access: false,
+        exclude_tmpdir_env_var: false,
+        exclude_slash_tmp: false,
     }
 }
 
@@ -1583,7 +1600,19 @@ mod ai_tests {
         let mut params = ThreadStartParams::default();
         apply_thread_start_policy(false, &mut params);
         assert_eq!(params.approval_policy, Some(AskForApproval::OnRequest));
-        assert_eq!(params.sandbox, None);
+        assert_eq!(params.sandbox, Some(SandboxMode::WorkspaceWrite));
+    }
+
+    #[test]
+    fn thread_policy_resets_danger_settings_when_not_mad_max() {
+        let mut params = ThreadStartParams {
+            approval_policy: Some(AskForApproval::Never),
+            sandbox: Some(SandboxMode::DangerFullAccess),
+            ..ThreadStartParams::default()
+        };
+        apply_thread_start_policy(false, &mut params);
+        assert_eq!(params.approval_policy, Some(AskForApproval::OnRequest));
+        assert_eq!(params.sandbox, Some(SandboxMode::WorkspaceWrite));
     }
 
     #[test]
@@ -1600,6 +1629,33 @@ mod ai_tests {
         apply_turn_start_policy(true, &mut params);
         assert_eq!(params.approval_policy, Some(AskForApproval::Never));
         assert_eq!(params.sandbox_policy, Some(SandboxPolicy::DangerFullAccess));
+    }
+
+    #[test]
+    fn turn_policy_defaults_to_on_request_and_workspace_write_when_not_mad_max() {
+        let mut params = TurnStartParams::default();
+        apply_turn_start_policy(false, &mut params);
+        assert_eq!(params.approval_policy, Some(AskForApproval::OnRequest));
+        assert_eq!(
+            params.sandbox_policy,
+            Some(super::non_mad_max_turn_sandbox_policy())
+        );
+    }
+
+    #[test]
+    fn turn_policy_resets_danger_settings_when_not_mad_max() {
+        let mut params = TurnStartParams {
+            thread_id: "thread-1".to_string(),
+            approval_policy: Some(AskForApproval::Never),
+            sandbox_policy: Some(SandboxPolicy::DangerFullAccess),
+            ..TurnStartParams::default()
+        };
+        apply_turn_start_policy(false, &mut params);
+        assert_eq!(params.approval_policy, Some(AskForApproval::OnRequest));
+        assert_eq!(
+            params.sandbox_policy,
+            Some(super::non_mad_max_turn_sandbox_policy())
+        );
     }
 
     #[test]
