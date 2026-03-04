@@ -12,6 +12,7 @@ impl DiffViewer {
         if self.ai_command_tx.is_some() {
             return;
         }
+        self.join_ai_worker_thread_if_finished("starting AI runtime");
 
         self.sync_ai_workspace_preferences_from_state();
 
@@ -664,6 +665,35 @@ impl DiffViewer {
         std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".codex"))
     }
 
+    pub(super) fn shutdown_ai_worker_blocking(&mut self) {
+        if let Some(command_tx) = self.ai_command_tx.take() {
+            let _ = command_tx.send(AiWorkerCommand::Shutdown);
+        }
+        self.join_ai_worker_thread("dropping DiffViewer");
+    }
+
+    fn join_ai_worker_thread_if_finished(&mut self, reason: &str) {
+        let Some(worker) = self.ai_worker_thread.take() else {
+            return;
+        };
+        if !worker.is_finished() {
+            self.ai_worker_thread = Some(worker);
+            return;
+        }
+        if let Err(error) = worker.join() {
+            error!("failed to join completed AI worker thread during {reason}: {error:?}");
+        }
+    }
+
+    fn join_ai_worker_thread(&mut self, reason: &str) {
+        let Some(worker) = self.ai_worker_thread.take() else {
+            return;
+        };
+        if let Err(error) = worker.join() {
+            error!("failed to join AI worker thread during {reason}: {error:?}");
+        }
+    }
+
     fn send_ai_worker_command(&mut self, command: AiWorkerCommand, cx: &mut Context<Self>) -> bool {
         if self.ai_command_tx.is_none() {
             self.ensure_ai_runtime_started(cx);
@@ -688,6 +718,7 @@ impl DiffViewer {
         self.ai_connection_state = AiConnectionState::Failed;
         self.ai_error_message = Some("AI worker channel disconnected.".to_string());
         self.ai_command_tx = None;
+        self.join_ai_worker_thread("worker channel disconnect");
         cx.notify();
         false
     }
@@ -720,7 +751,7 @@ impl DiffViewer {
                                         return;
                                     }
                                     this.ai_command_tx = None;
-                                    this.ai_worker_thread = None;
+                                    this.join_ai_worker_thread("event stream disconnect");
                                     this.ai_pending_approvals.clear();
                                     this.ai_pending_user_inputs.clear();
                                     this.ai_pending_user_input_answers.clear();
@@ -791,7 +822,7 @@ impl DiffViewer {
                 self.ai_error_message = Some(message.clone());
                 self.ai_status_message = Some("Codex integration failed".to_string());
                 self.ai_command_tx = None;
-                self.ai_worker_thread = None;
+                self.join_ai_worker_thread("fatal worker event");
                 self.ai_pending_approvals.clear();
                 self.ai_pending_user_inputs.clear();
                 self.ai_pending_user_input_answers.clear();

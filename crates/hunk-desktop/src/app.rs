@@ -1052,3 +1052,9 @@ struct DiffViewer {
     editor_markdown_preview_revision: usize,
     editor_markdown_preview: bool,
 }
+
+impl Drop for DiffViewer {
+    fn drop(&mut self) {
+        self.shutdown_ai_worker_blocking();
+    }
+}

@@ -202,6 +202,7 @@ pub enum AiWorkerCommand {
     StartChatgptLogin,
     CancelChatgptLogin,
     LogoutAccount,
+    Shutdown,
 }
 
 #[derive(Debug, Clone)]
@@ -308,6 +309,7 @@ fn run_ai_worker(
 
     loop {
         match command_rx.recv_timeout(COMMAND_POLL_INTERVAL) {
+            Ok(AiWorkerCommand::Shutdown) => break,
             Ok(command) => {
                 if let Err(error) = runtime.handle_command(command, event_tx) {
                     let _ = event_tx.send(AiWorkerEvent::Error(error.to_string()));
@@ -560,6 +562,7 @@ impl AiWorkerRuntime {
                 self.refresh_account_state()?;
                 self.emit_snapshot_after_sync(event_tx)?;
             }
+            AiWorkerCommand::Shutdown => {}
         }
 
         Ok(())
