@@ -3,8 +3,9 @@ use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThreadLifecycleStatus {
-    #[default]
     Active,
+    #[default]
+    Idle,
     NotLoaded,
     Archived,
     Closed,
@@ -229,7 +230,7 @@ impl AiState {
                             id: thread_id,
                             cwd: cwd.clone(),
                             title: title.clone(),
-                            status: ThreadLifecycleStatus::Active,
+                            status: ThreadLifecycleStatus::Idle,
                             updated_at: 0,
                             last_sequence: 0,
                         });
@@ -240,7 +241,6 @@ impl AiState {
 
                 thread.cwd = cwd;
                 thread.title = title;
-                thread.status = ThreadLifecycleStatus::Active;
                 if let Some(updated_at) = updated_at {
                     thread.updated_at = updated_at;
                 }
@@ -254,7 +254,7 @@ impl AiState {
                 self.apply_thread_status(sequence, thread_id, ThreadLifecycleStatus::Archived)
             }
             ReducerEvent::ThreadUnarchived { thread_id } => {
-                self.apply_thread_status(sequence, thread_id, ThreadLifecycleStatus::Active)
+                self.apply_thread_status(sequence, thread_id, ThreadLifecycleStatus::Idle)
             }
             ReducerEvent::TurnStarted { thread_id, turn_id } => {
                 self.ensure_thread_exists(&thread_id);
@@ -274,6 +274,8 @@ impl AiState {
 
                 turn.status = TurnStatus::InProgress;
                 turn.last_sequence = sequence;
+                let thread_id = turn.thread_id.clone();
+                self.mark_thread_active(thread_id.as_str(), sequence);
                 ApplyOutcome::Applied
             }
             ReducerEvent::TurnCompleted { turn_id } => {
@@ -293,6 +295,8 @@ impl AiState {
 
                 turn.status = TurnStatus::Completed;
                 turn.last_sequence = sequence;
+                let thread_id = turn.thread_id.clone();
+                self.mark_thread_idle_if_no_in_progress(thread_id.as_str(), sequence);
                 ApplyOutcome::Applied
             }
             ReducerEvent::ItemStarted {
@@ -440,7 +444,7 @@ impl AiState {
                 id: thread_id.to_string(),
                 cwd: String::new(),
                 title: None,
-                status: ThreadLifecycleStatus::Active,
+                status: ThreadLifecycleStatus::Idle,
                 updated_at: 0,
                 last_sequence: 0,
             });
@@ -455,5 +459,48 @@ impl AiState {
                 status: TurnStatus::InProgress,
                 last_sequence: 0,
             });
+    }
+
+    fn mark_thread_active(&mut self, thread_id: &str, sequence: u64) {
+        let Some(thread) = self.threads.get_mut(thread_id) else {
+            return;
+        };
+        if matches!(
+            thread.status,
+            ThreadLifecycleStatus::Archived
+                | ThreadLifecycleStatus::NotLoaded
+                | ThreadLifecycleStatus::Closed
+        ) || sequence < thread.last_sequence
+        {
+            return;
+        }
+        thread.status = ThreadLifecycleStatus::Active;
+        thread.last_sequence = sequence;
+    }
+
+    fn mark_thread_idle_if_no_in_progress(&mut self, thread_id: &str, sequence: u64) {
+        if thread_id.is_empty() {
+            return;
+        }
+        let has_in_progress_turn = self
+            .turns
+            .values()
+            .any(|turn| turn.thread_id == thread_id && turn.status == TurnStatus::InProgress);
+        if has_in_progress_turn {
+            return;
+        }
+
+        let Some(thread) = self.threads.get_mut(thread_id) else {
+            return;
+        };
+        if !matches!(
+            thread.status,
+            ThreadLifecycleStatus::Active | ThreadLifecycleStatus::Idle
+        ) || sequence < thread.last_sequence
+        {
+            return;
+        }
+        thread.status = ThreadLifecycleStatus::Idle;
+        thread.last_sequence = sequence;
     }
 }

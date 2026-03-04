@@ -158,7 +158,7 @@ fn unsubscribe_semantics_apply_not_loaded_status_on_unsubscribed() {
             .get("thread-unsub")
             .expect("thread should exist")
             .status,
-        ThreadLifecycleStatus::Active
+        ThreadLifecycleStatus::Idle
     );
 
     let first = service
@@ -172,7 +172,7 @@ fn unsubscribe_semantics_apply_not_loaded_status_on_unsubscribed() {
             .get("thread-unsub")
             .expect("thread should exist")
             .status,
-        ThreadLifecycleStatus::Active
+        ThreadLifecycleStatus::Idle
     );
 
     let second = service
@@ -225,7 +225,7 @@ fn archive_and_unarchive_round_trip_updates_state() {
             .get("thread-archive")
             .expect("thread should exist")
             .status,
-        ThreadLifecycleStatus::Active
+        ThreadLifecycleStatus::Idle
     );
 
     server.join();

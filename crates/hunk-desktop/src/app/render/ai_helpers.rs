@@ -12,10 +12,9 @@ fn ai_connection_label(
 
 fn ai_thread_status_label(
     status: ThreadLifecycleStatus,
-    has_in_progress_turn: bool,
     cx: &mut Context<DiffViewer>,
 ) -> (&'static str, Hsla) {
-    let label = ai_thread_status_text(status, has_in_progress_turn);
+    let label = ai_thread_status_text(status);
     let color = match label {
         "active" => cx.theme().success,
         "archived" => cx.theme().warning,
@@ -24,15 +23,10 @@ fn ai_thread_status_label(
     (label, color)
 }
 
-fn ai_thread_status_text(
-    status: ThreadLifecycleStatus,
-    has_in_progress_turn: bool,
-) -> &'static str {
-    if has_in_progress_turn {
-        return "active";
-    }
+fn ai_thread_status_text(status: ThreadLifecycleStatus) -> &'static str {
     match status {
-        ThreadLifecycleStatus::Active => "idle",
+        ThreadLifecycleStatus::Active => "active",
+        ThreadLifecycleStatus::Idle => "idle",
         ThreadLifecycleStatus::NotLoaded => "not loaded",
         ThreadLifecycleStatus::Archived => "archived",
         ThreadLifecycleStatus::Closed => "closed",
@@ -1046,17 +1040,11 @@ mod ai_helper_tests {
     }
 
     #[test]
-    fn thread_status_text_is_active_only_when_turn_is_in_progress() {
+    fn thread_status_text_maps_lifecycle_states() {
+        assert_eq!(ai_thread_status_text(ThreadLifecycleStatus::Active), "active");
+        assert_eq!(ai_thread_status_text(ThreadLifecycleStatus::Idle), "idle");
         assert_eq!(
-            ai_thread_status_text(ThreadLifecycleStatus::Active, true),
-            "active"
-        );
-        assert_eq!(
-            ai_thread_status_text(ThreadLifecycleStatus::Active, false),
-            "idle"
-        );
-        assert_eq!(
-            ai_thread_status_text(ThreadLifecycleStatus::NotLoaded, false),
+            ai_thread_status_text(ThreadLifecycleStatus::NotLoaded),
             "not loaded"
         );
     }

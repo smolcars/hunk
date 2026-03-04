@@ -1067,10 +1067,9 @@ impl ThreadService {
 
 fn lifecycle_status_from_thread_status(status: &ThreadStatus) -> ThreadLifecycleStatus {
     match status {
+        ThreadStatus::Active { .. } => ThreadLifecycleStatus::Active,
+        ThreadStatus::Idle | ThreadStatus::SystemError => ThreadLifecycleStatus::Idle,
         ThreadStatus::NotLoaded => ThreadLifecycleStatus::NotLoaded,
-        ThreadStatus::Idle | ThreadStatus::SystemError | ThreadStatus::Active { .. } => {
-            ThreadLifecycleStatus::Active
-        }
     }
 }
 

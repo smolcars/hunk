@@ -36,13 +36,6 @@ impl DiffViewer {
         let pending_user_inputs_for_timeline = pending_user_inputs.clone();
         let pending_user_input_count = pending_user_inputs.len();
         let selected_thread_id = self.current_ai_thread_id();
-        let in_progress_thread_ids = self
-            .ai_state_snapshot
-            .turns
-            .values()
-            .filter(|turn| turn.status == TurnStatus::InProgress)
-            .map(|turn| turn.thread_id.clone())
-            .collect::<std::collections::BTreeSet<_>>();
         let in_progress_turn = selected_thread_id
             .as_ref()
             .and_then(|thread_id| self.current_ai_in_progress_turn_id(thread_id.as_str()));
@@ -323,8 +316,6 @@ impl DiffViewer {
                                                                         let (status_label, status_color) =
                                                                             ai_thread_status_label(
                                                                                 thread.status,
-                                                                                in_progress_thread_ids
-                                                                                    .contains(thread.id.as_str()),
                                                                                 cx,
                                                                             );
                                                                         let view = view.clone();

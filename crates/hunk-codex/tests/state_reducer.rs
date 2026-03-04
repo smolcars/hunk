@@ -85,7 +85,7 @@ fn ordered_stream_application_updates_all_entities() {
 
     let thread = state.threads.get("t1").expect("thread must exist");
     assert_eq!(thread.cwd, "/repo");
-    assert_eq!(thread.status, ThreadLifecycleStatus::Active);
+    assert_eq!(thread.status, ThreadLifecycleStatus::Idle);
 
     let turn = state.turns.get("r1").expect("turn must exist");
     assert_eq!(turn.status, TurnStatus::Completed);
@@ -176,7 +176,7 @@ fn out_of_order_and_duplicate_events_are_idempotent() {
     ]);
 
     let thread = state.threads.get("t1").expect("thread must exist");
-    assert_eq!(thread.status, ThreadLifecycleStatus::Active);
+    assert_eq!(thread.status, ThreadLifecycleStatus::Closed);
 
     let item = state.items.get("i1").expect("item must exist");
     assert_eq!(item.content, "AB");
