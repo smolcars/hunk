@@ -41,10 +41,16 @@ pub fn find_rollout_path_for_thread(
 
     let mut stack = vec![sessions_dir];
     let suffix = format!("-{thread_id}.jsonl");
+    let mut latest_match: Option<PathBuf> = None;
 
     while let Some(directory) = stack.pop() {
-        for entry in std::fs::read_dir(directory)? {
-            let entry = entry?;
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries {
+            let Ok(entry) = entry else {
+                continue;
+            };
             let path = entry.path();
             if path.is_dir() {
                 stack.push(path);
@@ -55,12 +61,19 @@ pub fn find_rollout_path_for_thread(
                 continue;
             };
             if file_name.starts_with("rollout-") && file_name.ends_with(suffix.as_str()) {
-                return Ok(Some(path));
+                let should_replace = latest_match
+                    .as_ref()
+                    .and_then(|current| current.file_name())
+                    .and_then(|name| name.to_str())
+                    .is_none_or(|current| file_name > current);
+                if should_replace {
+                    latest_match = Some(path);
+                }
             }
         }
     }
 
-    Ok(None)
+    Ok(latest_match)
 }
 
 pub fn parse_rollout_fallback(path: &Path) -> io::Result<Vec<RolloutFallbackTurn>> {
@@ -313,6 +326,32 @@ mod tests {
         assert_eq!(resolved, Some(target.clone()));
 
         std::fs::remove_file(target).expect("test rollout file should be removed");
+        std::fs::remove_dir_all(root).expect("test root should be removed");
+    }
+
+    #[test]
+    fn rollout_path_lookup_prefers_latest_rollout_for_same_thread() {
+        let unique = format!(
+            "hunk-ai-rollout-test-latest-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time should be available")
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        let sessions = root.join("sessions").join("2026").join("03").join("04");
+        std::fs::create_dir_all(&sessions).expect("sessions directories should be created");
+        let older = sessions.join("rollout-2026-03-04T10-00-00-thread-xyz.jsonl");
+        let newer = sessions.join("rollout-2026-03-04T12-00-00-thread-xyz.jsonl");
+        std::fs::write(&older, b"").expect("older rollout file should be created");
+        std::fs::write(&newer, b"").expect("newer rollout file should be created");
+
+        let resolved = find_rollout_path_for_thread(root.as_path(), "thread-xyz")
+            .expect("lookup should succeed");
+        assert_eq!(resolved, Some(newer.clone()));
+
+        std::fs::remove_file(older).expect("older rollout file should be removed");
+        std::fs::remove_file(newer).expect("newer rollout file should be removed");
         std::fs::remove_dir_all(root).expect("test root should be removed");
     }
 }

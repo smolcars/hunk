@@ -306,7 +306,7 @@ impl AiState {
                     .entry(item_id.clone())
                     .or_insert_with(|| ItemSummary {
                         id: item_id,
-                        turn_id,
+                        turn_id: turn_id.clone(),
                         kind: kind.clone(),
                         status: ItemStatus::Started,
                         content: String::new(),
@@ -317,6 +317,7 @@ impl AiState {
                     return ApplyOutcome::Stale;
                 }
 
+                item.turn_id = turn_id;
                 item.kind = kind;
                 item.status = ItemStatus::Started;
                 item.last_sequence = sequence;

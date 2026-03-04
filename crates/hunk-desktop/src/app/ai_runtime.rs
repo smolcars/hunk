@@ -684,15 +684,31 @@ impl AiWorkerRuntime {
     }
 
     fn hydrate_thread_from_rollout_fallback_if_needed(&mut self, thread_id: &str) {
-        if !thread_needs_rollout_fallback(self.service.state(), thread_id) {
+        let missing_turn_ids = thread_missing_item_turn_ids(self.service.state(), thread_id);
+        if missing_turn_ids.is_empty() {
             return;
         }
 
-        let rollout_path = match find_rollout_path_for_thread(self.codex_home.as_path(), thread_id)
+        let mut rollout_path =
+            match find_rollout_path_for_thread(self.codex_home.as_path(), thread_id) {
+                Ok(Some(path)) => Some(path),
+                Ok(None) => None,
+                Err(_) => None,
+            };
+        if rollout_path.is_none()
+            && let Some(home) = std::env::var_os("HOME")
         {
-            Ok(Some(path)) => path,
-            Ok(None) => return,
-            Err(_) => return,
+            let home_codex = PathBuf::from(home).join(".codex");
+            if home_codex != self.codex_home {
+                rollout_path = match find_rollout_path_for_thread(home_codex.as_path(), thread_id) {
+                    Ok(Some(path)) => Some(path),
+                    Ok(None) => None,
+                    Err(_) => None,
+                };
+            }
+        }
+        let Some(rollout_path) = rollout_path else {
+            return;
         };
         let parsed_turns = match parse_rollout_fallback(rollout_path.as_path()) {
             Ok(turns) => turns,
@@ -702,24 +718,30 @@ impl AiWorkerRuntime {
             return;
         }
 
-        self.service.ingest_rollout_fallback_history(
-            thread_id.to_string(),
-            &parsed_turns
-                .into_iter()
-                .map(|turn| RolloutFallbackTurn {
-                    turn_id: turn.turn_id,
-                    completed: turn.completed,
-                    items: turn
-                        .items
-                        .into_iter()
-                        .map(|item| RolloutFallbackItem {
-                            kind: item.kind,
-                            content: item.content,
-                        })
-                        .collect(),
-                })
-                .collect::<Vec<_>>(),
-        );
+        let fallback_turns = parsed_turns
+            .into_iter()
+            .filter(|turn| {
+                missing_turn_ids.contains(turn.turn_id.as_str()) && !turn.items.is_empty()
+            })
+            .map(|turn| RolloutFallbackTurn {
+                turn_id: turn.turn_id,
+                completed: turn.completed,
+                items: turn
+                    .items
+                    .into_iter()
+                    .map(|item| RolloutFallbackItem {
+                        kind: item.kind,
+                        content: item.content,
+                    })
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        if fallback_turns.is_empty() {
+            return;
+        }
+
+        self.service
+            .ingest_rollout_fallback_history(thread_id.to_string(), fallback_turns.as_slice());
     }
 
     fn apply_turn_session_overrides(
@@ -1270,7 +1292,7 @@ fn split_command_line(raw: &str) -> Vec<String> {
     raw.split_whitespace().map(ToOwned::to_owned).collect()
 }
 
-fn thread_needs_rollout_fallback(state: &AiState, thread_id: &str) -> bool {
+fn thread_missing_item_turn_ids(state: &AiState, thread_id: &str) -> BTreeSet<String> {
     let turn_ids = state
         .turns
         .values()
@@ -1278,13 +1300,19 @@ fn thread_needs_rollout_fallback(state: &AiState, thread_id: &str) -> bool {
         .map(|turn| turn.id.clone())
         .collect::<BTreeSet<_>>();
     if turn_ids.is_empty() {
-        return false;
+        return BTreeSet::new();
     }
 
-    !state
+    let turns_with_items = state
         .items
         .values()
-        .any(|item| turn_ids.contains(item.turn_id.as_str()))
+        .filter(|item| turn_ids.contains(item.turn_id.as_str()))
+        .map(|item| item.turn_id.clone())
+        .collect::<BTreeSet<_>>();
+    turn_ids
+        .into_iter()
+        .filter(|turn_id| !turns_with_items.contains(turn_id))
+        .collect()
 }
 
 fn should_retry_stale_turn_after_steer_error(error: &CodexIntegrationError) -> bool {
@@ -1501,7 +1529,7 @@ mod ai_tests {
     use super::map_file_change_approval_decision;
     use super::should_retry_stale_turn_after_steer_error;
     use super::split_command_line;
-    use super::thread_needs_rollout_fallback;
+    use super::thread_missing_item_turn_ids;
 
     #[test]
     fn split_command_line_handles_repeated_whitespace() {
@@ -1616,7 +1644,11 @@ mod ai_tests {
                 turn_id: "turn-1".to_string(),
             },
         });
-        assert!(thread_needs_rollout_fallback(&state, "thread-1"));
+        let missing_turns = thread_missing_item_turn_ids(&state, "thread-1");
+        assert_eq!(
+            missing_turns.into_iter().collect::<Vec<_>>(),
+            vec!["turn-1".to_string()]
+        );
     }
 
     #[test]
@@ -1639,6 +1671,42 @@ mod ai_tests {
                 kind: "agentMessage".to_string(),
             },
         });
-        assert!(!thread_needs_rollout_fallback(&state, "thread-1"));
+        assert!(thread_missing_item_turn_ids(&state, "thread-1").is_empty());
+    }
+
+    #[test]
+    fn thread_rollout_fallback_targets_only_turns_missing_items() {
+        let mut state = AiState::default();
+        let _ = state.apply_stream_event(StreamEvent {
+            sequence: 1,
+            dedupe_key: None,
+            payload: ReducerEvent::TurnStarted {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+            },
+        });
+        let _ = state.apply_stream_event(StreamEvent {
+            sequence: 2,
+            dedupe_key: None,
+            payload: ReducerEvent::TurnStarted {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-2".to_string(),
+            },
+        });
+        let _ = state.apply_stream_event(StreamEvent {
+            sequence: 3,
+            dedupe_key: None,
+            payload: ReducerEvent::ItemStarted {
+                turn_id: "turn-2".to_string(),
+                item_id: "item-2".to_string(),
+                kind: "agentMessage".to_string(),
+            },
+        });
+
+        let missing_turns = thread_missing_item_turn_ids(&state, "thread-1");
+        assert_eq!(
+            missing_turns.into_iter().collect::<Vec<_>>(),
+            vec!["turn-1".to_string()]
+        );
     }
 }

@@ -194,6 +194,54 @@ fn out_of_order_and_duplicate_events_are_idempotent() {
 }
 
 #[test]
+fn item_start_backfills_turn_association_after_delta_first() {
+    let mut state = AiState::default();
+
+    state.apply_stream_events(vec![
+        event(
+            1,
+            Some("thread-start:t1"),
+            ReducerEvent::ThreadStarted {
+                thread_id: "t1".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                updated_at: None,
+            },
+        ),
+        event(
+            2,
+            Some("turn-start:r1"),
+            ReducerEvent::TurnStarted {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+            },
+        ),
+        event(
+            3,
+            Some("item-delta:i1"),
+            ReducerEvent::ItemDelta {
+                item_id: "i1".to_string(),
+                delta: "partial".to_string(),
+            },
+        ),
+        event(
+            4,
+            Some("item-start:i1"),
+            ReducerEvent::ItemStarted {
+                turn_id: "r1".to_string(),
+                item_id: "i1".to_string(),
+                kind: "agentMessage".to_string(),
+            },
+        ),
+    ]);
+
+    let item = state.items.get("i1").expect("item should exist");
+    assert_eq!(item.turn_id, "r1");
+    assert_eq!(item.kind, "agentMessage");
+    assert_eq!(item.content, "partial");
+}
+
+#[test]
 fn active_thread_persistence_hooks_round_trip() {
     let mut state = AiState::default();
     let mut store = InMemoryThreadStore::default();
