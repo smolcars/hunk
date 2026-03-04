@@ -231,7 +231,7 @@ impl DiffViewer {
                         let mut button = Button::new("footer-workspace-jj")
                             .compact()
                             .rounded(px(7.0))
-                            .label("Graph")
+                            .label("Git (JJ)")
                             .min_w(px(52.0))
                             .h(px(28.0))
                             .tooltip("Switch to JJ graph workspace (Cmd/Ctrl+3)")

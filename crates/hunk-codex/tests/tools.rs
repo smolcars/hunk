@@ -41,6 +41,69 @@ fn list_directory_rejects_parent_path_traversal() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn read_file_rejects_symlink_escape_outside_workspace() {
+    use std::os::unix::fs::symlink;
+
+    let workspace = tempdir().expect("workspace dir should be created");
+    let outside = tempdir().expect("outside dir should be created");
+    let outside_file = outside.path().join("secret.txt");
+    fs::write(&outside_file, "top-secret").expect("outside file should be created");
+
+    let link_path = workspace.path().join("leak.txt");
+    symlink(&outside_file, &link_path).expect("symlink should be created");
+
+    let registry = DynamicToolRegistry::new();
+    let response = registry.execute(
+        workspace.path(),
+        &dynamic_tool_params(
+            "hunk.read_file",
+            serde_json::json!({
+                "path": "leak.txt"
+            }),
+        ),
+    );
+
+    assert!(!response.success);
+    assert!(
+        response_text(&response).contains("escapes workspace root"),
+        "unexpected response: {response:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn list_directory_rejects_symlink_escape_outside_workspace() {
+    use std::os::unix::fs::symlink;
+
+    let workspace = tempdir().expect("workspace dir should be created");
+    let outside = tempdir().expect("outside dir should be created");
+    let outside_dir = outside.path().join("external");
+    fs::create_dir_all(&outside_dir).expect("outside directory should be created");
+    fs::write(outside_dir.join("file.txt"), "data").expect("outside file should be created");
+
+    let link_path = workspace.path().join("external-link");
+    symlink(&outside_dir, &link_path).expect("symlink should be created");
+
+    let registry = DynamicToolRegistry::new();
+    let response = registry.execute(
+        workspace.path(),
+        &dynamic_tool_params(
+            "hunk.list_directory",
+            serde_json::json!({
+                "path": "external-link"
+            }),
+        ),
+    );
+
+    assert!(!response.success);
+    assert!(
+        response_text(&response).contains("escapes workspace root"),
+        "unexpected response: {response:?}"
+    );
+}
+
 #[test]
 fn read_file_honors_max_bytes_and_sets_truncated_flag() {
     let temp = tempdir().expect("temp dir should be created");

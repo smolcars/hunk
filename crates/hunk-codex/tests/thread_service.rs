@@ -819,7 +819,7 @@ fn server_request_resolved_notification_is_recorded_for_known_thread() {
     let summary = service
         .state()
         .server_requests
-        .get("123")
+        .get("int:123")
         .expect("server request should be tracked");
     assert_eq!(summary.decision, ServerRequestDecision::Unknown);
     assert_eq!(summary.item_id, None);
