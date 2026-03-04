@@ -42,7 +42,10 @@ use hunk_jj::jj::{
 };
 use hunk_jj::jj_graph_tree::GraphLaneRow;
 
+use ai_runtime::AiApprovalDecision;
+use ai_runtime::AiApprovalKind;
 use ai_runtime::AiConnectionState;
+use ai_runtime::AiPendingApproval;
 use ai_runtime::AiSnapshot;
 use ai_runtime::AiWorkerCommand;
 use ai_runtime::AiWorkerEvent;
@@ -924,6 +927,8 @@ struct DiffViewer {
     ai_state_snapshot: hunk_codex::state::AiState,
     ai_selected_thread_id: Option<String>,
     ai_last_command_result: Option<String>,
+    ai_pending_approvals: Vec<AiPendingApproval>,
+    ai_mad_max_mode: bool,
     ai_event_epoch: usize,
     ai_event_task: Task<()>,
     ai_worker_thread: Option<JoinHandle<()>>,

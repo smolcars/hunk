@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use hunk_codex::state::ThreadSummary;
 use hunk_codex::state::TurnStatus;
+use hunk_domain::state::AppState;
 
 impl DiffViewer {
     const AI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(80);
@@ -10,6 +11,8 @@ impl DiffViewer {
         if self.ai_command_tx.is_some() {
             return;
         }
+
+        self.sync_ai_workspace_mad_max_from_state();
 
         let Some(cwd) = self.ai_workspace_cwd() else {
             self.ai_connection_state = AiConnectionState::Failed;
@@ -28,12 +31,10 @@ impl DiffViewer {
         let codex_executable = Self::resolve_codex_executable_path();
         let (command_tx, command_rx) = std::sync::mpsc::channel();
         let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let mut start_config = AiWorkerStartConfig::new(cwd, codex_executable, codex_home);
+        start_config.mad_max_mode = self.ai_mad_max_mode;
 
-        let worker = spawn_ai_worker(
-            AiWorkerStartConfig::new(cwd, codex_executable, codex_home),
-            command_rx,
-            event_tx,
-        );
+        let worker = spawn_ai_worker(start_config, command_rx, event_tx);
 
         self.ai_connection_state = AiConnectionState::Connecting;
         self.ai_error_message = None;
@@ -164,6 +165,52 @@ impl DiffViewer {
         }
     }
 
+    pub(super) fn ai_set_mad_max_mode(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let Some(workspace_key) = self.ai_workspace_key() else {
+            self.ai_status_message = Some("Open a workspace before changing Mad Max mode.".to_string());
+            cx.notify();
+            return;
+        };
+
+        if enabled {
+            self.state.ai_workspace_mad_max.insert(workspace_key, true);
+        } else {
+            self.state.ai_workspace_mad_max.remove(workspace_key.as_str());
+        }
+        self.persist_state();
+        self.ai_mad_max_mode = enabled;
+        self.send_ai_worker_command_if_running(AiWorkerCommand::SetMadMaxMode { enabled }, cx);
+        self.ai_status_message = Some(if enabled {
+            "Mad Max mode enabled: approvals are auto-accepted with full sandbox access."
+                .to_string()
+        } else {
+            "Mad Max mode disabled: command and file approvals require explicit review."
+                .to_string()
+        });
+        cx.notify();
+    }
+
+    pub(super) fn ai_resolve_pending_approval_action(
+        &mut self,
+        request_id: String,
+        decision: AiApprovalDecision,
+        cx: &mut Context<Self>,
+    ) {
+        if self.send_ai_worker_command(
+            AiWorkerCommand::ResolveApproval {
+                request_id,
+                decision,
+            },
+            cx,
+        ) {
+            self.ai_status_message = Some(match decision {
+                AiApprovalDecision::Accept => "Approval accepted.".to_string(),
+                AiApprovalDecision::Decline => "Approval declined.".to_string(),
+            });
+            cx.notify();
+        }
+    }
+
     pub(super) fn ai_select_thread(
         &mut self,
         thread_id: String,
@@ -206,6 +253,10 @@ impl DiffViewer {
         items.into_iter().map(|item| item.id).collect()
     }
 
+    pub(super) fn ai_visible_pending_approvals(&self) -> Vec<AiPendingApproval> {
+        self.ai_pending_approvals.clone()
+    }
+
     pub(super) fn current_ai_thread_id(&self) -> Option<String> {
         if let Some(selected) = self.ai_selected_thread_id.as_ref()
             && self.ai_state_snapshot.threads.contains_key(selected)
@@ -238,6 +289,24 @@ impl DiffViewer {
             .map(|cwd| cwd.to_string_lossy().to_string())
     }
 
+    pub(super) fn ai_sync_workspace_preferences(&mut self, cx: &mut Context<Self>) {
+        let previous = self.ai_mad_max_mode;
+        self.sync_ai_workspace_mad_max_from_state();
+        if previous != self.ai_mad_max_mode {
+            self.send_ai_worker_command_if_running(
+                AiWorkerCommand::SetMadMaxMode {
+                    enabled: self.ai_mad_max_mode,
+                },
+                cx,
+            );
+            cx.notify();
+        }
+    }
+
+    fn sync_ai_workspace_mad_max_from_state(&mut self) {
+        self.ai_mad_max_mode = workspace_mad_max_mode(&self.state, self.ai_workspace_key().as_deref());
+    }
+
     fn resolve_codex_executable_path() -> std::path::PathBuf {
         std::env::var_os("HUNK_CODEX_EXECUTABLE")
             .map(std::path::PathBuf::from)
@@ -257,6 +326,14 @@ impl DiffViewer {
             self.ensure_ai_runtime_started(cx);
         }
 
+        self.send_ai_worker_command_if_running(command, cx)
+    }
+
+    fn send_ai_worker_command_if_running(
+        &mut self,
+        command: AiWorkerCommand,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some(command_tx) = self.ai_command_tx.as_ref() else {
             return false;
         };
@@ -309,6 +386,7 @@ impl DiffViewer {
                                     }
                                     this.ai_command_tx = None;
                                     this.ai_worker_thread = None;
+                                    this.ai_pending_approvals.clear();
                                     if this.ai_error_message.is_none() {
                                         this.ai_connection_state = AiConnectionState::Disconnected;
                                         this.ai_status_message = Some(
@@ -337,7 +415,7 @@ impl DiffViewer {
     fn apply_ai_worker_event(&mut self, event: AiWorkerEvent, cx: &mut Context<Self>) {
         match event {
             AiWorkerEvent::Snapshot(snapshot) => {
-                self.apply_ai_snapshot(snapshot);
+                self.apply_ai_snapshot(*snapshot);
                 self.ai_connection_state = AiConnectionState::Ready;
                 self.ai_error_message = None;
             }
@@ -354,6 +432,7 @@ impl DiffViewer {
                 self.ai_status_message = Some("Codex integration failed".to_string());
                 self.ai_command_tx = None;
                 self.ai_worker_thread = None;
+                self.ai_pending_approvals.clear();
                 Self::push_error_notification(format!("Codex AI failed: {message}"), cx);
             }
         }
@@ -364,6 +443,8 @@ impl DiffViewer {
     fn apply_ai_snapshot(&mut self, snapshot: AiSnapshot) {
         self.ai_state_snapshot = snapshot.state;
         self.ai_last_command_result = snapshot.last_command_result;
+        self.ai_pending_approvals = snapshot.pending_approvals;
+        self.ai_mad_max_mode = snapshot.mad_max_mode;
 
         if let Some(active_thread_id) = snapshot.active_thread_id {
             self.ai_selected_thread_id = Some(active_thread_id);
@@ -398,6 +479,13 @@ fn sorted_threads(state: &hunk_codex::state::AiState) -> Vec<ThreadSummary> {
     threads
 }
 
+fn workspace_mad_max_mode(state: &AppState, workspace_key: Option<&str>) -> bool {
+    workspace_key
+        .and_then(|workspace| state.ai_workspace_mad_max.get(workspace))
+        .copied()
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 fn item_status_chip(status: hunk_codex::state::ItemStatus) -> &'static str {
     match status {
@@ -411,10 +499,12 @@ fn item_status_chip(status: hunk_codex::state::ItemStatus) -> &'static str {
 mod ai_tests {
     use super::item_status_chip;
     use super::sorted_threads;
+    use super::workspace_mad_max_mode;
     use hunk_codex::state::AiState;
     use hunk_codex::state::ItemStatus;
     use hunk_codex::state::ThreadLifecycleStatus;
     use hunk_codex::state::ThreadSummary;
+    use hunk_domain::state::AppState;
 
     #[test]
     fn sorted_threads_orders_by_latest_sequence_then_id() {
@@ -450,5 +540,28 @@ mod ai_tests {
         assert_eq!(item_status_chip(ItemStatus::Started), "started");
         assert_eq!(item_status_chip(ItemStatus::Streaming), "streaming");
         assert_eq!(item_status_chip(ItemStatus::Completed), "completed");
+    }
+
+    #[test]
+    fn workspace_mad_max_mode_defaults_to_false_when_missing() {
+        let state = AppState::default();
+        assert!(!workspace_mad_max_mode(&state, Some("/repo")));
+        assert!(!workspace_mad_max_mode(&state, None));
+    }
+
+    #[test]
+    fn workspace_mad_max_mode_reads_per_workspace_flags() {
+        let state = AppState {
+            last_project_path: None,
+            ai_workspace_mad_max: [
+                ("/repo-a".to_string(), true),
+                ("/repo-b".to_string(), false),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        assert!(workspace_mad_max_mode(&state, Some("/repo-a")));
+        assert!(!workspace_mad_max_mode(&state, Some("/repo-b")));
+        assert!(!workspace_mad_max_mode(&state, Some("/repo-c")));
     }
 }

@@ -19,6 +19,7 @@ use codex_app_server_protocol::ReviewStartResponse;
 use codex_app_server_protocol::ReviewTarget;
 use codex_app_server_protocol::SandboxPolicy;
 use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::ServerRequestResolvedNotification;
 use codex_app_server_protocol::SessionSource;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadArchiveResponse;
@@ -51,6 +52,7 @@ use hunk_codex::api;
 use hunk_codex::api::InitializeOptions;
 use hunk_codex::errors::CodexIntegrationError;
 use hunk_codex::state::ReducerEvent;
+use hunk_codex::state::ServerRequestDecision;
 use hunk_codex::state::StreamEvent;
 use hunk_codex::state::ThreadLifecycleStatus;
 use hunk_codex::threads::ThreadService;
@@ -316,6 +318,35 @@ fn unknown_thread_status_notification_is_ignored() {
     ));
 
     assert!(service.state().threads.is_empty());
+}
+
+#[test]
+fn server_request_resolved_notification_is_recorded_for_known_thread() {
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::ThreadStarted {
+            thread_id: "thread-known".to_string(),
+            cwd: WORKSPACE_CWD.to_string(),
+            title: None,
+        },
+    });
+
+    service.apply_server_notification(ServerNotification::ServerRequestResolved(
+        ServerRequestResolvedNotification {
+            thread_id: "thread-known".to_string(),
+            request_id: RequestId::Integer(123),
+        },
+    ));
+
+    let summary = service
+        .state()
+        .server_requests
+        .get("123")
+        .expect("server request should be tracked");
+    assert_eq!(summary.decision, ServerRequestDecision::Unknown);
+    assert_eq!(summary.item_id, None);
 }
 
 #[test]

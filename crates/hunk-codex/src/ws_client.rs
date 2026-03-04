@@ -8,7 +8,10 @@ use codex_app_server_protocol::InitializeResponse;
 use codex_app_server_protocol::JSONRPCMessage;
 use codex_app_server_protocol::JSONRPCNotification;
 use codex_app_server_protocol::JSONRPCRequest;
+use codex_app_server_protocol::JSONRPCResponse;
+use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::ServerRequest;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -73,6 +76,7 @@ pub struct JsonRpcSession {
     request_ids: RequestIdGenerator,
     retry_policy: RequestRetryPolicy,
     server_notifications: Vec<ServerNotification>,
+    server_requests: Vec<ServerRequest>,
 }
 
 impl JsonRpcSession {
@@ -86,6 +90,7 @@ impl JsonRpcSession {
             request_ids: RequestIdGenerator::default(),
             retry_policy: RequestRetryPolicy::default(),
             server_notifications: Vec::new(),
+            server_requests: Vec::new(),
         })
     }
 
@@ -159,6 +164,10 @@ impl JsonRpcSession {
         std::mem::take(&mut self.server_notifications)
     }
 
+    pub fn drain_server_requests(&mut self) -> Vec<ServerRequest> {
+        std::mem::take(&mut self.server_requests)
+    }
+
     pub fn poll_server_notifications(&mut self, timeout: Duration) -> Result<usize> {
         let message = match self.read_message(timeout) {
             Ok(message) => message,
@@ -175,6 +184,17 @@ impl JsonRpcSession {
             params,
         });
         self.send_message(message)
+    }
+
+    pub fn respond_typed<T>(&mut self, request_id: RequestId, result: &T) -> Result<()>
+    where
+        T: Serialize,
+    {
+        let result = serde_json::to_value(result).map_err(CodexIntegrationError::Serialization)?;
+        self.send_message(JSONRPCMessage::Response(JSONRPCResponse {
+            id: request_id,
+            result,
+        }))
     }
 
     fn request_once(
@@ -227,8 +247,8 @@ impl JsonRpcSession {
                         });
                     }
                 }
-                JSONRPCMessage::Request(_) => {
-                    // Request handling is processed by higher layers.
+                JSONRPCMessage::Request(request) => {
+                    self.capture_server_request(request);
                 }
                 JSONRPCMessage::Notification(notification) => {
                     self.capture_server_notification(notification);
@@ -243,15 +263,23 @@ impl JsonRpcSession {
         }
     }
 
+    fn capture_server_request(&mut self, request: JSONRPCRequest) {
+        if let Ok(request) = ServerRequest::try_from(request) {
+            self.server_requests.push(request);
+        }
+    }
+
     fn capture_incoming_message(&mut self, message: JSONRPCMessage) -> usize {
         match message {
             JSONRPCMessage::Notification(notification) => {
                 self.capture_server_notification(notification);
                 1
             }
-            JSONRPCMessage::Request(_) | JSONRPCMessage::Response(_) | JSONRPCMessage::Error(_) => {
-                0
+            JSONRPCMessage::Request(request) => {
+                self.capture_server_request(request);
+                1
             }
+            JSONRPCMessage::Response(_) | JSONRPCMessage::Error(_) => 0,
         }
     }
 

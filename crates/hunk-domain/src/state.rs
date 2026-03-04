@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,6 +12,7 @@ const STATE_FILE_NAME: &str = "state.toml";
 #[serde(default)]
 pub struct AppState {
     pub last_project_path: Option<PathBuf>,
+    pub ai_workspace_mad_max: BTreeMap<String, bool>,
 }
 
 #[derive(Debug, Clone)]

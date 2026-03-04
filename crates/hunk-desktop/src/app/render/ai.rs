@@ -29,6 +29,9 @@ impl DiffViewer {
             .checked_out_bookmark_name()
             .map_or_else(|| "detached".to_string(), ToOwned::to_owned);
         let threads = self.ai_visible_threads();
+        let pending_approvals = self.ai_visible_pending_approvals();
+        let pending_approvals_for_timeline = pending_approvals.clone();
+        let pending_approval_count = pending_approvals.len();
         let selected_thread_id = self.current_ai_thread_id();
         let in_progress_turn = selected_thread_id
             .as_ref()
@@ -78,6 +81,34 @@ impl DiffViewer {
                                     .text_color(cx.theme().muted_foreground)
                                     .child(format!("Active bookmark: {active_bookmark}")),
                             )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(if pending_approval_count > 0 {
+                                        cx.theme().warning
+                                    } else {
+                                        cx.theme().muted_foreground
+                                    })
+                                    .child(format!("Approvals: {pending_approval_count}")),
+                            )
+                            .child({
+                                let view = view.clone();
+                                let enable_mad_max = !self.ai_mad_max_mode;
+                                Button::new("ai-toggle-mad-max")
+                                    .compact()
+                                    .outline()
+                                    .with_size(gpui_component::Size::Small)
+                                    .label(if self.ai_mad_max_mode {
+                                        "Mad Max On"
+                                    } else {
+                                        "Mad Max Off"
+                                    })
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_set_mad_max_mode(enable_mad_max, cx);
+                                        });
+                                    })
+                            })
                             .child(
                                 div()
                                     .text_xs()
@@ -343,6 +374,233 @@ impl DiffViewer {
                                                                 )
                                                                 .whitespace_normal()
                                                                 .child(status),
+                                                        )
+                                                    },
+                                                )
+                                                .when(
+                                                    self.ai_mad_max_mode
+                                                        || !pending_approvals_for_timeline.is_empty(),
+                                                    |this| {
+                                                        this.child(
+                                                            v_flex()
+                                                                .w_full()
+                                                                .gap_1()
+                                                                .when(self.ai_mad_max_mode, |this| {
+                                                                    this.child(
+                                                                        div()
+                                                                            .rounded_md()
+                                                                            .border_1()
+                                                                            .border_color(
+                                                                                cx.theme().danger,
+                                                                            )
+                                                                            .bg(cx.theme().danger.opacity(if is_dark {
+                                                                                0.16
+                                                                            } else {
+                                                                                0.10
+                                                                            }))
+                                                                            .p_2()
+                                                                            .child(
+                                                                                div()
+                                                                                    .text_xs()
+                                                                                    .font_semibold()
+                                                                                    .text_color(
+                                                                                        cx.theme().danger,
+                                                                                    )
+                                                                                    .child(
+                                                                                        "Mad Max mode is enabled: approvals are auto-accepted with full sandbox access.",
+                                                                                    ),
+                                                                            ),
+                                                                    )
+                                                                })
+                                                                .when(
+                                                                    !pending_approvals_for_timeline
+                                                                        .is_empty(),
+                                                                    |this| {
+                                                                        this.child(
+                                                                            v_flex()
+                                                                                .w_full()
+                                                                                .gap_1()
+                                                                                .rounded_md()
+                                                                                .border_1()
+                                                                                .border_color(
+                                                                                    cx.theme().warning,
+                                                                                )
+                                                                                .bg(cx.theme().warning.opacity(if is_dark {
+                                                                                    0.14
+                                                                                } else {
+                                                                                    0.08
+                                                                                }))
+                                                                                .p_2()
+                                                                                .child(
+                                                                                    div()
+                                                                                        .text_xs()
+                                                                                        .font_semibold()
+                                                                                        .text_color(
+                                                                                            cx.theme().warning,
+                                                                                        )
+                                                                                        .child(
+                                                                                            "Pending approvals",
+                                                                                        ),
+                                                                                )
+                                                                                .children(
+                                                                                    pending_approvals_for_timeline
+                                                                                        .iter()
+                                                                                        .map(
+                                                                                            |approval| {
+                                                                                                let approve_request_id =
+                                                                                                    approval
+                                                                                                        .request_id
+                                                                                                        .clone();
+                                                                                                let decline_request_id =
+                                                                                                    approval
+                                                                                                        .request_id
+                                                                                                        .clone();
+                                                                                                let view =
+                                                                                                    view.clone();
+                                                                                                v_flex()
+                                                                                                    .w_full()
+                                                                                                    .gap_1()
+                                                                                                    .rounded(px(
+                                                                                                        8.0,
+                                                                                                    ))
+                                                                                                    .border_1()
+                                                                                                    .border_color(
+                                                                                                        cx.theme()
+                                                                                                            .border,
+                                                                                                    )
+                                                                                                    .bg(cx.theme().background)
+                                                                                                    .p_2()
+                                                                                                    .child(
+                                                                                                        h_flex()
+                                                                                                            .w_full()
+                                                                                                            .items_center()
+                                                                                                            .justify_between()
+                                                                                                            .gap_2()
+                                                                                                            .child(
+                                                                                                                div()
+                                                                                                                    .text_xs()
+                                                                                                                    .font_semibold()
+                                                                                                                    .child(
+                                                                                                                        ai_approval_kind_label(
+                                                                                                                            approval
+                                                                                                                                .kind,
+                                                                                                                        ),
+                                                                                                                    ),
+                                                                                                            )
+                                                                                                            .child(
+                                                                                                                div()
+                                                                                                                    .text_xs()
+                                                                                                                    .text_color(
+                                                                                                                        cx.theme()
+                                                                                                                            .muted_foreground,
+                                                                                                                    )
+                                                                                                                    .font_family(
+                                                                                                                        cx.theme()
+                                                                                                                            .mono_font_family
+                                                                                                                            .clone(),
+                                                                                                                    )
+                                                                                                                    .child(
+                                                                                                                        approval
+                                                                                                                            .request_id
+                                                                                                                            .clone(),
+                                                                                                                    ),
+                                                                                                            ),
+                                                                                                    )
+                                                                                                    .child(
+                                                                                                        div()
+                                                                                                            .text_xs()
+                                                                                                            .text_color(
+                                                                                                                cx.theme()
+                                                                                                                    .muted_foreground,
+                                                                                                            )
+                                                                                                            .whitespace_normal()
+                                                                                                            .child(
+                                                                                                                ai_approval_description(
+                                                                                                                    approval,
+                                                                                                                ),
+                                                                                                            ),
+                                                                                                    )
+                                                                                                    .when_some(
+                                                                                                        approval.reason
+                                                                                                            .clone(),
+                                                                                                        |this, reason| {
+                                                                                                            this.child(
+                                                                                                                div()
+                                                                                                                    .text_xs()
+                                                                                                                    .text_color(
+                                                                                                                        cx.theme()
+                                                                                                                            .muted_foreground,
+                                                                                                                    )
+                                                                                                                    .whitespace_normal()
+                                                                                                                    .child(
+                                                                                                                        reason,
+                                                                                                                    ),
+                                                                                                            )
+                                                                                                        },
+                                                                                                    )
+                                                                                                    .child(
+                                                                                                        h_flex()
+                                                                                                            .w_full()
+                                                                                                            .items_center()
+                                                                                                            .gap_1()
+                                                                                                            .child(
+                                                                                                                {
+                                                                                                                    let view =
+                                                                                                                        view
+                                                                                                                            .clone();
+                                                                                                                    Button::new(
+                                                                                                                        format!(
+                                                                                                                            "ai-approval-accept-{}",
+                                                                                                                            approval
+                                                                                                                                .request_id
+                                                                                                                        ),
+                                                                                                                    )
+                                                                                                                    .compact()
+                                                                                                                    .primary()
+                                                                                                                    .with_size(gpui_component::Size::Small)
+                                                                                                                    .label("Accept")
+                                                                                                                    .on_click(move |_, _, cx| {
+                                                                                                                        view.update(cx, |this, cx| {
+                                                                                                                            this.ai_resolve_pending_approval_action(
+                                                                                                                                approve_request_id.clone(),
+                                                                                                                                AiApprovalDecision::Accept,
+                                                                                                                                cx,
+                                                                                                                            );
+                                                                                                                        });
+                                                                                                                    })
+                                                                                                                },
+                                                                                                            )
+                                                                                                            .child(
+                                                                                                                {
+                                                                                                                    Button::new(
+                                                                                                                        format!(
+                                                                                                                            "ai-approval-decline-{}",
+                                                                                                                            approval
+                                                                                                                                .request_id
+                                                                                                                        ),
+                                                                                                                    )
+                                                                                                                    .compact()
+                                                                                                                    .outline()
+                                                                                                                    .with_size(gpui_component::Size::Small)
+                                                                                                                    .label("Decline")
+                                                                                                                    .on_click(move |_, _, cx| {
+                                                                                                                        view.update(cx, |this, cx| {
+                                                                                                                            this.ai_resolve_pending_approval_action(
+                                                                                                                                decline_request_id.clone(),
+                                                                                                                                AiApprovalDecision::Decline,
+                                                                                                                                cx,
+                                                                                                                            );
+                                                                                                                        });
+                                                                                                                    })
+                                                                                                                },
+                                                                                                            ),
+                                                                                                    )
+                                                                                            },
+                                                                                        ),
+                                                                                ),
+                                                                        )
+                                                                    },
+                                                                ),
                                                         )
                                                     },
                                                 )
@@ -693,51 +951,5 @@ impl DiffViewer {
                     ),
             )
             .into_any_element()
-    }
-}
-
-fn ai_connection_label(
-    state: AiConnectionState,
-    cx: &mut Context<DiffViewer>,
-) -> (&'static str, Hsla) {
-    match state {
-        AiConnectionState::Disconnected => ("Disconnected", cx.theme().muted_foreground),
-        AiConnectionState::Connecting => ("Connecting", cx.theme().warning),
-        AiConnectionState::Ready => ("Connected", cx.theme().success),
-        AiConnectionState::Failed => ("Failed", cx.theme().danger),
-    }
-}
-
-fn ai_thread_status_label(
-    status: ThreadLifecycleStatus,
-    cx: &mut Context<DiffViewer>,
-) -> (&'static str, Hsla) {
-    match status {
-        ThreadLifecycleStatus::Active => ("active", cx.theme().success),
-        ThreadLifecycleStatus::Archived => ("archived", cx.theme().warning),
-        ThreadLifecycleStatus::Closed => ("closed", cx.theme().muted_foreground),
-    }
-}
-
-fn ai_turn_status_label(status: TurnStatus) -> &'static str {
-    match status {
-        TurnStatus::InProgress => "in-progress",
-        TurnStatus::Completed => "completed",
-    }
-}
-
-fn ai_item_status_label(status: ItemStatus) -> &'static str {
-    match status {
-        ItemStatus::Started => "started",
-        ItemStatus::Streaming => "streaming",
-        ItemStatus::Completed => "completed",
-    }
-}
-
-fn ai_item_status_color(status: ItemStatus, cx: &mut Context<DiffViewer>) -> Hsla {
-    match status {
-        ItemStatus::Started => cx.theme().muted_foreground,
-        ItemStatus::Streaming => cx.theme().accent,
-        ItemStatus::Completed => cx.theme().success,
     }
 }

@@ -7,6 +7,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use codex_app_server_protocol::CommandExecutionApprovalDecision;
+use codex_app_server_protocol::CommandExecutionRequestApprovalResponse;
+use codex_app_server_protocol::FileChangeApprovalDecision;
+use codex_app_server_protocol::FileChangeRequestApprovalResponse;
 use codex_app_server_protocol::JSONRPCError;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::JSONRPCMessage;
@@ -15,6 +19,7 @@ use codex_app_server_protocol::JSONRPCRequest;
 use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::ServerRequest;
 use hunk_codex::api::InitializeOptions;
 use hunk_codex::errors::CodexIntegrationError;
 use hunk_codex::ws_client::JsonRpcSession;
@@ -137,12 +142,127 @@ fn poll_server_notifications_captures_idle_notifications() {
     server.join();
 }
 
+#[test]
+fn poll_captures_server_requests_and_can_respond() {
+    let server = TestServer::spawn(Scenario::CommandApprovalRequestRoundTrip);
+    let endpoint = WebSocketEndpoint::loopback(server.port);
+    let mut session = JsonRpcSession::connect(&endpoint).expect("session should connect");
+
+    session
+        .initialize(InitializeOptions::default(), Duration::from_secs(2))
+        .expect("initialize should succeed");
+
+    let captured = session
+        .poll_server_notifications(Duration::from_secs(2))
+        .expect("poll should succeed");
+    assert_eq!(captured, 1);
+
+    let requests = session.drain_server_requests();
+    assert_eq!(requests.len(), 1);
+    let request_id = match &requests[0] {
+        ServerRequest::CommandExecutionRequestApproval { request_id, params } => {
+            assert_eq!(params.thread_id, "thread-live");
+            assert_eq!(params.turn_id, "turn-live");
+            assert_eq!(params.item_id, "item-live");
+            request_id.clone()
+        }
+        other => panic!("unexpected server request: {other:?}"),
+    };
+
+    session
+        .respond_typed(
+            request_id,
+            &CommandExecutionRequestApprovalResponse {
+                decision: CommandExecutionApprovalDecision::Accept,
+            },
+        )
+        .expect("response should be sent");
+
+    server.join();
+}
+
+#[test]
+fn poll_captures_file_change_approval_and_decline_response() {
+    let server = TestServer::spawn(Scenario::FileChangeApprovalRequestRoundTrip);
+    let endpoint = WebSocketEndpoint::loopback(server.port);
+    let mut session = JsonRpcSession::connect(&endpoint).expect("session should connect");
+
+    session
+        .initialize(InitializeOptions::default(), Duration::from_secs(2))
+        .expect("initialize should succeed");
+
+    let captured = session
+        .poll_server_notifications(Duration::from_secs(2))
+        .expect("poll should succeed");
+    assert_eq!(captured, 1);
+
+    let requests = session.drain_server_requests();
+    assert_eq!(requests.len(), 1);
+    let request_id = match &requests[0] {
+        ServerRequest::FileChangeRequestApproval { request_id, params } => {
+            assert_eq!(params.thread_id, "thread-live");
+            assert_eq!(params.turn_id, "turn-live");
+            assert_eq!(params.item_id, "item-file");
+            request_id.clone()
+        }
+        other => panic!("unexpected server request: {other:?}"),
+    };
+
+    session
+        .respond_typed(
+            request_id,
+            &FileChangeRequestApprovalResponse {
+                decision: FileChangeApprovalDecision::Decline,
+            },
+        )
+        .expect("response should be sent");
+
+    server.join();
+}
+
+#[test]
+fn turn_start_with_mad_max_policy_does_not_wait_for_approval_requests() {
+    let server = TestServer::spawn(Scenario::MadMaxTurnStartNoApprovalPrompt);
+    let endpoint = WebSocketEndpoint::loopback(server.port);
+    let mut session = JsonRpcSession::connect(&endpoint).expect("session should connect");
+
+    session
+        .initialize(InitializeOptions::default(), Duration::from_secs(2))
+        .expect("initialize should succeed");
+
+    let response = session
+        .request(
+            "turn/start",
+            Some(serde_json::json!({
+                "threadId": "thread-live",
+                "input": [
+                    {
+                        "type": "text",
+                        "text": "Continue"
+                    }
+                ],
+                "approvalPolicy": "never",
+                "sandboxPolicy": {
+                    "type": "dangerFullAccess"
+                }
+            })),
+            Duration::from_secs(2),
+        )
+        .expect("turn start should complete without an approval loop");
+
+    assert_eq!(response["turn"]["id"], serde_json::json!("turn-live"));
+    server.join();
+}
+
 #[derive(Clone)]
 enum Scenario {
     InitializeSuccess,
     RejectBeforeInitialize,
     DuplicateInitialize,
     IdleNotification,
+    CommandApprovalRequestRoundTrip,
+    FileChangeApprovalRequestRoundTrip,
+    MadMaxTurnStartNoApprovalPrompt,
     OverloadedThenSuccess {
         overload_attempts: usize,
         attempts: Arc<AtomicUsize>,
@@ -173,6 +293,15 @@ impl TestServer {
                 Scenario::RejectBeforeInitialize => run_reject_before_initialize(&mut socket),
                 Scenario::DuplicateInitialize => run_duplicate_initialize(&mut socket),
                 Scenario::IdleNotification => run_idle_notification(&mut socket),
+                Scenario::CommandApprovalRequestRoundTrip => {
+                    run_command_approval_request_round_trip(&mut socket)
+                }
+                Scenario::FileChangeApprovalRequestRoundTrip => {
+                    run_file_change_approval_request_round_trip(&mut socket)
+                }
+                Scenario::MadMaxTurnStartNoApprovalPrompt => {
+                    run_mad_max_turn_start_no_approval_prompt(&mut socket)
+                }
                 Scenario::OverloadedThenSuccess {
                     overload_attempts,
                     attempts,
@@ -237,6 +366,117 @@ fn run_idle_notification(socket: &mut WebSocket<TcpStream>) {
             "threadId": "thread-live",
             "turnId": "turn-live",
             "diff": "diff --git a/a b/a"
+        }),
+    );
+}
+
+fn run_command_approval_request_round_trip(socket: &mut WebSocket<TcpStream>) {
+    let initialize = expect_request(socket, "initialize");
+    send_success_response(
+        socket,
+        initialize.id,
+        serde_json::json!({ "userAgent": "hunk-test-server" }),
+    );
+    expect_notification(socket, "initialized");
+
+    send_jsonrpc(
+        socket,
+        JSONRPCMessage::Request(JSONRPCRequest {
+            id: RequestId::Integer(77),
+            method: "item/commandExecution/requestApproval".to_string(),
+            params: Some(serde_json::json!({
+                "threadId": "thread-live",
+                "turnId": "turn-live",
+                "itemId": "item-live",
+                "approvalId": null,
+                "reason": "run command",
+                "command": "cargo test"
+            })),
+            trace: None,
+        }),
+    );
+
+    let response = read_jsonrpc(socket);
+    match response {
+        JSONRPCMessage::Response(response) => {
+            assert_eq!(response.id, RequestId::Integer(77));
+            assert_eq!(
+                response.result,
+                serde_json::json!({
+                    "decision": "accept"
+                })
+            );
+        }
+        other => panic!("expected approval response, got: {other:?}"),
+    }
+}
+
+fn run_file_change_approval_request_round_trip(socket: &mut WebSocket<TcpStream>) {
+    let initialize = expect_request(socket, "initialize");
+    send_success_response(
+        socket,
+        initialize.id,
+        serde_json::json!({ "userAgent": "hunk-test-server" }),
+    );
+    expect_notification(socket, "initialized");
+
+    send_jsonrpc(
+        socket,
+        JSONRPCMessage::Request(JSONRPCRequest {
+            id: RequestId::Integer(88),
+            method: "item/fileChange/requestApproval".to_string(),
+            params: Some(serde_json::json!({
+                "threadId": "thread-live",
+                "turnId": "turn-live",
+                "itemId": "item-file",
+                "reason": "write access"
+            })),
+            trace: None,
+        }),
+    );
+
+    let response = read_jsonrpc(socket);
+    match response {
+        JSONRPCMessage::Response(response) => {
+            assert_eq!(response.id, RequestId::Integer(88));
+            assert_eq!(
+                response.result,
+                serde_json::json!({
+                    "decision": "decline"
+                })
+            );
+        }
+        other => panic!("expected file-change approval response, got: {other:?}"),
+    }
+}
+
+fn run_mad_max_turn_start_no_approval_prompt(socket: &mut WebSocket<TcpStream>) {
+    let initialize = expect_request(socket, "initialize");
+    send_success_response(
+        socket,
+        initialize.id,
+        serde_json::json!({ "userAgent": "hunk-test-server" }),
+    );
+    expect_notification(socket, "initialized");
+
+    let request = expect_request(socket, "turn/start");
+    let params = request.params.expect("turn/start params should exist");
+    assert_eq!(params["approvalPolicy"], serde_json::json!("never"));
+    assert_eq!(
+        params["sandboxPolicy"],
+        serde_json::json!({
+            "type": "dangerFullAccess"
+        })
+    );
+
+    send_success_response(
+        socket,
+        request.id,
+        serde_json::json!({
+            "turn": {
+                "id": "turn-live",
+                "status": "inProgress"
+            }
         }),
     );
 }

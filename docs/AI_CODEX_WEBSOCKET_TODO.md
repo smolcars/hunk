@@ -206,22 +206,24 @@ A phase is complete only when all items below are done.
 ---
 
 ## Phase 8: Approvals + Mad-Max Mode
-- [ ] Handle server requests:
-  - [ ] `item/commandExecution/requestApproval`
-  - [ ] `item/fileChange/requestApproval`
-- [ ] Build approval UI with explicit `accept`/`decline` actions.
-- [ ] Implement and surface `serverRequest/resolved` handling before item finalization.
-- [ ] Add explicit per-workspace "Mad Max" toggle with clear destructive warning UI.
-- [ ] Mad Max behavior:
-  - [ ] set approval policy to never
-  - [ ] set sandbox to danger-full-access
-  - [ ] auto-approve residual prompts safely by protocol contract
+- [x] Handle server requests:
+  - [x] `item/commandExecution/requestApproval`
+  - [x] `item/fileChange/requestApproval`
+- [x] Build approval UI with explicit `accept`/`decline` actions.
+- [x] Implement and surface `serverRequest/resolved` handling before item finalization.
+- [x] Add explicit per-workspace "Mad Max" toggle with clear destructive warning UI.
+- [x] Mad Max behavior:
+  - [x] set approval policy to never
+  - [x] set sandbox to danger-full-access
+  - [x] auto-approve residual prompts safely by protocol contract
 
 ### Required Tests
-- [ ] Integration test: command approval happy path.
-- [ ] Integration test: file-change approval decline path.
-- [ ] Integration test: mad-max path does not block on approvals.
-- [ ] Unit tests for approval request lifecycle bookkeeping.
+- [x] Integration test: command approval happy path.
+- [x] Integration test: file-change approval decline path.
+- [x] Integration test: mad-max path does not block on approvals.
+- [x] Unit tests for approval request lifecycle bookkeeping.
+- [x] Deep phase review gate complete.
+- Phase 8 review note (2026-03-03): WebSocket server-request capture now feeds a desktop approval queue with explicit accept/decline actions, `serverRequest/resolved` reducer updates, and per-workspace Mad Max persistence; mad-max mode now enforces `approvalPolicy: never` with `dangerFullAccess`, auto-accepts newly queued and residual pending approvals, and is covered by new command/file approval integration tests plus desktop/runtime policy unit tests.
 
 ---
 

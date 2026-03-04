@@ -26,6 +26,7 @@ pub enum ItemStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerRequestDecision {
+    Unknown,
     Accept,
     Decline,
 }
@@ -380,6 +381,11 @@ impl AiState {
                 }
 
                 request.item_id = item_id;
+                if matches!(decision, ServerRequestDecision::Unknown)
+                    && !matches!(request.decision, ServerRequestDecision::Unknown)
+                {
+                    return ApplyOutcome::Applied;
+                }
                 request.decision = decision;
                 request.sequence = sequence;
                 ApplyOutcome::Applied

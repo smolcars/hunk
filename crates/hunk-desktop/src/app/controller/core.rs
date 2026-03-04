@@ -137,6 +137,14 @@ impl DiffViewer {
             }
         }
         let last_project_path = state.last_project_path.clone();
+        let initial_ai_workspace_key = last_project_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string());
+        let initial_ai_mad_max_mode = initial_ai_workspace_key
+            .as_ref()
+            .and_then(|workspace| state.ai_workspace_mad_max.get(workspace))
+            .copied()
+            .unwrap_or(false);
         let diff_show_whitespace = config.show_whitespace;
         let diff_show_eol_markers = config.show_eol_markers;
         let branch_input_state = cx.new(|cx| {
@@ -223,6 +231,8 @@ impl DiffViewer {
             ai_state_snapshot: hunk_codex::state::AiState::default(),
             ai_selected_thread_id: None,
             ai_last_command_result: None,
+            ai_pending_approvals: Vec::new(),
+            ai_mad_max_mode: initial_ai_mad_max_mode,
             ai_event_epoch: 0,
             ai_event_task: Task::ready(()),
             ai_worker_thread: None,
@@ -544,6 +554,7 @@ impl DiffViewer {
         self.project_path = Some(root.clone());
         self.set_last_project_path(Some(root.clone()));
         self.repo_root = Some(root);
+        self.ai_sync_workspace_preferences(cx);
         self.branch_name = branch_name;
         self.branch_has_upstream = branch_has_upstream;
         self.branch_ahead_count = branch_ahead_count;

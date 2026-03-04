@@ -10,9 +10,11 @@ use codex_app_server_protocol::CommandExecutionStatus;
 use codex_app_server_protocol::DynamicToolCallStatus;
 use codex_app_server_protocol::McpToolCallStatus;
 use codex_app_server_protocol::PatchApplyStatus;
+use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::ReviewStartResponse;
 use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadArchiveParams;
 use codex_app_server_protocol::ThreadArchiveResponse;
@@ -54,6 +56,7 @@ use crate::errors::Result;
 use crate::state::ActiveThreadStore;
 use crate::state::AiState;
 use crate::state::ReducerEvent;
+use crate::state::ServerRequestDecision;
 use crate::state::StreamEvent;
 use crate::state::ThreadLifecycleStatus;
 use crate::ws_client::JsonRpcSession;
@@ -535,6 +538,15 @@ impl ThreadService {
                     &notification.delta,
                 );
             }
+            ServerNotification::ServerRequestResolved(notification) => {
+                if self.is_known_thread(&notification.thread_id) {
+                    self.apply_event(ReducerEvent::ServerRequestResolved {
+                        request_id: request_id_key(&notification.request_id),
+                        item_id: None,
+                        decision: ServerRequestDecision::Unknown,
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -543,6 +555,26 @@ impl ThreadService {
         for notification in session.drain_server_notifications() {
             self.apply_server_notification(notification);
         }
+    }
+
+    pub fn drain_queued_server_requests(
+        &mut self,
+        session: &mut JsonRpcSession,
+    ) -> Vec<ServerRequest> {
+        session.drain_server_requests()
+    }
+
+    pub fn record_server_request_resolved(
+        &mut self,
+        request_id: RequestId,
+        item_id: Option<String>,
+        decision: ServerRequestDecision,
+    ) {
+        self.apply_event(ReducerEvent::ServerRequestResolved {
+            request_id: request_id_key(&request_id),
+            item_id,
+            decision,
+        });
     }
 
     fn ensure_thread_id_in_workspace(&self, thread_id: &str) -> Result<()> {
@@ -813,5 +845,12 @@ fn thread_item_is_complete(item: &ThreadItem) -> bool {
             !matches!(status, CollabAgentToolCallStatus::InProgress)
         }
         _ => false,
+    }
+}
+
+fn request_id_key(request_id: &RequestId) -> String {
+    match request_id {
+        RequestId::Integer(value) => value.to_string(),
+        RequestId::String(value) => value.clone(),
     }
 }
