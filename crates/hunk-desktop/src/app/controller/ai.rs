@@ -880,30 +880,52 @@ impl DiffViewer {
                 .as_deref()
                 .map(|thread_id| thread_latest_timeline_sequence(&self.ai_state_snapshot, thread_id))
                 .unwrap_or(0);
-        self.ai_state_snapshot = snapshot.state;
-        self.ai_pending_approvals = snapshot.pending_approvals;
-        self.ai_pending_user_inputs = snapshot.pending_user_inputs;
+        let previous_active_thread_for_workspace = self
+            .ai_workspace_key()
+            .as_deref()
+            .and_then(|workspace| self.ai_state_snapshot.active_thread_for_cwd(workspace))
+            .map(ToOwned::to_owned);
+        let AiSnapshot {
+            state,
+            active_thread_id,
+            pending_approvals,
+            pending_user_inputs,
+            account,
+            requires_openai_auth,
+            pending_chatgpt_login_id,
+            pending_chatgpt_auth_url,
+            rate_limits,
+            models,
+            experimental_features,
+            collaboration_modes,
+            include_hidden_models,
+            mad_max_mode,
+        } = snapshot;
+
+        self.ai_state_snapshot = state;
+        self.ai_pending_approvals = pending_approvals;
+        self.ai_pending_user_inputs = pending_user_inputs;
         self.sync_ai_pending_user_input_answers();
-        self.ai_account = snapshot.account;
-        self.ai_requires_openai_auth = snapshot.requires_openai_auth;
-        self.ai_pending_chatgpt_login_id = snapshot.pending_chatgpt_login_id;
-        self.ai_pending_chatgpt_auth_url = snapshot.pending_chatgpt_auth_url;
-        self.ai_rate_limits = snapshot.rate_limits;
-        self.ai_models = snapshot.models;
-        self.ai_experimental_features = snapshot.experimental_features;
-        self.ai_collaboration_modes = snapshot.collaboration_modes;
-        self.ai_include_hidden_models = snapshot.include_hidden_models;
-        self.ai_mad_max_mode = snapshot.mad_max_mode;
+        self.ai_account = account;
+        self.ai_requires_openai_auth = requires_openai_auth;
+        self.ai_pending_chatgpt_login_id = pending_chatgpt_login_id;
+        self.ai_pending_chatgpt_auth_url = pending_chatgpt_auth_url;
+        self.ai_rate_limits = rate_limits;
+        self.ai_models = models;
+        self.ai_experimental_features = experimental_features;
+        self.ai_collaboration_modes = collaboration_modes;
+        self.ai_include_hidden_models = include_hidden_models;
+        self.ai_mad_max_mode = mad_max_mode;
         self.ai_timeline_visible_turn_limit_by_thread
             .retain(|thread_id, _| self.ai_state_snapshot.threads.contains_key(thread_id));
 
-        if let Some(active_thread_id) = snapshot.active_thread_id
-            && self
-                .ai_selected_thread_id
-                .as_ref()
-                .is_none_or(|selected| !self.ai_state_snapshot.threads.contains_key(selected))
-        {
-            self.ai_selected_thread_id = Some(active_thread_id);
+        if should_sync_selected_thread_from_active_thread(
+            self.ai_selected_thread_id.as_deref(),
+            active_thread_id.as_deref(),
+            previous_active_thread_for_workspace.as_deref(),
+            &self.ai_state_snapshot,
+        ) {
+            self.ai_selected_thread_id = active_thread_id;
         }
 
         if self.ai_selected_thread_id.as_ref().is_some_and(|selected| {
@@ -1145,6 +1167,28 @@ fn should_scroll_timeline_to_bottom_on_selection_change(
     previous_thread_id != next_thread_id && next_thread_id.is_some()
 }
 
+fn should_sync_selected_thread_from_active_thread(
+    selected_thread_id: Option<&str>,
+    active_thread_id: Option<&str>,
+    previous_active_thread_id: Option<&str>,
+    state: &hunk_codex::state::AiState,
+) -> bool {
+    let Some(active_thread_id) = active_thread_id else {
+        return false;
+    };
+    let Some(active_thread) = state.threads.get(active_thread_id) else {
+        return false;
+    };
+    if active_thread.status == ThreadLifecycleStatus::Archived {
+        return false;
+    }
+
+    let selection_missing_or_invalid =
+        selected_thread_id.is_none_or(|selected| !state.threads.contains_key(selected));
+
+    selection_missing_or_invalid || previous_active_thread_id != Some(active_thread_id)
+}
+
 fn thread_latest_timeline_sequence(state: &hunk_codex::state::AiState, thread_id: &str) -> u64 {
     let thread_sequence = state
         .threads
@@ -1287,6 +1331,7 @@ mod ai_tests {
     use super::resolve_bundled_codex_executable_from_exe;
     use super::sorted_threads;
     use super::should_scroll_timeline_to_bottom_on_selection_change;
+    use super::should_sync_selected_thread_from_active_thread;
     use super::thread_latest_timeline_sequence;
     use super::workspace_include_hidden_models;
     use super::workspace_mad_max_mode;
@@ -1424,6 +1469,102 @@ mod ai_tests {
             None,
         ));
         assert!(!should_scroll_timeline_to_bottom_on_selection_change(None, None));
+    }
+
+    #[test]
+    fn active_thread_change_updates_selection_when_current_selection_is_valid() {
+        let mut state = AiState::default();
+        state.threads.insert(
+            "thread-old".to_string(),
+            ThreadSummary {
+                id: "thread-old".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                status: ThreadLifecycleStatus::Idle,
+                created_at: 1,
+                updated_at: 1,
+                last_sequence: 1,
+            },
+        );
+        state.threads.insert(
+            "thread-new".to_string(),
+            ThreadSummary {
+                id: "thread-new".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                status: ThreadLifecycleStatus::Idle,
+                created_at: 2,
+                updated_at: 2,
+                last_sequence: 2,
+            },
+        );
+
+        assert!(should_sync_selected_thread_from_active_thread(
+            Some("thread-old"),
+            Some("thread-new"),
+            Some("thread-old"),
+            &state,
+        ));
+    }
+
+    #[test]
+    fn unchanged_active_thread_does_not_override_local_selection() {
+        let mut state = AiState::default();
+        state.threads.insert(
+            "thread-a".to_string(),
+            ThreadSummary {
+                id: "thread-a".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                status: ThreadLifecycleStatus::Idle,
+                created_at: 1,
+                updated_at: 1,
+                last_sequence: 1,
+            },
+        );
+        state.threads.insert(
+            "thread-b".to_string(),
+            ThreadSummary {
+                id: "thread-b".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                status: ThreadLifecycleStatus::Idle,
+                created_at: 2,
+                updated_at: 2,
+                last_sequence: 2,
+            },
+        );
+
+        assert!(!should_sync_selected_thread_from_active_thread(
+            Some("thread-b"),
+            Some("thread-a"),
+            Some("thread-a"),
+            &state,
+        ));
+    }
+
+    #[test]
+    fn missing_selection_follows_active_thread() {
+        let mut state = AiState::default();
+        state.threads.insert(
+            "thread-a".to_string(),
+            ThreadSummary {
+                id: "thread-a".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                status: ThreadLifecycleStatus::Idle,
+                created_at: 1,
+                updated_at: 1,
+                last_sequence: 1,
+            },
+        );
+
+        assert!(should_sync_selected_thread_from_active_thread(
+            None,
+            Some("thread-a"),
+            Some("thread-a"),
+            &state,
+        ));
     }
 
     #[test]
