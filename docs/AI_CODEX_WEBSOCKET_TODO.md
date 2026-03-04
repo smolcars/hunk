@@ -245,40 +245,48 @@ A phase is complete only when all items below are done.
 ---
 
 ## Phase 10: Auth + Account + Rate Limits (v1)
-- [ ] Implement `account/read`, `account/login/start`, `account/login/cancel`, `account/logout`.
-- [ ] Implement ChatGPT login flow (open browser auth URL + callback completion handling).
-- [ ] Render account state + auth-required banners in AI tab.
-- [ ] Implement `account/rateLimits/read` + live update notifications.
+- [x] Implement `account/read`, `account/login/start`, `account/login/cancel`, `account/logout`.
+- [x] Implement ChatGPT login flow (open browser auth URL + callback completion handling).
+- [x] Render account state + auth-required banners in AI tab.
+- [x] Implement `account/rateLimits/read` + live update notifications.
 
 ### Required Tests
-- [ ] Integration test: ChatGPT login lifecycle notifications.
-- [ ] Integration test: logout and account-updated propagation.
-- [ ] Unit tests for auth state transitions.
+- [x] Integration test: ChatGPT login lifecycle notifications.
+- [x] Integration test: logout and account-updated propagation.
+- [x] Unit tests for auth state transitions.
+- [x] Deep phase review gate complete.
+- Phase 10 review note (2026-03-03): account/auth/rate-limit endpoints are now wired through `hunk-codex` and surfaced in the AI tab with explicit ChatGPT login/cancel/logout controls, browser handoff, login lifecycle messaging, and live notification-driven snapshot updates; deep review fixed a clippy-risky render helper signature by introducing a typed account panel view-model and keeping full workspace test/clippy gates clean.
 
 ---
 
 ## Phase 11: Models + Session Controls
-- [ ] Implement `model/list` and model picker in AI UI.
-- [ ] Implement `experimentalFeature/list` support to gate client-visible toggles.
-- [ ] Implement `collaborationMode/list` and add per-thread collaboration mode control.
-- [ ] Add per-thread controls for model and effort usage.
-- [ ] Validate unsupported/hidden model handling UX.
+- [x] Implement `model/list` and model picker in AI UI.
+- [x] Implement `experimentalFeature/list` support to gate client-visible toggles.
+- [x] Implement `collaborationMode/list` and add per-thread collaboration mode control.
+- [x] Add per-thread controls for model and effort usage.
+- [x] Validate unsupported/hidden model handling UX.
 
 ### Required Tests
-- [ ] Integration test: model list pagination and hidden-model options.
-- [ ] Unit tests for model picker state and persistence rules.
+- [x] Integration test: model list pagination and hidden-model options.
+- [x] Unit tests for model picker state and persistence rules.
+- [x] Deep phase review gate complete.
+- Phase 11 review note (2026-03-03): `hunk-codex` now exposes typed `model/list`, `experimentalFeature/list`, and `collaborationMode/list` methods with integration coverage for pagination + hidden-model behavior; desktop runtime now hydrates model/feature/collaboration catalogs, supports include-hidden toggling, and applies per-turn model/effort/collaboration overrides; AI UI now has a dedicated session controls panel (model, effort, collaboration preset, hidden-model toggle, metadata refresh) with unsupported-model fallback messaging; per-workspace and per-thread picker state now persists in app state with new unit coverage for persistence normalization and workspace preference resolution.
 
 ---
 
 ## Phase 12: Packaging and Cross-Platform Runtime
 - [ ] Bundle Codex app-server runtime artifacts for macOS, Linux, Windows.
+  - [x] macOS local install/stage scripts + strict bundle validation.
+  - [ ] Linux and Windows runtime artifact install/stage flow.
 - [ ] Add startup path resolution and compatibility checks per platform.
 - [ ] For Windows targets, validate whether `windowsSandbox/setupStart` is required and implement if needed.
 - [ ] Add packaging validation in CI for all target OSes.
 
 ### Required Tests
 - [ ] Integration test: startup on each target platform image.
+  - [x] macOS local smoke test with real bundled runtime (`real_runtime_smoke` ignored test).
 - [ ] Integration test: reconnect/restart behavior cross-platform.
+- Phase 12 macOS local review note (2026-03-03): host launch arguments were updated to the pinned Codex CLI `--listen ws://127.0.0.1:<port>` contract, macOS runtime install/stage scripts were added, strict bundle validation now supports single-platform checks, and a real-runtime smoke test validates bundled binary startup + initialize handshake.
 
 ---
 

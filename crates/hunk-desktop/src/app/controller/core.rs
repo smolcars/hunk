@@ -145,6 +145,11 @@ impl DiffViewer {
             .and_then(|workspace| state.ai_workspace_mad_max.get(workspace))
             .copied()
             .unwrap_or(false);
+        let initial_ai_include_hidden_models = initial_ai_workspace_key
+            .as_ref()
+            .and_then(|workspace| state.ai_workspace_include_hidden_models.get(workspace))
+            .copied()
+            .unwrap_or(false);
         let diff_show_whitespace = config.show_whitespace;
         let diff_show_eol_markers = config.show_eol_markers;
         let branch_input_state = cx.new(|cx| {
@@ -239,6 +244,13 @@ impl DiffViewer {
             ai_pending_chatgpt_login_id: None,
             ai_pending_chatgpt_auth_url: None,
             ai_rate_limits: None,
+            ai_models: Vec::new(),
+            ai_experimental_features: Vec::new(),
+            ai_collaboration_modes: Vec::new(),
+            ai_include_hidden_models: initial_ai_include_hidden_models,
+            ai_selected_model: None,
+            ai_selected_effort: None,
+            ai_selected_collaboration_mode: None,
             ai_mad_max_mode: initial_ai_mad_max_mode,
             ai_event_epoch: 0,
             ai_event_task: Task::ready(()),

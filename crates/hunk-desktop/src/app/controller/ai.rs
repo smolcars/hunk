@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use hunk_domain::state::AiThreadSessionState;
 use hunk_codex::state::ThreadSummary;
 use hunk_codex::state::TurnStatus;
 use hunk_domain::state::AppState;
@@ -12,7 +13,7 @@ impl DiffViewer {
             return;
         }
 
-        self.sync_ai_workspace_mad_max_from_state();
+        self.sync_ai_workspace_preferences_from_state();
 
         let Some(cwd) = self.ai_workspace_cwd() else {
             self.ai_connection_state = AiConnectionState::Failed;
@@ -29,10 +30,17 @@ impl DiffViewer {
         };
 
         let codex_executable = Self::resolve_codex_executable_path();
+        if let Err(error) = Self::validate_codex_executable_path(codex_executable.as_path()) {
+            self.ai_connection_state = AiConnectionState::Failed;
+            self.ai_error_message = Some(error);
+            cx.notify();
+            return;
+        }
         let (command_tx, command_rx) = std::sync::mpsc::channel();
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let mut start_config = AiWorkerStartConfig::new(cwd, codex_executable, codex_home);
         start_config.mad_max_mode = self.ai_mad_max_mode;
+        start_config.include_hidden_models = self.ai_include_hidden_models;
 
         let worker = spawn_ai_worker(start_config, command_rx, event_tx);
 
@@ -56,6 +64,38 @@ impl DiffViewer {
         self.send_ai_worker_command(AiWorkerCommand::RefreshRateLimits, cx);
     }
 
+    pub(super) fn ai_refresh_session_metadata(&mut self, cx: &mut Context<Self>) {
+        self.send_ai_worker_command(AiWorkerCommand::RefreshSessionMetadata, cx);
+    }
+
+    pub(super) fn ai_set_include_hidden_models_action(
+        &mut self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(workspace_key) = self.ai_workspace_key() else {
+            self.ai_status_message = Some("Open a workspace before changing model visibility.".to_string());
+            cx.notify();
+            return;
+        };
+        self.ai_include_hidden_models = enabled;
+        if enabled {
+            self.state
+                .ai_workspace_include_hidden_models
+                .insert(workspace_key, true);
+        } else {
+            self.state
+                .ai_workspace_include_hidden_models
+                .remove(workspace_key.as_str());
+        }
+        self.persist_state();
+        self.send_ai_worker_command_if_running(
+            AiWorkerCommand::SetIncludeHiddenModels { enabled },
+            cx,
+        );
+        cx.notify();
+    }
+
     pub(super) fn ai_start_chatgpt_login_action(&mut self, cx: &mut Context<Self>) {
         self.send_ai_worker_command(AiWorkerCommand::StartChatgptLogin, cx);
     }
@@ -76,7 +116,14 @@ impl DiffViewer {
         let prompt = self.ai_composer_input_state.read(cx).value().trim().to_string();
         let prompt = (!prompt.is_empty()).then_some(prompt);
 
-        if self.send_ai_worker_command(AiWorkerCommand::StartThread { prompt }, cx) {
+        let session_overrides = self.current_ai_turn_session_overrides();
+        if self.send_ai_worker_command(
+            AiWorkerCommand::StartThread {
+                prompt,
+                session_overrides,
+            },
+            cx,
+        ) {
             self.ai_composer_input_state.update(cx, |state, cx| {
                 state.set_value("", window, cx);
             });
@@ -95,12 +142,21 @@ impl DiffViewer {
             return;
         }
 
+        let session_overrides = self.current_ai_turn_session_overrides();
         let sent = if let Some(thread_id) = self.current_ai_thread_id() {
-            self.send_ai_worker_command(AiWorkerCommand::SendPrompt { thread_id, prompt }, cx)
+            self.send_ai_worker_command(
+                AiWorkerCommand::SendPrompt {
+                    thread_id,
+                    prompt,
+                    session_overrides,
+                },
+                cx,
+            )
         } else {
             self.send_ai_worker_command(
                 AiWorkerCommand::StartThread {
                     prompt: Some(prompt),
+                    session_overrides,
                 },
                 cx,
             )
@@ -207,6 +263,54 @@ impl DiffViewer {
         cx.notify();
     }
 
+    pub(super) fn ai_select_model_action(
+        &mut self,
+        model_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai_selected_model = model_id;
+        self.ai_selected_collaboration_mode = None;
+        self.normalize_ai_selected_effort();
+        self.persist_current_ai_thread_session();
+        cx.notify();
+    }
+
+    pub(super) fn ai_select_effort_action(
+        &mut self,
+        effort: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai_selected_effort = effort;
+        self.ai_selected_collaboration_mode = None;
+        self.normalize_ai_selected_effort();
+        self.persist_current_ai_thread_session();
+        cx.notify();
+    }
+
+    pub(super) fn ai_select_collaboration_mode_action(
+        &mut self,
+        mode_name: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai_selected_collaboration_mode = mode_name.clone();
+        if let Some(mode_name) = mode_name
+            && let Some(mask) = self
+                .ai_collaboration_modes
+                .iter()
+                .find(|mask| mask.name == mode_name)
+        {
+            if let Some(model) = mask.model.as_ref() {
+                self.ai_selected_model = Some(model.clone());
+            }
+            if let Some(reasoning_effort) = mask.reasoning_effort.unwrap_or(None) {
+                self.ai_selected_effort = Some(reasoning_effort_key(&reasoning_effort));
+            }
+        }
+        self.normalize_ai_selected_effort();
+        self.persist_current_ai_thread_session();
+        cx.notify();
+    }
+
     pub(super) fn ai_resolve_pending_approval_action(
         &mut self,
         request_id: String,
@@ -234,6 +338,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         self.ai_selected_thread_id = Some(thread_id.clone());
+        self.sync_ai_session_selection_from_state();
         self.send_ai_worker_command(AiWorkerCommand::SelectThread { thread_id }, cx);
         cx.notify();
     }
@@ -367,27 +472,77 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_sync_workspace_preferences(&mut self, cx: &mut Context<Self>) {
-        let previous = self.ai_mad_max_mode;
-        self.sync_ai_workspace_mad_max_from_state();
-        if previous != self.ai_mad_max_mode {
+        let previous_mad_max = self.ai_mad_max_mode;
+        let previous_include_hidden = self.ai_include_hidden_models;
+        self.sync_ai_workspace_preferences_from_state();
+        if previous_mad_max != self.ai_mad_max_mode {
             self.send_ai_worker_command_if_running(
                 AiWorkerCommand::SetMadMaxMode {
                     enabled: self.ai_mad_max_mode,
                 },
                 cx,
             );
-            cx.notify();
         }
+        if previous_include_hidden != self.ai_include_hidden_models {
+            self.send_ai_worker_command_if_running(
+                AiWorkerCommand::SetIncludeHiddenModels {
+                    enabled: self.ai_include_hidden_models,
+                },
+                cx,
+            );
+        }
+        self.sync_ai_session_selection_from_state();
+        cx.notify();
     }
 
-    fn sync_ai_workspace_mad_max_from_state(&mut self) {
+    fn sync_ai_workspace_preferences_from_state(&mut self) {
         self.ai_mad_max_mode = workspace_mad_max_mode(&self.state, self.ai_workspace_key().as_deref());
+        self.ai_include_hidden_models = workspace_include_hidden_models(
+            &self.state,
+            self.ai_workspace_key().as_deref(),
+        );
     }
 
     fn resolve_codex_executable_path() -> std::path::PathBuf {
         std::env::var_os("HUNK_CODEX_EXECUTABLE")
             .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|path| resolve_bundled_codex_executable_from_exe(path.as_path()))
+            })
             .unwrap_or_else(|| std::path::PathBuf::from("codex"))
+    }
+
+    fn validate_codex_executable_path(path: &std::path::Path) -> Result<(), String> {
+        if is_command_name_without_path(path) {
+            return Ok(());
+        }
+        if !path.exists() {
+            return Err(format!(
+                "Bundled Codex executable not found at {}",
+                path.display()
+            ));
+        }
+        if !path.is_file() {
+            return Err(format!(
+                "Bundled Codex executable path is not a file: {}",
+                path.display()
+            ));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = std::fs::metadata(path)
+                .map_err(|error| format!("Unable to inspect Codex executable: {error}"))?;
+            if metadata.permissions().mode() & 0o111 == 0 {
+                return Err(format!(
+                    "Bundled Codex executable is not marked executable: {}",
+                    path.display()
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn resolve_codex_home_path() -> Option<std::path::PathBuf> {
@@ -471,6 +626,9 @@ impl DiffViewer {
                                     this.ai_rate_limits = None;
                                     this.ai_pending_chatgpt_login_id = None;
                                     this.ai_pending_chatgpt_auth_url = None;
+                                    this.ai_models.clear();
+                                    this.ai_experimental_features.clear();
+                                    this.ai_collaboration_modes.clear();
                                     if this.ai_error_message.is_none() {
                                         this.ai_connection_state = AiConnectionState::Disconnected;
                                         this.ai_status_message = Some(
@@ -524,6 +682,9 @@ impl DiffViewer {
                 self.ai_rate_limits = None;
                 self.ai_pending_chatgpt_login_id = None;
                 self.ai_pending_chatgpt_auth_url = None;
+                self.ai_models.clear();
+                self.ai_experimental_features.clear();
+                self.ai_collaboration_modes.clear();
                 Self::push_error_notification(format!("Codex AI failed: {message}"), cx);
             }
         }
@@ -542,6 +703,10 @@ impl DiffViewer {
         self.ai_pending_chatgpt_login_id = snapshot.pending_chatgpt_login_id;
         self.ai_pending_chatgpt_auth_url = snapshot.pending_chatgpt_auth_url;
         self.ai_rate_limits = snapshot.rate_limits;
+        self.ai_models = snapshot.models;
+        self.ai_experimental_features = snapshot.experimental_features;
+        self.ai_collaboration_modes = snapshot.collaboration_modes;
+        self.ai_include_hidden_models = snapshot.include_hidden_models;
         self.ai_mad_max_mode = snapshot.mad_max_mode;
 
         if let Some(active_thread_id) = snapshot.active_thread_id {
@@ -563,6 +728,8 @@ impl DiffViewer {
         {
             self.ai_selected_thread_id = Some(first_thread.id.clone());
         }
+
+        self.sync_ai_session_selection_from_state();
     }
 
     fn sync_ai_pending_user_input_answers(&mut self) {
@@ -578,6 +745,129 @@ impl DiffViewer {
         }
 
         self.ai_pending_user_input_answers = next_answers;
+    }
+
+    fn current_ai_turn_session_overrides(&self) -> AiTurnSessionOverrides {
+        let model = self
+            .ai_selected_model
+            .clone()
+            .filter(|model_id| self.ai_model_by_id(model_id.as_str()).is_some());
+        let effort = model.as_ref().and_then(|model_id| {
+            self.ai_selected_effort
+                .clone()
+                .filter(|effort| self.model_supports_effort(model_id.as_str(), effort.as_str()))
+        });
+        let collaboration_mode = self
+            .ai_selected_collaboration_mode
+            .clone()
+            .filter(|mode_name| {
+                self.ai_collaboration_modes
+                    .iter()
+                    .any(|mask| mask.name == *mode_name)
+            });
+        AiTurnSessionOverrides {
+            model,
+            effort,
+            collaboration_mode,
+        }
+    }
+
+    fn sync_ai_session_selection_from_state(&mut self) {
+        let persisted = self
+            .ai_workspace_key()
+            .as_ref()
+            .and_then(|workspace| {
+                self.current_ai_thread_id().and_then(|thread_id| {
+                    self.state
+                        .ai_thread_session_overrides
+                        .get(workspace)
+                        .and_then(|threads| threads.get(thread_id.as_str()))
+                        .cloned()
+                })
+            })
+            .unwrap_or_default();
+
+        self.ai_selected_model = persisted.model.or_else(|| self.default_ai_model_id());
+        self.ai_selected_collaboration_mode = persisted.collaboration_mode.filter(|mode_name| {
+            self.ai_collaboration_modes
+                .iter()
+                .any(|mask| mask.name == *mode_name)
+        });
+        self.ai_selected_effort = persisted.effort;
+        self.normalize_ai_selected_effort();
+    }
+
+    fn persist_current_ai_thread_session(&mut self) {
+        let Some(workspace) = self.ai_workspace_key() else {
+            return;
+        };
+        let Some(thread_id) = self.current_ai_thread_id() else {
+            return;
+        };
+
+        let session = AiThreadSessionState {
+            model: self.ai_selected_model.clone(),
+            effort: self.ai_selected_effort.clone(),
+            collaboration_mode: self.ai_selected_collaboration_mode.clone(),
+        };
+
+        if let Some(session) = normalized_thread_session_state(session) {
+            self.state
+                .ai_thread_session_overrides
+                .entry(workspace)
+                .or_default()
+                .insert(thread_id, session);
+        } else if let Some(workspace_sessions) =
+            self.state.ai_thread_session_overrides.get_mut(workspace.as_str())
+        {
+            workspace_sessions.remove(thread_id.as_str());
+            if workspace_sessions.is_empty() {
+                self.state.ai_thread_session_overrides.remove(workspace.as_str());
+            }
+        }
+        self.persist_state();
+    }
+
+    fn normalize_ai_selected_effort(&mut self) {
+        let Some(model_id) = self.ai_selected_model.as_ref() else {
+            self.ai_selected_effort = None;
+            return;
+        };
+        let Some(model) = self.ai_model_by_id(model_id.as_str()) else {
+            self.ai_selected_effort = None;
+            return;
+        };
+
+        if let Some(effort) = self.ai_selected_effort.as_ref()
+            && model
+                .supported_reasoning_efforts
+                .iter()
+                .any(|option| reasoning_effort_key(&option.reasoning_effort) == *effort)
+        {
+            return;
+        }
+        self.ai_selected_effort = Some(reasoning_effort_key(&model.default_reasoning_effort));
+    }
+
+    fn default_ai_model_id(&self) -> Option<String> {
+        self.ai_models
+            .iter()
+            .find(|model| model.is_default)
+            .or_else(|| self.ai_models.first())
+            .map(|model| model.id.clone())
+    }
+
+    fn ai_model_by_id(&self, model_id: &str) -> Option<&codex_app_server_protocol::Model> {
+        self.ai_models.iter().find(|model| model.id == model_id)
+    }
+
+    fn model_supports_effort(&self, model_id: &str, effort_key: &str) -> bool {
+        self.ai_model_by_id(model_id).is_some_and(|model| {
+            model
+                .supported_reasoning_efforts
+                .iter()
+                .any(|option| reasoning_effort_key(&option.reasoning_effort) == effort_key)
+        })
     }
 }
 
@@ -597,6 +887,93 @@ fn workspace_mad_max_mode(state: &AppState, workspace_key: Option<&str>) -> bool
         .and_then(|workspace| state.ai_workspace_mad_max.get(workspace))
         .copied()
         .unwrap_or(false)
+}
+
+fn workspace_include_hidden_models(state: &AppState, workspace_key: Option<&str>) -> bool {
+    workspace_key
+        .and_then(|workspace| state.ai_workspace_include_hidden_models.get(workspace))
+        .copied()
+        .unwrap_or(false)
+}
+
+fn reasoning_effort_key(effort: &codex_protocol::openai_models::ReasoningEffort) -> String {
+    serde_json::to_value(effort)
+        .ok()
+        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        .unwrap_or_else(|| format!("{effort:?}").to_lowercase())
+}
+
+fn resolve_bundled_codex_executable_from_exe(current_exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    bundled_codex_executable_candidates(current_exe)
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+}
+
+fn bundled_codex_executable_candidates(current_exe: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Some(exe_dir) = current_exe.parent() else {
+        return Vec::new();
+    };
+
+    let binary_name = codex_runtime_binary_name();
+    let platform_dir = codex_runtime_platform_dir();
+    let mut candidates = vec![
+        exe_dir
+            .join("codex-runtime")
+            .join(platform_dir)
+            .join(binary_name),
+        exe_dir.join(binary_name),
+    ];
+
+    if cfg!(target_os = "macos")
+        && let Some(contents_dir) = exe_dir.parent()
+    {
+        candidates.push(
+            contents_dir
+                .join("Resources")
+                .join("codex-runtime")
+                .join(platform_dir)
+                .join(binary_name),
+        );
+    }
+
+    candidates
+}
+
+fn codex_runtime_platform_dir() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    }
+}
+
+fn codex_runtime_binary_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "codex.exe"
+    } else {
+        "codex"
+    }
+}
+
+fn is_command_name_without_path(path: &std::path::Path) -> bool {
+    if path.is_absolute() {
+        return false;
+    }
+    let text = path.to_string_lossy();
+    !text.contains(std::path::MAIN_SEPARATOR) && !text.contains('/')
+}
+
+fn normalized_thread_session_state(
+    session: AiThreadSessionState,
+) -> Option<AiThreadSessionState> {
+    let is_empty =
+        session.model.is_none() && session.effort.is_none() && session.collaboration_mode.is_none();
+    if is_empty {
+        return None;
+    }
+    Some(session)
 }
 
 fn normalized_user_input_answers(
@@ -635,9 +1012,16 @@ fn item_status_chip(status: hunk_codex::state::ItemStatus) -> &'static str {
 
 #[cfg(test)]
 mod ai_tests {
+    use super::bundled_codex_executable_candidates;
+    use super::codex_runtime_binary_name;
+    use super::codex_runtime_platform_dir;
     use super::item_status_chip;
+    use super::is_command_name_without_path;
+    use super::normalized_thread_session_state;
     use super::normalized_user_input_answers;
+    use super::resolve_bundled_codex_executable_from_exe;
     use super::sorted_threads;
+    use super::workspace_include_hidden_models;
     use super::workspace_mad_max_mode;
     use crate::app::ai_runtime::AiPendingUserInputQuestion;
     use crate::app::ai_runtime::AiPendingUserInputQuestionOption;
@@ -646,7 +1030,10 @@ mod ai_tests {
     use hunk_codex::state::ItemStatus;
     use hunk_codex::state::ThreadLifecycleStatus;
     use hunk_codex::state::ThreadSummary;
+    use hunk_domain::state::AiThreadSessionState;
     use hunk_domain::state::AppState;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn sorted_threads_orders_by_latest_sequence_then_id() {
@@ -701,10 +1088,98 @@ mod ai_tests {
             ]
             .into_iter()
             .collect(),
+            ai_workspace_include_hidden_models: Default::default(),
+            ai_thread_session_overrides: Default::default(),
         };
         assert!(workspace_mad_max_mode(&state, Some("/repo-a")));
         assert!(!workspace_mad_max_mode(&state, Some("/repo-b")));
         assert!(!workspace_mad_max_mode(&state, Some("/repo-c")));
+    }
+
+    #[test]
+    fn workspace_include_hidden_models_defaults_to_false_when_missing() {
+        let state = AppState::default();
+        assert!(!workspace_include_hidden_models(&state, Some("/repo")));
+        assert!(!workspace_include_hidden_models(&state, None));
+    }
+
+    #[test]
+    fn workspace_include_hidden_models_reads_per_workspace_flags() {
+        let state = AppState {
+            last_project_path: None,
+            ai_workspace_mad_max: Default::default(),
+            ai_workspace_include_hidden_models: [
+                ("/repo-a".to_string(), true),
+                ("/repo-b".to_string(), false),
+            ]
+            .into_iter()
+            .collect(),
+            ai_thread_session_overrides: Default::default(),
+        };
+        assert!(workspace_include_hidden_models(&state, Some("/repo-a")));
+        assert!(!workspace_include_hidden_models(&state, Some("/repo-b")));
+        assert!(!workspace_include_hidden_models(&state, Some("/repo-c")));
+    }
+
+    #[test]
+    fn normalized_thread_session_state_drops_empty_entries() {
+        assert_eq!(
+            normalized_thread_session_state(AiThreadSessionState::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn normalized_thread_session_state_preserves_selected_overrides() {
+        let session = AiThreadSessionState {
+            model: Some("gpt-5-codex".to_string()),
+            effort: Some("high".to_string()),
+            collaboration_mode: Some("Plan".to_string()),
+        };
+        assert_eq!(
+            normalized_thread_session_state(session.clone()),
+            Some(session),
+        );
+    }
+
+    #[test]
+    fn command_name_without_path_detection_is_stable() {
+        assert!(is_command_name_without_path(std::path::Path::new("codex")));
+        assert!(!is_command_name_without_path(std::path::Path::new("./codex")));
+        assert!(!is_command_name_without_path(std::path::Path::new("/usr/bin/codex")));
+    }
+
+    #[test]
+    fn bundled_codex_resolution_picks_existing_runtime_candidate() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be monotonic")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("hunk-codex-runtime-{unique}"));
+        let exe_dir = root.join("bin");
+        std::fs::create_dir_all(&exe_dir).expect("exe dir should be created");
+        let exe_path = exe_dir.join("hunk");
+        std::fs::write(&exe_path, "").expect("fake exe should be written");
+
+        let runtime_path = exe_dir
+            .join("codex-runtime")
+            .join(codex_runtime_platform_dir())
+            .join(codex_runtime_binary_name());
+        std::fs::create_dir_all(
+            runtime_path
+                .parent()
+                .expect("runtime parent should exist"),
+        )
+        .expect("runtime dir should be created");
+        std::fs::write(&runtime_path, "").expect("runtime binary should be written");
+
+        let resolved = resolve_bundled_codex_executable_from_exe(exe_path.as_path());
+        assert_eq!(resolved, Some(runtime_path));
+
+        let candidates = bundled_codex_executable_candidates(exe_path.as_path());
+        assert!(candidates.iter().any(|candidate| candidate.ends_with(PathBuf::from("codex-runtime").join(codex_runtime_platform_dir()).join(codex_runtime_binary_name()))));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

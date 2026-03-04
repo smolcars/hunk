@@ -407,6 +407,51 @@ fn account_endpoints_are_wired() {
 }
 
 #[test]
+fn model_and_session_metadata_endpoints_are_wired() {
+    let server = TestServer::spawn(Scenario::ModelAndSessionMetadata);
+    let mut session = connect_initialized_session(server.port);
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+
+    let first_page = service
+        .list_models(&mut session, None, Some(1), Some(false), TIMEOUT)
+        .expect("first model/list should succeed");
+    assert_eq!(first_page.data.len(), 1);
+    assert_eq!(first_page.data[0].id, "model-visible");
+    assert!(!first_page.data[0].hidden);
+    assert_eq!(first_page.next_cursor, Some("cursor-hidden".to_string()));
+
+    let second_page = service
+        .list_models(
+            &mut session,
+            first_page.next_cursor.clone(),
+            Some(1),
+            Some(true),
+            TIMEOUT,
+        )
+        .expect("second model/list should succeed");
+    assert_eq!(second_page.data.len(), 1);
+    assert_eq!(second_page.data[0].id, "model-hidden");
+    assert!(second_page.data[0].hidden);
+    assert_eq!(second_page.next_cursor, None);
+
+    let features = service
+        .list_experimental_features(&mut session, None, Some(20), TIMEOUT)
+        .expect("experimentalFeature/list should succeed");
+    assert_eq!(features.data.len(), 1);
+    assert_eq!(features.data[0].name, "collaboration_modes".to_string());
+    assert!(features.data[0].enabled);
+
+    let modes = service
+        .list_collaboration_modes(&mut session, TIMEOUT)
+        .expect("collaborationMode/list should succeed");
+    assert_eq!(modes.data.len(), 1);
+    assert_eq!(modes.data[0].name, "Plan".to_string());
+    assert_eq!(modes.data[0].model, Some("gpt-5-codex".to_string()));
+
+    server.join();
+}
+
+#[test]
 fn unknown_thread_status_notification_is_ignored() {
     let mut service = ThreadService::new(WORKSPACE_CWD.into());
 
@@ -779,6 +824,7 @@ enum Scenario {
     CommandExecServerError,
     SkillsAndAppsMetadata,
     AccountEndpoints,
+    ModelAndSessionMetadata,
 }
 
 struct TestServer {
@@ -820,6 +866,7 @@ impl TestServer {
                 Scenario::CommandExecServerError => run_command_exec_server_error(&mut socket),
                 Scenario::SkillsAndAppsMetadata => run_skills_and_apps_metadata(&mut socket),
                 Scenario::AccountEndpoints => run_account_endpoints(&mut socket),
+                Scenario::ModelAndSessionMetadata => run_model_and_session_metadata(&mut socket),
             }
         });
 
@@ -1515,6 +1562,124 @@ fn run_account_endpoints(socket: &mut WebSocket<TcpStream>) {
 
     let logout = expect_request(socket, api::method::ACCOUNT_LOGOUT);
     send_typed_success_response(socket, logout.id, &LogoutAccountResponse {});
+}
+
+fn run_model_and_session_metadata(socket: &mut WebSocket<TcpStream>) {
+    let first_models = expect_request(socket, api::method::MODEL_LIST);
+    let first_params = first_models
+        .params
+        .expect("first model/list params should be present");
+    assert_eq!(first_params.get("cursor"), Some(&serde_json::Value::Null));
+    assert_eq!(first_params.get("limit"), Some(&serde_json::json!(1)));
+    assert_eq!(
+        first_params.get("includeHidden"),
+        Some(&serde_json::json!(false))
+    );
+    send_success_response(
+        socket,
+        first_models.id,
+        serde_json::json!({
+            "data": [{
+                "id": "model-visible",
+                "model": "gpt-5-codex",
+                "upgrade": null,
+                "upgradeInfo": null,
+                "availabilityNux": null,
+                "displayName": "GPT-5 Codex",
+                "description": "Visible model",
+                "hidden": false,
+                "supportedReasoningEfforts": [{
+                    "reasoningEffort": "high",
+                    "description": "High reasoning effort"
+                }],
+                "defaultReasoningEffort": "high",
+                "inputModalities": ["text"],
+                "supportsPersonality": false,
+                "isDefault": true
+            }],
+            "nextCursor": "cursor-hidden"
+        }),
+    );
+
+    let second_models = expect_request(socket, api::method::MODEL_LIST);
+    let second_params = second_models
+        .params
+        .expect("second model/list params should be present");
+    assert_eq!(
+        param_string(&second_params, "cursor"),
+        Some("cursor-hidden".to_string())
+    );
+    assert_eq!(second_params.get("limit"), Some(&serde_json::json!(1)));
+    assert_eq!(
+        second_params.get("includeHidden"),
+        Some(&serde_json::json!(true))
+    );
+    send_success_response(
+        socket,
+        second_models.id,
+        serde_json::json!({
+            "data": [{
+                "id": "model-hidden",
+                "model": "gpt-5-mini",
+                "upgrade": null,
+                "upgradeInfo": null,
+                "availabilityNux": null,
+                "displayName": "GPT-5 Mini",
+                "description": "Hidden model",
+                "hidden": true,
+                "supportedReasoningEfforts": [{
+                    "reasoningEffort": "low",
+                    "description": "Low reasoning effort"
+                }],
+                "defaultReasoningEffort": "low",
+                "inputModalities": ["text"],
+                "supportsPersonality": false,
+                "isDefault": false
+            }],
+            "nextCursor": null
+        }),
+    );
+
+    let features = expect_request(socket, api::method::EXPERIMENTAL_FEATURE_LIST);
+    let feature_params = features
+        .params
+        .expect("experimentalFeature/list params should be present");
+    assert_eq!(feature_params.get("cursor"), Some(&serde_json::Value::Null));
+    assert_eq!(feature_params.get("limit"), Some(&serde_json::json!(20)));
+    send_success_response(
+        socket,
+        features.id,
+        serde_json::json!({
+            "data": [{
+                "name": "collaboration_modes",
+                "stage": "removed",
+                "displayName": null,
+                "description": null,
+                "announcement": null,
+                "enabled": true,
+                "defaultEnabled": true
+            }],
+            "nextCursor": null
+        }),
+    );
+
+    let modes = expect_request(socket, api::method::COLLABORATION_MODE_LIST);
+    let mode_params = modes
+        .params
+        .expect("collaborationMode/list params should be present");
+    assert_eq!(mode_params, serde_json::json!({}));
+    send_success_response(
+        socket,
+        modes.id,
+        serde_json::json!({
+            "data": [{
+                "name": "Plan",
+                "mode": "plan",
+                "model": "gpt-5-codex",
+                "reasoning_effort": "high"
+            }]
+        }),
+    );
 }
 
 fn connect_initialized_session(port: u16) -> JsonRpcSession {

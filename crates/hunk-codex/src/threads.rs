@@ -19,6 +19,8 @@ use codex_app_server_protocol::LoginAccountParams;
 use codex_app_server_protocol::LoginAccountResponse;
 use codex_app_server_protocol::LogoutAccountResponse;
 use codex_app_server_protocol::McpToolCallStatus;
+use codex_app_server_protocol::ModelListParams;
+use codex_app_server_protocol::ModelListResponse;
 use codex_app_server_protocol::PatchApplyStatus;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewStartParams;
@@ -63,6 +65,8 @@ use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::TurnSteerParams;
 use codex_app_server_protocol::TurnSteerResponse;
+use codex_app_server_protocol::{CollaborationModeListParams, CollaborationModeListResponse};
+use codex_app_server_protocol::{ExperimentalFeatureListParams, ExperimentalFeatureListResponse};
 
 use crate::api;
 use crate::errors::CodexIntegrationError;
@@ -221,6 +225,56 @@ impl ThreadService {
         };
         let response: AppsListResponse =
             session.request_typed(api::method::APP_LIST, Some(&params), timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn list_models(
+        &mut self,
+        session: &mut JsonRpcSession,
+        cursor: Option<String>,
+        limit: Option<u32>,
+        include_hidden: Option<bool>,
+        timeout: Duration,
+    ) -> Result<ModelListResponse> {
+        let params = ModelListParams {
+            cursor,
+            limit,
+            include_hidden,
+        };
+        let response: ModelListResponse =
+            session.request_typed(api::method::MODEL_LIST, Some(&params), timeout)?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn list_experimental_features(
+        &mut self,
+        session: &mut JsonRpcSession,
+        cursor: Option<String>,
+        limit: Option<u32>,
+        timeout: Duration,
+    ) -> Result<ExperimentalFeatureListResponse> {
+        let params = ExperimentalFeatureListParams { cursor, limit };
+        let response: ExperimentalFeatureListResponse = session.request_typed(
+            api::method::EXPERIMENTAL_FEATURE_LIST,
+            Some(&params),
+            timeout,
+        )?;
+        self.apply_queued_notifications(session);
+        Ok(response)
+    }
+
+    pub fn list_collaboration_modes(
+        &mut self,
+        session: &mut JsonRpcSession,
+        timeout: Duration,
+    ) -> Result<CollaborationModeListResponse> {
+        let response: CollaborationModeListResponse = session.request_typed(
+            api::method::COLLABORATION_MODE_LIST,
+            Some(&CollaborationModeListParams::default()),
+            timeout,
+        )?;
         self.apply_queued_notifications(session);
         Ok(response)
     }

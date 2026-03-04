@@ -59,13 +59,8 @@ impl HostConfig {
     }
 
     pub fn default_codex_arguments(port: u16) -> Vec<String> {
-        vec![
-            "app-server".to_string(),
-            "--transport".to_string(),
-            "websocket".to_string(),
-            "--port".to_string(),
-            port.to_string(),
-        ]
+        let listen_url = format!("ws://127.0.0.1:{port}");
+        vec!["app-server".to_string(), "--listen".to_string(), listen_url]
     }
 
     pub fn websocket_url(&self) -> String {

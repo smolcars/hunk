@@ -77,6 +77,9 @@ pub mod method {
     pub const ACCOUNT_LOGIN_CANCEL: &str = "account/login/cancel";
     pub const ACCOUNT_LOGOUT: &str = "account/logout";
     pub const ACCOUNT_RATE_LIMITS_READ: &str = "account/rateLimits/read";
+    pub const MODEL_LIST: &str = "model/list";
+    pub const EXPERIMENTAL_FEATURE_LIST: &str = "experimentalFeature/list";
+    pub const COLLABORATION_MODE_LIST: &str = "collaborationMode/list";
 
     pub const COMMAND_EXEC: &str = "command/exec";
 }

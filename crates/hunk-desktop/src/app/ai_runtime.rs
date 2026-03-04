@@ -12,14 +12,17 @@ use std::time::Duration;
 use codex_app_server_protocol::Account;
 use codex_app_server_protocol::AskForApproval;
 use codex_app_server_protocol::CancelLoginAccountStatus;
+use codex_app_server_protocol::CollaborationModeMask;
 use codex_app_server_protocol::CommandExecParams;
 use codex_app_server_protocol::CommandExecutionApprovalDecision;
 use codex_app_server_protocol::CommandExecutionRequestApprovalResponse;
 use codex_app_server_protocol::DynamicToolCallOutputContentItem;
+use codex_app_server_protocol::ExperimentalFeature;
 use codex_app_server_protocol::FileChangeApprovalDecision;
 use codex_app_server_protocol::FileChangeRequestApprovalResponse;
 use codex_app_server_protocol::LoginAccountParams;
 use codex_app_server_protocol::LoginAccountResponse;
+use codex_app_server_protocol::Model;
 use codex_app_server_protocol::RateLimitSnapshot;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewStartParams;
@@ -36,6 +39,10 @@ use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnSteerParams;
 use codex_app_server_protocol::UserInput;
+use codex_protocol::config_types::CollaborationMode;
+use codex_protocol::config_types::ModeKind;
+use codex_protocol::config_types::Settings;
+use codex_protocol::openai_models::ReasoningEffort;
 use hunk_codex::api::InitializeOptions;
 use hunk_codex::errors::CodexIntegrationError;
 use hunk_codex::host::HostConfig;
@@ -111,6 +118,13 @@ pub struct AiPendingUserInputRequest {
     pub questions: Vec<AiPendingUserInputQuestion>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AiTurnSessionOverrides {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub collaboration_mode: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct AiSnapshot {
     pub state: AiState,
@@ -123,6 +137,10 @@ pub struct AiSnapshot {
     pub pending_chatgpt_login_id: Option<String>,
     pub pending_chatgpt_auth_url: Option<String>,
     pub rate_limits: Option<RateLimitSnapshot>,
+    pub models: Vec<Model>,
+    pub experimental_features: Vec<ExperimentalFeature>,
+    pub collaboration_modes: Vec<CollaborationModeMask>,
+    pub include_hidden_models: bool,
     pub mad_max_mode: bool,
 }
 
@@ -139,8 +157,13 @@ pub enum AiWorkerCommand {
     RefreshThreads,
     RefreshAccount,
     RefreshRateLimits,
+    RefreshSessionMetadata,
+    SetIncludeHiddenModels {
+        enabled: bool,
+    },
     StartThread {
         prompt: Option<String>,
+        session_overrides: AiTurnSessionOverrides,
     },
     SelectThread {
         thread_id: String,
@@ -148,6 +171,7 @@ pub enum AiWorkerCommand {
     SendPrompt {
         thread_id: String,
         prompt: String,
+        session_overrides: AiTurnSessionOverrides,
     },
     InterruptTurn {
         thread_id: String,
@@ -183,6 +207,7 @@ pub struct AiWorkerStartConfig {
     pub codex_home: PathBuf,
     pub request_timeout: Duration,
     pub mad_max_mode: bool,
+    pub include_hidden_models: bool,
 }
 
 impl AiWorkerStartConfig {
@@ -193,6 +218,7 @@ impl AiWorkerStartConfig {
             codex_home,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             mad_max_mode: false,
+            include_hidden_models: false,
         }
     }
 }
@@ -222,6 +248,10 @@ struct AiWorkerRuntime {
     pending_chatgpt_login_id: Option<String>,
     pending_chatgpt_auth_url: Option<String>,
     rate_limits: Option<RateLimitSnapshot>,
+    models: Vec<Model>,
+    experimental_features: Vec<ExperimentalFeature>,
+    collaboration_modes: Vec<CollaborationModeMask>,
+    include_hidden_models: bool,
     tool_registry: DynamicToolRegistry,
     pending_approvals: BTreeMap<String, PendingApproval>,
     pending_user_inputs: BTreeMap<String, PendingUserInput>,
@@ -254,6 +284,11 @@ fn run_ai_worker(
         "Codex App Server connected over WebSocket".to_string(),
     ));
     runtime.refresh_thread_list()?;
+    if let Err(error) = runtime.refresh_session_metadata() {
+        let _ = event_tx.send(AiWorkerEvent::Status(format!(
+            "Unable to read model/session metadata: {error}"
+        )));
+    }
     if let Err(error) = runtime.refresh_account_state() {
         let _ = event_tx.send(AiWorkerEvent::Status(format!(
             "Unable to read account state: {error}"
@@ -317,6 +352,10 @@ impl AiWorkerRuntime {
             pending_chatgpt_login_id: None,
             pending_chatgpt_auth_url: None,
             rate_limits: None,
+            models: Vec::new(),
+            experimental_features: Vec::new(),
+            collaboration_modes: Vec::new(),
+            include_hidden_models: config.include_hidden_models,
             tool_registry: DynamicToolRegistry::new(),
             pending_approvals: BTreeMap::new(),
             pending_user_inputs: BTreeMap::new(),
@@ -343,9 +382,22 @@ impl AiWorkerRuntime {
                 self.refresh_account_rate_limits()?;
                 self.emit_snapshot_after_sync(event_tx)?;
             }
-            AiWorkerCommand::StartThread { prompt } => {
+            AiWorkerCommand::RefreshSessionMetadata => {
+                self.refresh_session_metadata()?;
+                self.emit_snapshot_after_sync(event_tx)?;
+            }
+            AiWorkerCommand::SetIncludeHiddenModels { enabled } => {
+                self.include_hidden_models = enabled;
+                self.refresh_models()?;
+                self.emit_snapshot_after_sync(event_tx)?;
+            }
+            AiWorkerCommand::StartThread {
+                prompt,
+                session_overrides,
+            } => {
                 let mut params = ThreadStartParams::default();
                 apply_thread_start_policy(self.mad_max_mode, &mut params);
+                apply_thread_start_session_overrides(&session_overrides, &mut params);
                 let response =
                     self.service
                         .start_thread(&mut self.session, params, self.request_timeout)?;
@@ -353,7 +405,7 @@ impl AiWorkerRuntime {
                     .state_mut()
                     .set_active_thread_for_cwd(self.cwd_key.clone(), response.thread.id.clone());
                 if let Some(prompt) = prompt {
-                    self.send_prompt(response.thread.id, prompt)?;
+                    self.send_prompt(response.thread.id, prompt, session_overrides)?;
                 }
                 self.emit_snapshot_after_sync(event_tx)?;
             }
@@ -363,8 +415,12 @@ impl AiWorkerRuntime {
                     .set_active_thread_for_cwd(self.cwd_key.clone(), thread_id);
                 self.emit_snapshot_after_sync(event_tx)?;
             }
-            AiWorkerCommand::SendPrompt { thread_id, prompt } => {
-                self.send_prompt(thread_id, prompt)?;
+            AiWorkerCommand::SendPrompt {
+                thread_id,
+                prompt,
+                session_overrides,
+            } => {
+                self.send_prompt(thread_id, prompt, session_overrides)?;
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::InterruptTurn { thread_id, turn_id } => {
@@ -524,6 +580,7 @@ impl AiWorkerRuntime {
         &mut self,
         thread_id: String,
         prompt: String,
+        session_overrides: AiTurnSessionOverrides,
     ) -> Result<(), CodexIntegrationError> {
         let trimmed = prompt.trim();
         if trimmed.is_empty() {
@@ -559,6 +616,7 @@ impl AiWorkerRuntime {
             ..TurnStartParams::default()
         };
         apply_turn_start_policy(self.mad_max_mode, &mut params);
+        self.apply_turn_session_overrides(&mut params, &session_overrides);
         self.service
             .start_turn(&mut self.session, params, self.request_timeout)?;
         Ok(())
@@ -576,6 +634,65 @@ impl AiWorkerRuntime {
             .map(|turn| turn.id.clone())
     }
 
+    fn apply_turn_session_overrides(
+        &self,
+        params: &mut TurnStartParams,
+        session_overrides: &AiTurnSessionOverrides,
+    ) {
+        params.model = session_overrides.model.clone();
+        params.effort = session_overrides
+            .effort
+            .as_deref()
+            .and_then(parse_reasoning_effort);
+
+        let Some(mode_name) = session_overrides.collaboration_mode.as_ref() else {
+            return;
+        };
+        let Some(mode_mask) = self
+            .collaboration_modes
+            .iter()
+            .find(|mask| &mask.name == mode_name)
+        else {
+            return;
+        };
+
+        let model = session_overrides
+            .model
+            .clone()
+            .or_else(|| mode_mask.model.clone())
+            .or_else(|| self.default_model_id());
+        let Some(model) = model else {
+            return;
+        };
+
+        let effort = session_overrides
+            .effort
+            .as_deref()
+            .and_then(parse_reasoning_effort)
+            .or_else(|| mode_mask.reasoning_effort.unwrap_or(None));
+
+        let collaboration_mode = CollaborationMode {
+            mode: mode_mask.mode.unwrap_or(ModeKind::Default),
+            settings: Settings {
+                model,
+                reasoning_effort: effort,
+                developer_instructions: None,
+            },
+        };
+        params.collaboration_mode = Some(collaboration_mode);
+        // Collaboration mode takes precedence over model/effort in the server.
+        params.model = None;
+        params.effort = None;
+    }
+
+    fn default_model_id(&self) -> Option<String> {
+        self.models
+            .iter()
+            .find(|model| model.is_default)
+            .or_else(|| self.models.first())
+            .map(|model| model.id.clone())
+    }
+
     fn refresh_thread_list(&mut self) -> Result<(), CodexIntegrationError> {
         let response =
             self.service
@@ -589,6 +706,75 @@ impl AiWorkerRuntime {
                 .set_active_thread_for_cwd(self.cwd_key.clone(), first_thread.id.clone());
         }
         Ok(())
+    }
+
+    fn refresh_session_metadata(&mut self) -> Result<(), CodexIntegrationError> {
+        self.refresh_models()?;
+        self.refresh_experimental_features()?;
+        self.refresh_collaboration_modes()?;
+        Ok(())
+    }
+
+    fn refresh_models(&mut self) -> Result<(), CodexIntegrationError> {
+        let mut cursor: Option<String> = None;
+        let mut models = Vec::new();
+        let mut pages = 0_u8;
+        loop {
+            pages = pages.saturating_add(1);
+            let response = self.service.list_models(
+                &mut self.session,
+                cursor.clone(),
+                Some(100),
+                Some(self.include_hidden_models),
+                self.request_timeout,
+            )?;
+            models.extend(response.data);
+            cursor = response.next_cursor;
+            if cursor.is_none() || pages >= 20 {
+                break;
+            }
+        }
+        self.models = models;
+        Ok(())
+    }
+
+    fn refresh_experimental_features(&mut self) -> Result<(), CodexIntegrationError> {
+        let mut cursor: Option<String> = None;
+        let mut features = Vec::new();
+        let mut pages = 0_u8;
+        loop {
+            pages = pages.saturating_add(1);
+            let response = self.service.list_experimental_features(
+                &mut self.session,
+                cursor.clone(),
+                Some(100),
+                self.request_timeout,
+            )?;
+            features.extend(response.data);
+            cursor = response.next_cursor;
+            if cursor.is_none() || pages >= 20 {
+                break;
+            }
+        }
+        self.experimental_features = features;
+        Ok(())
+    }
+
+    fn refresh_collaboration_modes(&mut self) -> Result<(), CodexIntegrationError> {
+        match self
+            .service
+            .list_collaboration_modes(&mut self.session, self.request_timeout)
+        {
+            Ok(response) => {
+                self.collaboration_modes = response.data;
+                Ok(())
+            }
+            Err(CodexIntegrationError::JsonRpcServerError { .. }) => {
+                self.collaboration_modes.clear();
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn refresh_account_state(&mut self) -> Result<(), CodexIntegrationError> {
@@ -983,6 +1169,10 @@ impl AiWorkerRuntime {
             pending_chatgpt_login_id: self.pending_chatgpt_login_id.clone(),
             pending_chatgpt_auth_url: self.pending_chatgpt_auth_url.clone(),
             rate_limits: self.rate_limits.clone(),
+            models: self.models.clone(),
+            experimental_features: self.experimental_features.clone(),
+            collaboration_modes: self.collaboration_modes.clone(),
+            include_hidden_models: self.include_hidden_models,
             mad_max_mode: self.mad_max_mode,
         })));
     }
@@ -1031,11 +1221,22 @@ fn apply_turn_start_policy(mad_max_mode: bool, params: &mut TurnStartParams) {
     }
 }
 
+fn apply_thread_start_session_overrides(
+    session_overrides: &AiTurnSessionOverrides,
+    params: &mut ThreadStartParams,
+) {
+    params.model = session_overrides.model.clone();
+}
+
 fn command_exec_sandbox_policy(mad_max_mode: bool) -> Option<SandboxPolicy> {
     if mad_max_mode {
         return Some(SandboxPolicy::DangerFullAccess);
     }
     None
+}
+
+fn parse_reasoning_effort(raw: &str) -> Option<ReasoningEffort> {
+    serde_json::from_value::<ReasoningEffort>(serde_json::Value::String(raw.to_string())).ok()
 }
 
 fn request_id_key(request_id: &RequestId) -> String {

@@ -390,12 +390,14 @@ impl DiffViewer {
                                                         )
                                                     },
                                                 )
-                                                .child(render_ai_account_panel(
-                                                    self.ai_account.as_ref(),
-                                                    self.ai_requires_openai_auth,
-                                                    self.ai_pending_chatgpt_login_id.as_deref(),
-                                                    self.ai_pending_chatgpt_auth_url.as_deref(),
-                                                    self.ai_rate_limits.as_ref(),
+                                                .child(render_ai_session_controls_panel_for_view(
+                                                    self,
+                                                    view.clone(),
+                                                    is_dark,
+                                                    cx,
+                                                ))
+                                                .child(render_ai_account_panel_for_view(
+                                                    self,
                                                     view.clone(),
                                                     is_dark,
                                                     cx,

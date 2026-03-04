@@ -26,6 +26,19 @@ fn fixture_server_entrypoint() {
 }
 
 #[test]
+fn default_codex_arguments_use_websocket_listen_url() {
+    let args = HostConfig::default_codex_arguments(4455);
+    assert_eq!(
+        args,
+        vec![
+            "app-server".to_string(),
+            "--listen".to_string(),
+            "ws://127.0.0.1:4455".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn host_boots_and_accepts_websocket_client() {
     let setup = TestSetup::new();
     let mut runtime = HostRuntime::new(setup.host_config());

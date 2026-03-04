@@ -71,18 +71,42 @@ fn ai_approval_description(approval: &AiPendingApproval) -> String {
     }
 }
 
-fn render_ai_account_panel(
-    account: Option<&codex_app_server_protocol::Account>,
+struct AiAccountPanelView<'a> {
+    account: Option<&'a codex_app_server_protocol::Account>,
     requires_openai_auth: bool,
-    pending_chatgpt_login_id: Option<&str>,
-    pending_chatgpt_auth_url: Option<&str>,
-    rate_limits: Option<&codex_app_server_protocol::RateLimitSnapshot>,
+    pending_chatgpt_login_id: Option<&'a str>,
+    pending_chatgpt_auth_url: Option<&'a str>,
+    rate_limits: Option<&'a codex_app_server_protocol::RateLimitSnapshot>,
+    is_dark: bool,
+}
+
+fn render_ai_account_panel_for_view(
+    this: &DiffViewer,
     view: Entity<DiffViewer>,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
-    let login_pending = pending_chatgpt_login_id.is_some();
-    let summary = ai_account_summary(account, requires_openai_auth);
+    render_ai_account_panel(
+        AiAccountPanelView {
+            account: this.ai_account.as_ref(),
+            requires_openai_auth: this.ai_requires_openai_auth,
+            pending_chatgpt_login_id: this.ai_pending_chatgpt_login_id.as_deref(),
+            pending_chatgpt_auth_url: this.ai_pending_chatgpt_auth_url.as_deref(),
+            rate_limits: this.ai_rate_limits.as_ref(),
+            is_dark,
+        },
+        view,
+        cx,
+    )
+}
+
+fn render_ai_account_panel(
+    panel: AiAccountPanelView<'_>,
+    view: Entity<DiffViewer>,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let login_pending = panel.pending_chatgpt_login_id.is_some();
+    let summary = ai_account_summary(panel.account, panel.requires_openai_auth);
 
     v_flex()
         .w_full()
@@ -90,7 +114,7 @@ fn render_ai_account_panel(
         .rounded_md()
         .border_1()
         .border_color(cx.theme().border)
-        .bg(cx.theme().muted.opacity(if is_dark { 0.20 } else { 0.40 }))
+        .bg(cx.theme().muted.opacity(if panel.is_dark { 0.20 } else { 0.40 }))
         .p_2()
         .child(
             h_flex()
@@ -121,7 +145,7 @@ fn render_ai_account_panel(
                 .whitespace_normal()
                 .child(summary),
         )
-        .when_some(ai_rate_limit_summary(rate_limits), |this, summary| {
+        .when_some(ai_rate_limit_summary(panel.rate_limits), |this, summary| {
             this.child(
                 div()
                     .text_xs()
@@ -131,7 +155,7 @@ fn render_ai_account_panel(
                     .child(summary),
             )
         })
-        .when_some(pending_chatgpt_login_id, |this, login_id| {
+        .when_some(panel.pending_chatgpt_login_id, |this, login_id| {
             this.child(
                 div()
                     .text_xs()
@@ -141,7 +165,7 @@ fn render_ai_account_panel(
                     .child(format!("loginId: {login_id}")),
             )
         })
-        .when_some(pending_chatgpt_auth_url, |this, auth_url| {
+        .when_some(panel.pending_chatgpt_auth_url, |this, auth_url| {
             this.child(
                 div()
                     .text_xs()
@@ -204,7 +228,7 @@ fn render_ai_account_panel(
                         .outline()
                         .with_size(gpui_component::Size::Small)
                         .label("Logout")
-                        .disabled(account.is_none())
+                        .disabled(panel.account.is_none())
                         .on_click(move |_, _, cx| {
                             view.update(cx, |this, cx| {
                                 this.ai_logout_account_action(cx);
@@ -212,6 +236,335 @@ fn render_ai_account_panel(
                         })
                 }),
         )
+        .into_any_element()
+}
+
+struct AiSessionControlsPanelView<'a> {
+    models: &'a [codex_app_server_protocol::Model],
+    experimental_features: &'a [codex_app_server_protocol::ExperimentalFeature],
+    collaboration_modes: &'a [codex_app_server_protocol::CollaborationModeMask],
+    include_hidden_models: bool,
+    selected_model: Option<&'a str>,
+    selected_effort: Option<&'a str>,
+    selected_collaboration_mode: Option<&'a str>,
+    is_dark: bool,
+}
+
+fn render_ai_session_controls_panel_for_view(
+    this: &DiffViewer,
+    view: Entity<DiffViewer>,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    render_ai_session_controls_panel(
+        AiSessionControlsPanelView {
+            models: this.ai_models.as_slice(),
+            experimental_features: this.ai_experimental_features.as_slice(),
+            collaboration_modes: this.ai_collaboration_modes.as_slice(),
+            include_hidden_models: this.ai_include_hidden_models,
+            selected_model: this.ai_selected_model.as_deref(),
+            selected_effort: this.ai_selected_effort.as_deref(),
+            selected_collaboration_mode: this.ai_selected_collaboration_mode.as_deref(),
+            is_dark,
+        },
+        view,
+        cx,
+    )
+}
+
+fn render_ai_session_controls_panel(
+    panel: AiSessionControlsPanelView<'_>,
+    view: Entity<DiffViewer>,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let model_label = ai_model_picker_label(panel.models, panel.selected_model);
+    let selected_model = panel
+        .selected_model
+        .and_then(|selected| panel.models.iter().find(|model| model.id == selected));
+    let selected_model_unavailable = panel
+        .selected_model
+        .is_some_and(|selected| panel.models.iter().all(|model| model.id != selected));
+    let effort_options = selected_model
+        .map(|model| {
+            model
+                .supported_reasoning_efforts
+                .iter()
+                .map(|option| {
+                    (
+                        ai_reasoning_effort_key(&option.reasoning_effort),
+                        option.description.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let effort_label = ai_effort_picker_label(panel.selected_effort, selected_model);
+    let collaboration_enabled = ai_experimental_feature_enabled(
+        panel.experimental_features,
+        "collaboration_modes",
+    ) && !panel.collaboration_modes.is_empty();
+    let collaboration_label = ai_collaboration_picker_label(panel.selected_collaboration_mode);
+    let model_items = panel
+        .models
+        .iter()
+        .map(|model| {
+            let suffix = if model.hidden { " (hidden)" } else { "" };
+            (model.id.clone(), format!("{}{}", model.display_name, suffix))
+        })
+        .collect::<Vec<_>>();
+    let collaboration_items = panel
+        .collaboration_modes
+        .iter()
+        .map(|mode| mode.name.clone())
+        .collect::<Vec<_>>();
+
+    v_flex()
+        .w_full()
+        .gap_1()
+        .rounded_md()
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().muted.opacity(if panel.is_dark { 0.20 } else { 0.40 }))
+        .p_2()
+        .child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(div().text_xs().font_semibold().child("Session"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!("Models: {}", panel.models.len())),
+                ),
+        )
+        .child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .gap_1()
+                .child({
+                    let view = view.clone();
+                    Button::new("ai-session-refresh")
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .label("Refresh")
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.ai_refresh_session_metadata(cx);
+                            });
+                        })
+                })
+                .child({
+                    let view = view.clone();
+                    let enable_hidden = !panel.include_hidden_models;
+                    Button::new("ai-session-toggle-hidden-models")
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .label(if panel.include_hidden_models {
+                            "Hidden Models On"
+                        } else {
+                            "Hidden Models Off"
+                        })
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.ai_set_include_hidden_models_action(enable_hidden, cx);
+                            });
+                        })
+                }),
+        )
+        .child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Model"))
+                .child({
+                    let view = view.clone();
+                    let selected_model = panel.selected_model.map(ToOwned::to_owned);
+                    Button::new("ai-session-model-dropdown")
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .dropdown_caret(true)
+                        .label(model_label)
+                        .dropdown_menu(move |menu, _, _| {
+                            let mut menu = menu.item(
+                                PopupMenuItem::new("Server default")
+                                    .checked(selected_model.is_none())
+                                    .on_click({
+                                        let view = view.clone();
+                                        move |_, _, cx| {
+                                            view.update(cx, |this, cx| {
+                                                this.ai_select_model_action(None, cx);
+                                            });
+                                        }
+                                    }),
+                            );
+                            for (model_id, label) in &model_items {
+                                let model_id_value = model_id.clone();
+                                menu = menu.item(
+                                    PopupMenuItem::new(label.clone())
+                                        .checked(
+                                            selected_model
+                                                .as_deref()
+                                                == Some(model_id_value.as_str()),
+                                        )
+                                        .on_click({
+                                            let view = view.clone();
+                                            move |_, _, cx| {
+                                                let selected = model_id_value.clone();
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_select_model_action(
+                                                        Some(selected.clone()),
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                );
+                            }
+                            menu
+                        })
+                }),
+        )
+        .child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Effort"))
+                .child({
+                    let view = view.clone();
+                    let selected_effort = panel.selected_effort.map(ToOwned::to_owned);
+                    Button::new("ai-session-effort-dropdown")
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .dropdown_caret(true)
+                        .disabled(selected_model.is_none())
+                        .label(effort_label)
+                        .dropdown_menu(move |menu, _, _| {
+                            let mut menu = menu.item(
+                                PopupMenuItem::new("Model default")
+                                    .checked(selected_effort.is_none())
+                                    .on_click({
+                                        let view = view.clone();
+                                        move |_, _, cx| {
+                                            view.update(cx, |this, cx| {
+                                                this.ai_select_effort_action(None, cx);
+                                            });
+                                        }
+                                    }),
+                            );
+                            for (effort_key, description) in &effort_options {
+                                let effort_value = effort_key.clone();
+                                menu = menu.item(
+                                    PopupMenuItem::new(description.clone())
+                                        .checked(
+                                            selected_effort
+                                                .as_deref()
+                                                == Some(effort_value.as_str()),
+                                        )
+                                        .on_click({
+                                            let view = view.clone();
+                                            move |_, _, cx| {
+                                                let selected = effort_value.clone();
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_select_effort_action(
+                                                        Some(selected.clone()),
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                );
+                            }
+                            menu
+                        })
+                }),
+        )
+        .when(collaboration_enabled, |this| {
+            this.child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Collaboration"),
+                    )
+                    .child({
+                        let view = view.clone();
+                        let selected = panel.selected_collaboration_mode.map(ToOwned::to_owned);
+                        Button::new("ai-session-collaboration-dropdown")
+                            .compact()
+                            .outline()
+                            .with_size(gpui_component::Size::Small)
+                            .dropdown_caret(true)
+                            .label(collaboration_label)
+                            .dropdown_menu(move |menu, _, _| {
+                                let mut menu = menu.item(
+                                    PopupMenuItem::new("Off")
+                                        .checked(selected.is_none())
+                                        .on_click({
+                                            let view = view.clone();
+                                            move |_, _, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_select_collaboration_mode_action(
+                                                        None, cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                );
+                                for mode_name in &collaboration_items {
+                                    let mode_value = mode_name.clone();
+                                    menu = menu.item(
+                                        PopupMenuItem::new(mode_name.clone())
+                                            .checked(
+                                                selected.as_deref()
+                                                    == Some(mode_value.as_str()),
+                                            )
+                                            .on_click({
+                                                let view = view.clone();
+                                                move |_, _, cx| {
+                                                    let selected_mode = mode_value.clone();
+                                                    view.update(cx, |this, cx| {
+                                                        this.ai_select_collaboration_mode_action(
+                                                            Some(selected_mode.clone()),
+                                                            cx,
+                                                        );
+                                                    });
+                                                }
+                                            }),
+                                    );
+                                }
+                                menu
+                            })
+                    }),
+            )
+        })
+        .when(selected_model_unavailable, |this| {
+            this.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().warning)
+                    .whitespace_normal()
+                    .child(
+                        "Selected model is unavailable in this catalog. Hunk will fall back to server defaults.",
+                    ),
+            )
+        })
         .into_any_element()
 }
 
@@ -246,6 +599,65 @@ fn ai_rate_limit_summary(
         summary.push_str(&format!(", resetsAt={resets_at}"));
     }
     Some(summary)
+}
+
+fn ai_model_picker_label(
+    models: &[codex_app_server_protocol::Model],
+    selected_model: Option<&str>,
+) -> String {
+    match selected_model {
+        Some(model_id) => models
+            .iter()
+            .find(|model| model.id == model_id)
+            .map(|model| model.display_name.clone())
+            .unwrap_or_else(|| format!("{model_id} (unavailable)")),
+        None => "Server default".to_string(),
+    }
+}
+
+fn ai_effort_picker_label(
+    selected_effort: Option<&str>,
+    selected_model: Option<&codex_app_server_protocol::Model>,
+) -> String {
+    if selected_model.is_none() {
+        return "No model selected".to_string();
+    }
+    match selected_effort {
+        Some(selected_key) => selected_model
+            .and_then(|model| {
+                model
+                    .supported_reasoning_efforts
+                    .iter()
+                    .find(|option| ai_reasoning_effort_key(&option.reasoning_effort) == selected_key)
+                    .map(|option| option.description.clone())
+            })
+            .unwrap_or_else(|| format!("{selected_key} (unsupported)")),
+        None => "Model default".to_string(),
+    }
+}
+
+fn ai_collaboration_picker_label(selected: Option<&str>) -> String {
+    selected
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "Off".to_string())
+}
+
+fn ai_experimental_feature_enabled(
+    features: &[codex_app_server_protocol::ExperimentalFeature],
+    key: &str,
+) -> bool {
+    features
+        .iter()
+        .find(|feature| feature.name == key)
+        .map(|feature| feature.enabled)
+        .unwrap_or(false)
+}
+
+fn ai_reasoning_effort_key(effort: &codex_protocol::openai_models::ReasoningEffort) -> String {
+    serde_json::to_value(effort)
+        .ok()
+        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        .unwrap_or_else(|| format!("{effort:?}").to_lowercase())
 }
 
 fn render_ai_pending_user_inputs_panel(

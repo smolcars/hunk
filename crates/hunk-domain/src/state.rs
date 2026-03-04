@@ -10,9 +10,19 @@ const STATE_FILE_NAME: &str = "state.toml";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct AiThreadSessionState {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub collaboration_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppState {
     pub last_project_path: Option<PathBuf>,
     pub ai_workspace_mad_max: BTreeMap<String, bool>,
+    pub ai_workspace_include_hidden_models: BTreeMap<String, bool>,
+    pub ai_thread_session_overrides: BTreeMap<String, BTreeMap<String, AiThreadSessionState>>,
 }
 
 #[derive(Debug, Clone)]

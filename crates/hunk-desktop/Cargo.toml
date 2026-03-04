@@ -10,6 +10,7 @@ short_description = "Fast JJ diff viewer."
 long_description = "A fast, simple JJ diff viewer built with GPUI."
 category = "public.app-category.developer-tools"
 icon = ["assets/icons/Hunk.icns"]
+resources = ["../../assets/codex-runtime"]
 
 [dependencies]
 anyhow = "1.0"
@@ -28,9 +29,11 @@ gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 notify = "8.2.0"
 syntect = "5.3"
 toml = "0.9"
+serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hunk-domain = { path = "../hunk-domain" }
 hunk-jj = { path = "../hunk-jj" }
 hunk-codex = { path = "../hunk-codex" }
 codex-app-server-protocol = { git = "https://github.com/openai/codex.git", rev = "6bee02a346d0aa8dc4d5dcb312545fa37408b6ca" }
+codex-protocol = { git = "https://github.com/openai/codex.git", rev = "6bee02a346d0aa8dc4d5dcb312545fa37408b6ca" }

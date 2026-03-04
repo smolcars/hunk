@@ -49,6 +49,7 @@ use ai_runtime::AiPendingApproval;
 use ai_runtime::AiPendingUserInputQuestion;
 use ai_runtime::AiPendingUserInputRequest;
 use ai_runtime::AiSnapshot;
+use ai_runtime::AiTurnSessionOverrides;
 use ai_runtime::AiWorkerCommand;
 use ai_runtime::AiWorkerEvent;
 use ai_runtime::AiWorkerStartConfig;
@@ -937,6 +938,13 @@ struct DiffViewer {
     ai_pending_chatgpt_login_id: Option<String>,
     ai_pending_chatgpt_auth_url: Option<String>,
     ai_rate_limits: Option<codex_app_server_protocol::RateLimitSnapshot>,
+    ai_models: Vec<codex_app_server_protocol::Model>,
+    ai_experimental_features: Vec<codex_app_server_protocol::ExperimentalFeature>,
+    ai_collaboration_modes: Vec<codex_app_server_protocol::CollaborationModeMask>,
+    ai_include_hidden_models: bool,
+    ai_selected_model: Option<String>,
+    ai_selected_effort: Option<String>,
+    ai_selected_collaboration_mode: Option<String>,
     ai_mad_max_mode: bool,
     ai_event_epoch: usize,
     ai_event_task: Task<()>,
