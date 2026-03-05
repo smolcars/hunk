@@ -332,7 +332,7 @@ impl DiffViewer {
             .as_ref()
             .and_then(|workspace| state.ai_workspace_include_hidden_models.get(workspace))
             .copied()
-            .unwrap_or(false);
+            .unwrap_or(true);
         let diff_show_whitespace = config.show_whitespace;
         let diff_show_eol_markers = config.show_eol_markers;
         let branch_input_state = cx.new(|cx| {
@@ -357,10 +357,8 @@ impl DiffViewer {
             InputState::new(window, cx)
                 .multi_line(true)
                 .rows(4)
-                .placeholder("Ask Codex to edit code, run commands, or explain changes.")
+                .placeholder("Ask for follow-up changes")
         });
-        let ai_review_input_state =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Review focus (optional)"));
         let graph_action_input_state = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Bookmark name for create/fork/rename")
         });
@@ -426,9 +424,11 @@ impl DiffViewer {
             ai_timeline_list_row_count: 0,
             ai_timeline_visible_turn_limit_by_thread: BTreeMap::new(),
             ai_timeline_turn_ids_by_thread: BTreeMap::new(),
-            ai_timeline_item_ids_by_turn: BTreeMap::new(),
+            ai_timeline_row_ids_by_thread: BTreeMap::new(),
+            ai_timeline_rows_by_id: BTreeMap::new(),
             ai_in_progress_turn_started_at: BTreeMap::new(),
-            ai_expanded_command_output_item_ids: BTreeSet::new(),
+            ai_composer_activity_elapsed_second: None,
+            ai_expanded_timeline_row_ids: BTreeSet::new(),
             ai_pending_approvals: Vec::new(),
             ai_pending_user_inputs: Vec::new(),
             ai_pending_user_input_answers: BTreeMap::new(),
@@ -452,7 +452,6 @@ impl DiffViewer {
             ai_command_tx: None,
             ai_composer_input_state,
             ai_composer_local_images: Vec::new(),
-            ai_review_input_state,
             files: Vec::new(),
             file_status_by_path: BTreeMap::new(),
             revision_stack_collapsed: true,

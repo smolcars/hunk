@@ -68,7 +68,14 @@ pub struct ItemSummary {
     pub kind: String,
     pub status: ItemStatus,
     pub content: String,
+    pub display_metadata: Option<ItemDisplayMetadata>,
     pub last_sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemDisplayMetadata {
+    pub summary: Option<String>,
+    pub details_json: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +121,12 @@ pub enum ReducerEvent {
         thread_id: String,
         turn_id: String,
         item_id: String,
+    },
+    ItemDisplayMetadataUpdated {
+        thread_id: String,
+        turn_id: String,
+        item_id: String,
+        metadata: ItemDisplayMetadata,
     },
     TurnDiffUpdated {
         thread_id: String,
@@ -336,6 +349,7 @@ impl AiState {
                     kind: kind.clone(),
                     status: ItemStatus::Started,
                     content: String::new(),
+                    display_metadata: None,
                     last_sequence: 0,
                 });
 
@@ -366,6 +380,7 @@ impl AiState {
                     kind: "unknown".to_string(),
                     status: ItemStatus::Streaming,
                     content: String::new(),
+                    display_metadata: None,
                     last_sequence: 0,
                 });
 
@@ -395,6 +410,7 @@ impl AiState {
                     kind: "unknown".to_string(),
                     status: ItemStatus::Completed,
                     content: String::new(),
+                    display_metadata: None,
                     last_sequence: 0,
                 });
 
@@ -405,6 +421,36 @@ impl AiState {
                 item.thread_id = thread_id;
                 item.turn_id = turn_id;
                 item.status = ItemStatus::Completed;
+                item.last_sequence = sequence;
+                ApplyOutcome::Applied
+            }
+            ReducerEvent::ItemDisplayMetadataUpdated {
+                thread_id,
+                turn_id,
+                item_id,
+                metadata,
+            } => {
+                self.ensure_turn_exists(thread_id.as_str(), turn_id.as_str());
+                let item_key =
+                    item_storage_key(thread_id.as_str(), turn_id.as_str(), item_id.as_str());
+                let item = self.items.entry(item_key).or_insert_with(|| ItemSummary {
+                    id: item_id,
+                    thread_id: thread_id.clone(),
+                    turn_id: turn_id.clone(),
+                    kind: "unknown".to_string(),
+                    status: ItemStatus::Started,
+                    content: String::new(),
+                    display_metadata: None,
+                    last_sequence: 0,
+                });
+
+                if sequence < item.last_sequence {
+                    return ApplyOutcome::Stale;
+                }
+
+                item.thread_id = thread_id;
+                item.turn_id = turn_id;
+                item.display_metadata = normalize_item_display_metadata(metadata);
                 item.last_sequence = sequence;
                 ApplyOutcome::Applied
             }
@@ -548,4 +594,18 @@ impl AiState {
         thread.status = ThreadLifecycleStatus::Idle;
         thread.last_sequence = sequence;
     }
+}
+
+fn normalize_item_display_metadata(metadata: ItemDisplayMetadata) -> Option<ItemDisplayMetadata> {
+    let summary = metadata.summary.filter(|value| !value.trim().is_empty());
+    let details_json = metadata
+        .details_json
+        .filter(|value| !value.trim().is_empty());
+    if summary.is_none() && details_json.is_none() {
+        return None;
+    }
+    Some(ItemDisplayMetadata {
+        summary,
+        details_json,
+    })
 }

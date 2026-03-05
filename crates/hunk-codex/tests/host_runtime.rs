@@ -5,6 +5,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -12,6 +13,7 @@ use std::time::Instant;
 use hunk_codex::host::HostConfig;
 use hunk_codex::host::HostLifecycleState;
 use hunk_codex::host::HostRuntime;
+use hunk_codex::host::cleanup_tracked_hosts_for_shutdown;
 use tempfile::TempDir;
 use tungstenite::Message;
 use tungstenite::accept;
@@ -38,6 +40,7 @@ fn fixture_server_entrypoint() {
 
 #[test]
 fn default_codex_arguments_use_websocket_listen_url() {
+    let _guard = host_runtime_test_guard();
     let args = HostConfig::default_codex_arguments(4455);
     assert_eq!(
         args,
@@ -51,6 +54,7 @@ fn default_codex_arguments_use_websocket_listen_url() {
 
 #[test]
 fn host_boots_and_accepts_websocket_client() {
+    let _guard = host_runtime_test_guard();
     let setup = TestSetup::new();
     let mut runtime = HostRuntime::new(setup.host_config());
 
@@ -79,6 +83,7 @@ fn host_boots_and_accepts_websocket_client() {
 
 #[test]
 fn host_reconnects_after_forced_restart() {
+    let _guard = host_runtime_test_guard();
     let setup = TestSetup::new();
     let mut runtime = HostRuntime::new(setup.host_config());
 
@@ -112,6 +117,7 @@ fn host_reconnects_after_forced_restart() {
 
 #[test]
 fn graceful_shutdown_leaves_no_running_process() {
+    let _guard = host_runtime_test_guard();
     let setup = TestSetup::new();
     let mut runtime = HostRuntime::new(setup.host_config());
 
@@ -130,6 +136,7 @@ fn graceful_shutdown_leaves_no_running_process() {
 #[cfg(unix)]
 #[test]
 fn stop_returns_when_helper_leaves_descendant_holding_stderr() {
+    let _guard = host_runtime_test_guard();
     let setup = TestSetup::new_with_mode(Some(HELPER_MODE_ORPHAN_STDERR));
     let mut runtime = HostRuntime::new(setup.host_config());
 
@@ -144,6 +151,29 @@ fn stop_returns_when_helper_leaves_descendant_holding_stderr() {
         "stop should not block waiting for stderr reader; elapsed={elapsed:?}"
     );
     setup.kill_orphan_if_present();
+}
+
+#[cfg(unix)]
+#[test]
+fn shutdown_cleanup_terminates_tracked_host_processes() {
+    let _guard = host_runtime_test_guard();
+    let setup = TestSetup::new();
+    let mut runtime = HostRuntime::new(setup.host_config());
+
+    runtime
+        .start(Duration::from_secs(5))
+        .expect("host should start");
+    let process_id = runtime.pid().expect("host pid should be available");
+
+    std::mem::forget(runtime);
+    assert!(process_group_exists(process_id));
+
+    cleanup_tracked_hosts_for_shutdown();
+
+    assert!(
+        wait_for_process_group_exit(process_id, Duration::from_secs(5)),
+        "tracked host process group should exit after shutdown cleanup"
+    );
 }
 
 fn run_fixture_websocket_server() {
@@ -318,4 +348,38 @@ fn free_port() -> u16 {
         .local_addr()
         .expect("probe local addr must exist")
         .port()
+}
+
+fn host_runtime_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    static HOST_RUNTIME_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    HOST_RUNTIME_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("host runtime test mutex poisoned")
+}
+
+#[cfg(unix)]
+fn process_group_exists(process_id: u32) -> bool {
+    Command::new("kill")
+        .arg("-0")
+        .arg("--")
+        .arg(format!("-{process_id}"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(unix)]
+fn wait_for_process_group_exit(process_id: u32, timeout: Duration) -> bool {
+    let started_at = Instant::now();
+    loop {
+        if !process_group_exists(process_id) {
+            return true;
+        }
+        if started_at.elapsed() >= timeout {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
 }

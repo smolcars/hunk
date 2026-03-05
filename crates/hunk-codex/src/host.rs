@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -11,6 +12,7 @@ use std::process::Command;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread;
@@ -29,6 +31,7 @@ const READY_PROBE_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 const STOP_TERM_GRACE_TIMEOUT: Duration = Duration::from_millis(750);
 const STOP_TERM_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const STDERR_READER_JOIN_TIMEOUT: Duration = Duration::from_millis(750);
+static TRACKED_HOST_PROCESS_IDS: OnceLock<Mutex<BTreeSet<u32>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostLifecycleState {
@@ -151,6 +154,7 @@ impl HostRuntime {
         let mut child = command
             .spawn()
             .map_err(CodexIntegrationError::HostProcessIo)?;
+        register_tracked_host_process(child.id());
         self.spawn_stderr_reader(&mut child);
         self.child = Some(child);
 
@@ -178,16 +182,30 @@ impl HostRuntime {
     fn stop_internal(&mut self, final_state: HostLifecycleState, force: bool) -> Result<()> {
         if let Some(mut child) = self.child.take() {
             let process_id = child.id();
-            if force {
-                self.force_stop_child(process_id, &mut child)?;
+            let stop_result = if force {
+                self.force_stop_child(process_id, &mut child)
             } else {
-                self.graceful_stop_child(process_id, &mut child)?;
-            }
-            let _ = child.wait();
-            #[cfg(unix)]
-            {
-                // Best-effort cleanup for any descendants that outlive the group leader.
-                let _ = signal_process_group(process_id, ProcessSignal::Kill);
+                self.graceful_stop_child(process_id, &mut child)
+            };
+            match stop_result {
+                Ok(()) => {
+                    let wait_result = child.wait();
+                    if wait_result.is_ok() || matches!(child.try_wait(), Ok(Some(_))) {
+                        unregister_tracked_host_process(process_id);
+                    }
+                    #[cfg(unix)]
+                    {
+                        // Best-effort cleanup for any descendants that outlive the group leader.
+                        let _ = signal_process_group(process_id, ProcessSignal::Kill);
+                    }
+                    wait_result.map_err(CodexIntegrationError::HostProcessIo)?;
+                }
+                Err(error) => {
+                    if matches!(child.try_wait(), Ok(Some(_))) {
+                        unregister_tracked_host_process(process_id);
+                    }
+                    return Err(error);
+                }
             }
         }
         self.join_stderr_reader();
@@ -258,6 +276,12 @@ impl HostRuntime {
                 .map_err(CodexIntegrationError::HostProcessIo)?;
 
             if let Some(exit_status) = status {
+                unregister_tracked_host_process(
+                    self.child
+                        .as_ref()
+                        .expect("child should still exist before readiness failure")
+                        .id(),
+                );
                 self.child = None;
                 self.join_stderr_reader();
                 self.state = HostLifecycleState::Failed;
@@ -298,6 +322,9 @@ impl HostRuntime {
 
         if let Some(status) = maybe_status {
             warn!("codex host process exited unexpectedly: {status}");
+            if let Some(process_id) = self.child.as_ref().map(Child::id) {
+                unregister_tracked_host_process(process_id);
+            }
             self.child = None;
             self.join_stderr_reader();
             self.state = HostLifecycleState::Failed;
@@ -415,5 +442,101 @@ fn signal_process_group(process_id: u32, signal: ProcessSignal) -> io::Result<()
 impl Drop for HostRuntime {
     fn drop(&mut self) {
         let _ = self.stop();
+    }
+}
+
+pub fn cleanup_tracked_hosts_for_shutdown() {
+    let tracked_process_ids = take_tracked_host_processes();
+    for process_id in tracked_process_ids {
+        cleanup_tracked_host_process(process_id);
+    }
+}
+
+fn tracked_host_processes() -> &'static Mutex<BTreeSet<u32>> {
+    TRACKED_HOST_PROCESS_IDS.get_or_init(|| Mutex::new(BTreeSet::new()))
+}
+
+fn register_tracked_host_process(process_id: u32) {
+    tracked_host_processes()
+        .lock()
+        .expect("tracked host process mutex poisoned")
+        .insert(process_id);
+}
+
+fn unregister_tracked_host_process(process_id: u32) {
+    tracked_host_processes()
+        .lock()
+        .expect("tracked host process mutex poisoned")
+        .remove(&process_id);
+}
+
+fn take_tracked_host_processes() -> Vec<u32> {
+    let mut guard = tracked_host_processes()
+        .lock()
+        .expect("tracked host process mutex poisoned");
+    let process_ids = guard.iter().copied().collect();
+    guard.clear();
+    process_ids
+}
+
+#[cfg(unix)]
+fn cleanup_tracked_host_process(process_id: u32) {
+    if !process_group_exists(process_id) {
+        return;
+    }
+
+    if let Err(error) = signal_process_group(process_id, ProcessSignal::Term) {
+        if process_group_exists(process_id) {
+            warn!("failed to terminate tracked codex host process group {process_id}: {error}");
+        }
+        return;
+    }
+
+    if wait_for_process_group_exit(process_id, STOP_TERM_GRACE_TIMEOUT) {
+        return;
+    }
+
+    if let Err(error) = signal_process_group(process_id, ProcessSignal::Kill)
+        && process_group_exists(process_id)
+    {
+        warn!("failed to kill tracked codex host process group {process_id}: {error}");
+    }
+}
+
+#[cfg(not(unix))]
+fn cleanup_tracked_host_process(process_id: u32) {
+    let status = Command::new("taskkill")
+        .args(["/PID", &process_id.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    if let Err(error) = status {
+        warn!("failed to kill tracked codex host process tree {process_id}: {error}");
+    }
+}
+
+#[cfg(unix)]
+fn process_group_exists(process_id: u32) -> bool {
+    Command::new("kill")
+        .arg("-0")
+        .arg("--")
+        .arg(format!("-{process_id}"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(unix)]
+fn wait_for_process_group_exit(process_id: u32, timeout: Duration) -> bool {
+    let started_at = Instant::now();
+    loop {
+        if !process_group_exists(process_id) {
+            return true;
+        }
+        if started_at.elapsed() >= timeout {
+            return false;
+        }
+        thread::sleep(STOP_TERM_POLL_INTERVAL);
     }
 }

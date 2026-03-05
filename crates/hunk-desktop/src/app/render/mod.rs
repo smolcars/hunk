@@ -11,6 +11,7 @@ use gpui_component::input::Input;
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::scroll::{Scrollbar, ScrollbarShow};
 use gpui_component::{Icon, IconName};
+use hunk_codex::state::{ItemStatus, ThreadLifecycleStatus};
 use hunk_domain::markdown_preview::{
     MarkdownCodeTokenKind, MarkdownInlineSpan, MarkdownPreviewBlock,
 };

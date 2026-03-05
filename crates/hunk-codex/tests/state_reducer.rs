@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use hunk_codex::state::ActiveThreadStore;
 use hunk_codex::state::AiState;
 use hunk_codex::state::ApplyOutcome;
+use hunk_codex::state::ItemDisplayMetadata;
 use hunk_codex::state::ItemStatus;
 use hunk_codex::state::ReducerEvent;
 use hunk_codex::state::ServerRequestDecision;
@@ -364,6 +365,119 @@ fn thread_scoped_turn_and_item_ids_do_not_collide_across_threads() {
 
     assert_eq!(find_item(&state, "t1", "r1", "i1").content, "thread-one");
     assert_eq!(find_item(&state, "t2", "r1", "i1").content, "thread-two");
+}
+
+#[test]
+fn item_display_metadata_updates_are_recorded() {
+    let mut state = AiState::default();
+
+    state.apply_stream_events(vec![
+        event(
+            1,
+            Some("thread-start:t1"),
+            ReducerEvent::ThreadStarted {
+                thread_id: "t1".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                created_at: None,
+                updated_at: None,
+            },
+        ),
+        event(
+            2,
+            Some("turn-start:r1"),
+            ReducerEvent::TurnStarted {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+            },
+        ),
+        event(
+            3,
+            Some("item-start:i1"),
+            ReducerEvent::ItemStarted {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+                item_id: "i1".to_string(),
+                kind: "dynamicToolCall".to_string(),
+            },
+        ),
+        event(
+            4,
+            Some("item-display-metadata:i1"),
+            ReducerEvent::ItemDisplayMetadataUpdated {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+                item_id: "i1".to_string(),
+                metadata: ItemDisplayMetadata {
+                    summary: Some("Called tool".to_string()),
+                    details_json: Some("{\"tool\":\"search\"}".to_string()),
+                },
+            },
+        ),
+    ]);
+
+    let item = find_item(&state, "t1", "r1", "i1");
+    let metadata = item
+        .display_metadata
+        .as_ref()
+        .expect("display metadata should be present");
+    assert_eq!(metadata.summary.as_deref(), Some("Called tool"));
+    assert_eq!(
+        metadata.details_json.as_deref(),
+        Some("{\"tool\":\"search\"}")
+    );
+}
+
+#[test]
+fn stale_item_display_metadata_update_is_ignored() {
+    let mut state = AiState::default();
+
+    state.apply_stream_events(vec![
+        event(
+            1,
+            Some("item-start:i1"),
+            ReducerEvent::ItemStarted {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+                item_id: "i1".to_string(),
+                kind: "dynamicToolCall".to_string(),
+            },
+        ),
+        event(
+            5,
+            Some("item-display-metadata:new"),
+            ReducerEvent::ItemDisplayMetadataUpdated {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+                item_id: "i1".to_string(),
+                metadata: ItemDisplayMetadata {
+                    summary: Some("Latest".to_string()),
+                    details_json: Some("{\"a\":1}".to_string()),
+                },
+            },
+        ),
+        event(
+            4,
+            Some("item-display-metadata:stale"),
+            ReducerEvent::ItemDisplayMetadataUpdated {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+                item_id: "i1".to_string(),
+                metadata: ItemDisplayMetadata {
+                    summary: Some("Stale".to_string()),
+                    details_json: Some("{\"a\":0}".to_string()),
+                },
+            },
+        ),
+    ]);
+
+    let item = find_item(&state, "t1", "r1", "i1");
+    let metadata = item
+        .display_metadata
+        .as_ref()
+        .expect("display metadata should be present");
+    assert_eq!(metadata.summary.as_deref(), Some("Latest"));
+    assert_eq!(metadata.details_json.as_deref(), Some("{\"a\":1}"));
 }
 
 #[test]

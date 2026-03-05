@@ -418,6 +418,14 @@ impl ThreadService {
             item_id: item_id.clone(),
             kind: thread_item_kind(item).to_string(),
         });
+        if let Some(display_metadata) = thread_item_display_metadata(item) {
+            self.apply_event(ReducerEvent::ItemDisplayMetadataUpdated {
+                thread_id: thread_id.to_string(),
+                turn_id: turn_id.to_string(),
+                item_id: item_id.clone(),
+                metadata: display_metadata,
+            });
+        }
 
         if should_seed_content && let Some(seed_content) = thread_item_seed_content(item) {
             self.apply_event(ReducerEvent::ItemDelta {

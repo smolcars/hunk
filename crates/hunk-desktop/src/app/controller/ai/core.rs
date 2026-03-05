@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use hunk_codex::state::turn_storage_key;
 use hunk_domain::state::AiThreadSessionState;
 use hunk_codex::state::ThreadLifecycleStatus;
 use hunk_codex::state::ThreadSummary;
@@ -74,34 +73,6 @@ impl DiffViewer {
         self.send_ai_worker_command(AiWorkerCommand::RefreshSessionMetadata, cx);
     }
 
-    pub(super) fn ai_set_include_hidden_models_action(
-        &mut self,
-        enabled: bool,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(workspace_key) = self.ai_workspace_key() else {
-            self.ai_status_message = Some("Open a workspace before changing model visibility.".to_string());
-            cx.notify();
-            return;
-        };
-        self.ai_include_hidden_models = enabled;
-        if enabled {
-            self.state
-                .ai_workspace_include_hidden_models
-                .insert(workspace_key, true);
-        } else {
-            self.state
-                .ai_workspace_include_hidden_models
-                .remove(workspace_key.as_str());
-        }
-        self.persist_state();
-        self.send_ai_worker_command_if_running(
-            AiWorkerCommand::SetIncludeHiddenModels { enabled },
-            cx,
-        );
-        cx.notify();
-    }
-
     pub(super) fn ai_start_chatgpt_login_action(&mut self, cx: &mut Context<Self>) {
         self.send_ai_worker_command(AiWorkerCommand::StartChatgptLogin, cx);
     }
@@ -140,6 +111,7 @@ impl DiffViewer {
             },
             cx,
         ) {
+            self.ai_status_message = None;
             self.clear_ai_composer_input(window, cx);
         }
         self.focus_ai_composer_input(window, cx);
@@ -218,13 +190,12 @@ impl DiffViewer {
 
             if let Some(this) = this.upgrade() {
                 this.update(cx, |this, cx| {
+                    let selected_count = selected_paths.len();
                     let added = this.ai_add_composer_local_images(selected_paths);
-                    if added == 0 {
-                        this.ai_status_message =
-                            Some("No supported image files were selected.".to_string());
-                    } else {
-                        let suffix = if added == 1 { "" } else { "s" };
-                        this.ai_status_message = Some(format!("Attached {added} image{suffix}."));
+                    if let Some(message) =
+                        ai_attachment_status_message(selected_count, added)
+                    {
+                        this.ai_status_message = Some(message);
                     }
                     cx.notify();
                 });
@@ -242,14 +213,6 @@ impl DiffViewer {
         if self.ai_composer_local_images.len() != before {
             cx.notify();
         }
-    }
-
-    pub(super) fn ai_clear_composer_attachments_action(&mut self, cx: &mut Context<Self>) {
-        if self.ai_composer_local_images.is_empty() {
-            return;
-        }
-        self.ai_composer_local_images.clear();
-        cx.notify();
     }
 
     pub(super) fn ai_add_dropped_composer_paths_action(
@@ -273,7 +236,9 @@ impl DiffViewer {
 
         let dropped_count = dropped_paths.len();
         let added = self.ai_add_composer_local_images(dropped_paths);
-        self.ai_status_message = Some(ai_drop_image_attachment_status_message(dropped_count, added));
+        if let Some(message) = ai_attachment_status_message(dropped_count, added) {
+            self.ai_status_message = Some(message);
+        }
         self.focus_ai_composer_input(window, cx);
         cx.notify();
     }
@@ -289,7 +254,7 @@ impl DiffViewer {
             return;
         };
 
-        let instructions = self.ai_review_input_state.read(cx).value().trim().to_string();
+        let instructions = self.ai_composer_input_state.read(cx).value().trim().to_string();
         let instructions = if instructions.is_empty() {
             "Review the current working-copy changes for correctness and regressions.".to_string()
         } else {
@@ -303,9 +268,8 @@ impl DiffViewer {
             },
             cx,
         ) {
-            self.ai_review_input_state.update(cx, |state, cx| {
-                state.set_value("", window, cx);
-            });
+            self.ai_status_message = None;
+            self.clear_ai_composer_input(window, cx);
         }
     }
 
@@ -322,10 +286,34 @@ impl DiffViewer {
             return;
         };
 
-        self.send_ai_worker_command(
+        if self.send_ai_worker_command(
             AiWorkerCommand::InterruptTurn { thread_id, turn_id },
             cx,
-        );
+        ) {
+            self.ai_status_message = Some("Interrupted".to_string());
+            cx.notify();
+        }
+    }
+
+    pub(super) fn ai_interrupt_selected_turn_action(
+        &mut self,
+        _: &AiInterruptSelectedTurn,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Ai {
+            return;
+        }
+        let Some(thread_id) = self.current_ai_thread_id() else {
+            return;
+        };
+        if self
+            .current_ai_in_progress_turn_id(thread_id.as_str())
+            .is_none()
+        {
+            return;
+        }
+        self.ai_interrupt_turn_action(cx);
     }
 
     pub(super) fn ai_set_mad_max_mode(&mut self, enabled: bool, cx: &mut Context<Self>) {
@@ -429,8 +417,10 @@ impl DiffViewer {
     ) {
         self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = true;
-        self.ai_expanded_command_output_item_ids.clear();
+        self.ai_expanded_timeline_row_ids.clear();
         self.ai_selected_thread_id = Some(thread_id.clone());
+        let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
+        reset_ai_timeline_list_measurements(self, visible_row_ids.len());
         self.sync_ai_session_selection_from_state();
         self.send_ai_worker_command(AiWorkerCommand::SelectThread { thread_id }, cx);
         cx.notify();
@@ -476,26 +466,28 @@ impl DiffViewer {
 
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
             self.ai_selected_thread_id = None;
-            self.ai_expanded_command_output_item_ids.clear();
+            self.ai_expanded_timeline_row_ids.clear();
             self.ai_timeline_follow_output = true;
             self.ai_scroll_timeline_to_bottom = true;
         }
         self.show_ai_thread_inline_toast("Thread archived.", cx);
     }
 
-    pub(super) fn ai_toggle_command_output_expansion_action(
+    pub(super) fn ai_toggle_timeline_row_expansion_action(
         &mut self,
-        item_id: String,
+        row_id: String,
         cx: &mut Context<Self>,
     ) {
-        if self
-            .ai_expanded_command_output_item_ids
-            .contains(item_id.as_str())
-        {
-            self.ai_expanded_command_output_item_ids
-                .remove(item_id.as_str());
+        let changed_row_id = row_id.clone();
+        if self.ai_expanded_timeline_row_ids.contains(row_id.as_str()) {
+            self.ai_expanded_timeline_row_ids.remove(row_id.as_str());
         } else {
-            self.ai_expanded_command_output_item_ids.insert(item_id);
+            self.ai_expanded_timeline_row_ids.insert(row_id);
+        }
+        if let Some(selected_thread_id) = self.ai_selected_thread_id.as_deref() {
+            let visible_row_ids = current_ai_renderable_visible_row_ids(self, selected_thread_id);
+            let changed_row_ids = [changed_row_id].into_iter().collect::<BTreeSet<_>>();
+            invalidate_ai_timeline_row_measurements(self, visible_row_ids.as_slice(), &changed_row_ids);
         }
         cx.notify();
     }
@@ -527,87 +519,118 @@ impl DiffViewer {
             .collect()
     }
 
-    pub(super) fn ai_timeline_turn_ids(&self, thread_id: &str) -> Vec<String> {
+    pub(super) fn ai_timeline_turn_ids(&self, thread_id: &str) -> &[String] {
         self.ai_timeline_turn_ids_by_thread
             .get(thread_id)
-            .cloned()
-            .unwrap_or_default()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
-    pub(super) fn ai_timeline_item_ids(&self, thread_id: &str, turn_id: &str) -> Vec<String> {
-        let turn_key = turn_storage_key(thread_id, turn_id);
-        self.ai_timeline_item_ids_by_turn
-            .get(turn_key.as_str())
-            .cloned()
-            .unwrap_or_default()
+    pub(super) fn ai_timeline_row_ids(&self, thread_id: &str) -> &[String] {
+        self.ai_timeline_row_ids_by_thread
+            .get(thread_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub(super) fn ai_timeline_row(&self, row_id: &str) -> Option<&AiTimelineRow> {
+        self.ai_timeline_rows_by_id.get(row_id)
+    }
+
+    pub(super) fn ai_timeline_visible_rows_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> (usize, usize, usize, Vec<String>) {
+        let turn_ids = self.ai_timeline_turn_ids(thread_id);
+        let configured_limit = self
+            .ai_timeline_visible_turn_limit_by_thread
+            .get(thread_id)
+            .copied()
+            .unwrap_or(AI_TIMELINE_DEFAULT_VISIBLE_TURNS);
+        let (total_turn_count, visible_turn_count, hidden_turn_count, visible_turn_ids) =
+            timeline_visible_turn_ids(turn_ids, configured_limit);
+        let row_ids = self.ai_timeline_row_ids(thread_id);
+        let visible_row_ids = timeline_visible_row_ids_for_turns(
+            row_ids,
+            &self.ai_timeline_rows_by_id,
+            visible_turn_ids.as_slice(),
+        );
+        (
+            total_turn_count,
+            visible_turn_count,
+            hidden_turn_count,
+            visible_row_ids,
+        )
     }
 
     fn rebuild_ai_timeline_indexes(&mut self) {
-        let mut turn_ids_by_thread = BTreeMap::<String, Vec<(u64, String)>>::new();
-        for (turn_key, turn) in &self.ai_state_snapshot.turns {
-            turn_ids_by_thread
-                .entry(turn.thread_id.clone())
+        self.ai_timeline_turn_ids_by_thread = timeline_turn_ids_by_thread(&self.ai_state_snapshot);
+
+        let mut rows_by_thread = BTreeMap::<String, Vec<(u64, String)>>::new();
+        let mut rows_by_id = BTreeMap::<String, AiTimelineRow>::new();
+        for (item_key, item) in &self.ai_state_snapshot.items {
+            let row_id = format!("item:{item_key}");
+            rows_by_thread
+                .entry(item.thread_id.clone())
                 .or_default()
-                .push((turn.last_sequence, turn_key.clone()));
+                .push((item.last_sequence, row_id.clone()));
+            rows_by_id.insert(
+                row_id.clone(),
+                AiTimelineRow {
+                    id: row_id,
+                    thread_id: item.thread_id.clone(),
+                    turn_id: item.turn_id.clone(),
+                    last_sequence: item.last_sequence,
+                    source: AiTimelineRowSource::Item {
+                        item_key: item_key.clone(),
+                    },
+                },
+            );
         }
 
-        self.ai_timeline_turn_ids_by_thread = turn_ids_by_thread
+        for (turn_key, turn) in &self.ai_state_snapshot.turns {
+            let Some(diff) = self.ai_state_snapshot.turn_diffs.get(turn_key.as_str()) else {
+                continue;
+            };
+            if diff.trim().is_empty() {
+                continue;
+            }
+            let diff_row_id = format!("turn-diff:{turn_key}");
+            rows_by_thread
+                .entry(turn.thread_id.clone())
+                .or_default()
+                .push((turn.last_sequence, diff_row_id.clone()));
+            rows_by_id.entry(diff_row_id.clone()).or_insert(AiTimelineRow {
+                id: diff_row_id,
+                thread_id: turn.thread_id.clone(),
+                turn_id: turn.id.clone(),
+                last_sequence: turn.last_sequence,
+                source: AiTimelineRowSource::TurnDiff {
+                    turn_key: turn_key.clone(),
+                },
+            });
+        }
+
+        self.ai_timeline_row_ids_by_thread = rows_by_thread
             .into_iter()
             .map(|(thread_id, mut entries)| {
                 entries.sort_by(|left, right| {
                     left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1))
                 });
+                entries.dedup_by(|left, right| left.1 == right.1);
                 let ids = entries
                     .into_iter()
-                    .map(|(_, turn_id)| turn_id)
+                    .map(|(_, row_id)| row_id)
                     .collect::<Vec<_>>();
                 (thread_id, ids)
             })
             .collect();
-
-        let mut item_ids_by_turn = BTreeMap::<String, Vec<(u64, String)>>::new();
-        for (item_key, item) in &self.ai_state_snapshot.items {
-            let turn_key = turn_storage_key(item.thread_id.as_str(), item.turn_id.as_str());
-            item_ids_by_turn
-                .entry(turn_key)
-                .or_default()
-                .push((item.last_sequence, item_key.clone()));
-        }
-
-        self.ai_timeline_item_ids_by_turn = item_ids_by_turn
-            .into_iter()
-            .map(|(turn_key, mut entries)| {
-                entries.sort_by(|left, right| {
-                    left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1))
-                });
-                let ids = entries
-                    .into_iter()
-                    .map(|(_, item_id)| item_id)
-                    .collect::<Vec<_>>();
-                (turn_key, ids)
-            })
-            .collect();
+        self.ai_timeline_rows_by_id = rows_by_id;
     }
 
     pub(super) fn sync_ai_timeline_list_state(&mut self, row_count: usize) {
         if self.ai_timeline_list_row_count != row_count {
-            let previous_top = self.ai_timeline_list_state.logical_scroll_top();
-            self.ai_timeline_list_state.reset(row_count);
-            let item_ix = if row_count == 0 {
-                0
-            } else {
-                previous_top.item_ix.min(row_count.saturating_sub(1))
-            };
-            let offset_in_item = if row_count == 0 || item_ix != previous_top.item_ix {
-                px(0.)
-            } else {
-                previous_top.offset_in_item
-            };
-            self.ai_timeline_list_state.scroll_to(ListOffset {
-                item_ix,
-                offset_in_item,
-            });
-            self.ai_timeline_list_row_count = row_count;
+            reset_ai_timeline_list_measurements(self, row_count);
         }
 
         if self.ai_scroll_timeline_to_bottom && row_count > 0 {
@@ -683,7 +706,11 @@ impl DiffViewer {
             return;
         }
         self.ai_timeline_visible_turn_limit_by_thread
-            .insert(thread_id, next_limit);
+            .insert(thread_id.clone(), next_limit);
+        if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
+            let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
+            reset_ai_timeline_list_measurements(self, visible_row_ids.len());
+        }
         cx.notify();
     }
 
@@ -693,7 +720,11 @@ impl DiffViewer {
             return;
         }
         self.ai_timeline_visible_turn_limit_by_thread
-            .insert(thread_id, usize::MAX);
+            .insert(thread_id.clone(), usize::MAX);
+        if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
+            let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
+            reset_ai_timeline_list_measurements(self, visible_row_ids.len());
+        }
         cx.notify();
     }
 
@@ -785,17 +816,6 @@ impl DiffViewer {
             .filter(|turn| turn.thread_id == thread_id && turn.status == TurnStatus::InProgress)
             .max_by_key(|turn| turn.last_sequence)
             .map(|turn| turn.id.clone())
-    }
-
-    pub(super) fn ai_in_progress_turn_elapsed(
-        &self,
-        thread_id: &str,
-        turn_id: &str,
-    ) -> Option<Duration> {
-        let key = ai_in_progress_turn_tracking_key(thread_id, turn_id);
-        self.ai_in_progress_turn_started_at
-            .get(key.as_str())
-            .map(Instant::elapsed)
     }
 
     fn ai_workspace_cwd(&self) -> Option<std::path::PathBuf> {
@@ -994,27 +1014,22 @@ fn is_supported_ai_image_path(path: &std::path::Path) -> bool {
     )
 }
 
-fn ai_drop_image_attachment_status_message(dropped_count: usize, added_count: usize) -> String {
-    if dropped_count == 0 {
-        return "No files were dropped.".to_string();
+fn ai_attachment_status_message(file_count: usize, added_count: usize) -> Option<String> {
+    if file_count == 0 || added_count == file_count {
+        return None;
     }
 
     if added_count == 0 {
-        if dropped_count == 1 {
-            return "Dropped file is not a supported image or is already attached.".to_string();
+        if file_count == 1 {
+            return Some("File is not a supported image or is already attached.".to_string());
         }
-        return "No dropped files were supported images or were already attached.".to_string();
-    }
-
-    if added_count == dropped_count {
-        let suffix = if added_count == 1 { "" } else { "s" };
-        return format!("Attached {added_count} image{suffix}.");
+        return Some("No files were supported images or were already attached.".to_string());
     }
 
     let added_suffix = if added_count == 1 { "" } else { "s" };
-    let skipped_count = dropped_count.saturating_sub(added_count);
+    let skipped_count = file_count.saturating_sub(added_count);
     let skipped_suffix = if skipped_count == 1 { "" } else { "s" };
-    format!(
+    Some(format!(
         "Attached {added_count} image{added_suffix}. Skipped {skipped_count} unsupported or duplicate file{skipped_suffix}."
-    )
+    ))
 }

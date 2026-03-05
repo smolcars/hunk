@@ -25,6 +25,153 @@ fn thread_item_kind(item: &ThreadItem) -> &'static str {
     }
 }
 
+const MAX_ITEM_DETAILS_JSON_BYTES: usize = 16 * 1024;
+const MAX_COMMAND_DISPLAY_BYTES: usize = 2 * 1024;
+const MAX_COMMAND_ACTION_SUMMARY_BYTES: usize = 512;
+const MAX_COMMAND_CWD_DISPLAY_BYTES: usize = 1024;
+
+fn thread_item_display_metadata(item: &ThreadItem) -> Option<crate::state::ItemDisplayMetadata> {
+    if !thread_item_supports_display_metadata(item) {
+        return None;
+    }
+
+    let summary = thread_item_display_summary(item).map(ToOwned::to_owned);
+    let details_json = thread_item_display_details_json(item);
+
+    if summary.is_none() && details_json.is_none() {
+        return None;
+    }
+
+    Some(crate::state::ItemDisplayMetadata {
+        summary,
+        details_json,
+    })
+}
+
+fn thread_item_display_details_json(item: &ThreadItem) -> Option<String> {
+    match item {
+        ThreadItem::CommandExecution {
+            command,
+            cwd,
+            process_id,
+            status,
+            command_actions,
+            exit_code,
+            duration_ms,
+            ..
+        } => serde_json::to_string_pretty(&serde_json::json!({
+            "kind": "commandExecution",
+            "command": truncate_utf8_inline_for_display(
+                command.clone(),
+                MAX_COMMAND_DISPLAY_BYTES,
+            ),
+            "cwd": truncate_utf8_inline_for_display(
+                cwd.display().to_string(),
+                MAX_COMMAND_CWD_DISPLAY_BYTES,
+            ),
+            "processId": process_id
+                .as_ref()
+                .map(|value| truncate_utf8_inline_for_display(value.clone(), 128)),
+            "status": command_execution_status_text(status),
+            "actionSummaries": command_actions
+                .iter()
+                .map(command_action_summary)
+                .collect::<Vec<_>>(),
+            "exitCode": exit_code,
+            "durationMs": duration_ms,
+        }))
+        .ok(),
+        _ => serde_json::to_string_pretty(item)
+            .ok()
+            .map(|json| truncate_utf8_for_display(json, MAX_ITEM_DETAILS_JSON_BYTES)),
+    }
+}
+
+fn thread_item_supports_display_metadata(item: &ThreadItem) -> bool {
+    matches!(
+        item,
+        ThreadItem::CommandExecution { .. }
+            | ThreadItem::FileChange { .. }
+            | ThreadItem::McpToolCall { .. }
+            | ThreadItem::DynamicToolCall { .. }
+            | ThreadItem::CollabAgentToolCall { .. }
+    )
+}
+
+fn thread_item_display_summary(item: &ThreadItem) -> Option<&'static str> {
+    match item {
+        ThreadItem::CommandExecution { .. } => Some("Ran command"),
+        ThreadItem::FileChange { .. } => Some("Applied file changes"),
+        ThreadItem::McpToolCall { .. } => Some("Called MCP tool"),
+        ThreadItem::DynamicToolCall { .. } => Some("Called tool"),
+        ThreadItem::CollabAgentToolCall { .. } => Some("Delegated to collaborator"),
+        _ => None,
+    }
+}
+
+fn truncate_utf8_for_display(input: String, max_bytes: usize) -> String {
+    if input.len() <= max_bytes {
+        return input;
+    }
+
+    let mut cutoff = max_bytes.min(input.len());
+    while cutoff > 0 && !input.is_char_boundary(cutoff) {
+        cutoff = cutoff.saturating_sub(1);
+    }
+
+    let mut truncated = input[..cutoff].to_string();
+    truncated.push_str("\n... [truncated]");
+    truncated
+}
+
+fn truncate_utf8_inline_for_display(input: String, max_bytes: usize) -> String {
+    if input.len() <= max_bytes {
+        return input;
+    }
+
+    let mut cutoff = max_bytes.min(input.len());
+    while cutoff > 0 && !input.is_char_boundary(cutoff) {
+        cutoff = cutoff.saturating_sub(1);
+    }
+
+    let mut truncated = input[..cutoff].to_string();
+    truncated.push_str("...");
+    truncated
+}
+
+fn command_execution_status_text(
+    status: &codex_app_server_protocol::CommandExecutionStatus,
+) -> &'static str {
+    match status {
+        codex_app_server_protocol::CommandExecutionStatus::InProgress => "inProgress",
+        codex_app_server_protocol::CommandExecutionStatus::Completed => "completed",
+        codex_app_server_protocol::CommandExecutionStatus::Failed => "failed",
+        codex_app_server_protocol::CommandExecutionStatus::Declined => "declined",
+    }
+}
+
+fn command_action_summary(action: &codex_app_server_protocol::CommandAction) -> String {
+    let summary = match action {
+        codex_app_server_protocol::CommandAction::Read { name, path, .. } => {
+            format!("Read {name} from {}", path.display())
+        }
+        codex_app_server_protocol::CommandAction::ListFiles { path, .. } => {
+            let scope = path.as_deref().unwrap_or(".");
+            format!("List files in {scope}")
+        }
+        codex_app_server_protocol::CommandAction::Search { query, path, .. } => {
+            let query = query.as_deref().unwrap_or("<query>");
+            let scope = path.as_deref().unwrap_or(".");
+            format!("Search {query} in {scope}")
+        }
+        codex_app_server_protocol::CommandAction::Unknown { command } => {
+            format!("Run {command}")
+        }
+    };
+
+    truncate_utf8_inline_for_display(summary, MAX_COMMAND_ACTION_SUMMARY_BYTES)
+}
+
 fn thread_item_seed_content(item: &ThreadItem) -> Option<String> {
     match item {
         ThreadItem::UserMessage { content, .. } => user_message_seed_content(content.as_slice()),
@@ -241,5 +388,15 @@ mod tests {
             thread_item_seed_content(&item).as_deref(),
             Some("Searched 'rain' in https://example.com/weather")
         );
+    }
+
+    #[test]
+    fn truncate_utf8_for_display_keeps_utf8_boundaries() {
+        let value = "tool ✅ output".to_string();
+        let truncated = truncate_utf8_for_display(value, 7);
+        assert!(truncated.starts_with("tool "));
+        assert!(!truncated.starts_with("tool ✅"));
+        assert!(!truncated.contains('\u{fffd}'));
+        assert!(truncated.contains("... [truncated]"));
     }
 }

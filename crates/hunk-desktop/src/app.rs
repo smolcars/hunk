@@ -146,6 +146,21 @@ struct PendingBookmarkSwitch {
     unix_time: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AiTimelineRowSource {
+    Item { item_key: String },
+    TurnDiff { turn_key: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiTimelineRow {
+    id: String,
+    thread_id: String,
+    turn_id: String,
+    last_sequence: u64,
+    source: AiTimelineRowSource,
+}
+
 mod ai_rollout_fallback;
 mod ai_runtime;
 mod controller;
@@ -176,6 +191,7 @@ actions!(
         SwitchToGraphView,
         SwitchToAiView,
         AiNewThread,
+        AiInterruptSelectedTurn,
         OpenProject,
         SaveCurrentFile,
         OpenSettings,
@@ -549,6 +565,11 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
         "escape",
         RepoTreeCancelInlineEdit,
         Some("RepoTreeInlineEdit"),
+    ));
+    bindings.push(KeyBinding::new(
+        "escape",
+        AiInterruptSelectedTurn,
+        Some("AiWorkspace"),
     ));
     bindings.push(KeyBinding::new(
         "shift-enter",
@@ -965,9 +986,11 @@ struct DiffViewer {
     ai_timeline_list_row_count: usize,
     ai_timeline_visible_turn_limit_by_thread: BTreeMap<String, usize>,
     ai_timeline_turn_ids_by_thread: BTreeMap<String, Vec<String>>,
-    ai_timeline_item_ids_by_turn: BTreeMap<String, Vec<String>>,
+    ai_timeline_row_ids_by_thread: BTreeMap<String, Vec<String>>,
+    ai_timeline_rows_by_id: BTreeMap<String, AiTimelineRow>,
     ai_in_progress_turn_started_at: BTreeMap<String, Instant>,
-    ai_expanded_command_output_item_ids: BTreeSet<String>,
+    ai_composer_activity_elapsed_second: Option<u64>,
+    ai_expanded_timeline_row_ids: BTreeSet<String>,
     ai_pending_approvals: Vec<AiPendingApproval>,
     ai_pending_user_inputs: Vec<AiPendingUserInputRequest>,
     ai_pending_user_input_answers: BTreeMap<String, BTreeMap<String, Vec<String>>>,
@@ -991,7 +1014,6 @@ struct DiffViewer {
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_composer_input_state: Entity<InputState>,
     ai_composer_local_images: Vec<PathBuf>,
-    ai_review_input_state: Entity<InputState>,
     files: Vec<ChangedFile>,
     file_status_by_path: BTreeMap<String, FileStatus>,
     revision_stack_collapsed: bool,

@@ -1,7 +1,11 @@
 mod app;
 
-use anyhow::Result;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use anyhow::{Context, Result};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
+
+static SIGNAL_SHUTDOWN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<()> {
     run_with_platform_stack_workaround()
@@ -39,5 +43,19 @@ fn run_app() -> Result<()> {
         .without_time()
         .init();
 
+    install_process_signal_cleanup()?;
+
     app::run()
+}
+
+fn install_process_signal_cleanup() -> Result<()> {
+    ctrlc::set_handler(|| {
+        if SIGNAL_SHUTDOWN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        hunk_codex::host::cleanup_tracked_hosts_for_shutdown();
+        std::process::exit(130);
+    })
+    .context("failed to install process signal cleanup handler")
 }

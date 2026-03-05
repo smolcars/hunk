@@ -33,13 +33,6 @@ fn ai_thread_status_text(status: ThreadLifecycleStatus) -> &'static str {
     }
 }
 
-fn ai_turn_status_label(status: TurnStatus) -> &'static str {
-    match status {
-        TurnStatus::InProgress => "in-progress",
-        TurnStatus::Completed => "completed",
-    }
-}
-
 fn ai_item_status_label(status: ItemStatus) -> &'static str {
     match status {
         ItemStatus::Started => "started",
@@ -306,7 +299,6 @@ struct AiSessionControlsPanelView<'a> {
     models: &'a [codex_app_server_protocol::Model],
     experimental_features: &'a [codex_app_server_protocol::ExperimentalFeature],
     collaboration_modes: &'a [codex_app_server_protocol::CollaborationModeMask],
-    include_hidden_models: bool,
     selected_model: Option<&'a str>,
     selected_effort: Option<&'a str>,
     selected_collaboration_mode: Option<&'a str>,
@@ -322,7 +314,6 @@ fn render_ai_session_controls_panel_for_view(
             models: this.ai_models.as_slice(),
             experimental_features: this.ai_experimental_features.as_slice(),
             collaboration_modes: this.ai_collaboration_modes.as_slice(),
-            include_hidden_models: this.ai_include_hidden_models,
             selected_model: this.ai_selected_model.as_deref(),
             selected_effort: this.ai_selected_effort.as_deref(),
             selected_collaboration_mode: this.ai_selected_collaboration_mode.as_deref(),
@@ -335,26 +326,25 @@ fn render_ai_session_controls_panel_for_view(
 fn render_ai_session_controls_panel(
     panel: AiSessionControlsPanelView<'_>,
     view: Entity<DiffViewer>,
-    cx: &mut Context<DiffViewer>,
+    _cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let model_label = ai_model_picker_label(panel.models, panel.selected_model);
     let selected_model = panel
         .selected_model
         .and_then(|selected| panel.models.iter().find(|model| model.id == selected));
-    let selected_model_unavailable = panel
-        .selected_model
-        .is_some_and(|selected| panel.models.iter().all(|model| model.id != selected));
     let effort_options = selected_model
         .map(|model| {
             model
                 .supported_reasoning_efforts
                 .iter()
-                .map(|option| {
-                    (
-                        ai_reasoning_effort_key(&option.reasoning_effort),
-                        option.description.clone(),
-                    )
-                })
+                    .map(|option| {
+                        (
+                            ai_reasoning_effort_key(&option.reasoning_effort),
+                            ai_reasoning_effort_label(
+                                ai_reasoning_effort_key(&option.reasoning_effort).as_str(),
+                            ),
+                        )
+                    })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -364,14 +354,11 @@ fn render_ai_session_controls_panel(
         "collaboration_modes",
     ) && !panel.collaboration_modes.is_empty();
     let collaboration_label = ai_collaboration_picker_label(panel.selected_collaboration_mode);
-    let model_items = panel
+    let (visible_models, hidden_models): (Vec<_>, Vec<_>) = panel
         .models
         .iter()
-        .map(|model| {
-            let suffix = if model.hidden { " (hidden)" } else { "" };
-            (model.id.clone(), format!("{}{}", model.display_name, suffix))
-        })
-        .collect::<Vec<_>>();
+        .map(|model| (model.id.clone(), model.display_name.clone(), model.hidden))
+        .partition(|(_, _, hidden)| !*hidden);
     let collaboration_items = panel
         .collaboration_modes
         .iter()
@@ -379,193 +366,177 @@ fn render_ai_session_controls_panel(
         .collect::<Vec<_>>();
 
     h_flex()
+        .min_w_0()
         .items_center()
         .gap_1()
         .flex_wrap()
-        .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Model"))
         .child({
-                    let view = view.clone();
-                    let selected_model = panel.selected_model.map(ToOwned::to_owned);
-                    Button::new("ai-session-model-dropdown")
-                        .compact()
-                        .outline()
-                        .with_size(gpui_component::Size::Small)
-                        .dropdown_caret(true)
-                        .label(model_label)
-                        .dropdown_menu(move |menu, _, _| {
-                            let mut menu = menu.item(
-                                PopupMenuItem::new("Server default")
-                                    .checked(selected_model.is_none())
-                                    .on_click({
-                                        let view = view.clone();
-                                        move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.ai_select_model_action(None, cx);
-                                            });
-                                        }
-                                    }),
-                            );
-                            for (model_id, label) in &model_items {
-                                let model_id_value = model_id.clone();
-                                menu = menu.item(
-                                    PopupMenuItem::new(label.clone())
-                                        .checked(
-                                            selected_model
-                                                .as_deref()
-                                                == Some(model_id_value.as_str()),
-                                        )
-                                        .on_click({
-                                            let view = view.clone();
-                                            move |_, _, cx| {
-                                                let selected = model_id_value.clone();
-                                                view.update(cx, |this, cx| {
-                                                    this.ai_select_model_action(
-                                                        Some(selected.clone()),
-                                                        cx,
-                                                    );
-                                                });
-                                            }
-                                        }),
-                                );
-                            }
-                            menu
-                        })
-                })
-        .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Effort"))
-        .child({
-                    let view = view.clone();
-                    let selected_effort = panel.selected_effort.map(ToOwned::to_owned);
-                    Button::new("ai-session-effort-dropdown")
-                        .compact()
-                        .outline()
-                        .with_size(gpui_component::Size::Small)
-                        .dropdown_caret(true)
-                        .disabled(selected_model.is_none())
-                        .label(effort_label)
-                        .dropdown_menu(move |menu, _, _| {
-                            let mut menu = menu.item(
-                                PopupMenuItem::new("Model default")
-                                    .checked(selected_effort.is_none())
-                                    .on_click({
-                                        let view = view.clone();
-                                        move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.ai_select_effort_action(None, cx);
-                                            });
-                                        }
-                                    }),
-                            );
-                            for (effort_key, description) in &effort_options {
-                                let effort_value = effort_key.clone();
-                                menu = menu.item(
-                                    PopupMenuItem::new(description.clone())
-                                        .checked(
-                                            selected_effort
-                                                .as_deref()
-                                                == Some(effort_value.as_str()),
-                                        )
-                                        .on_click({
-                                            let view = view.clone();
-                                            move |_, _, cx| {
-                                                let selected = effort_value.clone();
-                                                view.update(cx, |this, cx| {
-                                                    this.ai_select_effort_action(
-                                                        Some(selected.clone()),
-                                                        cx,
-                                                    );
-                                                });
-                                            }
-                                        }),
-                                );
-                            }
-                            menu
-                        })
-                })
-        .when(collaboration_enabled, |this| {
-            this.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Mode"),
-            )
-            .child({
-                        let view = view.clone();
-                        let selected = panel.selected_collaboration_mode.map(ToOwned::to_owned);
-                        Button::new("ai-session-collaboration-dropdown")
-                            .compact()
-                            .outline()
-                            .with_size(gpui_component::Size::Small)
-                            .dropdown_caret(true)
-                            .label(collaboration_label)
-                            .dropdown_menu(move |menu, _, _| {
-                                let mut menu = menu.item(
-                                    PopupMenuItem::new("Off")
-                                        .checked(selected.is_none())
-                                        .on_click({
-                                            let view = view.clone();
-                                            move |_, _, cx| {
-                                                view.update(cx, |this, cx| {
-                                                    this.ai_select_collaboration_mode_action(
-                                                        None, cx,
-                                                    );
-                                                });
-                                            }
-                                        }),
-                                );
-                                for mode_name in &collaboration_items {
-                                    let mode_value = mode_name.clone();
-                                    menu = menu.item(
-                                        PopupMenuItem::new(mode_name.clone())
-                                            .checked(
-                                                selected.as_deref()
-                                                    == Some(mode_value.as_str()),
-                                            )
-                                            .on_click({
-                                                let view = view.clone();
-                                                move |_, _, cx| {
-                                                    let selected_mode = mode_value.clone();
-                                                    view.update(cx, |this, cx| {
-                                                        this.ai_select_collaboration_mode_action(
-                                                            Some(selected_mode.clone()),
-                                                            cx,
-                                                        );
-                                                    });
-                                                }
-                                            }),
-                                    );
+            let view = view.clone();
+            let selected_model = panel.selected_model.map(ToOwned::to_owned);
+            Button::new("ai-session-model-dropdown")
+                .compact()
+                .ghost()
+                .rounded(px(999.0))
+                .with_size(gpui_component::Size::Small)
+                .dropdown_caret(true)
+                .label(model_label)
+                .dropdown_menu(move |menu, _, _| {
+                    let mut menu = menu.item(
+                        PopupMenuItem::new("Server default")
+                            .checked(selected_model.is_none())
+                            .on_click({
+                                let view = view.clone();
+                                move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_select_model_action(None, cx);
+                                    });
                                 }
-                                menu
-                            })
-                    })
+                            }),
+                    );
+                    for (model_id, label, _) in &visible_models {
+                        let model_id_value = model_id.clone();
+                        let label = label.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(label)
+                                .checked(
+                                    selected_model.as_deref() == Some(model_id_value.as_str()),
+                                )
+                                .on_click({
+                                    let view = view.clone();
+                                    move |_, _, cx| {
+                                        let selected = model_id_value.clone();
+                                        view.update(cx, |this, cx| {
+                                            this.ai_select_model_action(Some(selected.clone()), cx);
+                                        });
+                                    }
+                                }),
+                        );
+                    }
+                    if !hidden_models.is_empty() {
+                        menu = menu
+                            .item(PopupMenuItem::separator())
+                            .item(PopupMenuItem::label("Hidden Models"));
+                        for (model_id, label, _) in &hidden_models {
+                            let model_id_value = model_id.clone();
+                            let label = label.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(label)
+                                    .checked(
+                                        selected_model.as_deref()
+                                            == Some(model_id_value.as_str()),
+                                    )
+                                    .on_click({
+                                        let view = view.clone();
+                                        move |_, _, cx| {
+                                            let selected = model_id_value.clone();
+                                            view.update(cx, |this, cx| {
+                                                this.ai_select_model_action(
+                                                    Some(selected.clone()),
+                                                    cx,
+                                                );
+                                            });
+                                        }
+                                    }),
+                            );
+                        }
+                    }
+                    menu
+                })
         })
         .child({
-                    let view = view.clone();
-                    let enable_hidden = !panel.include_hidden_models;
-                    Button::new("ai-session-toggle-hidden-models")
-                        .compact()
-                        .outline()
-                        .with_size(gpui_component::Size::Small)
-                        .label(if panel.include_hidden_models {
-                            "Hidden Models On"
-                        } else {
-                            "Hidden Models Off"
-                        })
-                        .on_click(move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                this.ai_set_include_hidden_models_action(enable_hidden, cx);
-                            });
-                        })
+            let view = view.clone();
+            let selected_effort = panel.selected_effort.map(ToOwned::to_owned);
+            Button::new("ai-session-effort-dropdown")
+                .compact()
+                .ghost()
+                .rounded(px(999.0))
+                .with_size(gpui_component::Size::Small)
+                .dropdown_caret(true)
+                .disabled(selected_model.is_none())
+                .label(effort_label)
+                .dropdown_menu(move |menu, _, _| {
+                    let mut menu = menu.item(
+                        PopupMenuItem::new("Model default")
+                            .checked(selected_effort.is_none())
+                            .on_click({
+                                let view = view.clone();
+                                move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_select_effort_action(None, cx);
+                                    });
+                                }
+                            }),
+                    );
+                    for (effort_key, description) in &effort_options {
+                        let effort_value = effort_key.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(description.clone())
+                                .checked(
+                                    selected_effort.as_deref() == Some(effort_value.as_str()),
+                                )
+                                .on_click({
+                                    let view = view.clone();
+                                    move |_, _, cx| {
+                                        let selected = effort_value.clone();
+                                        view.update(cx, |this, cx| {
+                                            this.ai_select_effort_action(
+                                                Some(selected.clone()),
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
+                        );
+                    }
+                    menu
                 })
-        .when(selected_model_unavailable, |this| {
-            this.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().warning)
-                    .whitespace_normal()
-                    .child(
-                        "Selected model is unavailable in this catalog. Hunk will fall back to server defaults.",
-                    ),
-            )
+        })
+        .when(collaboration_enabled, |this| {
+            this.child({
+                let view = view.clone();
+                let selected = panel.selected_collaboration_mode.map(ToOwned::to_owned);
+                Button::new("ai-session-collaboration-dropdown")
+                    .compact()
+                    .ghost()
+                    .rounded(px(999.0))
+                    .with_size(gpui_component::Size::Small)
+                    .dropdown_caret(true)
+                    .label(collaboration_label)
+                    .dropdown_menu(move |menu, _, _| {
+                        let mut menu = menu.item(
+                            PopupMenuItem::new("Off")
+                                .checked(selected.is_none())
+                                .on_click({
+                                    let view = view.clone();
+                                    move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_select_collaboration_mode_action(None, cx);
+                                        });
+                                    }
+                                }),
+                        );
+                        for mode_name in &collaboration_items {
+                            let mode_value = mode_name.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(mode_name.clone())
+                                    .checked(selected.as_deref() == Some(mode_value.as_str()))
+                                    .on_click({
+                                        let view = view.clone();
+                                        move |_, _, cx| {
+                                            let selected_mode = mode_value.clone();
+                                            view.update(cx, |this, cx| {
+                                                this.ai_select_collaboration_mode_action(
+                                                    Some(selected_mode.clone()),
+                                                    cx,
+                                                );
+                                            });
+                                        }
+                                    }),
+                            );
+                        }
+                        menu
+                    })
+            })
         })
         .into_any_element()
 }
@@ -754,10 +725,36 @@ fn ai_effort_picker_label(
                     .supported_reasoning_efforts
                     .iter()
                     .find(|option| ai_reasoning_effort_key(&option.reasoning_effort) == selected_key)
-                    .map(|option| option.description.clone())
+                    .map(|option| {
+                        ai_reasoning_effort_label(
+                            ai_reasoning_effort_key(&option.reasoning_effort).as_str(),
+                        )
+                    })
             })
-            .unwrap_or_else(|| format!("{selected_key} (unsupported)")),
+            .unwrap_or_else(|| format!("{} (unsupported)", ai_reasoning_effort_label(selected_key))),
         None => "Model default".to_string(),
+    }
+}
+
+fn ai_reasoning_effort_label(value: &str) -> String {
+    match value {
+        "minimal" => "Minimal".to_string(),
+        "low" => "Low".to_string(),
+        "medium" => "Medium".to_string(),
+        "high" => "High".to_string(),
+        "extra_high" | "extra-high" => "Extra High".to_string(),
+        other => other
+            .split(['_', '-'])
+            .filter(|part| !part.is_empty())
+            .map(|part| {
+                let mut chars = part.chars();
+                match chars.next() {
+                    Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
     }
 }
 

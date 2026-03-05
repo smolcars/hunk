@@ -236,7 +236,7 @@ impl AiWorkerStartConfig {
             codex_home,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             mad_max_mode: false,
-            include_hidden_models: false,
+            include_hidden_models: true,
         }
     }
 }

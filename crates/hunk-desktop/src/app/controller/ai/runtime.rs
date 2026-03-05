@@ -27,6 +27,7 @@ impl DiffViewer {
                                     this.ai_pending_user_inputs.clear();
                                     this.ai_pending_user_input_answers.clear();
                                     this.ai_in_progress_turn_started_at.clear();
+                                    this.ai_composer_activity_elapsed_second = None;
                                     this.ai_account = None;
                                     this.ai_requires_openai_auth = false;
                                     this.ai_rate_limits = None;
@@ -53,6 +54,18 @@ impl DiffViewer {
                 }
 
                 if buffered_events.is_empty() {
+                    if let Some(this) = this.upgrade() {
+                        this.update(cx, |this, cx| {
+                            if this.ai_event_epoch != epoch {
+                                return;
+                            }
+                            if this.sync_ai_composer_activity_elapsed_second() {
+                                cx.notify();
+                            }
+                        });
+                    } else {
+                        return;
+                    }
                     cx.background_executor()
                         .timer(Self::AI_EVENT_POLL_INTERVAL)
                         .await;
@@ -103,6 +116,7 @@ impl DiffViewer {
                 self.ai_pending_user_inputs.clear();
                 self.ai_pending_user_input_answers.clear();
                 self.ai_in_progress_turn_started_at.clear();
+                self.ai_composer_activity_elapsed_second = None;
                 self.ai_account = None;
                 self.ai_requires_openai_auth = false;
                 self.ai_rate_limits = None;
@@ -119,6 +133,10 @@ impl DiffViewer {
 
     fn apply_ai_snapshot(&mut self, snapshot: AiSnapshot) {
         let previous_selected_thread = self.ai_selected_thread_id.clone();
+        let previous_visible_row_ids = previous_selected_thread
+            .as_deref()
+            .map(|thread_id| current_ai_renderable_visible_row_ids(self, thread_id))
+            .unwrap_or_default();
         let previous_selected_thread_sequence =
             previous_selected_thread
                 .as_deref()
@@ -145,10 +163,17 @@ impl DiffViewer {
             include_hidden_models,
             mad_max_mode,
         } = snapshot;
+        let changed_row_ids = previous_selected_thread
+            .as_deref()
+            .map(|thread_id| {
+                timeline_row_ids_with_height_changes(&self.ai_state_snapshot, &state, thread_id)
+            })
+            .unwrap_or_default();
 
         self.ai_state_snapshot = state;
         self.rebuild_ai_timeline_indexes();
         self.sync_ai_in_progress_turn_started_at();
+        self.ai_composer_activity_elapsed_second = self.current_ai_composer_activity_elapsed_second();
         self.ai_pending_approvals = pending_approvals;
         self.ai_pending_user_inputs = pending_user_inputs;
         self.sync_ai_pending_user_input_answers();
@@ -198,7 +223,7 @@ impl DiffViewer {
         ) {
             self.ai_timeline_follow_output = true;
             self.ai_scroll_timeline_to_bottom = true;
-            self.ai_expanded_command_output_item_ids.clear();
+            self.ai_expanded_timeline_row_ids.clear();
         }
         if let Some(selected_thread_id) = self.ai_selected_thread_id.as_deref()
             && previous_selected_thread.as_deref() == Some(selected_thread_id)
@@ -213,8 +238,29 @@ impl DiffViewer {
                 self.ai_scroll_timeline_to_bottom = true;
             }
         }
-        self.ai_expanded_command_output_item_ids
-            .retain(|item_id| self.ai_state_snapshot.items.contains_key(item_id));
+        self.ai_expanded_timeline_row_ids
+            .retain(|row_id| self.ai_timeline_rows_by_id.contains_key(row_id));
+
+        let next_visible_row_ids = self
+            .ai_selected_thread_id
+            .as_deref()
+            .map(|thread_id| current_ai_renderable_visible_row_ids(self, thread_id))
+            .unwrap_or_default();
+        if should_reset_ai_timeline_measurements(
+            previous_selected_thread.as_deref(),
+            self.ai_selected_thread_id.as_deref(),
+            previous_visible_row_ids.as_slice(),
+            next_visible_row_ids.as_slice(),
+            self.ai_timeline_list_row_count,
+        ) {
+            reset_ai_timeline_list_measurements(self, next_visible_row_ids.len());
+        } else {
+            invalidate_ai_timeline_row_measurements(
+                self,
+                next_visible_row_ids.as_slice(),
+                &changed_row_ids,
+            );
+        }
 
         self.sync_ai_session_selection_from_state();
     }
@@ -236,6 +282,24 @@ impl DiffViewer {
 
         self.ai_in_progress_turn_started_at
             .retain(|key, _| in_progress_turn_keys.contains(key));
+    }
+
+    fn current_ai_composer_activity_elapsed_second(&self) -> Option<u64> {
+        let thread_id = self.current_ai_thread_id()?;
+        let turn_id = self.current_ai_in_progress_turn_id(thread_id.as_str())?;
+        let tracking_key = format!("{thread_id}::{turn_id}");
+        self.ai_in_progress_turn_started_at
+            .get(tracking_key.as_str())
+            .map(|started_at| started_at.elapsed().as_secs())
+    }
+
+    fn sync_ai_composer_activity_elapsed_second(&mut self) -> bool {
+        let next = self.current_ai_composer_activity_elapsed_second();
+        if self.ai_composer_activity_elapsed_second == next {
+            return false;
+        }
+        self.ai_composer_activity_elapsed_second = next;
+        true
     }
 
     fn sync_ai_pending_user_input_answers(&mut self) {
@@ -298,7 +362,7 @@ impl DiffViewer {
 
         let session_overrides = self.current_ai_turn_session_overrides();
         if let Some(thread_id) = self.current_ai_thread_id() {
-            return self.send_ai_worker_command(
+            let sent = self.send_ai_worker_command(
                 AiWorkerCommand::SendPrompt {
                     thread_id,
                     prompt,
@@ -307,16 +371,24 @@ impl DiffViewer {
                 },
                 cx,
             );
+            if sent {
+                self.ai_status_message = None;
+            }
+            return sent;
         }
 
-        self.send_ai_worker_command(
+        let sent = self.send_ai_worker_command(
             AiWorkerCommand::StartThread {
                 prompt,
                 local_image_paths,
                 session_overrides,
             },
             cx,
-        )
+        );
+        if sent {
+            self.ai_status_message = None;
+        }
+        sent
     }
 
     fn sync_ai_session_selection_from_state(&mut self) {
