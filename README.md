@@ -21,6 +21,7 @@ Hunk is also has full codex integration so you can use Codex inside of Hunk inst
 - Resizable split panes (tree + diff)
 - Light/Dark mode toggle
 - Refresh action
+- Git workspace staged loading for faster first paint
 - `anyhow`-based error handling
 - `tracing` + `tracing-subscriber` logging
 

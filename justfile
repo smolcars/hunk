@@ -39,3 +39,6 @@ phase12-macos-smoke:
     ./scripts/validate_codex_runtime_bundle.sh --strict --platform macos
     ./scripts/stage_codex_runtime_macos.sh
     cargo test -p hunk-codex --test real_runtime_smoke -- --ignored
+
+status:
+    jj status

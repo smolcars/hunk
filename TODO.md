@@ -13,3 +13,4 @@
 - [x] Add refresh + light/dark mode toggle
 - [x] Run `cargo check` and fix compile/runtime issues
 - [x] Add README with run instructions and scope
+- [ ] Polish Git workspace empty-state copy and icon spacing

@@ -93,3 +93,4 @@ Repro scripts:
 - [x] Made batch patch loading resilient to per-entry render failures and duplicate-path overwrites.
 - [x] Added progressive per-file loading placeholders and staged background diff replacement.
 - [x] Switched patch entry collection to path-filtered materialized diff streams for staged loads.
+- [ ] Add side-pane first-content metric for Git workspace cold-start instrumentation.
