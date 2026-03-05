@@ -5,7 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use hunk_jj::jj::{
     checkout_or_create_bookmark, commit_selected_paths, commit_staged, load_snapshot,
-    restore_all_working_copy_changes, restore_working_copy_paths, stage_all, unstage_all,
+    load_workflow_snapshot, restore_all_working_copy_changes, restore_working_copy_paths,
+    stage_all, unstage_all,
 };
 
 #[test]
@@ -43,6 +44,46 @@ fn commit_staged_commits_working_copy_changes_with_jj() {
     assert!(
         snapshot.last_commit_subject.as_deref() == Some("update tracked"),
         "last commit subject should match the latest commit"
+    );
+}
+
+#[test]
+fn workflow_snapshot_matches_repo_snapshot_for_commit_controls() {
+    let fixture = TempRepo::new("workflow-snapshot-commit-controls");
+    let tracked = fixture.path().join("tracked.txt");
+    write_file(tracked.clone(), "line one\n");
+    commit_staged(fixture.path(), "initial commit").expect("initial commit should succeed");
+
+    write_file(tracked, "line one\nline two\n");
+    commit_staged(fixture.path(), "second commit").expect("second commit should succeed");
+
+    let workflow =
+        load_workflow_snapshot(fixture.path()).expect("workflow snapshot should load after commit");
+    let snapshot = load_snapshot(fixture.path()).expect("full snapshot should load after commit");
+
+    assert_eq!(
+        workflow.branch_name, snapshot.branch_name,
+        "workflow snapshot should report the active bookmark"
+    );
+    assert_eq!(
+        workflow.branch_has_upstream, snapshot.branch_has_upstream,
+        "workflow snapshot should report upstream tracking state"
+    );
+    assert_eq!(
+        workflow.branch_ahead_count, snapshot.branch_ahead_count,
+        "workflow snapshot should report ahead count for push actions"
+    );
+    assert_eq!(
+        workflow.bookmark_revisions, snapshot.bookmark_revisions,
+        "workflow snapshot should report revision stack data used by right-pane controls"
+    );
+    assert_eq!(
+        workflow.files, snapshot.files,
+        "workflow snapshot should report working-copy changes used by commit controls"
+    );
+    assert_eq!(
+        workflow.last_commit_subject, snapshot.last_commit_subject,
+        "workflow snapshot should report last commit subject used in status card"
     );
 }
 

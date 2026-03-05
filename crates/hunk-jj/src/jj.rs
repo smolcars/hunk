@@ -121,6 +121,20 @@ pub struct RepoSnapshot {
     pub last_commit_subject: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkflowSnapshot {
+    pub root: PathBuf,
+    pub branch_name: String,
+    pub branch_has_upstream: bool,
+    pub branch_ahead_count: usize,
+    pub can_undo_operation: bool,
+    pub can_redo_operation: bool,
+    pub branches: Vec<LocalBranch>,
+    pub bookmark_revisions: Vec<BookmarkRevision>,
+    pub files: Vec<ChangedFile>,
+    pub last_commit_subject: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphBookmarkScope {
     Local,
@@ -324,32 +338,30 @@ const JJ_STAGE_UNSUPPORTED: &str =
 const ACTIVE_BOOKMARK_FILE: &str = "hunk-active-bookmark";
 const RESERVED_BOOKMARK_NAMES: &[&str] = &["detached", "unknown"];
 
-pub fn load_snapshot(cwd: &Path) -> Result<RepoSnapshot> {
-    let context = load_repo_context(cwd, true)?;
-    let files = load_changed_files_from_context(&context)?;
-    let line_stats = repo_line_stats_from_context(&context)?;
-    let current_bookmarks = current_bookmarks_from_context(&context)?;
+fn load_workflow_snapshot_from_context(context: &backend::RepoContext) -> Result<WorkflowSnapshot> {
+    let files = load_changed_files_from_context(context)?;
+    let current_bookmarks = current_bookmarks_from_context(context)?;
     let active_bookmark = load_active_bookmark_preference(&context.root);
-    let git_head_branch = git_head_branch_name_from_context(&context);
+    let git_head_branch = git_head_branch_name_from_context(context);
     let branch_name =
         select_snapshot_branch_name(&current_bookmarks, active_bookmark, git_head_branch);
     let mut branch_selection = current_bookmarks.clone();
     if branch_selection.is_empty() && branch_name != "detached" {
         branch_selection.insert(branch_name.clone());
     }
-    let branches = list_local_branches_from_context(&context, &branch_selection)?;
-    let bookmark_revisions = list_bookmark_revisions_from_context(&context, &branch_name, 32)?;
+    let branches = list_local_branches_from_context(context, &branch_selection)?;
+    let bookmark_revisions = list_bookmark_revisions_from_context(context, &branch_name, 32)?;
     let (branch_has_upstream, branch_ahead_count) = if branch_name == "detached" {
         (false, 0)
     } else {
-        bookmark_remote_sync_state(&context, branch_name.as_str())
+        bookmark_remote_sync_state(context, branch_name.as_str())
     };
-    let can_undo_operation = can_undo_operation(&context)?;
-    let can_redo_operation = can_redo_operation(&context)?;
-    let last_commit_subject = last_commit_subject_from_context(&context)?;
+    let can_undo_operation = can_undo_operation(context)?;
+    let can_redo_operation = can_redo_operation(context)?;
+    let last_commit_subject = last_commit_subject_from_context(context)?;
 
-    Ok(RepoSnapshot {
-        root: context.root,
+    Ok(WorkflowSnapshot {
+        root: context.root.clone(),
         branch_name,
         branch_has_upstream,
         branch_ahead_count,
@@ -358,9 +370,32 @@ pub fn load_snapshot(cwd: &Path) -> Result<RepoSnapshot> {
         branches,
         bookmark_revisions,
         files,
-        line_stats,
         last_commit_subject,
     })
+}
+
+pub fn load_snapshot(cwd: &Path) -> Result<RepoSnapshot> {
+    let context = load_repo_context(cwd, true)?;
+    let workflow = load_workflow_snapshot_from_context(&context)?;
+    let line_stats = repo_line_stats_from_context(&context)?;
+    Ok(RepoSnapshot {
+        root: workflow.root,
+        branch_name: workflow.branch_name,
+        branch_has_upstream: workflow.branch_has_upstream,
+        branch_ahead_count: workflow.branch_ahead_count,
+        can_undo_operation: workflow.can_undo_operation,
+        can_redo_operation: workflow.can_redo_operation,
+        branches: workflow.branches,
+        bookmark_revisions: workflow.bookmark_revisions,
+        files: workflow.files,
+        line_stats,
+        last_commit_subject: workflow.last_commit_subject,
+    })
+}
+
+pub fn load_workflow_snapshot(cwd: &Path) -> Result<WorkflowSnapshot> {
+    let context = load_repo_context(cwd, true)?;
+    load_workflow_snapshot_from_context(&context)
 }
 
 pub fn load_graph_snapshot(

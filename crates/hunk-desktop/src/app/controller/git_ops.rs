@@ -111,6 +111,13 @@ impl DiffViewer {
         self.git_action_label = None;
     }
 
+    fn refresh_workflow_and_full_snapshot_after_action(&mut self, cx: &mut Context<Self>) {
+        // Keep right-pane controls responsive by applying workflow state first, then
+        // refresh graph/tree state in the background.
+        self.request_workflow_refresh(cx);
+        self.request_snapshot_refresh_internal(true, cx);
+    }
+
     fn run_git_action<F>(&mut self, action_name: &'static str, cx: &mut Context<Self>, action: F)
     where
         F: FnOnce(std::path::PathBuf) -> anyhow::Result<String> + Send + 'static,
@@ -144,7 +151,7 @@ impl DiffViewer {
                             } else {
                                 Some(message)
                             };
-                            this.request_snapshot_refresh_internal(true, cx);
+                            this.refresh_workflow_and_full_snapshot_after_action(cx);
                         }
                         Err(err) => {
                             error!("{action_name} failed: {err:#}");
@@ -838,7 +845,7 @@ impl DiffViewer {
                                 error!("failed to clear commit input after commit: {err:#}");
                             }
 
-                            this.request_snapshot_refresh(cx);
+                            this.refresh_workflow_and_full_snapshot_after_action(cx);
                         }
                         Err(err) => {
                             error!("Commit failed: {err:#}");

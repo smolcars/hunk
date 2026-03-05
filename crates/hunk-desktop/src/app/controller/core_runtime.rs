@@ -69,6 +69,11 @@ impl DiffViewer {
         self.snapshot_epoch
     }
 
+    fn next_workflow_snapshot_epoch(&mut self) -> usize {
+        self.workflow_snapshot_epoch = self.workflow_snapshot_epoch.saturating_add(1);
+        self.workflow_snapshot_epoch
+    }
+
     fn auto_refresh_interval(&self) -> Duration {
         if self.config.auto_refresh_interval_ms == 0 {
             return Duration::ZERO;

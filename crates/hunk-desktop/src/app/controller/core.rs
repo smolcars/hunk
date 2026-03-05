@@ -304,6 +304,9 @@ impl DiffViewer {
             snapshot_epoch: 0,
             snapshot_task: Task::ready(()),
             snapshot_loading: false,
+            workflow_snapshot_epoch: 0,
+            workflow_snapshot_task: Task::ready(()),
+            workflow_state_epoch: 0,
             last_snapshot_fingerprint: None,
             open_project_task: Task::ready(()),
             patch_epoch: 0,
@@ -407,6 +410,49 @@ impl DiffViewer {
         self.request_snapshot_refresh_internal(false, cx);
     }
 
+    pub(super) fn request_workflow_refresh(&mut self, cx: &mut Context<Self>) {
+        self.request_workflow_refresh_internal(cx);
+    }
+
+    fn request_workflow_refresh_internal(&mut self, cx: &mut Context<Self>) {
+        let source_dir_result = self
+            .project_path
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| std::env::current_dir().context("failed to resolve current directory"));
+        let epoch = self.next_workflow_snapshot_epoch();
+
+        self.workflow_snapshot_task = cx.spawn(async move |this, cx| {
+            let started_at = Instant::now();
+            let result = match source_dir_result {
+                Ok(source_dir) => cx
+                    .background_executor()
+                    .spawn(async move { load_workflow_snapshot(&source_dir) })
+                    .await,
+                Err(err) => Err(err),
+            };
+
+            if let Some(this) = this.upgrade() {
+                this.update(cx, |this, cx| {
+                    if epoch != this.workflow_snapshot_epoch {
+                        return;
+                    }
+
+                    let elapsed = started_at.elapsed();
+                    match result {
+                        Ok(snapshot) => {
+                            info!("workflow snapshot refresh completed in {:?}", elapsed);
+                            this.apply_workflow_snapshot(snapshot, cx);
+                        }
+                        Err(err) => {
+                            error!("workflow snapshot refresh failed after {:?}: {err:#}", elapsed);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
     pub(super) fn request_snapshot_refresh_internal(&mut self, force: bool, cx: &mut Context<Self>) {
         if self.snapshot_loading && !force {
             return;
@@ -434,6 +480,7 @@ impl DiffViewer {
         } else {
             self.last_snapshot_fingerprint.clone()
         };
+        let workflow_state_epoch_at_start = self.workflow_state_epoch;
         let epoch = self.next_snapshot_epoch();
         self.snapshot_loading = true;
 
@@ -479,7 +526,12 @@ impl DiffViewer {
                             info!("snapshot refresh completed in {:?}", elapsed);
                             this.auto_refresh_unmodified_streak = 0;
                             this.last_snapshot_fingerprint = Some(fingerprint);
-                            this.apply_snapshot(*snapshot, *graph_snapshot, cx)
+                            this.apply_snapshot(
+                                *snapshot,
+                                *graph_snapshot,
+                                workflow_state_epoch_at_start,
+                                cx,
+                            )
                         }
                         Ok(SnapshotRefreshResult::Unchanged(fingerprint)) => {
                             info!("snapshot refresh skipped in {:?} (no repo changes)", elapsed);
@@ -551,8 +603,17 @@ impl DiffViewer {
         &mut self,
         snapshot: RepoSnapshot,
         graph_snapshot: GraphSnapshot,
+        workflow_state_epoch_at_start: usize,
         cx: &mut Context<Self>,
     ) {
+        // A lightweight workflow refresh may finish before this full snapshot.
+        // If so, discard this older payload and reload so graph/tree catch up.
+        if workflow_state_epoch_at_start < self.workflow_state_epoch {
+            info!("discarded stale full snapshot after newer workflow refresh");
+            self.request_snapshot_refresh_internal(true, cx);
+            return;
+        }
+
         let RepoSnapshot {
             root,
             branch_name,
@@ -691,11 +752,74 @@ impl DiffViewer {
         cx.notify();
     }
 
+    fn apply_workflow_snapshot(&mut self, snapshot: WorkflowSnapshot, cx: &mut Context<Self>) {
+        let WorkflowSnapshot {
+            root,
+            branch_name,
+            branch_has_upstream,
+            branch_ahead_count,
+            can_undo_operation,
+            can_redo_operation,
+            branches,
+            bookmark_revisions,
+            files,
+            last_commit_subject,
+        } = snapshot;
+
+        info!("loaded workflow snapshot from {}", root.display());
+        let root_changed = self.repo_root.as_ref() != Some(&root);
+
+        self.project_path = Some(root.clone());
+        self.set_last_project_path(Some(root.clone()));
+        self.repo_root = Some(root);
+        self.ai_sync_workspace_preferences(cx);
+        self.branch_name = branch_name;
+        self.branch_has_upstream = branch_has_upstream;
+        self.branch_ahead_count = branch_ahead_count;
+        self.can_undo_operation = can_undo_operation;
+        self.can_redo_operation = can_redo_operation;
+        self.branches = branches;
+        self.bookmark_revisions = bookmark_revisions;
+        self.pending_bookmark_switch = None;
+        self.files = files;
+        self.file_status_by_path = self
+            .files
+            .iter()
+            .map(|file| (file.path.clone(), file.status))
+            .collect();
+        self.commit_excluded_files
+            .retain(|path| self.files.iter().any(|file| file.path == *path));
+        self.last_commit_subject = last_commit_subject;
+        self.repo_discovery_failed = false;
+        self.error_message = None;
+        if root_changed {
+            self.start_repo_watch(cx);
+            self.working_copy_recovery_candidates.clear();
+            self.commit_excluded_files.clear();
+        }
+        self.collapsed_files
+            .retain(|path| self.files.iter().any(|file| file.path == *path));
+        self.selected_path = self
+            .selected_path
+            .clone()
+            .filter(|selected| self.files.iter().any(|file| &file.path == selected))
+            .or_else(|| self.files.first().map(|file| file.path.clone()));
+        self.selected_status = self
+            .selected_path
+            .as_deref()
+            .and_then(|selected| self.status_for_path(selected));
+        self.workflow_state_epoch = self.workflow_state_epoch.saturating_add(1);
+        cx.notify();
+    }
+
     fn apply_snapshot_error(&mut self, err: anyhow::Error, cx: &mut Context<Self>) {
         let missing_repository = Self::is_missing_repository_error(&err);
 
         self.cancel_patch_reload();
         self.last_snapshot_fingerprint = None;
+        self.workflow_snapshot_task = Task::ready(());
+        self.workflow_snapshot_epoch = 0;
+        self.workflow_state_epoch = 0;
         self.repo_root = None;
         self.branch_name = "unknown".to_string();
         self.branch_has_upstream = false;
