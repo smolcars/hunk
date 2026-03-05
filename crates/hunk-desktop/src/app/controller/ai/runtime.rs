@@ -196,6 +196,7 @@ impl DiffViewer {
             previous_selected_thread.as_deref(),
             self.ai_selected_thread_id.as_deref(),
         ) {
+            self.ai_timeline_follow_output = true;
             self.ai_scroll_timeline_to_bottom = true;
             self.ai_expanded_command_output_item_ids.clear();
         }
@@ -204,9 +205,11 @@ impl DiffViewer {
         {
             let latest_sequence =
                 thread_latest_timeline_sequence(&self.ai_state_snapshot, selected_thread_id);
-            if latest_sequence > previous_selected_thread_sequence
-                && self.ai_timeline_is_near_bottom_for_thread(selected_thread_id)
-            {
+            if should_scroll_timeline_to_bottom_on_new_activity(
+                latest_sequence,
+                previous_selected_thread_sequence,
+                self.ai_timeline_follow_output,
+            ) {
                 self.ai_scroll_timeline_to_bottom = true;
             }
         }

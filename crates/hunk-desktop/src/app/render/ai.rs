@@ -40,6 +40,7 @@ impl DiffViewer {
         let pending_user_inputs_for_timeline = pending_user_inputs.clone();
         let pending_user_input_count = pending_user_inputs.len();
         let selected_thread_id = self.current_ai_thread_id();
+        let previous_timeline_row_count = self.ai_timeline_list_row_count;
         let (timeline_total_turn_count, timeline_visible_turn_count, timeline_hidden_turn_count, timeline_visible_turn_ids) =
             if let Some(thread_id) = selected_thread_id.as_deref() {
                 let turn_ids = self.ai_timeline_turn_ids(thread_id);
@@ -63,6 +64,11 @@ impl DiffViewer {
                 self.sync_ai_timeline_list_state(0);
                 (0, 0, 0, Vec::new())
             };
+        self.sync_ai_timeline_follow_output(
+            timeline_visible_turn_count,
+            timeline_visible_turn_count == previous_timeline_row_count,
+        );
+        let ai_timeline_follow_output = self.ai_timeline_follow_output;
         let timeline_loading =
             show_global_loading_overlay && selected_thread_id.is_some() && timeline_visible_turn_ids.is_empty();
         let ai_timeline_list_state = self.ai_timeline_list_state.clone();
@@ -1229,6 +1235,7 @@ impl DiffViewer {
                                                                 )
                                                             })
                                                             .when(timeline_visible_turn_count > 0, |this| {
+                                                                let view = view.clone();
                                                                 this.child(
                                                                     div()
                                                                         .flex_1()
@@ -1250,7 +1257,37 @@ impl DiffViewer {
                                                                                     Scrollbar::vertical(&timeline_list_state)
                                                                                         .scrollbar_show(ScrollbarShow::Always),
                                                                                 ),
-                                                                        ),
+                                                                        )
+                                                                        .when(!ai_timeline_follow_output, |this| {
+                                                                            let view = view.clone();
+                                                                            this.child(
+                                                                                div()
+                                                                                    .absolute()
+                                                                                    .right(px(16.0))
+                                                                                    .bottom(px(8.0))
+                                                                                    .left_0()
+                                                                                    .flex()
+                                                                                    .justify_center()
+                                                                                    .child(
+                                                                                        Button::new(
+                                                                                            "ai-timeline-scroll-to-bottom",
+                                                                                        )
+                                                                                        .compact()
+                                                                                        .primary()
+                                                                                        .with_size(gpui_component::Size::Small)
+                                                                                        .icon(
+                                                                                            Icon::new(IconName::ChevronDown)
+                                                                                                .size(px(14.0)),
+                                                                                        )
+                                                                                        .tooltip("Scroll to the bottom")
+                                                                                        .on_click(move |_, _, cx| {
+                                                                                            view.update(cx, |this, cx| {
+                                                                                                this.ai_scroll_timeline_to_bottom_action(cx);
+                                                                                            });
+                                                                                        }),
+                                                                                    ),
+                                                                            )
+                                                                        }),
                                                                 )
                                                             })
                                                         }),

@@ -19,6 +19,8 @@ mod ai_tests {
     use super::normalized_thread_session_state;
     use super::normalized_user_input_answers;
     use super::resolve_bundled_codex_executable_from_exe;
+    use super::should_follow_timeline_output;
+    use super::should_scroll_timeline_to_bottom_on_new_activity;
     use super::sorted_threads;
     use super::should_scroll_timeline_to_bottom_on_selection_change;
     use super::should_sync_selected_thread_from_active_thread;
@@ -159,6 +161,20 @@ mod ai_tests {
             None,
         ));
         assert!(!should_scroll_timeline_to_bottom_on_selection_change(None, None));
+    }
+
+    #[test]
+    fn new_activity_scroll_requires_follow_mode() {
+        assert!(should_scroll_timeline_to_bottom_on_new_activity(12, 11, true));
+        assert!(!should_scroll_timeline_to_bottom_on_new_activity(12, 12, true));
+        assert!(!should_scroll_timeline_to_bottom_on_new_activity(12, 11, false));
+    }
+
+    #[test]
+    fn follow_mode_only_active_at_bottom() {
+        assert!(should_follow_timeline_output(0, 0.0, 0.0));
+        assert!(should_follow_timeline_output(5, -120.0, 120.0));
+        assert!(!should_follow_timeline_output(5, -118.0, 120.0));
     }
 
     #[test]

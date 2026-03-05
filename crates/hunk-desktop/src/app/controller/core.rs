@@ -234,6 +234,7 @@ impl DiffViewer {
             ai_state_snapshot: hunk_codex::state::AiState::default(),
             ai_selected_thread_id: None,
             ai_scroll_timeline_to_bottom: false,
+            ai_timeline_follow_output: true,
             ai_thread_list_scroll_handle: ScrollHandle::default(),
             ai_thread_inline_toast: None,
             ai_thread_inline_toast_epoch: 0,

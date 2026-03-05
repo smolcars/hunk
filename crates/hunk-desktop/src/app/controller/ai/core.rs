@@ -427,11 +427,18 @@ impl DiffViewer {
         thread_id: String,
         cx: &mut Context<Self>,
     ) {
+        self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = true;
         self.ai_expanded_command_output_item_ids.clear();
         self.ai_selected_thread_id = Some(thread_id.clone());
         self.sync_ai_session_selection_from_state();
         self.send_ai_worker_command(AiWorkerCommand::SelectThread { thread_id }, cx);
+        cx.notify();
+    }
+
+    pub(super) fn ai_scroll_timeline_to_bottom_action(&mut self, cx: &mut Context<Self>) {
+        self.ai_timeline_follow_output = true;
+        self.ai_scroll_timeline_to_bottom = true;
         cx.notify();
     }
 
@@ -470,6 +477,7 @@ impl DiffViewer {
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
             self.ai_selected_thread_id = None;
             self.ai_expanded_command_output_item_ids.clear();
+            self.ai_timeline_follow_output = true;
             self.ai_scroll_timeline_to_bottom = true;
         }
         self.show_ai_thread_inline_toast("Thread archived.", cx);
@@ -608,31 +616,30 @@ impl DiffViewer {
         }
     }
 
-    fn ai_visible_turn_count_for_thread(&self, thread_id: &str) -> usize {
-        let total_turn_count = self
-            .ai_state_snapshot
-            .turns
-            .values()
-            .filter(|turn| turn.thread_id == thread_id)
-            .count();
-        if total_turn_count == 0 {
-            return 0;
+    pub(super) fn sync_ai_timeline_follow_output(
+        &mut self,
+        row_count: usize,
+        can_refresh_from_metrics: bool,
+    ) {
+        if !can_refresh_from_metrics {
+            if row_count == 0 {
+                self.ai_timeline_follow_output = true;
+            }
+            return;
         }
-        let configured_limit = self
-            .ai_timeline_visible_turn_limit_by_thread
-            .get(thread_id)
-            .copied()
-            .unwrap_or(AI_TIMELINE_DEFAULT_VISIBLE_TURNS);
-        configured_limit.min(total_turn_count)
-    }
 
-    fn ai_timeline_is_near_bottom_for_thread(&self, thread_id: &str) -> bool {
-        let visible_turn_count = self.ai_visible_turn_count_for_thread(thread_id);
-        if visible_turn_count <= 1 {
-            return true;
-        }
-        let top_ix = self.ai_timeline_list_state.logical_scroll_top().item_ix;
-        top_ix.saturating_add(6) >= visible_turn_count.saturating_sub(1)
+        let scroll_offset_y = self
+            .ai_timeline_list_state
+            .scroll_px_offset_for_scrollbar()
+            .y
+            .as_f32();
+        let max_scroll_offset_y = self
+            .ai_timeline_list_state
+            .max_offset_for_scrollbar()
+            .height
+            .as_f32();
+        self.ai_timeline_follow_output =
+            should_follow_timeline_output(row_count, scroll_offset_y, max_scroll_offset_y);
     }
 
     fn scroll_ai_timeline_list_to_bottom(&self) {

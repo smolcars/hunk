@@ -953,6 +953,7 @@ struct DiffViewer {
     ai_state_snapshot: hunk_codex::state::AiState,
     ai_selected_thread_id: Option<String>,
     ai_scroll_timeline_to_bottom: bool,
+    ai_timeline_follow_output: bool,
     ai_thread_list_scroll_handle: ScrollHandle,
     ai_thread_inline_toast: Option<String>,
     ai_thread_inline_toast_epoch: usize,

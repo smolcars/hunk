@@ -37,6 +37,29 @@ fn should_scroll_timeline_to_bottom_on_selection_change(
     previous_thread_id != next_thread_id && next_thread_id.is_some()
 }
 
+fn should_scroll_timeline_to_bottom_on_new_activity(
+    latest_sequence: u64,
+    previous_sequence: u64,
+    follow_output: bool,
+) -> bool {
+    follow_output && latest_sequence > previous_sequence
+}
+
+fn should_follow_timeline_output(
+    row_count: usize,
+    scroll_offset_y: f32,
+    max_scroll_offset_y: f32,
+) -> bool {
+    const TIMELINE_BOTTOM_EPSILON_PX: f32 = 1.0;
+
+    if row_count == 0 || max_scroll_offset_y <= TIMELINE_BOTTOM_EPSILON_PX {
+        return true;
+    }
+
+    let current_scroll_offset_y = (-scroll_offset_y).clamp(0.0, max_scroll_offset_y);
+    current_scroll_offset_y >= max_scroll_offset_y - TIMELINE_BOTTOM_EPSILON_PX
+}
+
 fn should_sync_selected_thread_from_active_thread(
     selected_thread_id: Option<&str>,
     active_thread_id: Option<&str>,
@@ -179,4 +202,3 @@ fn default_user_input_question_answers(question: &AiPendingUserInputQuestion) ->
         .map(|option| vec![option.label.clone()])
         .unwrap_or_else(|| vec![String::new()])
 }
-
