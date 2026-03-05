@@ -2,6 +2,7 @@
 #[allow(clippy::items_after_test_module)]
 mod ai_helper_tests {
     use super::ai_account_summary;
+    use super::ai_chat_markdown_text;
     use super::ai_command_execution_display_details;
     use super::ai_composer_status_tone;
     use super::ai_thread_status_text;
@@ -15,6 +16,7 @@ mod ai_helper_tests {
     use hunk_codex::state::ItemStatus;
     use hunk_codex::state::ItemSummary;
     use hunk_codex::state::ThreadLifecycleStatus;
+    use hunk_domain::markdown_preview::MarkdownPreviewBlock;
 
     fn rate_limit_window(
         used_percent: i32,
@@ -225,5 +227,38 @@ mod ai_helper_tests {
         assert!(ai_composer_status_tone("Attached 2 images.").is_none());
         assert!(ai_composer_status_tone("Interrupted").is_some());
         assert!(ai_composer_status_tone("Prompt cannot be empty.").is_some());
+    }
+
+    #[test]
+    fn chat_markdown_parses_inline_code_and_file_links() {
+        let blocks = hunk_domain::markdown_preview::parse_markdown_preview(
+            "Run `cargo fmt --all` in [ai.rs](/tmp/ai.rs#L72).",
+        );
+
+        let MarkdownPreviewBlock::Paragraph(spans) = &blocks[0] else {
+            panic!("expected paragraph block");
+        };
+
+        assert!(spans
+            .iter()
+            .any(|span| span.style.code && span.text == "cargo fmt --all"));
+        assert!(spans.iter().any(|span| {
+            span.style.link.as_deref() == Some("/tmp/ai.rs#L72") && span.text == "ai.rs"
+        }));
+    }
+
+    #[test]
+    fn chat_markdown_text_keeps_link_text_inline() {
+        let blocks = hunk_domain::markdown_preview::parse_markdown_preview(
+            "That is now in [timeline_rows.rs](/tmp/timeline_rows.rs#L387), and wired.",
+        );
+        let MarkdownPreviewBlock::Paragraph(spans) = &blocks[0] else {
+            panic!("expected paragraph block");
+        };
+
+        assert_eq!(
+            ai_chat_markdown_text(spans),
+            "That is now in timeline_rows.rs, and wired."
+        );
     }
 }

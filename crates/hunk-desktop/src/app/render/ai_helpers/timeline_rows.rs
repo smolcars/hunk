@@ -1,3 +1,7 @@
+use gpui::{
+    FontStyle, FontWeight, HighlightStyle, StrikethroughStyle, StyledText, UnderlineStyle,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiTimelineItemRole {
     User,
@@ -384,6 +388,304 @@ fn render_ai_command_execution_details(
         .into_any_element()
 }
 
+fn ai_render_chat_markdown_message(
+    this: &DiffViewer,
+    markdown: &str,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let blocks = hunk_domain::markdown_preview::parse_markdown_preview(markdown);
+    if blocks.is_empty() {
+        return div().w_full().text_sm().child("").into_any_element();
+    }
+
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .children(
+            blocks
+                .iter()
+                .map(|block| ai_render_chat_markdown_block(this, block, is_dark, cx)),
+        )
+        .into_any_element()
+}
+
+fn ai_render_chat_markdown_block(
+    this: &DiffViewer,
+    block: &MarkdownPreviewBlock,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    match block {
+        MarkdownPreviewBlock::Heading { level, spans } => ai_render_chat_inline_spans(
+            spans,
+            matches!(level, 1 | 2),
+            true,
+            cx.theme().foreground,
+            is_dark,
+            cx,
+        ),
+        MarkdownPreviewBlock::Paragraph(spans) => ai_render_chat_inline_spans(
+            spans,
+            false,
+            false,
+            cx.theme().foreground,
+            is_dark,
+            cx,
+        ),
+        MarkdownPreviewBlock::UnorderedListItem(spans) => h_flex()
+            .w_full()
+            .min_w_0()
+            .items_start()
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("-"),
+            )
+            .child(
+                div().flex_1().min_w_0().child(ai_render_chat_inline_spans(
+                    spans,
+                    false,
+                    false,
+                    cx.theme().foreground,
+                    is_dark,
+                    cx,
+                )),
+            )
+            .into_any_element(),
+        MarkdownPreviewBlock::OrderedListItem { number, spans } => h_flex()
+            .w_full()
+            .min_w_0()
+            .items_start()
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!("{number}.")),
+            )
+            .child(
+                div().flex_1().min_w_0().child(ai_render_chat_inline_spans(
+                    spans,
+                    false,
+                    false,
+                    cx.theme().foreground,
+                    is_dark,
+                    cx,
+                )),
+            )
+            .into_any_element(),
+        MarkdownPreviewBlock::BlockQuote(spans) => h_flex()
+            .w_full()
+            .min_w_0()
+            .items_start()
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("|"),
+            )
+            .child(
+                div().flex_1().min_w_0().child(ai_render_chat_inline_spans(
+                    spans,
+                    false,
+                    false,
+                    cx.theme().muted_foreground,
+                    is_dark,
+                    cx,
+                )),
+            )
+            .into_any_element(),
+        MarkdownPreviewBlock::CodeBlock { language, lines } => {
+            let language_label = language.clone().unwrap_or_else(|| "code".to_string());
+            let code_rows = if lines.is_empty() {
+                vec![
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .child("")
+                        .into_any_element(),
+                ]
+            } else {
+                lines
+                    .iter()
+                    .map(|line_spans| {
+                        h_flex()
+                            .w_full()
+                            .items_start()
+                            .gap_0()
+                            .text_xs()
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .flex_wrap()
+                            .whitespace_normal()
+                            .children(line_spans.iter().map(|span| {
+                                let token_color = this.markdown_code_token_color(
+                                    cx.theme().foreground,
+                                    span.token,
+                                    cx,
+                                );
+                                div()
+                                    .flex_none()
+                                    .whitespace_nowrap()
+                                    .text_color(token_color)
+                                    .child(span.text.clone())
+                                    .into_any_element()
+                            }))
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>()
+            };
+
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_color(cx.theme().muted_foreground)
+                        .child(language_label),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .rounded(px(6.0))
+                        .border_1()
+                        .border_color(cx.theme().border.opacity(if is_dark { 0.88 } else { 0.74 }))
+                        .bg(cx.theme().secondary.opacity(if is_dark { 0.30 } else { 0.44 }))
+                        .p_2()
+                        .child(v_flex().min_w_0().children(code_rows)),
+                )
+                .into_any_element()
+        }
+        MarkdownPreviewBlock::ThematicBreak => div()
+            .h(px(1.0))
+            .w_full()
+            .bg(cx.theme().border.opacity(if is_dark { 0.8 } else { 0.95 }))
+            .into_any_element(),
+    }
+}
+
+fn ai_chat_markdown_text_and_highlights(
+    spans: &[MarkdownInlineSpan],
+    base_color: Hsla,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> (SharedString, Vec<(std::ops::Range<usize>, HighlightStyle)>) {
+    let text = ai_chat_markdown_text(spans);
+    let mut highlights = Vec::new();
+    let link_color = cx.theme().primary;
+    let code_background = cx.theme().secondary.opacity(if is_dark { 0.30 } else { 0.42 });
+    let mut cursor = 0;
+
+    for span in spans {
+        if span.style.hard_break {
+            if !text[..cursor].ends_with('\n') {
+                cursor += 1;
+            }
+            continue;
+        }
+        if span.text.is_empty() {
+            continue;
+        }
+
+        let start = cursor;
+        let end = start + span.text.len();
+        cursor = end;
+
+        let mut highlight = HighlightStyle::default();
+        if span.style.link.is_some() {
+            highlight.color = Some(link_color);
+            highlight.font_weight = Some(FontWeight::SEMIBOLD);
+            highlight.underline = Some(UnderlineStyle {
+                thickness: px(1.0),
+                color: Some(link_color),
+                wavy: false,
+            });
+        }
+        if span.style.bold {
+            highlight.font_weight = Some(FontWeight::SEMIBOLD);
+        }
+        if span.style.italic {
+            highlight.font_style = Some(FontStyle::Italic);
+        }
+        if span.style.code {
+            highlight.background_color = Some(code_background);
+            highlight.color.get_or_insert(base_color);
+            highlight.font_weight.get_or_insert(FontWeight::MEDIUM);
+        }
+        if span.style.strikethrough {
+            highlight.strikethrough = Some(StrikethroughStyle {
+                thickness: px(1.0),
+                color: Some(highlight.color.unwrap_or(base_color)),
+            });
+        }
+
+        if highlight != HighlightStyle::default() {
+            highlights.push((start..end, highlight));
+        }
+    }
+
+    (text.into(), highlights)
+}
+
+fn ai_chat_markdown_text(spans: &[MarkdownInlineSpan]) -> String {
+    let mut text = String::new();
+    for span in spans {
+        if span.style.hard_break {
+            if !text.ends_with('\n') {
+                text.push('\n');
+            }
+            continue;
+        }
+        text.push_str(span.text.as_str());
+    }
+    text
+}
+
+fn ai_render_chat_inline_spans(
+    spans: &[MarkdownInlineSpan],
+    large: bool,
+    emphasized: bool,
+    base_color: Hsla,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let (text, highlights) = ai_chat_markdown_text_and_highlights(spans, base_color, is_dark, cx);
+    if text.is_empty() {
+        return div().w_full().text_sm().child("").into_any_element();
+    }
+
+    let styled_text = if highlights.is_empty() {
+        StyledText::new(text.clone())
+    } else {
+        StyledText::new(text.clone()).with_highlights(highlights)
+    };
+
+    let mut row = div()
+        .min_w_0()
+        .w_full()
+        .text_color(base_color)
+        .child(styled_text);
+
+    if large {
+        row = row.text_lg();
+    } else {
+        row = row.text_sm();
+    }
+    if emphasized {
+        row = row.font_semibold();
+    }
+
+    row.into_any_element()
+}
+
 fn render_ai_chat_timeline_row_for_view(
     this: &DiffViewer,
     row_id: &str,
@@ -414,7 +716,7 @@ fn render_ai_chat_timeline_row_for_view(
                     } else {
                         "Assistant"
                     };
-                    let bubble_max_width = if is_user { px(680.0) } else { px(760.0) };
+                    let bubble_max_width = if is_user { px(680.0) } else { px(700.0) };
                     let text_content = item.content.trim();
                     let fallback_summary = item
                         .display_metadata
@@ -470,16 +772,10 @@ fn render_ai_chat_timeline_row_for_view(
                                                 .child(role_label),
                                         )
                                 )
-                                .when(!bubble_text.is_empty(), |this| {
-                                    this.child(
-                                        div()
-                                            .w_full()
-                                            .min_w_0()
-                                            .overflow_hidden()
-                                            .text_sm()
-                                            .whitespace_normal()
-                                            .child(bubble_text.to_string()),
-                                    )
+                                .when(!bubble_text.is_empty(), |container| {
+                                    container.child(ai_render_chat_markdown_message(
+                                        this, bubble_text, is_dark, cx,
+                                    ))
                                 }),
                         );
                     ai_timeline_row_with_animation(this, row.id.as_str(), row_element)
