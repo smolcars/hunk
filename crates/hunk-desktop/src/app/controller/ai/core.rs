@@ -246,6 +246,32 @@ impl DiffViewer {
         cx.notify();
     }
 
+    pub(super) fn ai_add_dropped_composer_paths_action(
+        &mut self,
+        dropped_paths: Vec<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if dropped_paths.is_empty() {
+            return;
+        }
+
+        if !self.current_ai_model_supports_image_inputs() {
+            self.ai_status_message = Some(
+                "Selected model does not support image attachments. Remove attachments or switch models."
+                    .to_string(),
+            );
+            cx.notify();
+            return;
+        }
+
+        let dropped_count = dropped_paths.len();
+        let added = self.ai_add_composer_local_images(dropped_paths);
+        self.ai_status_message = Some(ai_drop_image_attachment_status_message(dropped_count, added));
+        self.focus_ai_composer_input(window, cx);
+        cx.notify();
+    }
+
     pub(super) fn ai_start_review_action(
         &mut self,
         window: &mut Window,
@@ -913,5 +939,30 @@ fn is_supported_ai_image_path(path: &std::path::Path) -> bool {
     matches!(
         extension.to_ascii_lowercase().as_str(),
         "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" | "tif" | "tiff"
+    )
+}
+
+fn ai_drop_image_attachment_status_message(dropped_count: usize, added_count: usize) -> String {
+    if dropped_count == 0 {
+        return "No files were dropped.".to_string();
+    }
+
+    if added_count == 0 {
+        if dropped_count == 1 {
+            return "Dropped file is not a supported image or is already attached.".to_string();
+        }
+        return "No dropped files were supported images or were already attached.".to_string();
+    }
+
+    if added_count == dropped_count {
+        let suffix = if added_count == 1 { "" } else { "s" };
+        return format!("Attached {added_count} image{suffix}.");
+    }
+
+    let added_suffix = if added_count == 1 { "" } else { "s" };
+    let skipped_count = dropped_count.saturating_sub(added_count);
+    let skipped_suffix = if skipped_count == 1 { "" } else { "s" };
+    format!(
+        "Attached {added_count} image{added_suffix}. Skipped {skipped_count} unsupported or duplicate file{skipped_suffix}."
     )
 }

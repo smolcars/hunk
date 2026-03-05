@@ -9,10 +9,12 @@ fn item_status_chip(status: hunk_codex::state::ItemStatus) -> &'static str {
 
 #[cfg(test)]
 mod ai_tests {
+    use super::ai_drop_image_attachment_status_message;
     use super::bundled_codex_executable_candidates;
     use super::codex_runtime_binary_name;
     use super::codex_runtime_platform_dir;
     use super::item_status_chip;
+    use super::is_supported_ai_image_path;
     use super::is_command_name_without_path;
     use super::normalized_thread_session_state;
     use super::normalized_user_input_answers;
@@ -485,6 +487,43 @@ mod ai_tests {
         assert_eq!(
             answers.get("q-option"),
             Some(&vec!["custom".to_string()])
+        );
+    }
+
+    #[test]
+    fn supported_image_path_check_is_case_insensitive() {
+        assert!(is_supported_ai_image_path(std::path::Path::new("image.PNG")));
+        assert!(is_supported_ai_image_path(std::path::Path::new("shot.JpEg")));
+        assert!(is_supported_ai_image_path(std::path::Path::new("anim.GIF")));
+    }
+
+    #[test]
+    fn unsupported_image_path_without_extension_is_rejected() {
+        assert!(!is_supported_ai_image_path(std::path::Path::new("image")));
+        assert!(!is_supported_ai_image_path(std::path::Path::new("archive.zip")));
+    }
+
+    #[test]
+    fn drop_image_attachment_status_message_reports_expected_outcomes() {
+        assert_eq!(
+            ai_drop_image_attachment_status_message(1, 1),
+            "Attached 1 image."
+        );
+        assert_eq!(
+            ai_drop_image_attachment_status_message(3, 3),
+            "Attached 3 images."
+        );
+        assert_eq!(
+            ai_drop_image_attachment_status_message(3, 1),
+            "Attached 1 image. Skipped 2 unsupported or duplicate files."
+        );
+        assert_eq!(
+            ai_drop_image_attachment_status_message(1, 0),
+            "Dropped file is not a supported image or is already attached."
+        );
+        assert_eq!(
+            ai_drop_image_attachment_status_message(2, 0),
+            "No dropped files were supported images or were already attached."
         );
     }
 }

@@ -80,6 +80,16 @@ impl DiffViewer {
         let composer_attachment_paths = self.ai_composer_local_images.clone();
         let composer_attachment_count = composer_attachment_paths.len();
         let model_supports_image_inputs = self.current_ai_model_supports_image_inputs();
+        let composer_drop_border_color = if model_supports_image_inputs {
+            cx.theme().accent.opacity(if is_dark { 0.78 } else { 0.62 })
+        } else {
+            cx.theme().warning.opacity(if is_dark { 0.88 } else { 0.74 })
+        };
+        let composer_drop_bg = if model_supports_image_inputs {
+            cx.theme().accent.opacity(if is_dark { 0.14 } else { 0.10 })
+        } else {
+            cx.theme().warning.opacity(if is_dark { 0.14 } else { 0.08 })
+        };
 
         v_flex()
             .size_full()
@@ -1280,7 +1290,38 @@ impl DiffViewer {
                                                     )
                                                 }),
                                         )
-                                        .child(Input::new(&self.ai_composer_input_state).w_full().h(px(88.0)))
+                                        .child({
+                                            div()
+                                                .w_full()
+                                                .rounded_md()
+                                                .border_1()
+                                                .border_color(cx.theme().border.opacity(0.0))
+                                                .drag_over::<gpui::ExternalPaths>(
+                                                    move |style, _, _, _| {
+                                                        style
+                                                            .border_color(composer_drop_border_color)
+                                                            .bg(composer_drop_bg)
+                                                    },
+                                                )
+                                                .on_drop(cx.listener(
+                                                    move |this,
+                                                          paths: &gpui::ExternalPaths,
+                                                          window,
+                                                          cx| {
+                                                        this.ai_add_dropped_composer_paths_action(
+                                                            paths.paths().to_vec(),
+                                                            window,
+                                                            cx,
+                                                        );
+                                                        cx.stop_propagation();
+                                                    },
+                                                ))
+                                                .child(
+                                                    Input::new(&self.ai_composer_input_state)
+                                                        .w_full()
+                                                        .h(px(88.0)),
+                                                )
+                                        })
                                         .when(composer_attachment_count > 0, |this| {
                                             this.child(
                                                 h_flex()
