@@ -268,7 +268,7 @@ impl DiffViewer {
             ai_review_input_state,
             files: Vec::new(),
             file_status_by_path: BTreeMap::new(),
-            branch_picker_open: false,
+            revision_stack_collapsed: true,
             branch_input_state,
             commit_input_state,
             commit_excluded_files: BTreeSet::new(),

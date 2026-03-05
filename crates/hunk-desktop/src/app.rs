@@ -987,7 +987,7 @@ struct DiffViewer {
     ai_review_input_state: Entity<InputState>,
     files: Vec<ChangedFile>,
     file_status_by_path: BTreeMap<String, FileStatus>,
-    branch_picker_open: bool,
+    revision_stack_collapsed: bool,
     branch_input_state: Entity<InputState>,
     commit_input_state: Entity<InputState>,
     commit_excluded_files: BTreeSet<String>,

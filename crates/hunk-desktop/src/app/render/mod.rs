@@ -36,6 +36,7 @@ include!("toolbar.rs");
 include!("tree.rs");
 include!("commit.rs");
 include!("commit_bookmark_picker.rs");
+include!("jj_graph_right_pane_v2.rs");
 include!("jj_graph.rs");
 include!("jj_graph_inspector.rs");
 include!("jj_graph_focus_strip.rs");

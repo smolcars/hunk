@@ -239,15 +239,6 @@ impl DiffViewer {
         self.request_activate_or_create_bookmark_with_dirty_guard(branch_name, cx);
     }
 
-    pub(super) fn checkout_bookmark_with_change_transfer(
-        &mut self,
-        branch_name: String,
-        cx: &mut Context<Self>,
-    ) {
-        self.pending_bookmark_switch = None;
-        self.activate_or_create_bookmark(branch_name, true, cx);
-    }
-
     pub(super) fn toggle_commit_file_included(
         &mut self,
         file_path: String,
@@ -865,8 +856,8 @@ impl DiffViewer {
         });
     }
 
-    pub(super) fn toggle_bookmark_picker(&mut self, cx: &mut Context<Self>) {
-        self.branch_picker_open = !self.branch_picker_open;
+    pub(super) fn toggle_revision_stack_collapsed(&mut self, cx: &mut Context<Self>) {
+        self.revision_stack_collapsed = !self.revision_stack_collapsed;
         cx.notify();
     }
 

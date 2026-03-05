@@ -47,7 +47,6 @@ impl DiffViewer {
                 unix_time: Self::now_unix_seconds(),
             });
             self.graph_right_panel_mode = GraphRightPanelMode::ActiveWorkflow;
-            self.branch_picker_open = false;
             self.git_status_message = Some(format!(
                 "Switching {} -> {} with {} local files. Choose move or snapshot before switching.",
                 source_bookmark,
