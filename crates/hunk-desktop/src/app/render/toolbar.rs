@@ -15,12 +15,9 @@ impl DiffViewer {
         };
         let theme_button_label = format!("Theme ({theme_label})");
         let is_dark = cx.theme().mode.is_dark();
-        let chip_bg = cx.theme().muted.opacity(if is_dark { 0.26 } else { 0.52 });
-        let chip_border = cx.theme().border.opacity(if is_dark { 0.88 } else { 0.70 });
-        let brand_bg = cx
-            .theme()
-            .accent
-            .opacity(if is_dark { 0.26 } else { 0.14 });
+        let chip_colors = hunk_toolbar_chip(cx.theme(), is_dark);
+        let brand_colors = hunk_toolbar_brand_chip(cx.theme(), is_dark);
+        let dropdown_bg = hunk_dropdown_fill(cx.theme(), is_dark);
 
         h_flex()
             .w_full()
@@ -45,9 +42,9 @@ impl DiffViewer {
                             .px_2()
                             .py_0p5()
                             .rounded_md()
-                            .bg(brand_bg)
+                            .bg(brand_colors.background)
                             .border_1()
-                            .border_color(cx.theme().accent.opacity(if is_dark { 0.62 } else { 0.42 }))
+                            .border_color(brand_colors.border)
                             .child(
                                 div()
                                     .text_sm()
@@ -62,9 +59,9 @@ impl DiffViewer {
                             .px_2()
                             .py_0p5()
                             .rounded_md()
-                            .bg(chip_bg)
+                            .bg(chip_colors.background)
                             .border_1()
-                            .border_color(chip_border)
+                            .border_color(chip_colors.border)
                             .child(
                                 div()
                                     .text_sm()
@@ -83,9 +80,9 @@ impl DiffViewer {
                             .px_2()
                             .py_0p5()
                             .rounded_md()
-                            .bg(chip_bg)
+                            .bg(chip_colors.background)
                             .border_1()
-                            .border_color(chip_border)
+                            .border_color(chip_colors.border)
                             .child(
                                 div()
                                     .flex_1()
@@ -109,7 +106,7 @@ impl DiffViewer {
                                 .outline()
                                 .compact()
                                 .rounded(px(7.0))
-                                .bg(cx.theme().secondary.opacity(if is_dark { 0.52 } else { 0.70 }))
+                                .bg(dropdown_bg)
                                 .dropdown_caret(true)
                                 .label(theme_button_label)
                                 .dropdown_menu({
@@ -174,7 +171,7 @@ impl DiffViewer {
                             .outline()
                             .compact()
                             .rounded(px(7.0))
-                            .bg(cx.theme().secondary.opacity(if is_dark { 0.44 } else { 0.64 }))
+                            .bg(dropdown_bg)
                             .label(format!("Comments ({})", self.comments_open_count()))
                             .on_click(move |_, _, cx| {
                                 view.update(cx, |this, cx| {
@@ -188,7 +185,7 @@ impl DiffViewer {
                             .outline()
                             .compact()
                             .rounded(px(7.0))
-                            .bg(cx.theme().secondary.opacity(if is_dark { 0.44 } else { 0.64 }))
+                            .bg(dropdown_bg)
                             .label(if self.diff_show_whitespace {
                                 "Whitespace: On"
                             } else {
@@ -206,7 +203,7 @@ impl DiffViewer {
                             .outline()
                             .compact()
                             .rounded(px(7.0))
-                            .bg(cx.theme().secondary.opacity(if is_dark { 0.44 } else { 0.64 }))
+                            .bg(dropdown_bg)
                             .label(if self.diff_show_eol_markers {
                                 "EOL: On"
                             } else {

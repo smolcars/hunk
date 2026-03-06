@@ -6,6 +6,7 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - ONLY USE JJ AS THE UNDERLYING GIT IMPLEMENTATION WHEN RUNNING GIT RELATED COMMANDS. JJ CLI IS AVAILABLE VIA `jj` ON THE PATH.
 - Make sure code is scalable.
 - Don't make files over 1000 lines long.
+- When working with frontend, always use colors in theme.rs
 - Tests always in crate-level `tests` directories (for example `crates/hunk-jj/tests`)
 - Make sure workspace clippy passes
 - Make sure workspace builds pass

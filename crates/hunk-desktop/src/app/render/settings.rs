@@ -6,23 +6,9 @@ impl DiffViewer {
 
         let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
-        let backdrop_bg = cx.theme().background.opacity(if is_dark { 0.24 } else { 0.12 });
-        let selected_bg = hsla_hex("#111111").unwrap_or(cx.theme().foreground);
-        let selected_border = hsla_hex("#f5f7fb").unwrap_or(cx.theme().background);
-        let selected_text = hsla_hex("#f5f7fb").unwrap_or(cx.theme().background);
-        let unselected_bg = hsla_hex("#f5f7fb").unwrap_or(cx.theme().background);
-        let unselected_border = hsla_hex("#111111").unwrap_or(cx.theme().foreground);
-        let unselected_text = hsla_hex("#111111").unwrap_or(cx.theme().foreground);
-        let panel_bg = cx.theme().popover.blend(
-            cx.theme()
-                .background
-                .opacity(if is_dark { 0.16 } else { 0.05 }),
-        );
-        let nav_bg = cx.theme().sidebar.blend(
-            cx.theme()
-                .muted
-                .opacity(if is_dark { 0.24 } else { 0.16 }),
-        );
+        let backdrop_bg = hunk_modal_backdrop(cx.theme(), is_dark);
+        let modal_surface = hunk_modal_surface(cx.theme(), is_dark);
+        let nav_surface = hunk_nav_surface(cx.theme(), is_dark);
 
         div()
             .id("settings-popup-overlay")
@@ -73,8 +59,8 @@ impl DiffViewer {
                             .max_h(px(620.0))
                             .rounded(px(12.0))
                             .border_1()
-                            .border_color(cx.theme().border.opacity(if is_dark { 0.92 } else { 0.72 }))
-                            .bg(panel_bg)
+                            .border_color(modal_surface.border)
+                            .bg(modal_surface.background)
                             .child(
                                 h_flex()
                                     .items_center()
@@ -129,12 +115,8 @@ impl DiffViewer {
                                             .p_3()
                                             .gap_2()
                                             .border_r_1()
-                                            .border_color(cx.theme().border.opacity(if is_dark {
-                                                0.90
-                                            } else {
-                                                0.70
-                                            }))
-                                            .bg(nav_bg)
+                                            .border_color(nav_surface.border)
+                                            .bg(nav_surface.background)
                                             .child(
                                                 div()
                                                     .text_xs()
@@ -153,26 +135,19 @@ impl DiffViewer {
                                                             "settings-nav-keyboard-shortcuts"
                                                         }
                                                     };
+                                                    let button_colors = hunk_settings_nav_button(
+                                                        cx.theme(),
+                                                        is_dark,
+                                                        is_selected,
+                                                    );
 
                                                     Button::new(id)
                                                         .outline()
                                                         .rounded(px(8.0))
                                                         .label(label)
-                                                        .bg(if is_selected {
-                                                            selected_bg
-                                                        } else {
-                                                            unselected_bg
-                                                        })
-                                                        .border_color(if is_selected {
-                                                            selected_border
-                                                        } else {
-                                                            unselected_border
-                                                        })
-                                                        .text_color(if is_selected {
-                                                            selected_text
-                                                        } else {
-                                                            unselected_text
-                                                        })
+                                                        .bg(button_colors.background)
+                                                        .border_color(button_colors.border)
+                                                        .text_color(button_colors.text)
                                                         .on_click(move |_, _, cx| {
                                                             view.update(cx, |this, cx| {
                                                                 this.select_settings_category(
@@ -276,12 +251,8 @@ impl DiffViewer {
     ) -> AnyElement {
         let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
-        let card_bg = cx.theme().background.blend(
-            cx.theme()
-                .muted
-                .opacity(if is_dark { 0.24 } else { 0.12 }),
-        );
-        let dropdown_bg = cx.theme().secondary.opacity(if is_dark { 0.52 } else { 0.70 });
+        let card_surface = hunk_card_surface(cx.theme(), is_dark);
+        let dropdown_bg = hunk_dropdown_fill(cx.theme(), is_dark);
         let theme_label = match settings.theme {
             ThemePreference::System => "System",
             ThemePreference::Light => "Light",
@@ -319,8 +290,8 @@ impl DiffViewer {
                     .p_3()
                     .rounded(px(10.0))
                     .border_1()
-                    .border_color(cx.theme().border.opacity(if is_dark { 0.90 } else { 0.72 }))
-                    .bg(card_bg)
+                    .border_color(card_surface.border)
+                    .bg(card_surface.background)
                     .child(
                         h_flex()
                             .w_full()
@@ -679,6 +650,8 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let is_dark = cx.theme().mode.is_dark();
+        let card_surface = hunk_card_surface(cx.theme(), is_dark);
+        let input_surface = hunk_input_surface(cx.theme(), is_dark);
 
         v_flex()
             .id(row.id)
@@ -687,12 +660,8 @@ impl DiffViewer {
             .p_3()
             .rounded(px(10.0))
             .border_1()
-            .border_color(cx.theme().border.opacity(if is_dark { 0.90 } else { 0.72 }))
-            .bg(cx.theme().background.blend(
-                cx.theme()
-                    .muted
-                    .opacity(if is_dark { 0.24 } else { 0.12 }),
-            ))
+            .border_color(card_surface.border)
+            .bg(card_surface.background)
             .child(
                 div()
                     .text_sm()
@@ -711,12 +680,8 @@ impl DiffViewer {
                     .h(px(36.0))
                     .rounded(px(8.0))
                     .border_1()
-                    .border_color(cx.theme().border.opacity(if is_dark { 0.90 } else { 0.72 }))
-                    .bg(cx.theme().background.blend(
-                        cx.theme()
-                            .muted
-                            .opacity(if is_dark { 0.20 } else { 0.09 }),
-                    ))
+                    .border_color(input_surface.border)
+                    .bg(input_surface.background)
                     .disabled(false),
             )
             .into_any_element()

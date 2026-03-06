@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -17,7 +16,6 @@ use gpui::{
 };
 use gpui_component::{
     ActiveTheme as _, Colorize as _, GlobalState, Root, StyledExt as _, Theme, ThemeMode, h_flex,
-    highlighter::HighlightThemeStyle,
     input::{Enter as InputEnter, InputEvent, InputState},
     menu::AppMenuBar,
     resizable::{h_resizable, resizable_panel},
@@ -289,6 +287,7 @@ mod data;
 mod data_segments;
 mod highlight;
 mod render;
+mod theme;
 mod workspace_view;
 
 actions!(
@@ -339,118 +338,6 @@ fn preferred_mono_font_family() -> &'static str {
         "Consolas"
     } else {
         "DejaVu Sans Mono"
-    }
-}
-
-fn hsla_hex(hex: &str) -> Option<Hsla> {
-    Hsla::parse_hex(hex).ok()
-}
-
-fn editor_highlight_style(
-    base: Option<HighlightThemeStyle>,
-    fallback: HighlightThemeStyle,
-    mode: ThemeMode,
-) -> HighlightThemeStyle {
-    let mut style = base.unwrap_or(fallback);
-    if mode.is_dark() {
-        style.editor_background = hsla_hex("#20252f");
-        style.editor_active_line = hsla_hex("#2a3140");
-        style.editor_line_number = hsla_hex("#748094");
-        style.editor_active_line_number = hsla_hex("#ced7e6");
-    } else {
-        style.editor_background = hsla_hex("#f4f6fa");
-        style.editor_active_line = hsla_hex("#e7edf7");
-        style.editor_line_number = hsla_hex("#8d97a8");
-        style.editor_active_line_number = hsla_hex("#4a5363");
-    }
-    style
-}
-
-fn apply_soft_light_theme(cx: &mut App) {
-    let mut light_theme = (*Theme::global(cx).light_theme).clone();
-    let fallback_highlight = Theme::global(cx).highlight_theme.style.clone();
-
-    // Reduce eye strain in light mode by shifting from pure white to a soft off-white palette.
-    light_theme.colors.accent = Some("#4f6ddf".into());
-    light_theme.colors.accent_foreground = Some("#f8fbff".into());
-    light_theme.colors.background = Some("#f5f6f8".into());
-    light_theme.colors.list = Some("#f5f6f8".into());
-    light_theme.colors.list_active = Some("#4f6ddf33".into());
-    light_theme.colors.list_active_border = Some("#4f6ddf".into());
-    light_theme.colors.list_hover = Some("#dce3ee".into());
-    light_theme.colors.popover = Some("#f5f6f8".into());
-    light_theme.colors.table = Some("#f5f6f8".into());
-    light_theme.colors.sidebar = Some("#f5f6f8".into());
-    light_theme.colors.title_bar = Some("#f5f6f8".into());
-    light_theme.colors.list_even = Some("#f1f2f5".into());
-    light_theme.colors.list_head = Some("#eef0f4".into());
-    light_theme.colors.secondary = Some("#eceef3".into());
-    light_theme.colors.secondary_hover = Some("#dde4ef".into());
-    light_theme.colors.secondary_active = Some("#d3dbe8".into());
-    light_theme.colors.muted = Some("#e9ecf2".into());
-    light_theme.colors.muted_foreground = Some("#616977".into());
-    light_theme.colors.border = Some("#d2d8e3".into());
-    light_theme.font_family = Some(preferred_ui_font_family().into());
-    light_theme.font_size = Some(14.0);
-    light_theme.mono_font_family = Some(preferred_mono_font_family().into());
-    light_theme.mono_font_size = Some(12.0);
-    light_theme.radius = Some(8);
-    light_theme.radius_lg = Some(10);
-    light_theme.shadow = Some(false);
-    light_theme.highlight = Some(editor_highlight_style(
-        light_theme.highlight.clone(),
-        fallback_highlight,
-        ThemeMode::Light,
-    ));
-
-    Theme::global_mut(cx).light_theme = Rc::new(light_theme);
-
-    if !Theme::global(cx).mode.is_dark() {
-        Theme::change(ThemeMode::Light, None, cx);
-    }
-}
-
-fn apply_soft_dark_theme(cx: &mut App) {
-    let mut dark_theme = (*Theme::global(cx).dark_theme).clone();
-    let fallback_highlight = Theme::global(cx).highlight_theme.style.clone();
-
-    // Match a softer charcoal palette so colored diff cues stand out without eye strain.
-    dark_theme.colors.accent = Some("#5f81eb".into());
-    dark_theme.colors.accent_foreground = Some("#f8fbff".into());
-    dark_theme.colors.background = Some("#1f2126".into());
-    dark_theme.colors.list = Some("#1f2126".into());
-    dark_theme.colors.list_active = Some("#5f81eb33".into());
-    dark_theme.colors.list_active_border = Some("#7d9eff".into());
-    dark_theme.colors.list_hover = Some("#343e4c".into());
-    dark_theme.colors.popover = Some("#242831".into());
-    dark_theme.colors.table = Some("#1f2126".into());
-    dark_theme.colors.sidebar = Some("#1b1e24".into());
-    dark_theme.colors.title_bar = Some("#1a1d22".into());
-    dark_theme.colors.list_even = Some("#21242b".into());
-    dark_theme.colors.list_head = Some("#292d36".into());
-    dark_theme.colors.secondary = Some("#2a2f38".into());
-    dark_theme.colors.secondary_hover = Some("#3b4554".into());
-    dark_theme.colors.secondary_active = Some("#465163".into());
-    dark_theme.colors.muted = Some("#272c35".into());
-    dark_theme.colors.muted_foreground = Some("#a3adbb".into());
-    dark_theme.colors.border = Some("#3d4554".into());
-    dark_theme.font_family = Some(preferred_ui_font_family().into());
-    dark_theme.font_size = Some(14.0);
-    dark_theme.mono_font_family = Some(preferred_mono_font_family().into());
-    dark_theme.mono_font_size = Some(12.0);
-    dark_theme.radius = Some(8);
-    dark_theme.radius_lg = Some(10);
-    dark_theme.shadow = Some(false);
-    dark_theme.highlight = Some(editor_highlight_style(
-        dark_theme.highlight.clone(),
-        fallback_highlight,
-        ThemeMode::Dark,
-    ));
-
-    Theme::global_mut(cx).dark_theme = Rc::new(dark_theme);
-
-    if Theme::global(cx).mode.is_dark() {
-        Theme::change(ThemeMode::Dark, None, cx);
     }
 }
 
@@ -711,8 +598,7 @@ pub fn run() -> Result<()> {
 
     app.run(move |cx| {
         gpui_component::init(cx);
-        apply_soft_light_theme(cx);
-        apply_soft_dark_theme(cx);
+        theme::install_hunk_themes(cx);
         cx.on_action(quit_app);
         bind_keyboard_shortcuts(cx, &keyboard_shortcuts);
         install_application_menus(cx);

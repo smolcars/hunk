@@ -13,41 +13,7 @@ impl DiffViewer {
         let is_dark = cx.theme().mode.is_dark();
         let path = path.to_string();
         let is_collapsed = self.collapsed_files.contains(path.as_str());
-
-        let (label, accent) = match status {
-            FileStatus::Added | FileStatus::Untracked => ("NEW FILE", cx.theme().success),
-            FileStatus::Deleted => ("DELETED FILE", cx.theme().danger),
-            FileStatus::Renamed => ("RENAMED", cx.theme().accent),
-            FileStatus::Modified => ("MODIFIED", cx.theme().warning),
-            FileStatus::TypeChange => ("TYPE CHANGED", cx.theme().warning),
-            FileStatus::Conflicted => ("CONFLICTED", cx.theme().danger),
-            FileStatus::Unknown => ("MODIFIED", cx.theme().muted_foreground),
-        };
-        let background = cx
-            .theme()
-            .background
-            .blend(accent.opacity(if is_dark { 0.34 } else { 0.16 }));
-        let row_background = if is_selected {
-            background.blend(
-                cx.theme()
-                    .primary
-                    .opacity(if is_dark { 0.28 } else { 0.16 }),
-            )
-        } else {
-            background
-        };
-        let border_color = accent.opacity(if is_dark { 0.78 } else { 0.52 });
-        let badge_background = accent.opacity(if is_dark { 0.50 } else { 0.27 });
-        let accent_strip = if is_dark {
-            accent.lighten(0.18)
-        } else {
-            accent.darken(0.06)
-        };
-        let arrow_color = if is_dark {
-            accent.lighten(0.34)
-        } else {
-            accent.darken(0.18)
-        };
+        let colors = hunk_file_status_banner(cx.theme(), status, is_dark, is_selected);
 
         h_flex()
             .id(("diff-file-header-row", stable_row_id))
@@ -78,8 +44,8 @@ impl DiffViewer {
             .px_3()
             .py_0p5()
             .border_1()
-            .border_color(border_color.opacity(if is_dark { 0.92 } else { 0.82 }))
-            .bg(row_background)
+            .border_color(colors.border.opacity(if is_dark { 0.92 } else { 0.82 }))
+            .bg(colors.row_background)
             .w_full()
             .child({
                 let view = view.clone();
@@ -97,7 +63,7 @@ impl DiffViewer {
                     )
                     .min_w(px(22.0))
                     .h(px(22.0))
-                    .text_color(arrow_color)
+                    .text_color(colors.arrow)
                     .on_click(move |_, _, cx| {
                         cx.stop_propagation();
                         view.update(cx, |this, cx| {
@@ -112,11 +78,11 @@ impl DiffViewer {
                     .text_xs()
                     .font_semibold()
                     .rounded_sm()
-                    .bg(badge_background)
+                    .bg(colors.badge_background)
                     .border_1()
-                    .border_color(accent.opacity(if is_dark { 0.88 } else { 0.44 }))
+                    .border_color(colors.badge_border)
                     .text_color(cx.theme().foreground)
-                    .child(label),
+                    .child(colors.label),
             )
             .child(
                 div()
@@ -136,7 +102,7 @@ impl DiffViewer {
                     .top_0()
                     .bottom_0()
                     .w(px(2.0))
-                    .bg(accent_strip),
+                    .bg(colors.accent_strip),
             )
             .into_any_element()
     }

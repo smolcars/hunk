@@ -3,11 +3,13 @@ fn ai_group_row_style(
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> (Hsla, Hsla, Hsla, Hsla) {
-    let title = cx.theme().foreground.opacity(if is_dark { 0.78 } else { 0.74 });
-    let summary = cx.theme().muted_foreground;
-    let hover_background = cx.theme().muted.opacity(if is_dark { 0.14 } else { 0.18 });
-    let chevron = title;
-    (title, summary, hover_background, chevron)
+    let colors = hunk_disclosure_row(cx.theme(), is_dark);
+    (
+        colors.title,
+        colors.summary,
+        colors.hover_background,
+        colors.chevron,
+    )
 }
 
 fn render_ai_tool_item_row(
@@ -38,8 +40,9 @@ fn render_ai_tool_item_row(
     let expanded = has_details && this.ai_expanded_timeline_row_ids.contains(row_id);
     let show_toggle = has_details;
     let row_id_string = row_id.to_string();
-    let hover_bg_color = cx.theme().muted.opacity(if is_dark { 0.18 } else { 0.28 });
-    let chevron_color = cx.theme().muted_foreground;
+    let disclosure_colors = hunk_disclosure_row(cx.theme(), is_dark);
+    let hover_bg_color = disclosure_colors.hover_background;
+    let chevron_color = disclosure_colors.chevron;
 
     let header = h_flex()
         .w_full()
@@ -81,7 +84,7 @@ fn render_ai_tool_item_row(
                     .flex_1()
                     .min_w_0()
                     .text_xs()
-                    .text_color(cx.theme().muted_foreground)
+                    .text_color(disclosure_colors.summary)
                     .truncate()
                     .child(summary);
                 if summary_uses_mono {

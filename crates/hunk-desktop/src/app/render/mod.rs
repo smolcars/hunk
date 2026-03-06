@@ -2,6 +2,7 @@ use super::data::{
     DiffStreamRowKind, RepoTreeNodeKind, cached_runtime_fallback_segments, is_markdown_path,
 };
 use super::highlight::SyntaxTokenKind;
+use super::theme::*;
 use super::*;
 use gpui_component::Disableable as _;
 use gpui_component::Sizable as _;
