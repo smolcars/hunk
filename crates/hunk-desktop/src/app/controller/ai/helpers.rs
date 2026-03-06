@@ -1,5 +1,8 @@
 use std::collections::BTreeSet;
 
+use codex_app_server_protocol::CollaborationModeMask;
+use codex_protocol::config_types::ModeKind;
+
 fn sorted_threads(state: &hunk_codex::state::AiState) -> Vec<ThreadSummary> {
     let mut threads = state.threads.values().cloned().collect::<Vec<_>>();
     threads.sort_by(|left, right| {
@@ -23,6 +26,30 @@ fn workspace_include_hidden_models(state: &AppState, workspace_key: Option<&str>
         .and_then(|workspace| state.ai_workspace_include_hidden_models.get(workspace))
         .copied()
         .unwrap_or(true)
+}
+
+fn ai_collaboration_mode_matches_kind(mask: &CollaborationModeMask, kind: ModeKind) -> bool {
+    mask.mode == Some(kind) || mask.name.eq_ignore_ascii_case(kind.display_name())
+}
+
+fn ai_collaboration_mode_from_mask(
+    mask: &CollaborationModeMask,
+) -> Option<AiCollaborationModeSelection> {
+    if ai_collaboration_mode_matches_kind(mask, ModeKind::Default) {
+        Some(AiCollaborationModeSelection::Default)
+    } else if ai_collaboration_mode_matches_kind(mask, ModeKind::Plan) {
+        Some(AiCollaborationModeSelection::Plan)
+    } else {
+        None
+    }
+}
+
+fn ai_collaboration_mode_mask(
+    modes: &[CollaborationModeMask],
+    selection: AiCollaborationModeSelection,
+) -> Option<&CollaborationModeMask> {
+    modes.iter()
+        .find(|mask| ai_collaboration_mode_from_mask(mask) == Some(selection))
 }
 
 fn ai_composer_draft_key(
@@ -432,7 +459,7 @@ fn normalized_thread_session_state(
     let service_tier = normalized_ai_service_tier_selection(service_tier.unwrap_or_default());
     let is_empty = model.is_none()
         && effort.is_none()
-        && collaboration_mode.is_none()
+        && collaboration_mode == AiCollaborationModeSelection::Default
         && service_tier.is_none();
     if is_empty {
         return None;

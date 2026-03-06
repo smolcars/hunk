@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use hunk_domain::state::AiCollaborationModeSelection;
 use hunk_domain::state::AiServiceTierSelection;
 use hunk_domain::state::AiThreadSessionState;
 use hunk_codex::state::ThreadLifecycleStatus;
@@ -355,7 +356,6 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         self.ai_selected_model = model_id;
-        self.ai_selected_collaboration_mode = None;
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
         cx.notify();
@@ -367,7 +367,6 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         self.ai_selected_effort = effort;
-        self.ai_selected_collaboration_mode = None;
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
         cx.notify();
@@ -385,16 +384,14 @@ impl DiffViewer {
 
     pub(super) fn ai_select_collaboration_mode_action(
         &mut self,
-        mode_name: Option<String>,
+        selection: AiCollaborationModeSelection,
         cx: &mut Context<Self>,
     ) {
-        self.ai_selected_collaboration_mode = mode_name.clone();
-        if let Some(mode_name) = mode_name
-            && let Some(mask) = self
-                .ai_collaboration_modes
-                .iter()
-                .find(|mask| mask.name == mode_name)
-        {
+        self.ai_selected_collaboration_mode = selection;
+        if let Some(mask) = ai_collaboration_mode_mask(
+            &self.ai_collaboration_modes,
+            selection,
+        ) {
             if let Some(model) = mask.model.as_ref() {
                 self.ai_selected_model = Some(model.clone());
             }

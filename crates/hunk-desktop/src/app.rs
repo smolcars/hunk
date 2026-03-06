@@ -34,8 +34,9 @@ use hunk_domain::db::{
 use hunk_domain::diff::{DiffCell, DiffCellKind, DiffRowKind, SideBySideRow};
 use hunk_domain::markdown_preview::MarkdownPreviewBlock;
 use hunk_domain::state::{
-    AiServiceTierSelection, AppState, AppStateStore, CachedBookmarkRevisionState,
-    CachedChangedFileState, CachedLocalBranchState, CachedWorkflowState,
+    AiCollaborationModeSelection, AiServiceTierSelection, AppState, AppStateStore,
+    CachedBookmarkRevisionState, CachedChangedFileState, CachedLocalBranchState,
+    CachedWorkflowState,
 };
 use hunk_jj::jj::{
     BookmarkRevision, ChangedFile, FileStatus, LineStats, LocalBranch, RepoSnapshotFingerprint,
@@ -985,7 +986,7 @@ struct DiffViewer {
     ai_include_hidden_models: bool,
     ai_selected_model: Option<String>,
     ai_selected_effort: Option<String>,
-    ai_selected_collaboration_mode: Option<String>,
+    ai_selected_collaboration_mode: AiCollaborationModeSelection,
     ai_selected_service_tier: AiServiceTierSelection,
     ai_mad_max_mode: bool,
     ai_event_epoch: usize,

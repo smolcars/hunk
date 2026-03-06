@@ -418,18 +418,10 @@ impl DiffViewer {
                 .clone()
                 .filter(|effort| self.model_supports_effort(model_id.as_str(), effort.as_str()))
         });
-        let collaboration_mode = self
-            .ai_selected_collaboration_mode
-            .clone()
-            .filter(|mode_name| {
-                self.ai_collaboration_modes
-                    .iter()
-                    .any(|mask| mask.name == *mode_name)
-            });
         AiTurnSessionOverrides {
             model,
             effort,
-            collaboration_mode,
+            collaboration_mode: self.ai_selected_collaboration_mode,
             service_tier: self.ai_selected_service_tier,
         }
     }
@@ -491,11 +483,7 @@ impl DiffViewer {
             .unwrap_or_default();
 
         self.ai_selected_model = persisted.model.or_else(|| self.default_ai_model_id());
-        self.ai_selected_collaboration_mode = persisted.collaboration_mode.filter(|mode_name| {
-            self.ai_collaboration_modes
-                .iter()
-                .any(|mask| mask.name == *mode_name)
-        });
+        self.ai_selected_collaboration_mode = persisted.collaboration_mode;
         self.ai_selected_effort = persisted.effort;
         self.ai_selected_service_tier = persisted.service_tier.unwrap_or_default();
         self.normalize_ai_selected_effort();
@@ -509,7 +497,7 @@ impl DiffViewer {
         let session = AiThreadSessionState {
             model: self.ai_selected_model.clone(),
             effort: self.ai_selected_effort.clone(),
-            collaboration_mode: self.ai_selected_collaboration_mode.clone(),
+            collaboration_mode: self.ai_selected_collaboration_mode,
             service_tier: normalized_ai_service_tier_selection(self.ai_selected_service_tier),
         };
 

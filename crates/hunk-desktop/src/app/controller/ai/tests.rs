@@ -47,6 +47,7 @@ mod ai_tests {
     use hunk_codex::state::ItemStatus;
     use hunk_codex::state::ThreadLifecycleStatus;
     use hunk_codex::state::ThreadSummary;
+    use hunk_domain::state::AiCollaborationModeSelection;
     use hunk_domain::state::AiServiceTierSelection;
     use hunk_domain::state::AiThreadSessionState;
     use hunk_domain::state::AppState;
@@ -1352,7 +1353,7 @@ mod ai_tests {
         let session = AiThreadSessionState {
             model: Some("gpt-5-codex".to_string()),
             effort: Some("high".to_string()),
-            collaboration_mode: Some("Plan".to_string()),
+            collaboration_mode: AiCollaborationModeSelection::Plan,
             service_tier: Some(AiServiceTierSelection::Fast),
         };
         assert_eq!(
@@ -1366,7 +1367,7 @@ mod ai_tests {
         let session = AiThreadSessionState {
             model: None,
             effort: None,
-            collaboration_mode: None,
+            collaboration_mode: AiCollaborationModeSelection::Default,
             service_tier: Some(AiServiceTierSelection::Standard),
         };
         assert_eq!(normalized_thread_session_state(session), None);
@@ -1377,7 +1378,7 @@ mod ai_tests {
         let session = AiThreadSessionState {
             model: Some("gpt-5-codex".to_string()),
             effort: None,
-            collaboration_mode: None,
+            collaboration_mode: AiCollaborationModeSelection::Default,
             service_tier: Some(AiServiceTierSelection::Standard),
         };
         assert_eq!(
@@ -1385,10 +1386,21 @@ mod ai_tests {
             Some(AiThreadSessionState {
                 model: Some("gpt-5-codex".to_string()),
                 effort: None,
-                collaboration_mode: None,
+                collaboration_mode: AiCollaborationModeSelection::Default,
                 service_tier: None,
             })
         );
+    }
+
+    #[test]
+    fn normalized_thread_session_state_drops_default_collaboration_mode() {
+        let session = AiThreadSessionState {
+            model: None,
+            effort: None,
+            collaboration_mode: AiCollaborationModeSelection::Default,
+            service_tier: None,
+        };
+        assert_eq!(normalized_thread_session_state(session), None);
     }
 
     #[test]

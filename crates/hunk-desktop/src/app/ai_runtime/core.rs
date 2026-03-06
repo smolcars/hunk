@@ -47,6 +47,7 @@ use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::Settings;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::openai_models::ReasoningEffort;
+use hunk_domain::state::AiCollaborationModeSelection;
 use hunk_domain::state::AiServiceTierSelection;
 use hunk_codex::api::InitializeOptions;
 use hunk_codex::errors::CodexIntegrationError;
@@ -140,7 +141,7 @@ pub struct AiPendingUserInputRequest {
 pub struct AiTurnSessionOverrides {
     pub model: Option<String>,
     pub effort: Option<String>,
-    pub collaboration_mode: Option<String>,
+    pub collaboration_mode: AiCollaborationModeSelection,
     pub service_tier: AiServiceTierSelection,
 }
 
@@ -770,21 +771,28 @@ impl AiWorkerRuntime {
             .as_deref()
             .and_then(parse_reasoning_effort);
 
-        let Some(mode_name) = session_overrides.collaboration_mode.as_ref() else {
-            return;
+        let mode_kind = match session_overrides.collaboration_mode {
+            AiCollaborationModeSelection::Default => ModeKind::Default,
+            AiCollaborationModeSelection::Plan => ModeKind::Plan,
         };
-        let Some(mode_mask) = self
-            .collaboration_modes
-            .iter()
-            .find(|mask| &mask.name == mode_name)
-        else {
-            return;
-        };
+        let mode_mask =
+            self.collaboration_modes
+                .iter()
+                .find(|mask| match session_overrides.collaboration_mode {
+                    AiCollaborationModeSelection::Default => {
+                        mask.mode == Some(ModeKind::Default)
+                            || mask.name.eq_ignore_ascii_case("Default")
+                    }
+                    AiCollaborationModeSelection::Plan => {
+                        mask.mode == Some(ModeKind::Plan)
+                            || mask.name.eq_ignore_ascii_case("Plan")
+                    }
+                });
 
         let model = session_overrides
             .model
             .clone()
-            .or_else(|| mode_mask.model.clone())
+            .or_else(|| mode_mask.and_then(|mask| mask.model.clone()))
             .or_else(|| self.default_model_id());
         let Some(model) = model else {
             return;
@@ -794,10 +802,10 @@ impl AiWorkerRuntime {
             .effort
             .as_deref()
             .and_then(parse_reasoning_effort)
-            .or_else(|| mode_mask.reasoning_effort.unwrap_or(None));
+            .or_else(|| mode_mask.and_then(|mask| mask.reasoning_effort.unwrap_or(None)));
 
         let collaboration_mode = CollaborationMode {
-            mode: mode_mask.mode.unwrap_or(ModeKind::Default),
+            mode: mode_kind,
             settings: Settings {
                 model,
                 reasoning_effort: effort,

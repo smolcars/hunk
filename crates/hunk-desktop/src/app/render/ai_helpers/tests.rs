@@ -5,6 +5,7 @@ mod ai_helper_tests {
     use super::ai_chat_markdown_text;
     use super::ai_command_execution_display_details;
     use super::ai_composer_status_tone;
+    use super::ai_collaboration_picker_label;
     use super::ai_tool_compact_summary;
     use super::ai_thread_status_text;
     use super::ai_tool_header_title;
@@ -18,6 +19,7 @@ mod ai_helper_tests {
     use hunk_codex::state::ItemStatus;
     use hunk_codex::state::ItemSummary;
     use hunk_codex::state::ThreadLifecycleStatus;
+    use hunk_domain::state::AiCollaborationModeSelection;
     use hunk_domain::markdown_preview::MarkdownPreviewBlock;
 
     fn rate_limit_window(
@@ -111,6 +113,22 @@ mod ai_helper_tests {
         assert_eq!(ai_item_display_label("userMessage"), "User");
         assert_eq!(ai_item_display_label("agentMessage"), "Agent");
         assert_eq!(ai_item_display_label("unknownKind"), "unknownKind");
+    }
+
+    #[test]
+    fn collaboration_picker_defaults_to_default_mode() {
+        assert_eq!(
+            ai_collaboration_picker_label(AiCollaborationModeSelection::Default),
+            "Default"
+        );
+    }
+
+    #[test]
+    fn collaboration_picker_uses_plan_label() {
+        assert_eq!(
+            ai_collaboration_picker_label(AiCollaborationModeSelection::Plan),
+            "Plan"
+        );
     }
 
     #[test]

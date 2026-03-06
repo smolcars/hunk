@@ -17,12 +17,29 @@ pub enum AiServiceTierSelection {
     Flex,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum AiCollaborationModeSelection {
+    #[default]
+    Default,
+    Plan,
+}
+
+impl AiCollaborationModeSelection {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Plan => "Plan",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiThreadSessionState {
     pub model: Option<String>,
     pub effort: Option<String>,
-    pub collaboration_mode: Option<String>,
+    pub collaboration_mode: AiCollaborationModeSelection,
     pub service_tier: Option<AiServiceTierSelection>,
 }
 
