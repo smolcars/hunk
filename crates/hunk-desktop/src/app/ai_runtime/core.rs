@@ -81,6 +81,7 @@ static NEXT_LOOPBACK_PORT_OFFSET: AtomicU16 = AtomicU16::new(0);
 pub enum AiConnectionState {
     Disconnected,
     Connecting,
+    Reconnecting,
     Ready,
     Failed,
 }
@@ -165,12 +166,13 @@ pub struct AiSnapshot {
 pub enum AiWorkerEvent {
     Snapshot(Box<AiSnapshot>),
     BootstrapCompleted,
+    Reconnecting(String),
     Status(String),
     Error(String),
     Fatal(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AiWorkerCommand {
     RefreshThreads,
     RefreshAccount,
@@ -293,65 +295,6 @@ struct PendingUserInput {
     request_id: RequestId,
     request: AiPendingUserInputRequest,
     sequence: u64,
-}
-
-fn run_ai_worker(
-    config: AiWorkerStartConfig,
-    command_rx: Receiver<AiWorkerCommand>,
-    event_tx: &Sender<AiWorkerEvent>,
-) -> Result<(), CodexIntegrationError> {
-    let mut runtime = AiWorkerRuntime::bootstrap(config)?;
-
-    let _ = event_tx.send(AiWorkerEvent::Status(
-        "Codex App Server connected over WebSocket".to_string(),
-    ));
-    runtime.emit_snapshot(event_tx);
-    runtime.refresh_thread_list()?;
-    runtime.emit_snapshot(event_tx);
-    if let Err(error) = runtime.refresh_account_state() {
-        let _ = event_tx.send(AiWorkerEvent::Status(format!(
-            "Unable to read account state: {error}"
-        )));
-    }
-    runtime.emit_snapshot(event_tx);
-    if let Err(error) = runtime.refresh_account_rate_limits() {
-        let _ = event_tx.send(AiWorkerEvent::Status(format!(
-            "Unable to read account rate limits: {error}"
-        )));
-    }
-    runtime.emit_snapshot(event_tx);
-    if let Err(error) = runtime.refresh_session_metadata() {
-        let _ = event_tx.send(AiWorkerEvent::Status(format!(
-            "Unable to read model/session metadata: {error}"
-        )));
-    }
-    runtime.emit_snapshot(event_tx);
-    if let Err(error) = runtime.hydrate_initial_timeline() {
-        let _ = event_tx.send(AiWorkerEvent::Status(format!(
-            "Unable to hydrate initial thread timeline: {error}"
-        )));
-    }
-    runtime.emit_snapshot(event_tx);
-    let _ = event_tx.send(AiWorkerEvent::BootstrapCompleted);
-    runtime.emit_snapshot(event_tx);
-
-    loop {
-        match command_rx.recv_timeout(COMMAND_POLL_INTERVAL) {
-            Ok(AiWorkerCommand::Shutdown) => break,
-            Ok(command) => {
-                if let Err(error) = runtime.handle_command(command, event_tx) {
-                    let _ = event_tx.send(AiWorkerEvent::Error(error.to_string()));
-                }
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                runtime.poll_notifications(event_tx)?;
-            }
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
-    }
-
-    let _ = runtime.host.stop();
-    Ok(())
 }
 
 impl AiWorkerRuntime {

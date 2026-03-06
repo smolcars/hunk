@@ -5,6 +5,7 @@ fn ai_connection_label(
     match state {
         AiConnectionState::Disconnected => ("Disconnected", cx.theme().muted_foreground),
         AiConnectionState::Connecting => ("Connecting", cx.theme().warning),
+        AiConnectionState::Reconnecting => ("Reconnecting", cx.theme().warning),
         AiConnectionState::Ready => ("Connected", cx.theme().success),
         AiConnectionState::Failed => ("Failed", cx.theme().danger),
     }

@@ -99,6 +99,12 @@ impl DiffViewer {
             AiWorkerEvent::BootstrapCompleted => {
                 self.ai_bootstrap_loading = false;
             }
+            AiWorkerEvent::Reconnecting(message) => {
+                self.ai_connection_state = AiConnectionState::Reconnecting;
+                self.ai_bootstrap_loading = false;
+                self.ai_error_message = None;
+                self.ai_status_message = Some(message);
+            }
             AiWorkerEvent::Status(message) => {
                 self.ai_status_message = Some(message);
             }

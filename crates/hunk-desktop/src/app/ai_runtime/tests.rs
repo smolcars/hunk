@@ -19,16 +19,20 @@ mod ai_tests {
     use hunk_domain::state::AiServiceTierSelection;
 
     use super::AiApprovalDecision;
+    use super::AiWorkerCommand;
     use super::AiTurnSessionOverrides;
     use super::apply_login_completed_state;
     use super::apply_thread_start_policy;
     use super::apply_thread_start_session_overrides;
     use super::apply_turn_start_policy;
+    use super::command_can_retry_after_reconnect;
+    use super::reconnect_backoff;
     use super::map_command_approval_decision;
     use super::map_file_change_approval_decision;
     use super::preferred_rate_limit_snapshot;
     use super::request_id_key;
     use super::selected_ai_service_tier;
+    use super::should_attempt_runtime_reconnect;
     use super::should_retry_stale_turn_after_steer_error;
     use super::thread_missing_item_turn_ids;
 
@@ -374,5 +378,58 @@ mod ai_tests {
             missing_turns.into_iter().collect::<Vec<_>>(),
             vec!["turn-shared".to_string()]
         );
+    }
+
+    #[test]
+    fn reconnect_policy_retries_only_safe_read_like_commands() {
+        assert!(command_can_retry_after_reconnect(
+            &AiWorkerCommand::RefreshThreads
+        ));
+        assert!(command_can_retry_after_reconnect(
+            &AiWorkerCommand::SelectThread {
+                thread_id: "thread-1".to_string(),
+            }
+        ));
+        assert!(!command_can_retry_after_reconnect(
+            &AiWorkerCommand::SendPrompt {
+                thread_id: "thread-1".to_string(),
+                prompt: Some("continue".to_string()),
+                local_image_paths: Vec::new(),
+                session_overrides: AiTurnSessionOverrides::default(),
+            }
+        ));
+        assert!(!command_can_retry_after_reconnect(
+            &AiWorkerCommand::ResolveApproval {
+                request_id: "request-1".to_string(),
+                decision: AiApprovalDecision::Accept,
+            }
+        ));
+    }
+
+    #[test]
+    fn reconnect_policy_only_treats_transport_errors_as_recoverable() {
+        assert!(should_attempt_runtime_reconnect(
+            &CodexIntegrationError::WebSocketTransport("socket closed".to_string())
+        ));
+        assert!(should_attempt_runtime_reconnect(
+            &CodexIntegrationError::HostProcessIo(std::io::Error::new(
+                std::io::ErrorKind::ConnectionReset,
+                "connection reset by peer",
+            ))
+        ));
+        assert!(!should_attempt_runtime_reconnect(
+            &CodexIntegrationError::JsonRpcServerError {
+                code: -32602,
+                message: "invalid params".to_string(),
+            }
+        ));
+    }
+
+    #[test]
+    fn reconnect_backoff_grows_and_caps() {
+        assert_eq!(reconnect_backoff(1), std::time::Duration::from_millis(250));
+        assert_eq!(reconnect_backoff(2), std::time::Duration::from_millis(500));
+        assert_eq!(reconnect_backoff(3), std::time::Duration::from_millis(1_000));
+        assert_eq!(reconnect_backoff(9), std::time::Duration::from_millis(64_000));
     }
 }
