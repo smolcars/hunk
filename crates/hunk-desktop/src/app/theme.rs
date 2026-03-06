@@ -129,6 +129,10 @@ pub(crate) fn hunk_disclosure_row(theme: &Theme, is_dark: bool) -> HunkDisclosur
     }
 }
 
+pub(crate) fn hunk_text_selection_background(theme: &Theme, is_dark: bool) -> Hsla {
+    hunk_opacity(theme.primary, is_dark, 0.26, 0.18)
+}
+
 pub(crate) fn hunk_file_status_banner(
     theme: &Theme,
     status: FileStatus,

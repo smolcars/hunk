@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
@@ -279,6 +280,53 @@ struct AiTimelineGroup {
     title: String,
     summary: Option<String>,
     child_row_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiTextSelection {
+    surface_id: String,
+    row_id: String,
+    full_text: String,
+    anchor: usize,
+    head: usize,
+    dragging: bool,
+}
+
+impl AiTextSelection {
+    fn new(surface_id: String, row_id: String, full_text: String, index: usize) -> Self {
+        let clamped_index = index.min(full_text.len());
+        Self {
+            surface_id,
+            row_id,
+            full_text,
+            anchor: clamped_index,
+            head: clamped_index,
+            dragging: true,
+        }
+    }
+
+    fn range(&self) -> Range<usize> {
+        if self.head >= self.anchor {
+            self.anchor..self.head
+        } else {
+            self.head..self.anchor
+        }
+    }
+
+    fn selected_text(&self) -> Option<String> {
+        let range = self.range();
+        (!range.is_empty()).then(|| self.full_text[range].to_string())
+    }
+
+    fn set_head(&mut self, index: usize) {
+        self.head = index.min(self.full_text.len());
+    }
+
+    fn select_all(&mut self) {
+        self.anchor = 0;
+        self.head = self.full_text.len();
+        self.dragging = false;
+    }
 }
 
 mod ai_rollout_fallback;
@@ -972,6 +1020,7 @@ struct DiffViewer {
     ai_in_progress_turn_started_at: BTreeMap<String, Instant>,
     ai_composer_activity_elapsed_second: Option<u64>,
     ai_expanded_timeline_row_ids: BTreeSet<String>,
+    ai_text_selection: Option<AiTextSelection>,
     ai_pending_approvals: Vec<AiPendingApproval>,
     ai_pending_user_inputs: Vec<AiPendingUserInputRequest>,
     ai_pending_user_input_answers: BTreeMap<String, BTreeMap<String, Vec<String>>>,

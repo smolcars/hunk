@@ -436,6 +436,7 @@ impl DiffViewer {
         self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = true;
         self.ai_expanded_timeline_row_ids.clear();
+        self.ai_text_selection = None;
         self.ai_selected_thread_id = Some(thread_id.clone());
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
@@ -488,6 +489,7 @@ impl DiffViewer {
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
             self.ai_selected_thread_id = None;
             self.ai_expanded_timeline_row_ids.clear();
+            self.ai_text_selection = None;
             self.ai_timeline_follow_output = true;
             self.ai_scroll_timeline_to_bottom = true;
         }
@@ -502,6 +504,8 @@ impl DiffViewer {
         let changed_row_id = self
             .ai_timeline_container_row_id(row_id.as_str())
             .unwrap_or_else(|| row_id.clone());
+        let changed_row_ids = [changed_row_id.clone()].into_iter().collect::<BTreeSet<_>>();
+        self.ai_clear_text_selection_for_rows(&changed_row_ids, cx);
         if self.ai_expanded_timeline_row_ids.contains(row_id.as_str()) {
             self.ai_expanded_timeline_row_ids.remove(row_id.as_str());
         } else {
@@ -509,7 +513,6 @@ impl DiffViewer {
         }
         if let Some(selected_thread_id) = self.ai_selected_thread_id.as_deref() {
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, selected_thread_id);
-            let changed_row_ids = [changed_row_id].into_iter().collect::<BTreeSet<_>>();
             invalidate_ai_timeline_row_measurements(self, visible_row_ids.as_slice(), &changed_row_ids);
         }
         cx.notify();
@@ -775,6 +778,7 @@ impl DiffViewer {
         self.ai_timeline_visible_turn_limit_by_thread
             .insert(thread_id.clone(), next_limit);
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
+            self.ai_text_selection = None;
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
             reset_ai_timeline_list_measurements(self, visible_row_ids.len());
         }
@@ -789,6 +793,7 @@ impl DiffViewer {
         self.ai_timeline_visible_turn_limit_by_thread
             .insert(thread_id.clone(), usize::MAX);
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
+            self.ai_text_selection = None;
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
             reset_ai_timeline_list_measurements(self, visible_row_ids.len());
         }

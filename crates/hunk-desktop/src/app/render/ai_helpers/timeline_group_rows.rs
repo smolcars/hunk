@@ -123,9 +123,23 @@ fn render_ai_tool_item_row(
 
     let expanded_body = command_details
         .as_ref()
-        .map(|details| render_ai_command_execution_details(details, content_text, is_dark, cx))
+        .map(|details| {
+            render_ai_command_execution_details(
+                this,
+                view.clone(),
+                row_id,
+                details,
+                content_text,
+                is_dark,
+                cx,
+            )
+        })
         .unwrap_or_else(|| {
             ai_tool_detail_section(
+                this,
+                view.clone(),
+                row_id,
+                ai_timeline_text_surface_id(row_id, "tool-details", 0),
                 "Details",
                 details_text.to_string(),
                 true,

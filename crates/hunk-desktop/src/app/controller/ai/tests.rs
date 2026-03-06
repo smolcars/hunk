@@ -37,6 +37,7 @@ mod ai_tests {
     use super::workspace_mad_max_mode;
     use crate::app::AiComposerDraft;
     use crate::app::AiComposerDraftKey;
+    use crate::app::AiTextSelection;
     use crate::app::AiTimelineRow;
     use crate::app::AiTimelineRowSource;
     use crate::app::ai_runtime::AiPendingUserInputQuestion;
@@ -1546,5 +1547,51 @@ mod ai_tests {
             ai_attachment_status_message(2, 0),
             Some("No files were supported images or were already attached.".to_string())
         );
+    }
+
+    #[test]
+    fn ai_text_selection_tracks_forward_ranges() {
+        let mut selection = AiTextSelection::new(
+            "surface".to_string(),
+            "row".to_string(),
+            "hello world".to_string(),
+            0,
+        );
+        selection.set_head(5);
+
+        assert_eq!(selection.range(), 0..5);
+        assert_eq!(selection.selected_text().as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn ai_text_selection_tracks_reverse_ranges() {
+        let mut selection = AiTextSelection::new(
+            "surface".to_string(),
+            "row".to_string(),
+            "hello world".to_string(),
+            8,
+        );
+        selection.set_head(2);
+
+        assert_eq!(selection.range(), 2..8);
+        assert_eq!(selection.selected_text().as_deref(), Some("llo wo"));
+    }
+
+    #[test]
+    fn ai_text_selection_select_all_covers_full_surface() {
+        let mut selection = AiTextSelection::new(
+            "surface".to_string(),
+            "row".to_string(),
+            "entire message".to_string(),
+            4,
+        );
+        selection.select_all();
+
+        assert_eq!(selection.range(), 0.."entire message".len());
+        assert_eq!(
+            selection.selected_text().as_deref(),
+            Some("entire message")
+        );
+        assert!(!selection.dragging);
     }
 }

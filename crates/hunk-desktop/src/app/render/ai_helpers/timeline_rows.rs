@@ -259,6 +259,10 @@ fn ai_tool_meta_chip(
 }
 
 fn ai_tool_detail_section(
+    this: &DiffViewer,
+    view: Entity<DiffViewer>,
+    row_id: &str,
+    surface_id: impl Into<String>,
     title: &str,
     content: String,
     mono: bool,
@@ -267,6 +271,7 @@ fn ai_tool_detail_section(
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
+    let surface_id = surface_id.into();
     let container = div()
         .w_full()
         .min_w_0()
@@ -283,14 +288,23 @@ fn ai_tool_detail_section(
         .min_w_0()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .whitespace_normal()
-        .child(content);
+        .whitespace_normal();
     if mono {
         text = text.font_family(cx.theme().mono_font_family.clone());
     }
     if scroll_x {
         text = text.whitespace_nowrap();
     }
+    text = text.child(ai_render_selectable_styled_text(
+        this,
+        view,
+        row_id,
+        surface_id,
+        content.clone(),
+        StyledText::new(content),
+        is_dark,
+        cx,
+    ));
 
     let container = container.child(text);
     let container = match (max_height, scroll_x) {
@@ -328,6 +342,9 @@ fn ai_tool_detail_section(
 }
 
 fn render_ai_command_execution_details(
+    this: &DiffViewer,
+    view: Entity<DiffViewer>,
+    row_id: &str,
     details: &AiCommandExecutionDisplayDetails,
     output: &str,
     is_dark: bool,
@@ -347,6 +364,10 @@ fn render_ai_command_execution_details(
     }
 
     let mut sections = vec![ai_tool_detail_section(
+        this,
+        view.clone(),
+        row_id,
+        ai_timeline_text_surface_id(row_id, "tool-command", 0),
         "Command",
         details.command.clone(),
         true,
@@ -357,6 +378,10 @@ fn render_ai_command_execution_details(
     )];
     if !details.action_summaries.is_empty() {
         sections.push(ai_tool_detail_section(
+            this,
+            view.clone(),
+            row_id,
+            ai_timeline_text_surface_id(row_id, "tool-actions", 0),
             "Actions",
             details.action_summaries.join("\n"),
             false,
@@ -368,6 +393,10 @@ fn render_ai_command_execution_details(
     }
     if !output.trim().is_empty() {
         sections.push(ai_tool_detail_section(
+            this,
+            view.clone(),
+            row_id,
+            ai_timeline_text_surface_id(row_id, "tool-output", 0),
             "Output",
             output.trim().to_string(),
             true,
@@ -399,6 +428,8 @@ fn render_ai_command_execution_details(
 
 fn ai_render_chat_markdown_message(
     this: &DiffViewer,
+    view: Entity<DiffViewer>,
+    row_id: &str,
     markdown: &str,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
@@ -415,19 +446,37 @@ fn ai_render_chat_markdown_message(
         .children(
             blocks
                 .iter()
-                .map(|block| ai_render_chat_markdown_block(this, block, is_dark, cx)),
+                .enumerate()
+                .map(|(block_ix, block)| {
+                    ai_render_chat_markdown_block(
+                        this,
+                        view.clone(),
+                        row_id,
+                        block_ix,
+                        block,
+                        is_dark,
+                        cx,
+                    )
+                }),
         )
         .into_any_element()
 }
 
 fn ai_render_chat_markdown_block(
     this: &DiffViewer,
+    view: Entity<DiffViewer>,
+    row_id: &str,
+    block_ix: usize,
     block: &MarkdownPreviewBlock,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     match block {
         MarkdownPreviewBlock::Heading { level, spans } => ai_render_chat_inline_spans(
+            this,
+            view,
+            row_id,
+            ai_timeline_text_surface_id(row_id, "message-heading", block_ix),
             spans,
             matches!(level, 1 | 2),
             true,
@@ -436,6 +485,10 @@ fn ai_render_chat_markdown_block(
             cx,
         ),
         MarkdownPreviewBlock::Paragraph(spans) => ai_render_chat_inline_spans(
+            this,
+            view,
+            row_id,
+            ai_timeline_text_surface_id(row_id, "message-paragraph", block_ix),
             spans,
             false,
             false,
@@ -456,6 +509,10 @@ fn ai_render_chat_markdown_block(
             )
             .child(
                 div().flex_1().min_w_0().child(ai_render_chat_inline_spans(
+                    this,
+                    view,
+                    row_id,
+                    ai_timeline_text_surface_id(row_id, "message-list", block_ix),
                     spans,
                     false,
                     false,
@@ -478,6 +535,10 @@ fn ai_render_chat_markdown_block(
             )
             .child(
                 div().flex_1().min_w_0().child(ai_render_chat_inline_spans(
+                    this,
+                    view,
+                    row_id,
+                    ai_timeline_text_surface_id(row_id, "message-list", block_ix),
                     spans,
                     false,
                     false,
@@ -500,6 +561,10 @@ fn ai_render_chat_markdown_block(
             )
             .child(
                 div().flex_1().min_w_0().child(ai_render_chat_inline_spans(
+                    this,
+                    view,
+                    row_id,
+                    ai_timeline_text_surface_id(row_id, "message-quote", block_ix),
                     spans,
                     false,
                     false,
@@ -523,28 +588,51 @@ fn ai_render_chat_markdown_block(
             } else {
                 lines
                     .iter()
-                    .map(|line_spans| {
+                    .enumerate()
+                    .map(|(line_ix, line_spans)| {
+                        let code_line_surface_id =
+                            ai_timeline_text_surface_id(row_id, "message-code", format!("{block_ix}-{line_ix}"));
+                        let mut highlights = Vec::new();
+                        let mut text = String::new();
+                        let mut cursor = 0;
+                        for span in line_spans {
+                            if span.text.is_empty() {
+                                continue;
+                            }
+                            let start = cursor;
+                            cursor += span.text.len();
+                            text.push_str(span.text.as_str());
+                            let token_color =
+                                this.markdown_code_token_color(cx.theme().foreground, span.token, cx);
+                            highlights.push((
+                                start..cursor,
+                                HighlightStyle {
+                                    color: Some(token_color),
+                                    ..HighlightStyle::default()
+                                },
+                            ));
+                        }
+                        let styled_text = if highlights.is_empty() {
+                            StyledText::new(text.clone())
+                        } else {
+                            StyledText::new(text.clone()).with_highlights(highlights)
+                        };
                         h_flex()
                             .w_full()
                             .items_start()
                             .gap_0()
                             .text_xs()
                             .font_family(cx.theme().mono_font_family.clone())
-                            .flex_wrap()
-                            .whitespace_normal()
-                            .children(line_spans.iter().map(|span| {
-                                let token_color = this.markdown_code_token_color(
-                                    cx.theme().foreground,
-                                    span.token,
-                                    cx,
-                                );
-                                div()
-                                    .flex_none()
-                                    .whitespace_nowrap()
-                                    .text_color(token_color)
-                                    .child(span.text.clone())
-                                    .into_any_element()
-                            }))
+                            .child(ai_render_selectable_styled_text(
+                                this,
+                                view.clone(),
+                                row_id,
+                                code_line_surface_id,
+                                text,
+                                styled_text,
+                                is_dark,
+                                cx,
+                            ))
                             .into_any_element()
                     })
                     .collect::<Vec<_>>()
@@ -659,6 +747,10 @@ fn ai_chat_markdown_text(spans: &[MarkdownInlineSpan]) -> String {
 }
 
 fn ai_render_chat_inline_spans(
+    this: &DiffViewer,
+    view: Entity<DiffViewer>,
+    row_id: &str,
+    surface_id: impl Into<String>,
     spans: &[MarkdownInlineSpan],
     large: bool,
     emphasized: bool,
@@ -681,7 +773,16 @@ fn ai_render_chat_inline_spans(
         .min_w_0()
         .w_full()
         .text_color(base_color)
-        .child(styled_text);
+        .child(ai_render_selectable_styled_text(
+            this,
+            view,
+            row_id,
+            surface_id,
+            text.clone(),
+            styled_text,
+            is_dark,
+            cx,
+        ));
 
     if large {
         row = row.text_lg();
@@ -737,6 +838,11 @@ fn render_ai_chat_timeline_row_for_view(
                     } else {
                         text_content
                     };
+                    let message_hover_group =
+                        format!("ai-message-hover-{}", row.id.replace('\u{1f}', "--"));
+                    let copy_message_id =
+                        format!("ai-copy-message-{}", row.id.replace('\u{1f}', "--"));
+                    let copy_message_text = bubble_text.to_string();
 
                     let row_element = h_flex()
                         .w_full()
@@ -745,6 +851,7 @@ fn render_ai_chat_timeline_row_for_view(
                         .when(!is_user, |this| this.justify_start())
                         .child(
                             v_flex()
+                                .group(message_hover_group.clone())
                                 .w_full()
                                 .max_w(bubble_max_width)
                                 .min_w_0()
@@ -754,6 +861,7 @@ fn render_ai_chat_timeline_row_for_view(
                                         .w_full()
                                         .min_w_0()
                                         .items_center()
+                                        .justify_between()
                                         .gap_2()
                                         .child(
                                             div()
@@ -763,10 +871,46 @@ fn render_ai_chat_timeline_row_for_view(
                                                 .font_semibold()
                                                 .child(role_label),
                                         )
+                                        .when(!bubble_text.is_empty(), |header| {
+                                            let hover_group = message_hover_group.clone();
+                                            let view = view.clone();
+                                            let message = copy_message_text.clone();
+                                            header.child(
+                                                div()
+                                                    .flex_none()
+                                                    .invisible()
+                                                    .group_hover(hover_group, |this| this.visible())
+                                                    .child(
+                                                        Button::new(copy_message_id.clone())
+                                                            .ghost()
+                                                            .compact()
+                                                            .rounded(px(7.0))
+                                                            .icon(Icon::new(IconName::Copy).size(px(12.0)))
+                                                            .text_color(cx.theme().muted_foreground)
+                                                            .min_w(px(22.0))
+                                                            .h(px(20.0))
+                                                            .tooltip("Copy message")
+                                                            .on_click(move |_, window, cx| {
+                                                                view.update(cx, |this, cx| {
+                                                                    this.ai_copy_message_action(
+                                                                        message.clone(),
+                                                                        window,
+                                                                        cx,
+                                                                    );
+                                                                });
+                                                            }),
+                                                    ),
+                                            )
+                                        })
                                 )
                                 .when(!bubble_text.is_empty(), |container| {
                                     container.child(ai_render_chat_markdown_message(
-                                        this, bubble_text, is_dark, cx,
+                                        this,
+                                        view.clone(),
+                                        row.id.as_str(),
+                                        bubble_text,
+                                        is_dark,
+                                        cx,
                                     ))
                                 }),
                         );
@@ -895,8 +1039,12 @@ fn render_ai_chat_timeline_row_for_view(
                                         }),
                                 ),
                         )
-                        .when(!preview.is_empty(), |this| {
-                            this.child(ai_tool_detail_section(
+                        .when(!preview.is_empty(), |container| {
+                            container.child(ai_tool_detail_section(
+                                this,
+                                view.clone(),
+                                row.id.as_str(),
+                                ai_timeline_text_surface_id(row.id.as_str(), "diff-preview", 0),
                                 "Preview",
                                 preview.clone(),
                                 true,

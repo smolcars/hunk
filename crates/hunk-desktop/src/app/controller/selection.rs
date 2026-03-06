@@ -273,6 +273,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode == WorkspaceViewMode::Ai && self.ai_copy_selected_text(cx) {
+            return;
+        }
         let Some(selection_text) = self.selected_rows_as_text() else {
             return;
         };
@@ -285,6 +288,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode == WorkspaceViewMode::Ai && self.ai_select_all_text(cx) {
+            return;
+        }
         self.select_all_rows(cx);
     }
 

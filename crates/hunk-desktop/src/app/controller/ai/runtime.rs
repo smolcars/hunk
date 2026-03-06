@@ -232,6 +232,7 @@ impl DiffViewer {
             self.ai_timeline_follow_output = true;
             self.ai_scroll_timeline_to_bottom = true;
             self.ai_expanded_timeline_row_ids.clear();
+            self.ai_text_selection = None;
         }
         if let Some(selected_thread_id) = self.ai_selected_thread_id.as_deref()
             && previous_selected_thread.as_deref() == Some(selected_thread_id)
@@ -253,6 +254,7 @@ impl DiffViewer {
             .into_iter()
             .filter_map(|row_id| self.ai_timeline_container_row_id(row_id.as_str()))
             .collect::<BTreeSet<_>>();
+        self.ai_clear_text_selection_for_rows(&changed_row_ids, cx);
 
         let next_visible_row_ids = self
             .ai_selected_thread_id
