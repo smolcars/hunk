@@ -371,8 +371,13 @@ fn apply_soft_light_theme(cx: &mut App) {
     let fallback_highlight = Theme::global(cx).highlight_theme.style.clone();
 
     // Reduce eye strain in light mode by shifting from pure white to a soft off-white palette.
+    light_theme.colors.accent = Some("#4f6ddf".into());
+    light_theme.colors.accent_foreground = Some("#f8fbff".into());
     light_theme.colors.background = Some("#f5f6f8".into());
     light_theme.colors.list = Some("#f5f6f8".into());
+    light_theme.colors.list_active = Some("#4f6ddf33".into());
+    light_theme.colors.list_active_border = Some("#4f6ddf".into());
+    light_theme.colors.list_hover = Some("#dce3ee".into());
     light_theme.colors.popover = Some("#f5f6f8".into());
     light_theme.colors.table = Some("#f5f6f8".into());
     light_theme.colors.sidebar = Some("#f5f6f8".into());
@@ -380,8 +385,8 @@ fn apply_soft_light_theme(cx: &mut App) {
     light_theme.colors.list_even = Some("#f1f2f5".into());
     light_theme.colors.list_head = Some("#eef0f4".into());
     light_theme.colors.secondary = Some("#eceef3".into());
-    light_theme.colors.secondary_hover = Some("#e4e7ee".into());
-    light_theme.colors.secondary_active = Some("#dce1ea".into());
+    light_theme.colors.secondary_hover = Some("#dde4ef".into());
+    light_theme.colors.secondary_active = Some("#d3dbe8".into());
     light_theme.colors.muted = Some("#e9ecf2".into());
     light_theme.colors.muted_foreground = Some("#616977".into());
     light_theme.colors.border = Some("#d2d8e3".into());
@@ -410,8 +415,13 @@ fn apply_soft_dark_theme(cx: &mut App) {
     let fallback_highlight = Theme::global(cx).highlight_theme.style.clone();
 
     // Match a softer charcoal palette so colored diff cues stand out without eye strain.
+    dark_theme.colors.accent = Some("#5f81eb".into());
+    dark_theme.colors.accent_foreground = Some("#f8fbff".into());
     dark_theme.colors.background = Some("#1f2126".into());
     dark_theme.colors.list = Some("#1f2126".into());
+    dark_theme.colors.list_active = Some("#5f81eb33".into());
+    dark_theme.colors.list_active_border = Some("#7d9eff".into());
+    dark_theme.colors.list_hover = Some("#343e4c".into());
     dark_theme.colors.popover = Some("#242831".into());
     dark_theme.colors.table = Some("#1f2126".into());
     dark_theme.colors.sidebar = Some("#1b1e24".into());
@@ -419,8 +429,8 @@ fn apply_soft_dark_theme(cx: &mut App) {
     dark_theme.colors.list_even = Some("#21242b".into());
     dark_theme.colors.list_head = Some("#292d36".into());
     dark_theme.colors.secondary = Some("#2a2f38".into());
-    dark_theme.colors.secondary_hover = Some("#343b47".into());
-    dark_theme.colors.secondary_active = Some("#3b4452".into());
+    dark_theme.colors.secondary_hover = Some("#3b4554".into());
+    dark_theme.colors.secondary_active = Some("#465163".into());
     dark_theme.colors.muted = Some("#272c35".into());
     dark_theme.colors.muted_foreground = Some("#a3adbb".into());
     dark_theme.colors.border = Some("#3d4554".into());

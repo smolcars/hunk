@@ -319,12 +319,16 @@ fn ai_tool_detail_section(
     v_flex()
         .w_full()
         .min_w_0()
+        .items_stretch()
         .gap_1()
         .child(
             div()
+                .w_full()
+                .min_w_0()
                 .text_xs()
                 .font_semibold()
                 .text_color(cx.theme().muted_foreground)
+                .whitespace_nowrap()
                 .child(title.to_string()),
         )
         .child(container)
@@ -385,6 +389,7 @@ fn render_ai_command_execution_details(
     v_flex()
         .w_full()
         .min_w_0()
+        .items_stretch()
         .gap_1p5()
         .when(!chips.is_empty(), |this| {
             this.child(
@@ -752,23 +757,6 @@ fn render_ai_chat_timeline_row_for_view(
                                 .max_w(bubble_max_width)
                                 .min_w_0()
                                 .gap_1p5()
-                                .when(is_user, |this| {
-                                    this.px_3()
-                                        .py_2()
-                                        .overflow_hidden()
-                                        .rounded(px(12.0))
-                                        .border_1()
-                                        .border_color(cx.theme().accent.opacity(if is_dark {
-                                            0.72
-                                        } else {
-                                            0.48
-                                        }))
-                                        .bg(cx.theme().accent.opacity(if is_dark {
-                                            0.18
-                                        } else {
-                                            0.12
-                                        }))
-                                })
                                 .child(
                                     h_flex()
                                         .w_full()

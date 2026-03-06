@@ -63,28 +63,34 @@ fn render_ai_thread_list_loading_skeleton(
 ) -> AnyElement {
     v_flex()
         .w_full()
-        .gap_1()
+        .gap_0p5()
         .children((0..6).map(|_| {
             v_flex()
                 .w_full()
-                .gap_1()
-                .rounded_md()
-                .border_1()
-                .border_color(cx.theme().border)
-                .bg(cx.theme().background.blend(cx.theme().muted.opacity(if is_dark {
-                    0.14
-                } else {
-                    0.20
-                })))
-                .p_2()
+                .gap_0p5()
+                .px_2()
+                .py_1p5()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .child(ai_loading_skeleton_block(
+                            180.0,
+                            12.0,
+                            is_dark,
+                            cx,
+                        ))
+                        .child(ai_loading_skeleton_block(
+                            28.0,
+                            10.0,
+                            is_dark,
+                            cx,
+                        )),
+                )
                 .child(ai_loading_skeleton_block(
-                    180.0,
-                    12.0,
-                    is_dark,
-                    cx,
-                ))
-                .child(ai_loading_skeleton_block(
-                    128.0,
+                    140.0,
                     10.0,
                     is_dark,
                     cx,

@@ -437,19 +437,23 @@ impl DiffViewer {
                                         v_flex()
                                             .size_full()
                                             .min_h_0()
-                                            .border_r_1()
-                                            .border_color(cx.theme().border)
-                                            .bg(cx.theme().sidebar.opacity(if is_dark { 0.95 } else { 0.98 }))
+                                            .bg(cx.theme().sidebar)
                                             .child(
                                                 h_flex()
                                                     .w_full()
-                                                    .h_10()
                                                     .items_center()
                                                     .justify_between()
-                                                    .px_2()
-                                                    .border_b_1()
-                                                    .border_color(cx.theme().border)
-                                                    .child(div().text_sm().font_semibold().child("Threads"))
+                                                    .gap_2()
+                                                    .px_3()
+                                                    .pt_3()
+                                                    .pb_2()
+                                                    .child(
+                                                        div()
+                                                            .text_xs()
+                                                            .font_semibold()
+                                                            .text_color(cx.theme().muted_foreground)
+                                                            .child("Threads"),
+                                                    )
                                                     .child(
                                                         h_flex()
                                                             .items_center()
@@ -457,10 +461,16 @@ impl DiffViewer {
                                                             .child({
                                                                 let view = view.clone();
                                                                 Button::new("ai-thread-refresh")
+                                                                    .ghost()
                                                                     .compact()
-                                                                    .outline()
+                                                                    .rounded(px(999.0))
                                                                     .with_size(gpui_component::Size::Small)
                                                                     .label("Refresh")
+                                                                    .text_color(
+                                                                        cx.theme()
+                                                                            .muted_foreground
+                                                                            .opacity(if is_dark { 0.88 } else { 0.96 }),
+                                                                    )
                                                                     .on_click(move |_, _, cx| {
                                                                         view.update(cx, |this, cx| {
                                                                             this.ai_refresh_threads(cx);
@@ -472,8 +482,10 @@ impl DiffViewer {
                                                                 Button::new("ai-thread-new")
                                                                     .compact()
                                                                     .primary()
+                                                                    .rounded(px(999.0))
                                                                     .with_size(gpui_component::Size::Small)
                                                                     .label("New")
+                                                                    .min_w(px(52.0))
                                                                     .on_click(move |_, window, cx| {
                                                                         view.update(cx, |this, cx| {
                                                                             this.ai_create_thread_action(window, cx);
@@ -527,8 +539,9 @@ impl DiffViewer {
                                                             .child(
                                                                 v_flex()
                                                                     .w_full()
-                                                                    .gap_1()
-                                                                    .p_2()
+                                                                    .gap_0p5()
+                                                                    .px_2()
+                                                                    .pb_3()
                                                                     .when(threads_loading, |this| {
                                                                         this.child(render_ai_thread_list_loading_skeleton(
                                                                             is_dark,
@@ -537,21 +550,22 @@ impl DiffViewer {
                                                                     })
                                                                     .when(threads.is_empty() && !threads_loading, |this| {
                                                                         this.child(
-                                                                            div()
-                                                                                .rounded_md()
-                                                                                .border_1()
-                                                                                .border_color(cx.theme().border)
-                                                                                .bg(cx.theme().muted.opacity(if is_dark {
-                                                                                    0.22
-                                                                                } else {
-                                                                                    0.40
-                                                                                }))
-                                                                                .p_2()
+                                                                            v_flex()
+                                                                                .w_full()
+                                                                                .items_center()
+                                                                                .pt_8()
+                                                                                .px_3()
                                                                                 .child(
                                                                                     div()
                                                                                         .text_xs()
                                                                                         .text_color(
-                                                                                            cx.theme().muted_foreground,
+                                                                                            cx.theme()
+                                                                                                .muted_foreground
+                                                                                                .opacity(if is_dark {
+                                                                                                    0.86
+                                                                                                } else {
+                                                                                                    0.96
+                                                                                                }),
                                                                                         )
                                                                                         .child(
                                                                                             "No threads in this workspace yet.",
@@ -560,188 +574,16 @@ impl DiffViewer {
                                                                         )
                                                                     })
                                                                     .children(threads.into_iter().map(|thread| {
-                                                                        let thread_id = thread.id.clone();
-                                                                        let title = thread
-                                                                            .title
-                                                                            .clone()
-                                                                            .unwrap_or_else(|| thread.id.clone());
-                                                                        let selected = selected_thread_id
-                                                                            .as_deref()
-                                                                            == Some(thread.id.as_str());
-                                                                        let thread_border_color = if selected {
-                                                                            cx.theme().success.opacity(if is_dark {
-                                                                                0.98
-                                                                            } else {
-                                                                                0.90
-                                                                            })
-                                                                        } else {
-                                                                            cx.theme().border.opacity(if is_dark {
-                                                                                0.90
-                                                                            } else {
-                                                                                0.74
-                                                                            })
-                                                                        };
-                                                                        let thread_bg = if selected {
-                                                                            cx.theme().background.blend(
-                                                                                cx.theme().success.opacity(if is_dark {
-                                                                                    0.28
-                                                                                } else {
-                                                                                    0.20
-                                                                                }),
-                                                                            )
-                                                                        } else {
-                                                                            cx.theme().background.blend(
-                                                                                cx.theme().muted.opacity(if is_dark {
-                                                                                    0.16
-                                                                                } else {
-                                                                                    0.28
-                                                                                }),
-                                                                            )
-                                                                        };
-                                                                        let thread_hover_bg = if selected {
-                                                                            cx.theme().background.blend(
-                                                                                cx.theme().success.opacity(if is_dark {
-                                                                                    0.38
-                                                                                } else {
-                                                                                    0.30
-                                                                                }),
-                                                                            )
-                                                                        } else {
-                                                                            cx.theme().secondary_hover
-                                                                        };
-                                                                        let thread_title_color = if selected {
-                                                                            cx.theme().foreground
-                                                                        } else {
-                                                                            cx.theme().foreground.opacity(if is_dark {
-                                                                                0.94
-                                                                            } else {
-                                                                                0.90
-                                                                            })
-                                                                        };
-                                                                        let thread_id_color = if selected {
-                                                                            cx.theme().success
-                                                                        } else {
-                                                                            cx.theme().muted_foreground
-                                                                        };
-                                                                        let (status_label, status_color) =
-                                                                            ai_thread_status_label(
-                                                                                thread.status,
-                                                                                cx,
-                                                                            );
-                                                                        let select_view = view.clone();
-                                                                        let archive_view = view.clone();
-                                                                        let archive_thread_id = thread.id.clone();
-                                                                        let archive_button_id = format!(
-                                                                            "ai-thread-archive-{}",
-                                                                            archive_thread_id.replace('\u{1f}', "--"),
-                                                                        );
-
-                                                                        div()
-                                                                            .rounded_md()
-                                                                            .border_1()
-                                                                            .when(selected, |this| this.border_2())
-                                                                            .border_color(thread_border_color)
-                                                                            .bg(thread_bg)
-                                                                            .p_2()
-                                                                            .gap_1()
-                                                                            .hover(move |style| {
-                                                                                style.bg(thread_hover_bg).cursor_pointer()
-                                                                            })
-                                                                            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                                                                select_view.update(cx, |this, cx| {
-                                                                                    this.ai_select_thread(thread_id.clone(), window, cx);
-                                                                                });
-                                                                            })
-                                                                            .child(
-                                                                                h_flex()
-                                                                                    .w_full()
-                                                                                    .items_center()
-                                                                                    .justify_between()
-                                                                                    .gap_2()
-                                                                                    .child(
-                                                                                        h_flex()
-                                                                                            .min_w_0()
-                                                                                            .items_center()
-                                                                                            .gap_1()
-                                                                                            .child(
-                                                                                                div()
-                                                                                                    .flex_1()
-                                                                                                    .min_w_0()
-                                                                                                    .text_sm()
-                                                                                                    .font_medium()
-                                                                                                    .text_color(thread_title_color)
-                                                                                                    .truncate()
-                                                                                                    .child(title),
-                                                                                            ),
-                                                                                    )
-                                                                                    .child(
-                                                                                        h_flex()
-                                                                                            .items_center()
-                                                                                            .gap_1()
-                                                                                            .child(
-                                                                                                div()
-                                                                                                    .text_xs()
-                                                                                                    .font_semibold()
-                                                                                                    .text_color(status_color)
-                                                                                                    .child(status_label),
-                                                                                            ),
-                                                                                    )
-                                                                                    .child(
-                                                                                        div()
-                                                                                            .on_mouse_down(
-                                                                                                MouseButton::Left,
-                                                                                                |_, _, cx| {
-                                                                                                    cx.stop_propagation();
-                                                                                                },
-                                                                                            )
-                                                                                            .child({
-                                                                                                let view = archive_view.clone();
-                                                                                                Button::new(archive_button_id)
-                                                                                                    .compact()
-                                                                                                    .outline()
-                                                                                                    .with_size(gpui_component::Size::Small)
-                                                                                                    .icon(
-                                                                                                        Icon::new(IconName::Inbox)
-                                                                                                            .size(px(12.0)),
-                                                                                                    )
-                                                                                                    .tooltip("Archive thread")
-                                                                                                    .on_click(move |_, _, cx| {
-                                                                                                        view.update(cx, |this, cx| {
-                                                                                                            this.ai_archive_thread_action(
-                                                                                                                archive_thread_id.clone(),
-                                                                                                                cx,
-                                                                                                            );
-                                                                                                        });
-                                                                                                    })
-                                                                                            }),
-                                                                                    ),
-                                                                            )
-                                                                            .child(
-                                                                                div()
-                                                                                    .text_xs()
-                                                                                    .text_color(thread_id_color)
-                                                                                    .font_family(
-                                                                                        cx.theme().mono_font_family.clone(),
-                                                                                    )
-                                                                                    .truncate()
-                                                                                    .child(thread.id),
-                                                                            )
-                                                                            .into_any_element()
+                                                                        render_ai_thread_sidebar_row(
+                                                                            thread,
+                                                                            selected_thread_id.as_deref(),
+                                                                            view.clone(),
+                                                                            is_dark,
+                                                                            cx,
+                                                                        )
                                                                     })),
                                                             ),
                                                     )
-                                                    .child(
-                                                        div()
-                                                            .absolute()
-                                                            .top_0()
-                                                            .right_0()
-                                                            .bottom_0()
-                                                            .w(px(16.0))
-                                                            .child(
-                                                                Scrollbar::vertical(&self.ai_thread_list_scroll_handle)
-                                                                    .scrollbar_show(ScrollbarShow::Always),
-                                                            ),
-                                                    ),
                                             ),
                                     ),
                             )

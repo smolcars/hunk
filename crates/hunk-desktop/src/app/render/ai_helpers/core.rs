@@ -34,6 +34,179 @@ fn ai_thread_status_text(status: ThreadLifecycleStatus) -> &'static str {
     }
 }
 
+fn ai_thread_activity_label(unix_time: i64) -> Option<String> {
+    if unix_time <= 0 {
+        return None;
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(unix_time);
+    let elapsed = now.saturating_sub(unix_time).max(0);
+
+    Some(if elapsed < 60 {
+        "now".to_string()
+    } else if elapsed < 60 * 60 {
+        format!("{}m", elapsed / 60)
+    } else if elapsed < 60 * 60 * 24 {
+        format!("{}h", elapsed / (60 * 60))
+    } else {
+        format!("{}d", elapsed / (60 * 60 * 24))
+    })
+}
+
+fn render_ai_thread_sidebar_row(
+    thread: hunk_codex::state::ThreadSummary,
+    selected_thread_id: Option<&str>,
+    view: Entity<DiffViewer>,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let thread_id = thread.id.clone();
+    let title = thread
+        .title
+        .clone()
+        .unwrap_or_else(|| thread.id.clone());
+    let selected = selected_thread_id == Some(thread.id.as_str());
+    let row_background = if selected {
+        cx.theme().secondary_active
+    } else {
+        cx.theme().background.opacity(0.0)
+    };
+    let row_hover_background = cx.theme().secondary_hover;
+    let title_color = if selected {
+        cx.theme().foreground
+    } else {
+        cx.theme().foreground.opacity(if is_dark { 0.94 } else { 0.92 })
+    };
+    let metadata_color = if selected {
+        cx.theme().muted_foreground.opacity(if is_dark { 0.94 } else { 0.98 })
+    } else {
+        cx.theme().muted_foreground.opacity(if is_dark { 0.82 } else { 0.92 })
+    };
+    let time_color = if selected {
+        cx.theme().foreground.opacity(if is_dark { 0.56 } else { 0.66 })
+    } else {
+        cx.theme().muted_foreground.opacity(if is_dark { 0.72 } else { 0.82 })
+    };
+    let (status_label, status_color) = ai_thread_status_label(thread.status, cx);
+    let status_color = match thread.status {
+        ThreadLifecycleStatus::Active => status_color.opacity(if is_dark { 0.82 } else { 0.72 }),
+        ThreadLifecycleStatus::Archived => status_color.opacity(if is_dark { 0.88 } else { 0.78 }),
+        _ => metadata_color,
+    };
+    let activity_label = ai_thread_activity_label(thread.updated_at);
+    let archive_button_color = if selected {
+        cx.theme().foreground.opacity(if is_dark { 0.70 } else { 0.78 })
+    } else {
+        cx.theme().muted_foreground.opacity(if is_dark { 0.60 } else { 0.72 })
+    };
+    let select_view = view.clone();
+    let archive_view = view.clone();
+    let archive_thread_id = thread.id.clone();
+    let archive_button_id = format!(
+        "ai-thread-archive-{}",
+        archive_thread_id.replace('\u{1f}', "--"),
+    );
+
+    div()
+        .rounded(px(10.0))
+        .bg(row_background)
+        .px_2()
+        .py_1p5()
+        .gap_0p5()
+        .hover(move |style| style.bg(row_hover_background).cursor_pointer())
+        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+            select_view.update(cx, |this, cx| {
+                this.ai_select_thread(thread_id.clone(), window, cx);
+            });
+        })
+        .child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .font_medium()
+                        .text_color(title_color)
+                        .truncate()
+                        .child(title),
+                )
+                .when_some(activity_label, |this, label| {
+                    this.child(
+                        div()
+                            .flex_none()
+                            .text_xs()
+                            .font_medium()
+                            .text_color(time_color)
+                            .child(label),
+                    )
+                }),
+        )
+        .child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_xs()
+                        .text_color(metadata_color)
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .truncate()
+                        .child(thread.id),
+                )
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_xs()
+                                .text_color(status_color)
+                                .child(status_label),
+                        )
+                        .child(
+                            div()
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                    cx.stop_propagation();
+                                })
+                                .child({
+                                    let view = archive_view.clone();
+                                    Button::new(archive_button_id)
+                                        .ghost()
+                                        .compact()
+                                        .rounded(px(7.0))
+                                        .icon(Icon::new(IconName::Inbox).size(px(12.0)))
+                                        .text_color(archive_button_color)
+                                        .min_w(px(22.0))
+                                        .h(px(20.0))
+                                        .tooltip("Archive thread")
+                                        .on_click(move |_, _, cx| {
+                                            view.update(cx, |this, cx| {
+                                                this.ai_archive_thread_action(
+                                                    archive_thread_id.clone(),
+                                                    cx,
+                                                );
+                                            });
+                                        })
+                                }),
+                        ),
+                ),
+        )
+        .into_any_element()
+}
+
 fn ai_item_status_label(status: ItemStatus) -> &'static str {
     match status {
         ItemStatus::Started => "started",

@@ -132,6 +132,9 @@ fn group_ai_timeline_rows_for_thread(
         let Some(row) = rows_by_id.get(row_id.as_str()) else {
             continue;
         };
+        if !ai_timeline_row_is_renderable_for_layout(state, row) {
+            continue;
+        }
         let candidate = ai_timeline_group_summary_for_row(state, row);
         let can_extend_pending = pending_group
             .as_ref()
@@ -297,7 +300,7 @@ fn ai_exploration_group_summary_from_action_summaries(
 fn ai_exploration_group_summary_for_shell_command(
     command: &str,
 ) -> Option<AiExplorationGroupSummary> {
-    let normalized = command.trim().to_ascii_lowercase();
+    let normalized = ai_timeline_grouping_shell_command(command).to_ascii_lowercase();
     if normalized.is_empty() {
         return None;
     }
@@ -316,6 +319,8 @@ fn ai_exploration_group_summary_for_shell_command(
         summary.searches = 1;
     } else if normalized.starts_with("cat ")
         || normalized.contains(" cat ")
+        || normalized.starts_with("wc ")
+        || normalized.contains(" wc ")
         || normalized.contains("sed -n")
         || normalized.contains("nl -ba")
         || normalized.starts_with("head ")
@@ -329,6 +334,52 @@ fn ai_exploration_group_summary_for_shell_command(
     }
 
     (summary.total() > 0).then_some(summary)
+}
+
+fn ai_timeline_grouping_shell_command(command: &str) -> &str {
+    const SHELL_WRAPPER_PREFIXES: &[&str] = &[
+        "/usr/bin/env zsh -lc ",
+        "env zsh -lc ",
+        "/bin/zsh -lc ",
+        "zsh -lc ",
+        "/usr/bin/env bash -lc ",
+        "env bash -lc ",
+        "/bin/bash -lc ",
+        "bash -lc ",
+        "/usr/bin/env sh -lc ",
+        "env sh -lc ",
+        "/bin/sh -lc ",
+        "sh -lc ",
+        "/usr/bin/env bash -c ",
+        "env bash -c ",
+        "/bin/bash -c ",
+        "bash -c ",
+        "/usr/bin/env sh -c ",
+        "env sh -c ",
+        "/bin/sh -c ",
+        "sh -c ",
+    ];
+
+    let trimmed = command.trim();
+    let stripped = SHELL_WRAPPER_PREFIXES
+        .iter()
+        .find_map(|prefix| trimmed.strip_prefix(prefix))
+        .unwrap_or(trimmed)
+        .trim();
+    ai_strip_matching_outer_quotes(stripped)
+}
+
+fn ai_strip_matching_outer_quotes(value: &str) -> &str {
+    let trimmed = value.trim();
+    if trimmed.len() >= 2 {
+        let bytes = trimmed.as_bytes();
+        let first = bytes[0];
+        let last = bytes[trimmed.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return &trimmed[1..trimmed.len() - 1];
+        }
+    }
+    trimmed
 }
 
 fn ai_exploration_tool_name_for_item(item: &hunk_codex::state::ItemSummary) -> Option<String> {
@@ -658,5 +709,236 @@ fn ai_count_noun(count: usize, singular: &str, plural: &str) -> String {
         format!("1 {singular}")
     } else {
         format!("{count} {plural}")
+    }
+}
+
+#[cfg(test)]
+mod timeline_group_tests {
+    use super::group_ai_timeline_rows_for_thread;
+    use crate::app::AiTimelineRow;
+    use crate::app::AiTimelineRowSource;
+    use hunk_codex::state::AiState;
+    use hunk_codex::state::ItemDisplayMetadata;
+    use hunk_codex::state::ItemStatus;
+    use std::collections::BTreeMap;
+
+    #[allow(clippy::too_many_arguments)]
+    fn timeline_tool_item(
+        item_id: &str,
+        thread_id: &str,
+        turn_id: &str,
+        kind: &str,
+        status: ItemStatus,
+        content: &str,
+        details_json: &str,
+        last_sequence: u64,
+    ) -> hunk_codex::state::ItemSummary {
+        hunk_codex::state::ItemSummary {
+            id: item_id.to_string(),
+            thread_id: thread_id.to_string(),
+            turn_id: turn_id.to_string(),
+            kind: kind.to_string(),
+            status,
+            content: content.to_string(),
+            display_metadata: Some(ItemDisplayMetadata {
+                summary: Some(kind.to_string()),
+                details_json: Some(details_json.to_string()),
+            }),
+            last_sequence,
+        }
+    }
+
+    fn timeline_item_row(
+        row_id: &str,
+        thread_id: &str,
+        turn_id: &str,
+        last_sequence: u64,
+        item_key: &str,
+    ) -> AiTimelineRow {
+        AiTimelineRow {
+            id: row_id.to_string(),
+            thread_id: thread_id.to_string(),
+            turn_id: turn_id.to_string(),
+            last_sequence,
+            source: AiTimelineRowSource::Item {
+                item_key: item_key.to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn timeline_grouping_ignores_hidden_reasoning_boundaries() {
+        let thread_id = "thread-1";
+        let turn_id = "turn-1";
+        let first_item_key = hunk_codex::state::item_storage_key(thread_id, turn_id, "item-1");
+        let hidden_item_key = hunk_codex::state::item_storage_key(thread_id, turn_id, "item-2");
+        let second_item_key = hunk_codex::state::item_storage_key(thread_id, turn_id, "item-3");
+        let first_row_id = format!("item:{first_item_key}");
+        let hidden_row_id = format!("item:{hidden_item_key}");
+        let second_row_id = format!("item:{second_item_key}");
+
+        let mut state = AiState::default();
+        state.items.insert(
+            first_item_key.clone(),
+            timeline_tool_item(
+                "item-1",
+                thread_id,
+                turn_id,
+                "commandExecution",
+                ItemStatus::Completed,
+                "",
+                r#"{
+                    "kind": "commandExecution",
+                    "command": "cargo check --workspace",
+                    "cwd": "/repo",
+                    "status": "completed",
+                    "actionSummaries": ["Run cargo check --workspace"]
+                }"#,
+                1,
+            ),
+        );
+        state.items.insert(
+            hidden_item_key.clone(),
+            hunk_codex::state::ItemSummary {
+                id: "item-2".to_string(),
+                thread_id: thread_id.to_string(),
+                turn_id: turn_id.to_string(),
+                kind: "reasoning".to_string(),
+                status: ItemStatus::Completed,
+                content: String::new(),
+                display_metadata: None,
+                last_sequence: 2,
+            },
+        );
+        state.items.insert(
+            second_item_key.clone(),
+            timeline_tool_item(
+                "item-3",
+                thread_id,
+                turn_id,
+                "commandExecution",
+                ItemStatus::Completed,
+                "",
+                r#"{
+                    "kind": "commandExecution",
+                    "command": "cargo clippy --workspace --all-targets -- -D warnings",
+                    "cwd": "/repo",
+                    "status": "completed",
+                    "actionSummaries": ["Run cargo clippy --workspace --all-targets -- -D warnings"]
+                }"#,
+                3,
+            ),
+        );
+
+        let row_ids = vec![
+            first_row_id.clone(),
+            hidden_row_id.clone(),
+            second_row_id.clone(),
+        ];
+        let rows_by_id = BTreeMap::from([
+            (
+                first_row_id.clone(),
+                timeline_item_row(first_row_id.as_str(), thread_id, turn_id, 1, first_item_key.as_str()),
+            ),
+            (
+                hidden_row_id.clone(),
+                timeline_item_row(hidden_row_id.as_str(), thread_id, turn_id, 2, hidden_item_key.as_str()),
+            ),
+            (
+                second_row_id.clone(),
+                timeline_item_row(
+                    second_row_id.as_str(),
+                    thread_id,
+                    turn_id,
+                    3,
+                    second_item_key.as_str(),
+                ),
+            ),
+        ]);
+
+        let (grouped_row_ids, groups, _) =
+            group_ai_timeline_rows_for_thread(&state, row_ids.as_slice(), &rows_by_id);
+
+        assert_eq!(grouped_row_ids, vec![format!("group:{first_row_id}")]);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].kind, "command_batch");
+        assert_eq!(groups[0].title, "Ran 2 commands");
+    }
+
+    #[test]
+    fn timeline_grouping_recognizes_shell_wrapped_exploration_commands() {
+        let thread_id = "thread-1";
+        let turn_id = "turn-1";
+        let first_item_key = hunk_codex::state::item_storage_key(thread_id, turn_id, "item-1");
+        let second_item_key = hunk_codex::state::item_storage_key(thread_id, turn_id, "item-2");
+        let first_row_id = format!("item:{first_item_key}");
+        let second_row_id = format!("item:{second_item_key}");
+
+        let mut state = AiState::default();
+        state.items.insert(
+            first_item_key.clone(),
+            timeline_tool_item(
+                "item-1",
+                thread_id,
+                turn_id,
+                "commandExecution",
+                ItemStatus::Completed,
+                "",
+                r#"{
+                    "kind": "commandExecution",
+                    "command": "/bin/zsh -lc \"rg -n update_window crates/hunk-desktop/src/app.rs\"",
+                    "cwd": "/repo",
+                    "status": "completed",
+                    "actionSummaries": ["Run /bin/zsh -lc \\\"rg -n update_window crates/hunk-desktop/src/app.rs\\\""]
+                }"#,
+                1,
+            ),
+        );
+        state.items.insert(
+            second_item_key.clone(),
+            timeline_tool_item(
+                "item-2",
+                thread_id,
+                turn_id,
+                "commandExecution",
+                ItemStatus::Completed,
+                "",
+                r#"{
+                    "kind": "commandExecution",
+                    "command": "/bin/zsh -lc \"wc -l crates/hunk-desktop/src/app.rs\"",
+                    "cwd": "/repo",
+                    "status": "completed",
+                    "actionSummaries": ["Run /bin/zsh -lc \\\"wc -l crates/hunk-desktop/src/app.rs\\\""]
+                }"#,
+                2,
+            ),
+        );
+
+        let row_ids = vec![first_row_id.clone(), second_row_id.clone()];
+        let rows_by_id = BTreeMap::from([
+            (
+                first_row_id.clone(),
+                timeline_item_row(first_row_id.as_str(), thread_id, turn_id, 1, first_item_key.as_str()),
+            ),
+            (
+                second_row_id.clone(),
+                timeline_item_row(
+                    second_row_id.as_str(),
+                    thread_id,
+                    turn_id,
+                    2,
+                    second_item_key.as_str(),
+                ),
+            ),
+        ]);
+
+        let (grouped_row_ids, groups, _) =
+            group_ai_timeline_rows_for_thread(&state, row_ids.as_slice(), &rows_by_id);
+
+        assert_eq!(grouped_row_ids, vec![format!("group:{first_row_id}")]);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].kind, "exploration");
+        assert_eq!(groups[0].title, "Explored 1 file, 1 search");
+        assert_eq!(groups[0].summary.as_deref(), Some("1 read • 1 search"));
     }
 }
