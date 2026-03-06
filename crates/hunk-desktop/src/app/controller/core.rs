@@ -3,6 +3,7 @@ impl DiffViewer {
     const AUTO_REFRESH_QUICK_PROBE_MS: u64 = 3_000;
     const AUTO_REFRESH_BACKOFF_STEPS: u32 = 6;
     const REPO_WATCH_DEBOUNCE: Duration = Duration::from_millis(150);
+    const LINE_STATS_BACKGROUND_DEBOUNCE: Duration = Duration::from_millis(350);
 
     fn load_app_config() -> (Option<ConfigStore>, AppConfig) {
         let store = match ConfigStore::new() {
@@ -614,6 +615,8 @@ impl DiffViewer {
         let scope_label = scope.label();
         let path_count = scope.path_count();
         let scope_for_load = scope.clone();
+        let debounce = (request.priority == SnapshotRefreshPriority::Background)
+            .then_some(Self::LINE_STATS_BACKGROUND_DEBOUNCE);
         self.line_stats_loading = true;
         info!(
             "git workspace line stats refresh start: epoch={} snapshot_epoch={} force={} priority={} scope={} path_count={} cold_start={} root={}",
@@ -629,19 +632,24 @@ impl DiffViewer {
 
         self.line_stats_task = cx.spawn(async move |this, cx| {
             let started_at = Instant::now();
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    match &scope_for_load {
-                        LineStatsRefreshScope::Full => {
-                            load_repo_file_line_stats_without_refresh(&repo_root)
-                        }
-                        LineStatsRefreshScope::Paths(paths) => {
-                            load_repo_file_line_stats_for_paths_without_refresh(&repo_root, paths)
-                        }
+            if let Some(delay) = debounce {
+                cx.background_executor().timer(delay).await;
+            }
+
+            let (result_tx, result_rx) = oneshot::channel();
+            std::thread::spawn(move || {
+                let result = match &scope_for_load {
+                    LineStatsRefreshScope::Full => load_repo_file_line_stats_without_refresh(&repo_root),
+                    LineStatsRefreshScope::Paths(paths) => {
+                        load_repo_file_line_stats_for_paths_without_refresh(&repo_root, paths)
                     }
-                })
-                .await;
+                };
+                let _ = result_tx.send(result);
+            });
+            let result = match result_rx.await {
+                Ok(result) => result,
+                Err(_) => return,
+            };
 
             match &result {
                 Ok(file_line_stats) => {

@@ -1,6 +1,6 @@
 use anyhow::Context as _;
 use futures::StreamExt;
-use futures::channel::mpsc;
+use futures::channel::{mpsc, oneshot};
 use notify::Watcher;
 use tracing::{error, info, warn};
 

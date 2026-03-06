@@ -35,6 +35,7 @@ fn run_app() -> Result<()> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::DEBUG.into())
         .from_env_lossy()
+        .add_directive("jj_lib::lock::unix=warn".parse()?)
         .add_directive("html5ever=warn".parse()?)
         .add_directive("markup5ever=warn".parse()?);
 
