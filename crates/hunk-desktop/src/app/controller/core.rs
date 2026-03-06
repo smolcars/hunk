@@ -458,7 +458,7 @@ impl DiffViewer {
             auto_refresh_task: Task::ready(()),
             repo_watch_task: Task::ready(()),
             repo_watch_refresh_epoch: 0,
-            repo_watch_refresh_force: false,
+            repo_watch_pending_refresh: None,
             repo_watch_refresh_task: Task::ready(()),
             snapshot_epoch: 0,
             snapshot_task: Task::ready(()),
@@ -788,6 +788,13 @@ impl DiffViewer {
             return None;
         }
 
+        if request.priority == SnapshotRefreshPriority::Background
+            && matches!(request.behavior, SnapshotRefreshBehavior::ReadOnly)
+        {
+            self.pending_dirty_paths.clear();
+            return None;
+        }
+
         if request.priority == SnapshotRefreshPriority::Background {
             let pending_dirty_paths = std::mem::take(&mut self.pending_dirty_paths);
             if !pending_dirty_paths.is_empty() {
@@ -928,10 +935,11 @@ impl DiffViewer {
             .or_else(|| self.repo_root.clone())
             .unwrap_or_else(|| PathBuf::from("."));
         debug!(
-            "git workspace refresh start: epoch={} force={} priority={} cold_start={} root={}",
+            "git workspace refresh start: epoch={} force={} priority={} behavior={} cold_start={} root={}",
             epoch,
             request.force,
             request.priority.as_str(),
+            request.behavior.as_str(),
             cold_start,
             refresh_root.display()
         );
@@ -945,35 +953,71 @@ impl DiffViewer {
                     cx.background_executor()
                         .spawn(async move {
                             let load_once = || -> Result<SnapshotRefreshStageA> {
-                                if prefer_stale_first {
-                                    let (fingerprint, workflow) =
-                                        load_workflow_snapshot_with_fingerprint_without_refresh(
-                                            &source_dir,
-                                        )?;
-                                    return Ok(SnapshotRefreshStageA::Loaded {
-                                        fingerprint,
-                                        workflow: Box::new(workflow),
-                                        loaded_without_refresh: true,
-                                    });
-                                }
+                                match request.behavior {
+                                    SnapshotRefreshBehavior::ReadOnly => {
+                                        if prefer_stale_first {
+                                            let (fingerprint, workflow) =
+                                                load_workflow_snapshot_with_fingerprint_without_refresh(
+                                                    &source_dir,
+                                                )?;
+                                            return Ok(SnapshotRefreshStageA::Loaded {
+                                                fingerprint,
+                                                workflow: Box::new(workflow),
+                                                loaded_without_refresh: true,
+                                            });
+                                        }
 
-                                let (fingerprint, workflow) = load_workflow_snapshot_if_changed(
-                                    &source_dir,
-                                    previous_fingerprint.as_ref(),
-                                )?;
-                                match workflow {
-                                    Some(workflow) => Ok(SnapshotRefreshStageA::Loaded {
-                                        fingerprint,
-                                        workflow: Box::new(workflow),
-                                        loaded_without_refresh: false,
-                                    }),
-                                    None => Ok(SnapshotRefreshStageA::Unchanged(fingerprint)),
+                                        let (fingerprint, workflow) =
+                                            load_workflow_snapshot_if_changed_without_refresh(
+                                                &source_dir,
+                                                previous_fingerprint.as_ref(),
+                                            )?;
+                                        match workflow {
+                                            Some(workflow) => Ok(SnapshotRefreshStageA::Loaded {
+                                                fingerprint,
+                                                workflow: Box::new(workflow),
+                                                loaded_without_refresh: true,
+                                            }),
+                                            None => Ok(SnapshotRefreshStageA::Unchanged(fingerprint)),
+                                        }
+                                    }
+                                    SnapshotRefreshBehavior::RefreshWorkingCopy => {
+                                        if prefer_stale_first {
+                                            let (fingerprint, workflow) =
+                                                load_workflow_snapshot_with_fingerprint_without_refresh(
+                                                    &source_dir,
+                                                )?;
+                                            return Ok(SnapshotRefreshStageA::Loaded {
+                                                fingerprint,
+                                                workflow: Box::new(workflow),
+                                                loaded_without_refresh: true,
+                                            });
+                                        }
+
+                                        let (fingerprint, workflow) =
+                                            load_workflow_snapshot_if_changed(
+                                                &source_dir,
+                                                previous_fingerprint.as_ref(),
+                                            )?;
+                                        match workflow {
+                                            Some(workflow) => Ok(SnapshotRefreshStageA::Loaded {
+                                                fingerprint,
+                                                workflow: Box::new(workflow),
+                                                loaded_without_refresh: false,
+                                            }),
+                                            None => Ok(SnapshotRefreshStageA::Unchanged(fingerprint)),
+                                        }
+                                    }
                                 }
                             };
 
                             match load_once() {
                                 Ok(result) => Ok(result),
                                 Err(primary_err) => {
+                                    if matches!(request.behavior, SnapshotRefreshBehavior::ReadOnly)
+                                    {
+                                        return Err(primary_err);
+                                    }
                                     warn!(
                                         "snapshot stage A stale-first load failed; retrying with working-copy refresh: {primary_err:#}"
                                     );
@@ -1039,10 +1083,11 @@ impl DiffViewer {
                             this.workflow_loading = false;
                             let elapsed = started_at.elapsed();
                             debug!(
-                                "git workspace refresh skipped: epoch={} force={} priority={} cold_start={} elapsed_ms={} (no repo changes)",
+                                "git workspace refresh skipped: epoch={} force={} priority={} behavior={} cold_start={} elapsed_ms={} (no repo changes)",
                                 epoch,
                                 request.force,
                                 request.priority.as_str(),
+                                request.behavior.as_str(),
                                 cold_start,
                                 elapsed.as_millis()
                             );
@@ -1066,10 +1111,11 @@ impl DiffViewer {
                             this.workflow_loading = false;
                             let elapsed = started_at.elapsed();
                             error!(
-                                "git workspace refresh failed: epoch={} force={} priority={} cold_start={} elapsed_ms={} err={err:#}",
+                                "git workspace refresh failed: epoch={} force={} priority={} behavior={} cold_start={} elapsed_ms={} err={err:#}",
                                 epoch,
                                 request.force,
                                 request.priority.as_str(),
+                                request.behavior.as_str(),
                                 cold_start,
                                 elapsed.as_millis()
                             );
@@ -1085,12 +1131,17 @@ impl DiffViewer {
             let workflow_branch_count = workflow_snapshot.branches.len();
             let workflow_revision_count = workflow_snapshot.bookmark_revisions.len();
             let workflow_ready_elapsed = started_at.elapsed();
-            let should_run_cold_start_reconcile = cold_start && loaded_without_refresh;
+            let should_run_cold_start_reconcile = should_run_cold_start_reconcile(
+                cold_start,
+                loaded_without_refresh,
+                request.behavior,
+            );
             debug!(
-                "git workspace workflow ready: epoch={} force={} priority={} elapsed_ms={} files={} branches={} bookmark_revisions={} cold_start={}",
+                "git workspace workflow ready: epoch={} force={} priority={} behavior={} elapsed_ms={} files={} branches={} bookmark_revisions={} cold_start={}",
                 epoch,
                 request.force,
                 request.priority.as_str(),
+                request.behavior.as_str(),
                 workflow_ready_elapsed.as_millis(),
                 workflow_file_count,
                 workflow_branch_count,
@@ -1108,8 +1159,11 @@ impl DiffViewer {
                     this.auto_refresh_unmodified_streak = 0;
                     this.last_snapshot_fingerprint = Some(fingerprint);
                     this.workflow_loading = false;
-                    this.apply_workflow_snapshot(*workflow_snapshot, true, cx);
-                    if let Some(line_stats_scope) = this.take_line_stats_refresh_scope(request) {
+                    let diff_changed = this.apply_workflow_snapshot(*workflow_snapshot, true, cx);
+                    if (diff_changed
+                        || matches!(request.behavior, SnapshotRefreshBehavior::RefreshWorkingCopy))
+                        && let Some(line_stats_scope) = this.take_line_stats_refresh_scope(request)
+                    {
                         this.schedule_line_stats_refresh(
                             line_stats_repo_root.clone(),
                             request,
@@ -1118,8 +1172,12 @@ impl DiffViewer {
                             cold_start,
                             cx,
                         );
-                    } else {
+                    } else if diff_changed
+                        || matches!(request.behavior, SnapshotRefreshBehavior::RefreshWorkingCopy)
+                    {
                         this.cancel_line_stats_refresh();
+                    } else {
+                        this.pending_dirty_paths.clear();
                     }
                 });
             } else {
@@ -1136,10 +1194,11 @@ impl DiffViewer {
                     this.finish_snapshot_refresh_loading();
                     let elapsed = started_at.elapsed();
                     debug!(
-                        "git workspace refresh complete: epoch={} force={} priority={} total_elapsed_ms={} cold_start={} line_stats_pending={}",
+                        "git workspace refresh complete: epoch={} force={} priority={} behavior={} total_elapsed_ms={} cold_start={} line_stats_pending={}",
                         epoch,
                         request.force,
                         request.priority.as_str(),
+                        request.behavior.as_str(),
                         elapsed.as_millis(),
                         cold_start,
                         this.line_stats_loading
@@ -1199,10 +1258,11 @@ impl DiffViewer {
                     }
 
                     debug!(
-                        "git workspace cold-start reconcile detected drift: epoch={} force={} priority={} cold_start={} -> scheduling foreground refresh",
+                        "git workspace cold-start reconcile detected drift: epoch={} force={} priority={} behavior={} cold_start={} -> scheduling foreground refresh",
                         epoch,
                         request.force,
                         request.priority.as_str(),
+                        request.behavior.as_str(),
                         cold_start
                     );
                     this.request_snapshot_refresh_internal(
@@ -1275,7 +1335,7 @@ impl DiffViewer {
         snapshot: WorkflowSnapshot,
         full_refresh: bool,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let WorkflowSnapshot {
             root,
             working_copy_commit_id,
@@ -1295,6 +1355,7 @@ impl DiffViewer {
         let previous_selected_path = self.selected_path.clone();
         let previous_selected_status = self.selected_status;
         let previous_files = self.files.clone();
+        let previous_working_copy_commit_id = self.working_copy_commit_id.clone();
 
         let previous_ai_workspace_key = self.ai_workspace_key();
         self.sync_ai_visible_composer_prompt_to_draft(cx);
@@ -1365,36 +1426,45 @@ impl DiffViewer {
         if full_refresh {
             let selected_changed = self.selected_path != previous_selected_path
                 || self.selected_status != previous_selected_status;
-            let repo_tree_structure_changed =
-                Self::repo_tree_structure_changed(previous_files.as_slice(), self.files.as_slice());
+            let file_list_changed = previous_files != self.files;
+            let diff_changed = diff_state_changed(
+                root_changed,
+                previous_working_copy_commit_id.as_deref()
+                    != self.working_copy_commit_id.as_deref(),
+                file_list_changed,
+            );
 
             self.refresh_comments_cache_from_store();
 
-            let should_reload_repo_tree = if root_changed {
-                true
-            } else if !self.workspace_view_mode.supports_sidebar_tree() {
-                false
-            } else {
-                self.workspace_view_mode == WorkspaceViewMode::Diff || repo_tree_structure_changed
-            };
+            let should_reload_repo_tree = should_reload_repo_tree_after_snapshot(
+                root_changed,
+                self.workspace_view_mode.supports_sidebar_tree(),
+                file_list_changed,
+            );
             if should_reload_repo_tree {
                 self.request_repo_tree_reload(cx);
             }
 
-            // Avoid expensive diff reload churn while using non-diff workspace modes.
-            if !self.workspace_view_mode.supports_diff_stream() {
+            if !should_reload_diff_after_snapshot(
+                self.workspace_view_mode.supports_diff_stream(),
+                diff_changed,
+                self.diff_rows.is_empty(),
+            ) {
                 self.scroll_selected_after_reload = false;
             } else {
-                // Always reload visible diff rows after any loaded snapshot.
-                // Fingerprints include more than file lists/counts, and diff text can change while
-                // aggregate line stats and selected path stay the same.
-                self.scroll_selected_after_reload = selected_changed || self.diff_rows.is_empty();
+                self.scroll_selected_after_reload =
+                    should_scroll_selected_after_reload(selected_changed, self.diff_rows.is_empty());
                 self.request_selected_diff_reload(cx);
             }
+
+            self.persist_workflow_cache();
+            cx.notify();
+            return diff_changed;
         }
 
         self.persist_workflow_cache();
         cx.notify();
+        false
     }
 
     fn apply_snapshot_error(&mut self, err: anyhow::Error, cx: &mut Context<Self>) {
@@ -1502,29 +1572,6 @@ impl DiffViewer {
                 || message.contains("failed to discover git repository")
                 || message.contains("could not find repository")
         })
-    }
-
-    fn is_repo_tree_structure_status(status: FileStatus) -> bool {
-        matches!(
-            status,
-            FileStatus::Added
-                | FileStatus::Deleted
-                | FileStatus::Renamed
-                | FileStatus::TypeChange
-                | FileStatus::Untracked
-        )
-    }
-
-    fn repo_tree_structure_signature(files: &[ChangedFile]) -> BTreeSet<String> {
-        files
-            .iter()
-            .filter(|file| Self::is_repo_tree_structure_status(file.status))
-            .map(|file| format!("{}\u{1f}{}", file.path, file.status.tag()))
-            .collect()
-    }
-
-    fn repo_tree_structure_changed(previous: &[ChangedFile], next: &[ChangedFile]) -> bool {
-        Self::repo_tree_structure_signature(previous) != Self::repo_tree_structure_signature(next)
     }
 
     fn request_selected_diff_reload(&mut self, cx: &mut Context<Self>) {

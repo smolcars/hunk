@@ -175,7 +175,7 @@ impl DiffViewer {
         self.repo_watch_task = Task::ready(());
         self.repo_watch_refresh_task = Task::ready(());
         self.repo_watch_refresh_epoch = 0;
-        self.repo_watch_refresh_force = false;
+        self.repo_watch_pending_refresh = None;
 
         let Some(repo_root) = self.repo_root.clone().or_else(|| self.project_path.clone()) else {
             return;
@@ -221,9 +221,12 @@ impl DiffViewer {
                     .iter()
                     .filter_map(|path| Self::repo_watch_dirty_path(path, &repo_root_path))
                     .collect::<BTreeSet<_>>();
-                if dirty_paths.is_empty() && !metadata_changed {
+                let has_dirty_paths = !dirty_paths.is_empty();
+                let Some(request) =
+                    repo_watch_refresh_request(metadata_changed, has_dirty_paths)
+                else {
                     continue;
-                }
+                };
 
                 if let Some(this) = this.upgrade() {
                     let repo_root = repo_root_path.clone();
@@ -234,7 +237,7 @@ impl DiffViewer {
                         if !dirty_paths.is_empty() {
                             this.queue_dirty_paths(dirty_paths);
                         }
-                        this.schedule_repo_watch_refresh(metadata_changed, cx);
+                        this.schedule_repo_watch_refresh(request, cx);
                     });
                 }
             }
@@ -247,8 +250,15 @@ impl DiffViewer {
         self.repo_watch_refresh_epoch
     }
 
-    fn schedule_repo_watch_refresh(&mut self, force: bool, cx: &mut Context<Self>) {
-        self.repo_watch_refresh_force |= force;
+    fn schedule_repo_watch_refresh(
+        &mut self,
+        request: SnapshotRefreshRequest,
+        cx: &mut Context<Self>,
+    ) {
+        self.repo_watch_pending_refresh = Some(
+            self.repo_watch_pending_refresh
+                .map_or(request, |pending| pending.merge(request)),
+        );
         let epoch = self.next_repo_watch_refresh_epoch();
         self.repo_watch_refresh_task = cx.spawn(async move |this, cx| {
             cx.background_executor()
@@ -259,11 +269,10 @@ impl DiffViewer {
                     if epoch != this.repo_watch_refresh_epoch {
                         return;
                     }
-                    let request = if std::mem::take(&mut this.repo_watch_refresh_force) {
-                        SnapshotRefreshRequest::background_force()
-                    } else {
-                        SnapshotRefreshRequest::background()
-                    };
+                    let request = this
+                        .repo_watch_pending_refresh
+                        .take()
+                        .unwrap_or_else(SnapshotRefreshRequest::background);
                     this.request_snapshot_refresh_internal(request, cx);
                 });
             }

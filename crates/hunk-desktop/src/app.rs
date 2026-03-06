@@ -59,6 +59,12 @@ use data::{
     DiffRowSegmentCache, DiffStreamRowMeta, FileRowRange, RepoTreeNode, RepoTreeNodeKind,
     RepoTreeRow, WorkspaceSwitchAction, WorkspaceViewMode,
 };
+use refresh_policy::{
+    SnapshotRefreshBehavior, SnapshotRefreshPriority, SnapshotRefreshRequest, diff_state_changed,
+    repo_watch_refresh_request, should_reload_diff_after_snapshot,
+    should_reload_repo_tree_after_snapshot, should_run_cold_start_reconcile,
+    should_scroll_selected_after_reload,
+};
 
 const FPS_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 const AUTO_REFRESH_SCROLL_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -85,6 +91,8 @@ const COMMENT_FUZZY_MATCH_MIN_SCORE: i32 = 6;
 const COMMENT_FUZZY_RENAME_MATCH_MIN_SCORE: i32 = 11;
 const AI_TIMELINE_DEFAULT_VISIBLE_TURNS: usize = 80;
 const AI_TIMELINE_TURN_PAGE_SIZE: usize = 80;
+
+mod refresh_policy;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RepoTreePromptAction {
@@ -133,66 +141,6 @@ enum AiComposerDraftKey {
 struct AiComposerDraft {
     prompt: String,
     local_images: Vec<PathBuf>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum SnapshotRefreshPriority {
-    Background,
-    UserInitiated,
-}
-
-impl SnapshotRefreshPriority {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Background => "background",
-            Self::UserInitiated => "user",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SnapshotRefreshRequest {
-    force: bool,
-    priority: SnapshotRefreshPriority,
-}
-
-impl SnapshotRefreshRequest {
-    const fn user(force: bool) -> Self {
-        Self {
-            force,
-            priority: SnapshotRefreshPriority::UserInitiated,
-        }
-    }
-
-    const fn background() -> Self {
-        Self {
-            force: false,
-            priority: SnapshotRefreshPriority::Background,
-        }
-    }
-
-    const fn background_force() -> Self {
-        Self {
-            force: true,
-            priority: SnapshotRefreshPriority::Background,
-        }
-    }
-
-    fn merge(self, other: Self) -> Self {
-        Self {
-            force: self.force || other.force,
-            priority: if self.priority >= other.priority {
-                self.priority
-            } else {
-                other.priority
-            },
-        }
-    }
-
-    fn is_more_urgent_than(self, other: Self) -> bool {
-        self.priority > other.priority
-            || (self.priority == other.priority && self.force && !other.force)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1152,7 +1100,7 @@ struct DiffViewer {
     auto_refresh_task: Task<()>,
     repo_watch_task: Task<()>,
     repo_watch_refresh_epoch: usize,
-    repo_watch_refresh_force: bool,
+    repo_watch_pending_refresh: Option<SnapshotRefreshRequest>,
     repo_watch_refresh_task: Task<()>,
     snapshot_epoch: usize,
     snapshot_task: Task<()>,
