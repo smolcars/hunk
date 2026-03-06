@@ -96,6 +96,25 @@ fn render_ai_thread_sidebar_row(
         ThreadLifecycleStatus::Archived => status_color.opacity(if is_dark { 0.88 } else { 0.78 }),
         _ => metadata_color,
     };
+    let status_indicator = match thread.status {
+        ThreadLifecycleStatus::Active => Some(
+            div()
+                .flex_none()
+                .size(px(8.0))
+                .rounded_full()
+                .bg(cx.theme().success)
+                .into_any_element(),
+        ),
+        ThreadLifecycleStatus::Idle | ThreadLifecycleStatus::NotLoaded => None,
+        ThreadLifecycleStatus::Archived | ThreadLifecycleStatus::Closed => Some(
+            div()
+                .flex_none()
+                .text_xs()
+                .text_color(status_color)
+                .child(status_label)
+                .into_any_element(),
+        ),
+    };
     let activity_label = ai_thread_activity_label(thread.updated_at);
     let archive_button_color = if selected {
         cx.theme().foreground.opacity(if is_dark { 0.70 } else { 0.78 })
@@ -169,13 +188,7 @@ fn render_ai_thread_sidebar_row(
                     h_flex()
                         .items_center()
                         .gap_1()
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_xs()
-                                .text_color(status_color)
-                                .child(status_label),
-                        )
+                        .when_some(status_indicator, |this, indicator| this.child(indicator))
                         .child(
                             div()
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| {
