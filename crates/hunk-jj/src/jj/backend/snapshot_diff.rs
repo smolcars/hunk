@@ -83,6 +83,35 @@ fn refresh_working_copy_snapshot(context: &mut RepoContext) -> Result<()> {
     Ok(())
 }
 
+fn working_copy_trees(context: &RepoContext) -> Result<(MergedTree, MergedTree)> {
+    let wc_commit = current_wc_commit(context)?;
+    let base_tree = wc_commit.parent_tree(context.repo.as_ref())?;
+    let current_tree = wc_commit.tree();
+    Ok((base_tree, current_tree))
+}
+
+pub(super) fn has_changed_files_from_context(context: &RepoContext) -> Result<bool> {
+    let (base_tree, current_tree) = working_copy_trees(context)?;
+    if base_tree.tree_ids_and_labels() == current_tree.tree_ids_and_labels() {
+        return Ok(false);
+    }
+
+    let nested_repo_roots = nested_repo_roots_for_context(context)?;
+    if nested_repo_roots.is_empty() {
+        return Ok(true);
+    }
+
+    for entry in block_on_stream(base_tree.diff_stream(&current_tree, &EverythingMatcher)) {
+        let path = normalize_path(entry.path.as_internal_file_string());
+        if path.is_empty() || path_is_within_nested_repo(path.as_str(), nested_repo_roots) {
+            continue;
+        }
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 fn import_git_head_for_snapshot(context: &mut RepoContext) -> Result<()> {
     let mut tx = context.repo.start_transaction();
     git::import_head(tx.repo_mut()).context("failed to import Git HEAD into JJ view")?;
@@ -217,9 +246,10 @@ fn persist_working_copy_state(
 }
 
 pub(super) fn load_changed_files_from_context(context: &RepoContext) -> Result<Vec<ChangedFile>> {
-    let wc_commit = current_wc_commit(context)?;
-    let base_tree = wc_commit.parent_tree(context.repo.as_ref())?;
-    let current_tree = wc_commit.tree();
+    let (base_tree, current_tree) = working_copy_trees(context)?;
+    if base_tree.tree_ids_and_labels() == current_tree.tree_ids_and_labels() {
+        return Ok(Vec::new());
+    }
     let nested_repo_roots = nested_repo_roots_for_context(context)?;
 
     let mut file_map = BTreeMap::<String, ChangedFile>::new();
@@ -507,12 +537,14 @@ pub(super) fn last_commit_subject_from_context(context: &RepoContext) -> Result<
 }
 
 pub(super) fn repo_line_stats_from_context(context: &RepoContext) -> Result<LineStats> {
+    if !has_changed_files_from_context(context)? {
+        return Ok(LineStats::default());
+    }
+
     let materialize_options = conflict_materialize_options(context);
     let nested_repo_roots = nested_repo_roots_for_context(context)?;
     let mut stats = LineStats::default();
-    let wc_commit = current_wc_commit(context)?;
-    let base_tree = wc_commit.parent_tree(context.repo.as_ref())?;
-    let current_tree = wc_commit.tree();
+    let (base_tree, current_tree) = working_copy_trees(context)?;
     let copy_records = CopyRecords::default();
     let stream = materialized_diff_stream(
         context.repo.store().as_ref(),
@@ -535,12 +567,14 @@ pub(super) fn repo_line_stats_from_context(context: &RepoContext) -> Result<Line
 pub(super) fn repo_file_line_stats_from_context(
     context: &RepoContext,
 ) -> Result<BTreeMap<String, LineStats>> {
+    if !has_changed_files_from_context(context)? {
+        return Ok(BTreeMap::new());
+    }
+
     let materialize_options = conflict_materialize_options(context);
     let nested_repo_roots = nested_repo_roots_for_context(context)?;
     let mut stats_by_path = BTreeMap::new();
-    let wc_commit = current_wc_commit(context)?;
-    let base_tree = wc_commit.parent_tree(context.repo.as_ref())?;
-    let current_tree = wc_commit.tree();
+    let (base_tree, current_tree) = working_copy_trees(context)?;
     let copy_records = CopyRecords::default();
     let stream = materialized_diff_stream(
         context.repo.store().as_ref(),
@@ -578,6 +612,9 @@ pub(super) fn repo_file_line_stats_for_paths_from_context(
     if paths.is_empty() {
         return Ok(BTreeMap::new());
     }
+    if !has_changed_files_from_context(context)? {
+        return Ok(BTreeMap::new());
+    }
 
     let materialize_options = conflict_materialize_options(context);
     let nested_repo_roots = nested_repo_roots_for_context(context)?;
@@ -611,7 +648,7 @@ fn nested_repo_roots_for_context(context: &RepoContext) -> Result<&BTreeSet<Stri
         return Ok(cached);
     }
 
-    let roots = nested_repo_roots_from_fs(&context.root)?;
+    let roots = cached_nested_repo_roots_from_fs(&context.root)?;
     let _ = context.nested_repo_roots_cache.set(roots);
     context
         .nested_repo_roots_cache

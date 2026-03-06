@@ -882,17 +882,18 @@ impl DiffViewer {
                                     });
                                 }
 
-                                let fingerprint = load_snapshot_fingerprint(&source_dir)?;
-                                if previous_fingerprint.as_ref() == Some(&fingerprint) {
-                                    return Ok(SnapshotRefreshStageA::Unchanged(fingerprint));
+                                let (fingerprint, workflow) = load_workflow_snapshot_if_changed(
+                                    &source_dir,
+                                    previous_fingerprint.as_ref(),
+                                )?;
+                                match workflow {
+                                    Some(workflow) => Ok(SnapshotRefreshStageA::Loaded {
+                                        fingerprint,
+                                        workflow: Box::new(workflow),
+                                        loaded_without_refresh: false,
+                                    }),
+                                    None => Ok(SnapshotRefreshStageA::Unchanged(fingerprint)),
                                 }
-
-                                let workflow = load_workflow_snapshot(&source_dir)?;
-                                Ok(SnapshotRefreshStageA::Loaded {
-                                    fingerprint,
-                                    workflow: Box::new(workflow),
-                                    loaded_without_refresh: false,
-                                })
                             };
 
                             match load_once() {
@@ -915,21 +916,21 @@ impl DiffViewer {
                                             });
                                         }
 
-                                        let fingerprint =
-                                            load_snapshot_fingerprint_without_refresh(&source_dir)?;
-                                        if previous_fingerprint.as_ref() == Some(&fingerprint) {
-                                            return Ok(SnapshotRefreshStageA::Unchanged(
+                                        let (fingerprint, workflow) =
+                                            load_workflow_snapshot_if_changed_without_refresh(
+                                                &source_dir,
+                                                previous_fingerprint.as_ref(),
+                                            )?;
+                                        match workflow {
+                                            Some(workflow) => Ok(SnapshotRefreshStageA::Loaded {
                                                 fingerprint,
-                                            ));
+                                                workflow: Box::new(workflow),
+                                                loaded_without_refresh: true,
+                                            }),
+                                            None => {
+                                                Ok(SnapshotRefreshStageA::Unchanged(fingerprint))
+                                            }
                                         }
-
-                                        let workflow =
-                                            load_workflow_snapshot_without_refresh(&source_dir)?;
-                                        Ok(SnapshotRefreshStageA::Loaded {
-                                            fingerprint,
-                                            workflow: Box::new(workflow),
-                                            loaded_without_refresh: true,
-                                        })
                                     };
 
                                     match fallback() {

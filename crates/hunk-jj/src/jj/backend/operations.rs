@@ -961,7 +961,7 @@ pub(super) fn sync_bookmark_from_remote(
     branch_name: &str,
 ) -> Result<()> {
     let started_at = Instant::now();
-    if !load_changed_files_from_context(context)?.is_empty() {
+    if has_changed_files_from_context(context)? {
         return Err(anyhow!(
             "cannot sync while the working copy has uncommitted changes"
         ));

@@ -1,3 +1,6 @@
+static NESTED_REPO_ROOTS_CACHE: LazyLock<Mutex<HashMap<PathBuf, BTreeSet<String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 pub(super) fn walk_repo_tree(
     root: &Path,
     current: &Path,
@@ -92,6 +95,25 @@ pub(super) fn nested_repo_roots_from_fs(root: &Path) -> Result<BTreeSet<String>>
     let mut nested_roots = BTreeSet::new();
     collect_nested_repo_roots(root, root, &mut nested_roots)?;
     Ok(nested_roots)
+}
+
+pub(super) fn cached_nested_repo_roots_from_fs(root: &Path) -> Result<BTreeSet<String>> {
+    let cache_key = root.to_path_buf();
+    if let Some(cached) = nested_repo_roots_cache_guard().get(&cache_key).cloned() {
+        return Ok(cached);
+    }
+
+    let roots = nested_repo_roots_from_fs(root)?;
+    nested_repo_roots_cache_guard().insert(cache_key, roots.clone());
+    Ok(roots)
+}
+
+fn nested_repo_roots_cache_guard(
+) -> std::sync::MutexGuard<'static, HashMap<PathBuf, BTreeSet<String>>> {
+    match NESTED_REPO_ROOTS_CACHE.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 fn collect_nested_repo_roots(

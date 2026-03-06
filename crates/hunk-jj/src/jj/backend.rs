@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
@@ -26,6 +26,7 @@ use jj_lib::git::{
 };
 use jj_lib::matchers::{EverythingMatcher, FilesMatcher, NothingMatcher};
 use jj_lib::merge::{Diff, MergedTreeValue};
+use jj_lib::merged_tree::MergedTree;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::RefTarget;
 use jj_lib::ref_name::{RefName, RefNameBuf, RemoteName, WorkspaceName};
