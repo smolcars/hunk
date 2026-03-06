@@ -1,6 +1,7 @@
 use gpui::{
     FontStyle, FontWeight, HighlightStyle, StrikethroughStyle, StyledText, UnderlineStyle,
 };
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiTimelineItemRole {
@@ -258,11 +259,13 @@ fn ai_tool_meta_chip(
         .into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ai_tool_detail_section(
     this: &DiffViewer,
     view: Entity<DiffViewer>,
     row_id: &str,
     surface_id: impl Into<String>,
+    selection_surfaces: Arc<[AiTextSelectionSurfaceSpec]>,
     title: &str,
     content: String,
     mono: bool,
@@ -300,7 +303,7 @@ fn ai_tool_detail_section(
         view,
         row_id,
         surface_id,
-        content.clone(),
+        selection_surfaces,
         StyledText::new(content),
         is_dark,
         cx,
@@ -363,11 +366,34 @@ fn render_ai_command_execution_details(
         chips.push(ai_tool_meta_chip("duration", duration, false, is_dark, cx));
     }
 
+    let command_surface_id = ai_timeline_text_surface_id(row_id, "tool-command", 0);
+    let action_surface_id = ai_timeline_text_surface_id(row_id, "tool-actions", 0);
+    let output_surface_id = ai_timeline_text_surface_id(row_id, "tool-output", 0);
+    let mut selection_surfaces = vec![AiTextSelectionSurfaceSpec::new(
+        command_surface_id.clone(),
+        details.command.clone(),
+    )];
+    if !details.action_summaries.is_empty() {
+        selection_surfaces.push(
+            AiTextSelectionSurfaceSpec::new(action_surface_id.clone(), details.action_summaries.join("\n"))
+                .with_separator_before("\n\n"),
+        );
+    }
+    let trimmed_output = output.trim().to_string();
+    if !trimmed_output.is_empty() {
+        selection_surfaces.push(
+            AiTextSelectionSurfaceSpec::new(output_surface_id.clone(), trimmed_output.clone())
+                .with_separator_before("\n\n"),
+        );
+    }
+    let selection_surfaces = ai_text_selection_surfaces(selection_surfaces);
+
     let mut sections = vec![ai_tool_detail_section(
         this,
         view.clone(),
         row_id,
-        ai_timeline_text_surface_id(row_id, "tool-command", 0),
+        command_surface_id,
+        selection_surfaces.clone(),
         "Command",
         details.command.clone(),
         true,
@@ -381,7 +407,8 @@ fn render_ai_command_execution_details(
             this,
             view.clone(),
             row_id,
-            ai_timeline_text_surface_id(row_id, "tool-actions", 0),
+            action_surface_id,
+            selection_surfaces.clone(),
             "Actions",
             details.action_summaries.join("\n"),
             false,
@@ -391,14 +418,15 @@ fn render_ai_command_execution_details(
             cx,
         ));
     }
-    if !output.trim().is_empty() {
+    if !trimmed_output.is_empty() {
         sections.push(ai_tool_detail_section(
             this,
             view.clone(),
             row_id,
-            ai_timeline_text_surface_id(row_id, "tool-output", 0),
+            output_surface_id,
+            selection_surfaces.clone(),
             "Output",
-            output.trim().to_string(),
+            trimmed_output,
             true,
             Some(px(220.0)),
             false,
@@ -426,6 +454,125 @@ fn render_ai_command_execution_details(
         .into_any_element()
 }
 
+fn ai_markdown_code_line_text(spans: &[hunk_domain::markdown_preview::MarkdownCodeSpan]) -> String {
+    let mut text = String::new();
+    for span in spans {
+        text.push_str(span.text.as_str());
+    }
+    text
+}
+
+fn ai_markdown_code_token_color(
+    default_color: Hsla,
+    token: MarkdownCodeTokenKind,
+    is_dark: bool,
+) -> Hsla {
+    let github = |dark: u32, light: u32| {
+        let hex = format!("#{:06x}", hunk_pick(is_dark, dark, light));
+        Hsla::parse_hex(hex.as_str()).unwrap_or(default_color)
+    };
+
+    match token {
+        MarkdownCodeTokenKind::Plain => default_color,
+        MarkdownCodeTokenKind::Keyword => github(0xff7b72, 0xcf222e),
+        MarkdownCodeTokenKind::String => github(0xa5d6ff, 0x0a3069),
+        MarkdownCodeTokenKind::Number => github(0x79c0ff, 0x0550ae),
+        MarkdownCodeTokenKind::Comment => github(0x8b949e, 0x57606a),
+        MarkdownCodeTokenKind::Function => github(0xd2a8ff, 0x8250df),
+        MarkdownCodeTokenKind::TypeName => github(0xffa657, 0x953800),
+        MarkdownCodeTokenKind::Constant => github(0x79c0ff, 0x0550ae),
+        MarkdownCodeTokenKind::Variable => github(0xffa657, 0x953800),
+        MarkdownCodeTokenKind::Operator => github(0xff7b72, 0xcf222e),
+    }
+}
+
+fn ai_chat_markdown_selection_surfaces(
+    row_id: &str,
+    blocks: &[MarkdownPreviewBlock],
+) -> Arc<[AiTextSelectionSurfaceSpec]> {
+    let mut surfaces = Vec::new();
+
+    for (block_ix, block) in blocks.iter().enumerate() {
+        let block_separator = if surfaces.is_empty() { "" } else { "\n\n" };
+        match block {
+            MarkdownPreviewBlock::Heading { spans, .. } => {
+                let text = ai_chat_markdown_text(spans);
+                if text.is_empty() {
+                    continue;
+                }
+                surfaces.push(
+                    AiTextSelectionSurfaceSpec::new(
+                        ai_timeline_text_surface_id(row_id, "message-heading", block_ix),
+                        text,
+                    )
+                    .with_separator_before(block_separator),
+                );
+            }
+            MarkdownPreviewBlock::Paragraph(spans)
+            | MarkdownPreviewBlock::UnorderedListItem(spans)
+            | MarkdownPreviewBlock::BlockQuote(spans) => {
+                let text = ai_chat_markdown_text(spans);
+                if text.is_empty() {
+                    continue;
+                }
+                let surface_kind = match block {
+                    MarkdownPreviewBlock::Paragraph(_) => "message-paragraph",
+                    MarkdownPreviewBlock::UnorderedListItem(_) => "message-list",
+                    MarkdownPreviewBlock::BlockQuote(_) => "message-quote",
+                    _ => unreachable!(),
+                };
+                surfaces.push(
+                    AiTextSelectionSurfaceSpec::new(
+                        ai_timeline_text_surface_id(row_id, surface_kind, block_ix),
+                        text,
+                    )
+                    .with_separator_before(block_separator),
+                );
+            }
+            MarkdownPreviewBlock::OrderedListItem { spans, .. } => {
+                let text = ai_chat_markdown_text(spans);
+                if text.is_empty() {
+                    continue;
+                }
+                surfaces.push(
+                    AiTextSelectionSurfaceSpec::new(
+                        ai_timeline_text_surface_id(row_id, "message-list", block_ix),
+                        text,
+                    )
+                    .with_separator_before(block_separator),
+                );
+            }
+            MarkdownPreviewBlock::CodeBlock { lines, .. } => {
+                if lines.is_empty() {
+                    continue;
+                }
+
+                for (line_ix, line_spans) in lines.iter().enumerate() {
+                    let separator_before = if line_ix == 0 {
+                        block_separator
+                    } else {
+                        "\n"
+                    };
+                    surfaces.push(
+                        AiTextSelectionSurfaceSpec::new(
+                            ai_timeline_text_surface_id(
+                                row_id,
+                                "message-code",
+                                format!("{block_ix}-{line_ix}"),
+                            ),
+                            ai_markdown_code_line_text(line_spans),
+                        )
+                        .with_separator_before(separator_before),
+                    );
+                }
+            }
+            MarkdownPreviewBlock::ThematicBreak => {}
+        }
+    }
+
+    surfaces.into()
+}
+
 fn ai_render_chat_markdown_message(
     this: &DiffViewer,
     view: Entity<DiffViewer>,
@@ -438,6 +585,7 @@ fn ai_render_chat_markdown_message(
     if blocks.is_empty() {
         return div().w_full().text_sm().child("").into_any_element();
     }
+    let selection_surfaces = ai_chat_markdown_selection_surfaces(row_id, blocks.as_slice());
 
     v_flex()
         .w_full()
@@ -454,6 +602,7 @@ fn ai_render_chat_markdown_message(
                         row_id,
                         block_ix,
                         block,
+                        selection_surfaces.clone(),
                         is_dark,
                         cx,
                     )
@@ -462,12 +611,14 @@ fn ai_render_chat_markdown_message(
         .into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ai_render_chat_markdown_block(
     this: &DiffViewer,
     view: Entity<DiffViewer>,
     row_id: &str,
     block_ix: usize,
     block: &MarkdownPreviewBlock,
+    selection_surfaces: Arc<[AiTextSelectionSurfaceSpec]>,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
@@ -477,6 +628,7 @@ fn ai_render_chat_markdown_block(
             view,
             row_id,
             ai_timeline_text_surface_id(row_id, "message-heading", block_ix),
+            selection_surfaces,
             spans,
             matches!(level, 1 | 2),
             true,
@@ -489,6 +641,7 @@ fn ai_render_chat_markdown_block(
             view,
             row_id,
             ai_timeline_text_surface_id(row_id, "message-paragraph", block_ix),
+            selection_surfaces,
             spans,
             false,
             false,
@@ -513,6 +666,7 @@ fn ai_render_chat_markdown_block(
                     view,
                     row_id,
                     ai_timeline_text_surface_id(row_id, "message-list", block_ix),
+                    selection_surfaces,
                     spans,
                     false,
                     false,
@@ -539,6 +693,7 @@ fn ai_render_chat_markdown_block(
                     view,
                     row_id,
                     ai_timeline_text_surface_id(row_id, "message-list", block_ix),
+                    selection_surfaces,
                     spans,
                     false,
                     false,
@@ -565,6 +720,7 @@ fn ai_render_chat_markdown_block(
                     view,
                     row_id,
                     ai_timeline_text_surface_id(row_id, "message-quote", block_ix),
+                    selection_surfaces.clone(),
                     spans,
                     false,
                     false,
@@ -592,6 +748,8 @@ fn ai_render_chat_markdown_block(
                     .map(|(line_ix, line_spans)| {
                         let code_line_surface_id =
                             ai_timeline_text_surface_id(row_id, "message-code", format!("{block_ix}-{line_ix}"));
+                        let default_color = cx.theme().foreground;
+                        let is_dark_theme = cx.theme().mode.is_dark();
                         let mut highlights = Vec::new();
                         let mut text = String::new();
                         let mut cursor = 0;
@@ -603,7 +761,7 @@ fn ai_render_chat_markdown_block(
                             cursor += span.text.len();
                             text.push_str(span.text.as_str());
                             let token_color =
-                                this.markdown_code_token_color(cx.theme().foreground, span.token, cx);
+                                ai_markdown_code_token_color(default_color, span.token, is_dark_theme);
                             highlights.push((
                                 start..cursor,
                                 HighlightStyle {
@@ -628,7 +786,7 @@ fn ai_render_chat_markdown_block(
                                 view.clone(),
                                 row_id,
                                 code_line_surface_id,
-                                text,
+                                selection_surfaces.clone(),
                                 styled_text,
                                 is_dark,
                                 cx,
@@ -746,11 +904,13 @@ fn ai_chat_markdown_text(spans: &[MarkdownInlineSpan]) -> String {
     text
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ai_render_chat_inline_spans(
     this: &DiffViewer,
     view: Entity<DiffViewer>,
     row_id: &str,
     surface_id: impl Into<String>,
+    selection_surfaces: Arc<[AiTextSelectionSurfaceSpec]>,
     spans: &[MarkdownInlineSpan],
     large: bool,
     emphasized: bool,
@@ -778,7 +938,7 @@ fn ai_render_chat_inline_spans(
             view,
             row_id,
             surface_id,
-            text.clone(),
+            selection_surfaces,
             styled_text,
             is_dark,
             cx,
@@ -1040,11 +1200,20 @@ fn render_ai_chat_timeline_row_for_view(
                                 ),
                         )
                         .when(!preview.is_empty(), |container| {
+                            let preview_surface_id =
+                                ai_timeline_text_surface_id(row.id.as_str(), "diff-preview", 0);
+                            let preview_selection_surfaces = ai_text_selection_surfaces(vec![
+                                AiTextSelectionSurfaceSpec::new(
+                                    preview_surface_id.clone(),
+                                    preview.clone(),
+                                ),
+                            ]);
                             container.child(ai_tool_detail_section(
                                 this,
                                 view.clone(),
                                 row.id.as_str(),
-                                ai_timeline_text_surface_id(row.id.as_str(), "diff-preview", 0),
+                                preview_surface_id,
+                                preview_selection_surfaces,
                                 "Preview",
                                 preview.clone(),
                                 true,

@@ -283,9 +283,37 @@ struct AiTimelineGroup {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct AiTextSelection {
+struct AiTextSelectionSurfaceSpec {
     surface_id: String,
+    text: String,
+    separator_before: String,
+}
+
+impl AiTextSelectionSurfaceSpec {
+    fn new(surface_id: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            surface_id: surface_id.into(),
+            text: text.into(),
+            separator_before: String::new(),
+        }
+    }
+
+    fn with_separator_before(mut self, separator_before: impl Into<String>) -> Self {
+        self.separator_before = separator_before.into();
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiTextSelectionSurfaceRange {
+    surface_id: String,
+    range: Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiTextSelection {
     row_id: String,
+    surface_ranges: Vec<AiTextSelectionSurfaceRange>,
     full_text: String,
     anchor: usize,
     head: usize,
@@ -293,11 +321,34 @@ struct AiTextSelection {
 }
 
 impl AiTextSelection {
-    fn new(surface_id: String, row_id: String, full_text: String, index: usize) -> Self {
-        let clamped_index = index.min(full_text.len());
+    fn new(
+        row_id: String,
+        surfaces: &[AiTextSelectionSurfaceSpec],
+        surface_id: &str,
+        index: usize,
+    ) -> Self {
+        let mut full_text = String::new();
+        let mut surface_ranges = Vec::with_capacity(surfaces.len());
+        let mut anchor = None;
+
+        for surface in surfaces {
+            full_text.push_str(surface.separator_before.as_str());
+            let start = full_text.len();
+            full_text.push_str(surface.text.as_str());
+            let end = full_text.len();
+            surface_ranges.push(AiTextSelectionSurfaceRange {
+                surface_id: surface.surface_id.clone(),
+                range: start..end,
+            });
+            if surface.surface_id == surface_id {
+                anchor = Some(start + index.min(surface.text.len()));
+            }
+        }
+
+        let clamped_index = anchor.unwrap_or(0).min(full_text.len());
         Self {
-            surface_id,
             row_id,
+            surface_ranges,
             full_text,
             anchor: clamped_index,
             head: clamped_index,
@@ -318,8 +369,29 @@ impl AiTextSelection {
         (!range.is_empty()).then(|| self.full_text[range].to_string())
     }
 
-    fn set_head(&mut self, index: usize) {
-        self.head = index.min(self.full_text.len());
+    fn range_for_surface(&self, surface_id: &str) -> Option<Range<usize>> {
+        let surface = self
+            .surface_ranges
+            .iter()
+            .find(|surface| surface.surface_id == surface_id)?;
+        let selection_range = self.range();
+        let start = selection_range.start.max(surface.range.start);
+        let end = selection_range.end.min(surface.range.end);
+        if start >= end {
+            return None;
+        }
+        Some((start - surface.range.start)..(end - surface.range.start))
+    }
+
+    fn set_head_for_surface(&mut self, surface_id: &str, index: usize) {
+        let Some(surface) = self
+            .surface_ranges
+            .iter()
+            .find(|surface| surface.surface_id == surface_id)
+        else {
+            return;
+        };
+        self.head = surface.range.start + index.min(surface.range.len());
     }
 
     fn select_all(&mut self) {

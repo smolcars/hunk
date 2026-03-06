@@ -5,21 +5,25 @@ impl DiffViewer {
     ) -> Option<std::ops::Range<usize>> {
         self.ai_text_selection
             .as_ref()
-            .filter(|selection| selection.surface_id == surface_id)
-            .map(AiTextSelection::range)
+            .and_then(|selection| selection.range_for_surface(surface_id))
     }
 
     pub(super) fn ai_begin_text_selection(
         &mut self,
-        surface_id: String,
         row_id: String,
-        full_text: String,
+        selection_surfaces: std::sync::Arc<[AiTextSelectionSurfaceSpec]>,
+        surface_id: &str,
         index: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.focus_handle.focus(window, cx);
-        self.ai_text_selection = Some(AiTextSelection::new(surface_id, row_id, full_text, index));
+        self.ai_text_selection = Some(AiTextSelection::new(
+            row_id,
+            selection_surfaces.as_ref(),
+            surface_id,
+            index,
+        ));
         cx.notify();
     }
 
@@ -32,22 +36,22 @@ impl DiffViewer {
         let Some(selection) = self.ai_text_selection.as_mut() else {
             return;
         };
-        if selection.surface_id != surface_id || !selection.dragging {
+        if !selection.dragging {
             return;
         }
 
         let previous_range = selection.range();
-        selection.set_head(index);
+        selection.set_head_for_surface(surface_id, index);
         if selection.range() != previous_range {
             cx.notify();
         }
     }
 
-    pub(super) fn ai_end_text_selection(&mut self, surface_id: &str, cx: &mut Context<Self>) {
+    pub(super) fn ai_end_text_selection(&mut self, cx: &mut Context<Self>) {
         let Some(selection) = self.ai_text_selection.as_mut() else {
             return;
         };
-        if selection.surface_id != surface_id || !selection.dragging {
+        if !selection.dragging {
             return;
         }
 

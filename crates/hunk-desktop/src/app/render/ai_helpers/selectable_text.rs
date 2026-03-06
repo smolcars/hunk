@@ -2,7 +2,7 @@ struct AiSelectableStyledText {
     element_id: gpui::ElementId,
     row_id: String,
     surface_id: String,
-    text_content: SharedString,
+    selection_surfaces: std::sync::Arc<[AiTextSelectionSurfaceSpec]>,
     text: StyledText,
     selection_range: Option<std::ops::Range<usize>>,
     selection_background: Hsla,
@@ -13,7 +13,7 @@ impl AiSelectableStyledText {
     fn new(
         row_id: impl Into<String>,
         surface_id: impl Into<String>,
-        text_content: SharedString,
+        selection_surfaces: std::sync::Arc<[AiTextSelectionSurfaceSpec]>,
         text: StyledText,
         selection_range: Option<std::ops::Range<usize>>,
         selection_background: Hsla,
@@ -24,7 +24,7 @@ impl AiSelectableStyledText {
             element_id: surface_id.clone().into(),
             row_id: row_id.into(),
             surface_id,
-            text_content,
+            selection_surfaces,
             text,
             selection_range,
             selection_background,
@@ -138,9 +138,9 @@ impl gpui::Element for AiSelectableStyledText {
         let view = self.view.clone();
         let surface_id = self.surface_id.clone();
         let row_id = self.row_id.clone();
-        let text_content = self.text_content.clone();
         let hitbox_for_mouse_down = hitbox.clone();
         let hitbox_for_mouse_move = hitbox.clone();
+        let selection_surfaces = self.selection_surfaces.clone();
 
         window.on_mouse_event(move |event: &gpui::MouseDownEvent, phase, window, cx| {
             if phase != gpui::DispatchPhase::Bubble
@@ -155,9 +155,9 @@ impl gpui::Element for AiSelectableStyledText {
             };
             view.update(cx, |this, cx| {
                 this.ai_begin_text_selection(
-                    surface_id.clone(),
                     row_id.clone(),
-                    text_content.to_string(),
+                    selection_surfaces.clone(),
+                    surface_id.as_str(),
                     index,
                     window,
                     cx,
@@ -168,21 +168,22 @@ impl gpui::Element for AiSelectableStyledText {
         let text_layout = self.text.layout().clone();
         let view = self.view.clone();
         let surface_id = self.surface_id.clone();
+        let row_id = self.row_id.clone();
         window.on_mouse_event(move |event: &gpui::MouseMoveEvent, phase, window, cx| {
             if phase != gpui::DispatchPhase::Bubble {
                 return;
             }
 
-            if hitbox_for_mouse_move.is_hovered(window) {
-                window.set_cursor_style(gpui::CursorStyle::IBeam, &hitbox_for_mouse_move);
+            if !hitbox_for_mouse_move.is_hovered(window) {
+                return;
             }
 
-            let Some(is_dragging_surface) = view.read(cx).ai_text_selection.as_ref().map(|selection| {
-                selection.surface_id == surface_id && selection.dragging
+            let Some(is_dragging_row) = view.read(cx).ai_text_selection.as_ref().map(|selection| {
+                selection.row_id == row_id && selection.dragging
             }) else {
                 return;
             };
-            if !is_dragging_surface {
+            if !is_dragging_row {
                 return;
             }
 
@@ -195,15 +196,18 @@ impl gpui::Element for AiSelectableStyledText {
         });
 
         let view = self.view.clone();
-        let surface_id = self.surface_id.clone();
         window.on_mouse_event(move |_: &gpui::MouseUpEvent, phase, _window, cx| {
             if phase != gpui::DispatchPhase::Bubble {
                 return;
             }
             view.update(cx, |this, cx| {
-                this.ai_end_text_selection(surface_id.as_str(), cx);
+                this.ai_end_text_selection(cx);
             });
         });
+
+        if hitbox.is_hovered(window) {
+            window.set_cursor_style(gpui::CursorStyle::IBeam, hitbox);
+        }
 
         self.paint_selection(&self.text.layout().clone(), window, cx);
         self.text
@@ -219,23 +223,23 @@ impl IntoElement for AiSelectableStyledText {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ai_render_selectable_styled_text(
     this: &DiffViewer,
     view: Entity<DiffViewer>,
     row_id: &str,
     surface_id: impl Into<String>,
-    text_content: impl Into<SharedString>,
+    selection_surfaces: std::sync::Arc<[AiTextSelectionSurfaceSpec]>,
     styled_text: StyledText,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AiSelectableStyledText {
     let surface_id = surface_id.into();
-    let text_content = text_content.into();
     let selection_range = this.ai_text_selection_range_for_surface(surface_id.as_str());
     AiSelectableStyledText::new(
         row_id,
         surface_id,
-        text_content,
+        selection_surfaces,
         styled_text,
         selection_range,
         hunk_text_selection_background(cx.theme(), is_dark),
@@ -249,4 +253,10 @@ fn ai_timeline_text_surface_id(
     surface_index: impl std::fmt::Display,
 ) -> String {
     format!("{row_id}\u{1f}{surface_kind}\u{1f}{surface_index}")
+}
+
+fn ai_text_selection_surfaces(
+    surfaces: Vec<AiTextSelectionSurfaceSpec>,
+) -> std::sync::Arc<[AiTextSelectionSurfaceSpec]> {
+    surfaces.into()
 }

@@ -135,11 +135,17 @@ fn render_ai_tool_item_row(
             )
         })
         .unwrap_or_else(|| {
+            let details_surface_id = ai_timeline_text_surface_id(row_id, "tool-details", 0);
+            let selection_surfaces = ai_text_selection_surfaces(vec![AiTextSelectionSurfaceSpec::new(
+                details_surface_id.clone(),
+                details_text.to_string(),
+            )]);
             ai_tool_detail_section(
                 this,
                 view.clone(),
                 row_id,
-                ai_timeline_text_surface_id(row_id, "tool-details", 0),
+                details_surface_id,
+                selection_surfaces,
                 "Details",
                 details_text.to_string(),
                 true,
