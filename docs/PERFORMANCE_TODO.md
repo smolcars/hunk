@@ -79,7 +79,7 @@ Repro scripts:
 - [x] Removed expensive full row-text hashing from stable row IDs.
 - [x] Added adaptive coarse segment mode for very large per-file diffs.
 - [x] Added immediate loading placeholder row to avoid blank initial diff pane.
-- [x] Refactored diff loading to a single-pass patch-map backend path (no per-file JJ scan).
+- [x] Refactored diff loading to a single-pass patch-map backend path (no per-file backend scan).
 - [x] Switched snapshot line-stats to stats-only diff processing (no patch text assembly).
 - [x] Switched cached segment text storage to `SharedString` to reduce render-path clones.
 - [x] Replaced per-frame sticky header reverse scans with precomputed row lookups.

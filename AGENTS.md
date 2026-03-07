@@ -3,11 +3,11 @@
 A GPUI based desktop app for fast git diff viewing. In the age of vibe coding, nobody looks write anymore, but just review code.
 Hunk is a fast diff viewer that is extremely simple written in Rust.
 
-- ONLY USE JJ AS THE UNDERLYING GIT IMPLEMENTATION WHEN RUNNING GIT RELATED COMMANDS. JJ CLI IS AVAILABLE VIA `jj` ON THE PATH.
+- Production Git behavior should live in `crates/hunk-git`, using `gix` first and narrow `git2` fallbacks only when necessary. Do not shell out to the Git CLI from app code.
 - Make sure code is scalable.
 - Don't make files over 1000 lines long.
 - When working with frontend, always use colors in theme.rs
-- Tests always in crate-level `tests` directories (for example `crates/hunk-jj/tests`)
+- Tests always in crate-level `tests` directories (for example `crates/hunk-git/tests`)
 - Make sure workspace clippy passes
 - Make sure workspace builds pass
 - GPUI docs https://raw.githubusercontent.com/zed-industries/zed/refs/heads/main/crates/gpui/README.md

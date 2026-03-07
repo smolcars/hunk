@@ -43,7 +43,7 @@ impl DiffViewer {
                 let view = view.clone();
                 let path = path.clone();
                 let include = included_in_commit;
-                Button::new(("workspace-commit-include-toggle", row_id))
+                Button::new(("workspace-commit-include-toggle", row_ix))
                     .outline()
                     .compact()
                     .rounded(px(5.0))
@@ -96,7 +96,7 @@ impl DiffViewer {
             .child({
                 let view = view.clone();
                 let path = path.clone();
-                Button::new(("workspace-change-undo", row_id))
+                Button::new(("workspace-change-undo", row_ix))
                     .outline()
                     .compact()
                     .rounded(px(5.0))

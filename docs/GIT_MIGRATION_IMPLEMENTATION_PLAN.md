@@ -309,7 +309,7 @@ Phase completion rule:
 - [x] Keep the current refresh policy and background task scheduling.
 - [x] Keep the current progressive diff-loading architecture.
 - [x] Make the toolbar line-change counter use `hunk-git` line stats.
-- [ ] Remove JJ-specific user-facing copy from Files and Review surfaces.
+- [x] Remove JJ-specific user-facing copy from Files and Review surfaces.
 - [ ] Do not switch Git-tab actions yet.
 - [ ] Run the perf harness and compare to the Phase 0 baseline.
 - [x] Deep code review (phase gate):
@@ -320,29 +320,29 @@ Phase completion rule:
 
 ### Phase 4: Replace Git Tab With A Simpler Git Workflow
 
-- [ ] Rename `JjWorkspace` mode to `GitWorkspace`.
-- [ ] Remove JJ glossary and JJ-branded labels/tooltips.
-- [ ] Remove the revision stack panel entirely.
-- [ ] Remove stack mutation actions from controllers and UI.
-- [ ] Replace bookmark wording with branch/ref wording across the tab.
+- [x] Rename `JjWorkspace` mode to `GitWorkspace`.
+- [x] Remove JJ glossary and JJ-branded labels/tooltips from the live Git tab.
+- [x] Remove the revision stack panel entirely.
+- [x] Remove stack mutation actions from controllers and UI.
+- [x] Replace bookmark wording with branch/ref wording across the tab.
 - [ ] Keep the Git tab limited to:
-  - [ ] branch list
-  - [ ] branch switch
-  - [ ] branch create
-  - [ ] branch rename
-  - [ ] commit
-  - [ ] publish
-  - [ ] push
-  - [ ] sync
-  - [ ] PR/MR URL open/copy
+  - [x] branch list
+  - [x] branch switch
+  - [x] branch create
+  - [x] branch rename
+  - [x] commit
+  - [x] publish
+  - [x] push
+  - [x] sync
+  - [x] PR/MR URL open/copy
 - [ ] Simplify branch switching behavior:
-  - [ ] if working tree is dirty, block switch with explicit guidance
-  - [ ] do not replicate JJ snapshot/recovery flow in v1
-- [ ] Deep code review (phase gate):
-  - [ ] Verify all removed JJ flows are actually dead, not half-connected.
-  - [ ] Verify branch switching cannot silently discard user changes.
-  - [ ] Verify UI labels/tooltips consistently use Git terminology.
-  - [ ] Refactor controller logic to remove legacy JJ conditional paths.
+  - [x] if working tree is dirty, block switch with explicit guidance
+  - [x] do not replicate JJ snapshot/recovery flow in v1
+- [x] Deep code review (phase gate):
+  - [x] Verify all removed JJ flows are actually dead, not half-connected.
+  - [x] Verify branch switching cannot silently discard user changes.
+  - [x] Verify UI labels/tooltips consistently use Git terminology.
+  - [x] Refactor controller logic to remove legacy JJ conditional paths.
 
 ### Phase 5: Implement Git Write Actions
 
@@ -376,29 +376,29 @@ Phase completion rule:
 
 - [x] Remove JJ-specific cached workflow fields from `hunk-domain` state.
 - [x] Replace cached revision-stack data with Git-native snapshot state only.
-- [ ] Rename comment scope fields from `bookmark_name` to `branch_name` or `ref_name`.
-- [ ] Update desktop comment scope logic to Git naming.
-- [ ] Hard-break old persisted state and old comment schema as needed.
+- [x] Rename comment scope fields from `bookmark_name` to `branch_name` or `ref_name`.
+- [x] Update desktop comment scope logic to Git naming.
+- [x] Hard-break old persisted state and old comment schema as needed.
 - [ ] Add tests for:
   - [x] app-state load/save with new workflow cache shape
-  - [ ] comment scoping by branch/ref
+  - [x] comment scoping by branch/ref
   - [ ] detached-head comment scope behavior
 - [x] Deep code review (phase gate):
   - [x] Review all remaining persisted-state names for JJ leakage.
-  - [ ] Review all comment queries for stale schema assumptions.
-  - [ ] Refactor migration-time compatibility code aggressively instead of carrying it forward.
+  - [x] Review all comment queries for stale schema assumptions.
+  - [x] Refactor migration-time compatibility code aggressively instead of carrying it forward.
 
 ### Phase 7: Delete `hunk-jj`
 
 - [x] Remove all production imports of `hunk-jj`.
-- [ ] Remove `crates/hunk-jj` from the workspace.
-- [ ] Delete JJ-only tests, docs, and strings that no longer apply.
+- [x] Remove `crates/hunk-jj` from the workspace.
+- [x] Delete JJ-only tests, docs, and strings that no longer apply.
 - [x] Remove JJ-specific controller and render code.
-- [ ] Rename any remaining legacy identifiers that still contain `jj`.
-- [ ] Deep code review (phase gate):
-  - [ ] Search the tree for remaining JJ terms and remove intentional leftovers or rename them.
-  - [ ] Review for dead helper methods and dead state fields left by the cutover.
-  - [ ] Refactor any large files that became awkward after deletion-heavy changes.
+- [x] Rename any remaining legacy identifiers that still contain `jj` in live crates.
+- [x] Deep code review (phase gate):
+  - [x] Search the tree for remaining JJ terms and remove or isolate them to intentional migration-only docs.
+  - [x] Review for dead helper methods and dead state fields left by the cutover.
+  - [x] Refactor any large files that became awkward after deletion-heavy changes.
 
 ### Phase 8: Validation, Perf Signoff, and Release Readiness
 

@@ -15,7 +15,7 @@ Hunk is also has full codex integration so you can use Codex inside of Hunk inst
 
 ## What it includes
 
-- Uses `jj` as the underlying Git implementation
+- Uses a native Git backend built on `gix` with narrow `git2` fallbacks for unsupported write flows
 - File tree for changed files
 - Side-by-side diff viewer with per-line styling and line numbers
 - Resizable split panes (tree + diff)
@@ -27,7 +27,7 @@ Hunk is also has full codex integration so you can use Codex inside of Hunk inst
 ## Workspace Layout
 
 - `crates/hunk-domain`: config/state/db/diff/markdown domain logic
-- `crates/hunk-jj`: JJ backend and graph/tree logic
+- `crates/hunk-git`: Git backend for repo discovery, diffing, branches, commits, push, and sync
 - `crates/hunk-desktop`: GPUI desktop app binary
 - `crates/hunk-codex`: Codex Websocket Server handling logic
 
@@ -94,9 +94,9 @@ Runtime layout details also live in [`assets/codex-runtime/README.md`](./assets/
 The pinned upstream baseline is tracked in [`docs/AI_CODEX_SPEC.md`](./docs/AI_CODEX_SPEC.md).
 
 ```bash
-jj git clone https://github.com/openai/codex.git
+git clone https://github.com/openai/codex.git
 cd codex
-jj edit <pinned-commit-from-docs/AI_CODEX_SPEC.md>
+git checkout <pinned-commit-from-docs/AI_CODEX_SPEC.md>
 cd codex-rs
 cargo build -p codex-cli --release
 ```
@@ -124,7 +124,7 @@ You can also pass an explicit source binary path to the installer:
 
 ## Large Diff Stress Fixture
 
-Generate a synthetic JJ repository with a very large working-copy diff:
+Generate a synthetic Git repository with a very large working-copy diff:
 
 ```bash
 ./scripts/create_large_diff_repo.sh --lines 25000 --files 1 --force

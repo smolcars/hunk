@@ -24,7 +24,7 @@ Usage:
   ./scripts/run_perf_harness.sh [options]
 
 Options:
-  --repo <path>                   Use an existing JJ repo fixture
+  --repo <path>                   Use an existing Git repo fixture
   --lang <txt|js|ts>              Fixture language (default: ts)
   --files <count>                 Fixture changed file count (default: 50)
   --lines <count>                 Changed lines per file (default: 10000)

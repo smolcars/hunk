@@ -6,8 +6,7 @@ repo_dir="$DEFAULT_REPO_DIR"
 file_count=1
 lines_per_file=25000
 force=0
-snapshot_max_new_file_size=33554432
-bookmark_name="main"
+branch_name="main"
 language="txt"
 run_seed="$(od -An -N4 -tu4 /dev/urandom | tr -d '[:space:]')"
 if [[ -z "$run_seed" ]]; then
@@ -16,7 +15,7 @@ fi
 
 usage() {
     cat <<'USAGE'
-Create a synthetic JJ repository with a very large text diff for Hunk performance testing.
+Create a synthetic Git repository with a very large text diff for Hunk performance testing.
 
 Usage:
   ./scripts/create_large_diff_repo.sh [options]
@@ -119,8 +118,10 @@ if [[ -e "$repo_dir" ]]; then
 fi
 
 mkdir -p "$repo_dir"
-jj --quiet git init "$repo_dir" >/dev/null 2>&1
-jj --quiet -R "$repo_dir" config set --repo snapshot.max-new-file-size "$snapshot_max_new_file_size" >/dev/null 2>&1
+git init "$repo_dir" >/dev/null 2>&1
+git -C "$repo_dir" checkout -b "$branch_name" >/dev/null 2>&1
+git -C "$repo_dir" config user.name "Hunk Perf"
+git -C "$repo_dir" config user.email "perf@hunk.invalid"
 
 create_file_contents() {
     local phase="$1"
@@ -214,7 +215,8 @@ for i in $(seq 1 "$file_count"); do
     create_file_contents "before" "$file_path" "$i" "$file_seed"
 done
 
-jj --quiet -R "$repo_dir" commit -m "Baseline for Hunk large-diff stress test" >/dev/null 2>&1
+git -C "$repo_dir" add .
+git -C "$repo_dir" commit -m "Baseline for Hunk large-diff stress test" >/dev/null 2>&1
 
 for i in $(seq 1 "$file_count"); do
     file_path="$repo_dir/stress/file_$(printf '%03d' "$i").$file_extension"
@@ -222,17 +224,15 @@ for i in $(seq 1 "$file_count"); do
     create_file_contents "after" "$file_path" "$i" "$file_seed"
 done
 
-jj --quiet -R "$repo_dir" bookmark create "$bookmark_name" -r @ >/dev/null 2>&1
-
 total_changed_rows=$((file_count * lines_per_file))
 total_changed_lines=$((total_changed_rows * 2))
 
-printf "Created JJ repo: %s\n" "$repo_dir"
+printf "Created Git repo: %s\n" "$repo_dir"
 printf "Files changed: %d\n" "$file_count"
 printf "Per-file paired rows in Hunk: %d\n" "$lines_per_file"
 printf "Total paired rows in Hunk: %d\n" "$total_changed_rows"
 printf "Total changed lines in patch (+/-): %d\n" "$total_changed_lines"
 printf "Language mode: %s (.%s)\n" "$language" "$file_extension"
 printf "Randomization seed: %s\n" "$run_seed"
-printf "Active bookmark: %s\n" "$bookmark_name"
+printf "Active branch: %s\n" "$branch_name"
 printf "\nOpen this folder in Hunk and watch the FPS badge while scrolling.\n"

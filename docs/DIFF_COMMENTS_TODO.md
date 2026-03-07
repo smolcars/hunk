@@ -12,14 +12,14 @@ Add line-level comments in the diff view so reviewers can:
 ## Finalized Decisions
 
 - Storage engine: shared SQLite app database (`hunk.db`), not TOML.
-- Storage location: global app config dir (`~/.hunkdiff/hunk.db`), not `.jj`.
+- Storage location: global app config dir (`~/.hunkdiff/hunk.db`), not repo-local metadata.
 - App config: keep `~/.hunkdiff/config.toml` as TOML (no migration to SQLite now).
 - Database strategy: one DB for future features; comments are one table namespace inside it.
 - SQL organization: keep schema migrations as `.sql` files; keep runtime query SQL in Rust constants.
 - Scope model:
   - comments are always tied to `repo_root`,
-  - comments are additionally scoped to `bookmark_name` by default in UI,
-  - optional cross-bookmark views are follow-up work.
+  - comments are additionally scoped to `branch_name` by default in UI,
+  - optional cross-branch views are follow-up work.
 - Lifecycle:
   - `open`: active and shown in the main counter.
   - `stale`: anchor no longer maps cleanly after diff changes.
@@ -37,7 +37,7 @@ Use a shared app DB with a `comments` table in Phase 1.
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,
   repo_root TEXT NOT NULL,
-  bookmark_name TEXT NOT NULL,
+  branch_name TEXT NOT NULL,
   created_head_commit TEXT,
 
   status TEXT NOT NULL CHECK (status IN ('open', 'stale', 'resolved')),
@@ -63,8 +63,8 @@ CREATE TABLE IF NOT EXISTS comments (
   resolved_at_unix_ms INTEGER
 );
 
-CREATE INDEX IF NOT EXISTS comments_repo_bookmark_status_idx
-  ON comments(repo_root, bookmark_name, status);
+CREATE INDEX IF NOT EXISTS comments_repo_branch_status_idx
+  ON comments(repo_root, branch_name, status);
 CREATE INDEX IF NOT EXISTS comments_repo_file_idx
   ON comments(repo_root, file_path);
 CREATE INDEX IF NOT EXISTS comments_status_updated_idx
@@ -92,7 +92,7 @@ Notes:
 
 ### Counter + Preview
 
-- Toolbar shows comment counter badge for `open` comments in current scope (`repo_root + bookmark_name`).
+- Toolbar shows comment counter badge for `open` comments in current scope (`repo_root + branch_name`).
 - Clicking badge opens preview panel listing comments (newest first).
 - Each preview item includes:
   - file path + line hint,
@@ -126,7 +126,7 @@ Snippet:
 
 When diff stream is rebuilt:
 
-1. Load scoped comments (`repo_root + bookmark_name`).
+1. Load scoped comments (`repo_root + branch_name`).
 2. For each `open` comment:
    - exact match attempt: file + old/new line and side,
    - fallback: `anchor_hash` against regenerated row snippets in same file.
@@ -203,7 +203,7 @@ Integration points:
 - Open comment counter updates immediately.
 - User can preview and copy one or all comments with diff context.
 - Comments persist across app restart.
-- Switching bookmarks shows only scoped comments for that bookmark.
+- Switching branches shows only scoped comments for that branch.
 - After diff refresh, comments become `open`, `stale`, or `resolved` deterministically.
 
 ## Phase 2: UX and Robustness
@@ -222,13 +222,13 @@ Integration points:
 
 ## Phase 3: Advanced Work
 
-- [ ] Optional cross-bookmark dashboard for same repo.
+- [ ] Optional cross-branch dashboard for same repo.
 - [ ] Optional export template presets for different coding agents.
 - [ ] Optional attachment support (code block snippets, tags, severity).
 
 ## Open Questions
 
-- [ ] Should bookmark scope use current active bookmark only, or include detached states separately?
+- [ ] Should branch scope use current active branch only, or include detached states separately?
 - [ ] Should comment create/edit support markdown in Phase 1, or plain text only?
 - [ ] Should `meta` rows be commentable in Phase 1, or only code rows?
 - [ ] Should `Copy All Open` include stale comments behind a toggle?
