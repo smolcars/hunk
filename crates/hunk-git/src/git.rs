@@ -2,8 +2,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Read as _;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
+use std::time::UNIX_EPOCH;
 
 use anyhow::{Context as _, Result, anyhow};
 use gix::bstr::{BStr, ByteSlice as _};
@@ -182,6 +185,24 @@ enum FileKindClass {
     Unsupported,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SnapshotLoadMode {
+    ReadOnlyLight,
+    RefreshWorkingCopy,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HeadEntrySummary {
+    kind: gix::objs::tree::EntryKind,
+    id: gix::ObjectId,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WorktreeEntrySummary {
+    kind: gix::objs::tree::EntryKind,
+    signature: u64,
+}
+
 #[derive(Debug, Clone)]
 struct SnapshotSeed {
     root: PathBuf,
@@ -203,10 +224,9 @@ struct ResolvedWorkspaceFile {
     status: FileStatus,
     staged: bool,
     untracked: bool,
+    content_signature: u64,
     old_state: Option<FileState>,
     new_state: Option<FileState>,
-    index_has_entry: bool,
-    candidate: CandidateFile,
 }
 
 impl GitRepo {
@@ -231,7 +251,7 @@ impl GitRepo {
     }
 
     pub fn snapshot_fingerprint(&self) -> Result<RepoSnapshotFingerprint> {
-        let seed = load_snapshot_seed(self, false)?;
+        let seed = load_snapshot_seed(self, false, SnapshotLoadMode::RefreshWorkingCopy)?;
         Ok(snapshot_fingerprint(
             seed.root,
             seed.head_ref_name,
@@ -280,47 +300,56 @@ pub fn load_snapshot_without_refresh(path: &Path) -> Result<RepoSnapshot> {
 }
 
 pub fn load_workflow_snapshot(path: &Path) -> Result<WorkflowSnapshot> {
-    let (_, workflow) = load_workflow_snapshot_internal(path)?;
+    let (_, workflow) =
+        load_workflow_snapshot_internal(path, SnapshotLoadMode::RefreshWorkingCopy)?;
     Ok(workflow)
 }
 
 pub fn load_workflow_snapshot_without_refresh(path: &Path) -> Result<WorkflowSnapshot> {
-    load_workflow_snapshot(path)
+    let (_, workflow) = load_workflow_snapshot_internal(path, SnapshotLoadMode::ReadOnlyLight)?;
+    Ok(workflow)
 }
 
 pub fn load_workflow_snapshot_with_fingerprint(
     path: &Path,
 ) -> Result<(RepoSnapshotFingerprint, WorkflowSnapshot)> {
-    load_workflow_snapshot_internal(path)
+    load_workflow_snapshot_internal(path, SnapshotLoadMode::RefreshWorkingCopy)
 }
 
 pub fn load_workflow_snapshot_with_fingerprint_without_refresh(
     path: &Path,
 ) -> Result<(RepoSnapshotFingerprint, WorkflowSnapshot)> {
-    load_workflow_snapshot_internal(path)
+    load_workflow_snapshot_internal(path, SnapshotLoadMode::ReadOnlyLight)
 }
 
 pub fn load_workflow_snapshot_if_changed(
     path: &Path,
     previous_fingerprint: Option<&RepoSnapshotFingerprint>,
 ) -> Result<(RepoSnapshotFingerprint, Option<WorkflowSnapshot>)> {
-    load_workflow_snapshot_if_changed_internal(path, previous_fingerprint)
+    load_workflow_snapshot_if_changed_internal(
+        path,
+        previous_fingerprint,
+        SnapshotLoadMode::RefreshWorkingCopy,
+    )
 }
 
 pub fn load_workflow_snapshot_if_changed_without_refresh(
     path: &Path,
     previous_fingerprint: Option<&RepoSnapshotFingerprint>,
 ) -> Result<(RepoSnapshotFingerprint, Option<WorkflowSnapshot>)> {
-    load_workflow_snapshot_if_changed_internal(path, previous_fingerprint)
+    load_workflow_snapshot_if_changed_internal(
+        path,
+        previous_fingerprint,
+        SnapshotLoadMode::ReadOnlyLight,
+    )
 }
 
 pub fn load_snapshot_fingerprint(path: &Path) -> Result<RepoSnapshotFingerprint> {
-    let repo = open_repo(path)?;
-    repo.snapshot_fingerprint()
+    load_snapshot_fingerprint_internal(path, SnapshotLoadMode::RefreshWorkingCopy)
 }
 
 pub fn load_snapshot_fingerprint_without_refresh(path: &Path) -> Result<RepoSnapshotFingerprint> {
-    load_snapshot_fingerprint(path)
+    load_snapshot_fingerprint_internal(path, SnapshotLoadMode::ReadOnlyLight)
 }
 
 pub fn load_patch(repo_root: &Path, file_path: &str, _: FileStatus) -> Result<String> {
@@ -369,7 +398,7 @@ pub fn load_repo_file_line_stats_for_paths_without_refresh(
 ) -> Result<BTreeMap<String, LineStats>> {
     let repo = open_repo(path)?;
     let entries =
-        collect_workspace_diff_entries(repo.repository(), repo.root(), Some(paths), true)?;
+        collect_workspace_diff_entries_full(repo.repository(), repo.root(), Some(paths), true)?;
     Ok(entries
         .into_iter()
         .map(|(path, entry)| (path, entry.line_stats))
@@ -410,7 +439,7 @@ pub fn invalidate_repo_metadata_caches(repo_root: &Path) {
 
 fn load_snapshot_internal(path: &Path) -> Result<RepoSnapshot> {
     let repo = open_repo(path)?;
-    let seed = load_snapshot_seed(&repo, true)?;
+    let seed = load_snapshot_seed(&repo, true, SnapshotLoadMode::RefreshWorkingCopy)?;
     let files = snapshot_files(seed.entries.values());
     let line_stats = sum_line_stats(seed.entries.values().map(|entry| entry.line_stats));
     let working_copy_commit_id =
@@ -431,9 +460,10 @@ fn load_snapshot_internal(path: &Path) -> Result<RepoSnapshot> {
 
 fn load_workflow_snapshot_internal(
     path: &Path,
+    mode: SnapshotLoadMode,
 ) -> Result<(RepoSnapshotFingerprint, WorkflowSnapshot)> {
     let repo = open_repo(path)?;
-    let seed = load_snapshot_seed(&repo, false)?;
+    let seed = load_snapshot_seed(&repo, false, mode)?;
     let fingerprint = snapshot_fingerprint(
         seed.root.clone(),
         seed.head_ref_name.clone(),
@@ -462,15 +492,37 @@ fn load_workflow_snapshot_internal(
 fn load_workflow_snapshot_if_changed_internal(
     path: &Path,
     previous_fingerprint: Option<&RepoSnapshotFingerprint>,
+    mode: SnapshotLoadMode,
 ) -> Result<(RepoSnapshotFingerprint, Option<WorkflowSnapshot>)> {
-    let (fingerprint, workflow) = load_workflow_snapshot_internal(path)?;
+    let (fingerprint, workflow) = load_workflow_snapshot_internal(path, mode)?;
     if previous_fingerprint == Some(&fingerprint) {
         return Ok((fingerprint, None));
     }
     Ok((fingerprint, Some(workflow)))
 }
 
-fn load_snapshot_seed(repo: &GitRepo, include_line_stats: bool) -> Result<SnapshotSeed> {
+fn load_snapshot_fingerprint_internal(
+    path: &Path,
+    mode: SnapshotLoadMode,
+) -> Result<RepoSnapshotFingerprint> {
+    let repo = open_repo(path)?;
+    let seed = load_snapshot_seed(&repo, false, mode)?;
+    Ok(snapshot_fingerprint(
+        seed.root,
+        seed.head_ref_name,
+        seed.head_commit_id,
+        seed.branch_has_upstream,
+        seed.branch_ahead_count,
+        seed.branch_behind_count,
+        &seed.entries,
+    ))
+}
+
+fn load_snapshot_seed(
+    repo: &GitRepo,
+    include_line_stats: bool,
+    mode: SnapshotLoadMode,
+) -> Result<SnapshotSeed> {
     let head_ref_name = repo
         .repository()
         .head_name()
@@ -481,8 +533,17 @@ fn load_snapshot_seed(repo: &GitRepo, include_line_stats: bool) -> Result<Snapsh
     let (branch_has_upstream, branch_ahead_count, branch_behind_count) =
         current_branch_tracking(repo.repository(), head_ref_name.as_deref())?;
     let branches = list_local_branches(repo.repository(), head_ref_name.as_deref())?;
-    let entries =
-        collect_workspace_diff_entries(repo.repository(), repo.root(), None, include_line_stats)?;
+    let entries = match mode {
+        SnapshotLoadMode::ReadOnlyLight => {
+            collect_workspace_diff_entries_light(repo.repository(), repo.root(), None)?
+        }
+        SnapshotLoadMode::RefreshWorkingCopy => collect_workspace_diff_entries_full(
+            repo.repository(),
+            repo.root(),
+            None,
+            include_line_stats,
+        )?,
+    };
     let last_commit_subject = last_commit_subject(repo.repository())?;
 
     Ok(SnapshotSeed {
@@ -556,14 +617,14 @@ fn render_patches_for_paths(
 
 fn load_repo_file_line_stats(path: &Path) -> Result<BTreeMap<String, LineStats>> {
     let repo = open_repo(path)?;
-    let entries = collect_workspace_diff_entries(repo.repository(), repo.root(), None, true)?;
+    let entries = collect_workspace_diff_entries_full(repo.repository(), repo.root(), None, true)?;
     Ok(entries
         .into_iter()
         .map(|(path, entry)| (path, entry.line_stats))
         .collect())
 }
 
-fn collect_workspace_diff_entries(
+fn collect_workspace_diff_entries_full(
     repo: &gix::Repository,
     root: &Path,
     requested_paths: Option<&BTreeSet<String>>,
@@ -572,34 +633,116 @@ fn collect_workspace_diff_entries(
     let resolved = resolve_workspace_files(repo, root, requested_paths)?;
     Ok(resolved
         .into_iter()
-        .map(|file| {
-            let line_stats = if include_line_stats {
-                line_stats_from_file_states(file.old_state.as_ref(), file.new_state.as_ref())
-            } else {
-                LineStats::default()
-            };
-            let content_signature = workspace_entry_signature(
-                file.status,
-                file.old_state.as_ref(),
-                file.new_state.as_ref(),
-                file.index_has_entry,
-                &file.candidate,
-            );
-            (
-                file.path.clone(),
-                WorkspaceDiffEntry {
-                    file: ChangedFile {
-                        path: file.path,
-                        status: file.status,
-                        staged: file.staged,
-                        untracked: file.untracked,
-                    },
-                    line_stats,
-                    content_signature,
-                },
-            )
-        })
+        .map(|file| workspace_diff_entry_from_resolved(file, include_line_stats))
         .collect())
+}
+
+fn collect_workspace_diff_entries_light(
+    repo: &gix::Repository,
+    root: &Path,
+    requested_paths: Option<&BTreeSet<String>>,
+) -> Result<BTreeMap<String, WorkspaceDiffEntry>> {
+    let candidates = collect_candidate_files(repo, root, requested_paths)?;
+    if candidates.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+
+    let head_tree = repo
+        .head_commit()
+        .ok()
+        .and_then(|commit| commit.tree().ok());
+    let (mut filter_pipeline, filter_index_storage) = repo.filter_pipeline(None)?;
+    let filter_index = index_state(&filter_index_storage);
+    let mut entries = BTreeMap::new();
+
+    for (path, candidate) in candidates {
+        if candidate.staged_status.is_some() {
+            if let Some(file) = resolve_workspace_file_full(
+                repo,
+                root,
+                head_tree.as_ref(),
+                &mut filter_pipeline,
+                filter_index,
+                path,
+                candidate,
+            )? {
+                let (path, entry) = workspace_diff_entry_from_resolved(file, false);
+                entries.insert(path, entry);
+            }
+            continue;
+        }
+
+        let rename_from = candidate.rename_from.clone();
+        let old_entry = head_entry_summary(
+            head_tree.as_ref(),
+            rename_from.as_deref().unwrap_or(path.as_str()),
+        )?;
+        let new_entry = worktree_entry_summary(root, path.as_str())?;
+        let index_has_entry = filter_index
+            .entry_by_path(path.as_bytes().as_bstr())
+            .is_some();
+        let status = if candidate.staged_status == Some(FileStatus::Conflicted)
+            || candidate.worktree_status == Some(FileStatus::Conflicted)
+        {
+            Some(FileStatus::Conflicted)
+        } else {
+            aggregate_file_status_from_summaries(
+                old_entry.as_ref(),
+                new_entry.as_ref(),
+                index_has_entry,
+                rename_from.as_deref(),
+            )
+        };
+        let Some(status) = status else {
+            continue;
+        };
+        let content_signature = workspace_entry_signature_light(
+            status,
+            old_entry.as_ref(),
+            new_entry.as_ref(),
+            index_has_entry,
+            &candidate,
+        );
+        entries.insert(
+            path.clone(),
+            WorkspaceDiffEntry {
+                file: ChangedFile {
+                    path,
+                    status,
+                    staged: false,
+                    untracked: matches!(status, FileStatus::Untracked),
+                },
+                line_stats: LineStats::default(),
+                content_signature,
+            },
+        );
+    }
+
+    Ok(entries)
+}
+
+fn workspace_diff_entry_from_resolved(
+    file: ResolvedWorkspaceFile,
+    include_line_stats: bool,
+) -> (String, WorkspaceDiffEntry) {
+    let line_stats = if include_line_stats {
+        line_stats_from_file_states(file.old_state.as_ref(), file.new_state.as_ref())
+    } else {
+        LineStats::default()
+    };
+    (
+        file.path.clone(),
+        WorkspaceDiffEntry {
+            file: ChangedFile {
+                path: file.path,
+                status: file.status,
+                staged: file.staged,
+                untracked: file.untracked,
+            },
+            line_stats,
+            content_signature: file.content_signature,
+        },
+    )
 }
 
 fn resolve_workspace_files(
@@ -621,44 +764,73 @@ fn resolve_workspace_files(
     let mut resolved = Vec::with_capacity(candidates.len());
 
     for (path, candidate) in candidates {
-        let rename_from = candidate.rename_from.clone();
-        let old_state = head_file_state(
+        if let Some(file) = resolve_workspace_file_full(
             repo,
+            root,
             head_tree.as_ref(),
-            rename_from.as_deref().unwrap_or(path.as_str()),
-        )?;
-        let new_state =
-            worktree_file_state(repo, root, &mut filter_pipeline, index, path.as_str())?;
-        let index_has_entry = index.entry_by_path(path.as_bytes().as_bstr()).is_some();
-        let status = if candidate.staged_status == Some(FileStatus::Conflicted)
-            || candidate.worktree_status == Some(FileStatus::Conflicted)
-        {
-            Some(FileStatus::Conflicted)
-        } else {
-            aggregate_file_status(
-                old_state.as_ref(),
-                new_state.as_ref(),
-                index_has_entry,
-                rename_from.as_deref(),
-            )
-        };
-        let Some(status) = status else {
-            continue;
-        };
-        resolved.push(ResolvedWorkspaceFile {
-            staged: candidate.staged_status.is_some(),
-            untracked: matches!(status, FileStatus::Untracked),
+            &mut filter_pipeline,
+            index,
             path,
-            rename_from,
-            status,
-            old_state,
-            new_state,
-            index_has_entry,
             candidate,
-        });
+        )? {
+            resolved.push(file);
+        }
     }
 
     Ok(resolved)
+}
+
+fn resolve_workspace_file_full(
+    repo: &gix::Repository,
+    root: &Path,
+    head_tree: Option<&gix::Tree<'_>>,
+    filter_pipeline: &mut gix::filter::Pipeline<'_>,
+    index: &gix::index::State,
+    path: String,
+    candidate: CandidateFile,
+) -> Result<Option<ResolvedWorkspaceFile>> {
+    let rename_from = candidate.rename_from.clone();
+    let old_entry = head_entry_summary(head_tree, rename_from.as_deref().unwrap_or(path.as_str()))?;
+    let old_state = head_file_state(
+        repo,
+        head_tree,
+        rename_from.as_deref().unwrap_or(path.as_str()),
+    )?;
+    let new_state = worktree_file_state(repo, root, filter_pipeline, index, path.as_str())?;
+    let new_entry = worktree_entry_summary(root, path.as_str())?;
+    let index_has_entry = index.entry_by_path(path.as_bytes().as_bstr()).is_some();
+    let status = if candidate.staged_status == Some(FileStatus::Conflicted)
+        || candidate.worktree_status == Some(FileStatus::Conflicted)
+    {
+        Some(FileStatus::Conflicted)
+    } else {
+        aggregate_file_status(
+            old_state.as_ref(),
+            new_state.as_ref(),
+            index_has_entry,
+            rename_from.as_deref(),
+        )
+    };
+    let Some(status) = status else {
+        return Ok(None);
+    };
+    let content_signature = workspace_entry_signature_light(
+        status,
+        old_entry.as_ref(),
+        new_entry.as_ref(),
+        index_has_entry,
+        &candidate,
+    );
+    Ok(Some(ResolvedWorkspaceFile {
+        staged: candidate.staged_status.is_some(),
+        untracked: matches!(status, FileStatus::Untracked),
+        path,
+        rename_from,
+        status,
+        content_signature,
+        old_state,
+        new_state,
+    }))
 }
 
 fn collect_candidate_files(
@@ -894,6 +1066,26 @@ fn head_file_state(
     }))
 }
 
+fn head_entry_summary(
+    head_tree: Option<&gix::Tree<'_>>,
+    path: &str,
+) -> Result<Option<HeadEntrySummary>> {
+    let Some(head_tree) = head_tree else {
+        return Ok(None);
+    };
+    let Some(entry) = head_tree
+        .lookup_entry_by_path(Path::new(path))
+        .with_context(|| format!("failed to look up HEAD tree entry for '{path}'"))?
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(HeadEntrySummary {
+        kind: entry.mode().kind(),
+        id: entry.object_id(),
+    }))
+}
+
 fn worktree_file_state(
     repo: &gix::Repository,
     root: &Path,
@@ -957,6 +1149,50 @@ fn worktree_file_state(
     Ok(None)
 }
 
+fn worktree_entry_summary(root: &Path, path: &str) -> Result<Option<WorktreeEntrySummary>> {
+    let absolute_path = root.join(path);
+    let metadata = match fs::symlink_metadata(absolute_path.as_path()) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!(
+                    "failed to inspect worktree file '{}'",
+                    absolute_path.display()
+                )
+            });
+        }
+    };
+
+    if metadata.is_symlink() {
+        let target = fs::read_link(absolute_path.as_path())
+            .with_context(|| format!("failed to read symlink '{}'", absolute_path.display()))?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        hash_file_metadata(&metadata, &mut hasher);
+        target.hash(&mut hasher);
+        return Ok(Some(WorktreeEntrySummary {
+            kind: gix::objs::tree::EntryKind::Link,
+            signature: hasher.finish(),
+        }));
+    }
+
+    if metadata.is_file() {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        hash_file_metadata(&metadata, &mut hasher);
+        let kind = if gix::fs::is_executable(&metadata) {
+            gix::objs::tree::EntryKind::BlobExecutable
+        } else {
+            gix::objs::tree::EntryKind::Blob
+        };
+        return Ok(Some(WorktreeEntrySummary {
+            kind,
+            signature: hasher.finish(),
+        }));
+    }
+
+    Ok(None)
+}
+
 fn aggregate_file_status(
     old_state: Option<&FileState>,
     new_state: Option<&FileState>,
@@ -987,10 +1223,37 @@ fn aggregate_file_status(
     }
 }
 
-fn workspace_entry_signature(
+fn aggregate_file_status_from_summaries(
+    old_entry: Option<&HeadEntrySummary>,
+    new_entry: Option<&WorktreeEntrySummary>,
+    index_has_entry: bool,
+    rename_from: Option<&str>,
+) -> Option<FileStatus> {
+    if rename_from.is_some() && old_entry.is_some() {
+        return Some(FileStatus::Renamed);
+    }
+
+    match (old_entry, new_entry) {
+        (None, None) => None,
+        (None, Some(_)) => Some(if index_has_entry {
+            FileStatus::Added
+        } else {
+            FileStatus::Untracked
+        }),
+        (Some(_), None) => Some(FileStatus::Deleted),
+        (Some(old_entry), Some(new_entry)) => {
+            if file_kind_class(old_entry.kind) != file_kind_class(new_entry.kind) {
+                return Some(FileStatus::TypeChange);
+            }
+            Some(FileStatus::Modified)
+        }
+    }
+}
+
+fn workspace_entry_signature_light(
     status: FileStatus,
-    old_state: Option<&FileState>,
-    new_state: Option<&FileState>,
+    old_entry: Option<&HeadEntrySummary>,
+    new_entry: Option<&WorktreeEntrySummary>,
     index_has_entry: bool,
     candidate: &CandidateFile,
 ) -> u64 {
@@ -1000,20 +1263,34 @@ fn workspace_entry_signature(
     candidate.staged_status.hash(&mut hasher);
     candidate.worktree_status.hash(&mut hasher);
     candidate.rename_from.hash(&mut hasher);
-    hash_file_state(old_state, &mut hasher);
-    hash_file_state(new_state, &mut hasher);
+    hash_head_entry_summary(old_entry, &mut hasher);
+    hash_worktree_entry_summary(new_entry, &mut hasher);
     hasher.finish()
 }
 
-fn hash_file_state(
-    state: Option<&FileState>,
+fn hash_head_entry_summary(
+    entry: Option<&HeadEntrySummary>,
     hasher: &mut std::collections::hash_map::DefaultHasher,
 ) {
-    match state {
-        Some(state) => {
+    match entry {
+        Some(entry) => {
             true.hash(hasher);
-            file_state_kind_tag(state.kind).hash(hasher);
-            state.id.hash(hasher);
+            file_state_kind_tag(entry.kind).hash(hasher);
+            entry.id.hash(hasher);
+        }
+        None => false.hash(hasher),
+    }
+}
+
+fn hash_worktree_entry_summary(
+    entry: Option<&WorktreeEntrySummary>,
+    hasher: &mut std::collections::hash_map::DefaultHasher,
+) {
+    match entry {
+        Some(entry) => {
+            true.hash(hasher);
+            file_state_kind_tag(entry.kind).hash(hasher);
+            entry.signature.hash(hasher);
         }
         None => false.hash(hasher),
     }
@@ -1026,6 +1303,29 @@ fn file_state_kind_tag(kind: gix::objs::tree::EntryKind) -> u8 {
         gix::objs::tree::EntryKind::Link => 3,
         gix::objs::tree::EntryKind::Tree => 4,
         gix::objs::tree::EntryKind::Commit => 5,
+    }
+}
+
+fn hash_file_metadata(
+    metadata: &fs::Metadata,
+    hasher: &mut std::collections::hash_map::DefaultHasher,
+) {
+    metadata.len().hash(hasher);
+    if let Ok(modified) = metadata.modified()
+        && let Ok(duration) = modified.duration_since(UNIX_EPOCH)
+    {
+        duration.as_secs().hash(hasher);
+        duration.subsec_nanos().hash(hasher);
+    }
+    #[cfg(unix)]
+    {
+        metadata.dev().hash(hasher);
+        metadata.ino().hash(hasher);
+        metadata.mode().hash(hasher);
+        metadata.mtime().hash(hasher);
+        metadata.mtime_nsec().hash(hasher);
+        metadata.ctime().hash(hasher);
+        metadata.ctime_nsec().hash(hasher);
     }
 }
 

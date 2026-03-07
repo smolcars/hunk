@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 use anyhow::Result;
 use git2::{
@@ -12,7 +14,7 @@ use hunk_git::git::{
     load_patches_for_files_from_session, load_repo_file_line_stats_without_refresh,
     load_repo_line_stats, load_repo_tree, load_workflow_snapshot,
     load_workflow_snapshot_if_changed_without_refresh, load_workflow_snapshot_with_fingerprint,
-    open_patch_session,
+    load_workflow_snapshot_without_refresh, open_patch_session,
 };
 use tempfile::TempDir;
 
@@ -92,6 +94,32 @@ fn workflow_snapshot_reports_branch_files_line_stats_and_upstream_state() -> Res
 }
 
 #[test]
+fn workflow_snapshot_without_refresh_matches_full_snapshot_for_worktree_changes() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("src/lib.rs", "one\ntwo\n")?;
+    fixture.write_file("src/old_name.rs", "rename me\n")?;
+    fixture.commit_all("initial")?;
+
+    fixture.write_file("src/lib.rs", "one\nthree\n")?;
+    fixture.rename_path("src/old_name.rs", "src/new_name.rs")?;
+    fixture.write_file("notes.txt", "alpha\n")?;
+
+    let full = load_workflow_snapshot(fixture.root())?;
+    let light = load_workflow_snapshot_without_refresh(fixture.root())?;
+
+    assert_eq!(light.root, full.root);
+    assert_eq!(light.branch_name, full.branch_name);
+    assert_eq!(light.branch_has_upstream, full.branch_has_upstream);
+    assert_eq!(light.branch_ahead_count, full.branch_ahead_count);
+    assert_eq!(light.branch_behind_count, full.branch_behind_count);
+    assert_eq!(light.branches, full.branches);
+    assert_eq!(light.files, full.files);
+    assert_eq!(light.last_commit_subject, full.last_commit_subject);
+    assert_eq!(light.working_copy_commit_id, full.working_copy_commit_id);
+    Ok(())
+}
+
+#[test]
 fn workflow_snapshot_fingerprint_changes_for_worktree_edits() -> Result<()> {
     let fixture = TempGitRepo::new()?;
     fixture.write_file("tracked.txt", "base\n")?;
@@ -113,6 +141,40 @@ fn workflow_snapshot_fingerprint_changes_for_worktree_edits() -> Result<()> {
     assert_eq!(next_workflow.files.len(), 1);
     assert_eq!(next_workflow.files[0].path, "tracked.txt");
     assert_eq!(next_workflow.files[0].status, FileStatus::Modified);
+    Ok(())
+}
+
+#[test]
+fn workflow_snapshot_fingerprint_changes_for_same_size_modified_edits_without_refresh() -> Result<()>
+{
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "base\n")?;
+    fixture.commit_all("initial")?;
+    fixture.write_file("tracked.txt", "base\n1111\n")?;
+
+    let (previous_fingerprint, previous_workflow) =
+        load_workflow_snapshot_with_fingerprint(fixture.root())?;
+    assert_eq!(previous_workflow.files.len(), 1);
+    assert_eq!(previous_workflow.files[0].status, FileStatus::Modified);
+
+    thread::sleep(Duration::from_millis(1100));
+    fixture.write_file("tracked.txt", "base\n2222\n")?;
+
+    let (next_fingerprint, next_workflow) = load_workflow_snapshot_if_changed_without_refresh(
+        fixture.root(),
+        Some(&previous_fingerprint),
+    )?;
+
+    assert_ne!(previous_fingerprint, next_fingerprint);
+    let next_workflow =
+        next_workflow.expect("same-size content change should invalidate fingerprint");
+    assert_eq!(next_workflow.files.len(), 1);
+    assert_eq!(next_workflow.files[0].path, "tracked.txt");
+    assert_eq!(next_workflow.files[0].status, FileStatus::Modified);
+    assert_ne!(
+        previous_workflow.working_copy_commit_id,
+        next_workflow.working_copy_commit_id
+    );
     Ok(())
 }
 

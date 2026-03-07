@@ -943,7 +943,7 @@ impl DiffViewer {
                     .ok()
                     .and_then(|path| resolve_bundled_codex_executable_from_exe(path.as_path()))
             })
-            .or_else(|| {
+            .or({
                 #[cfg(target_os = "windows")]
                 {
                     resolve_windows_command_path(std::path::Path::new("codex"))
