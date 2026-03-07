@@ -74,7 +74,10 @@ fn sync_branch_fast_forwards_checked_out_branch() -> Result<()> {
     let snapshot = load_workflow_snapshot(fixture.root())?;
     assert_eq!(snapshot.branch_ahead_count, 0);
     assert_eq!(snapshot.branch_behind_count, 0);
-    assert_eq!(snapshot.last_commit_subject.as_deref(), Some("remote update"));
+    assert_eq!(
+        snapshot.last_commit_subject.as_deref(),
+        Some("remote update")
+    );
     assert_eq!(
         fs::read_to_string(fixture.root().join("tracked.txt"))?,
         "base\nremote\n"

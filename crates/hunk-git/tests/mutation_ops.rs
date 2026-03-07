@@ -152,7 +152,10 @@ fn restore_working_copy_paths_restores_tracked_and_removes_untracked() -> Result
 
     let snapshot = load_workflow_snapshot(fixture.root())?;
     assert_eq!(restored, 2);
-    assert_eq!(fs::read_to_string(fixture.root().join("tracked.txt"))?, "base\n");
+    assert_eq!(
+        fs::read_to_string(fixture.root().join("tracked.txt"))?,
+        "base\n"
+    );
     assert!(!fixture.root().join("scratch.txt").exists());
     assert!(snapshot.files.is_empty());
     Ok(())

@@ -402,11 +402,11 @@ Phase completion rule:
 
 ### Phase 8: Validation, Perf Signoff, and Release Readiness
 
-- [ ] Run `cargo fmt --all`.
-- [ ] Run `cargo build --workspace`.
-- [ ] Run `cargo clippy --workspace --all-targets -- -D warnings`.
-- [ ] Run `cargo test`.
-- [ ] Run the performance harness from [docs/PERFORMANCE_BENCHMARK.md](/Volumes/hulk/dev/projects/hunk/docs/PERFORMANCE_BENCHMARK.md).
+- [x] Run `cargo fmt --all`.
+- [x] Run `cargo build --workspace`.
+- [x] Run `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] Run `cargo test`.
+- [x] Run the performance harness from [docs/PERFORMANCE_BENCHMARK.md](/Volumes/hulk/dev/projects/hunk/docs/PERFORMANCE_BENCHMARK.md).
 - [ ] Perform manual QA for:
   - [ ] open project
   - [ ] refresh after file changes
@@ -423,6 +423,14 @@ Phase completion rule:
   - [ ] Re-read every touched file for correctness and maintainability.
   - [ ] Remove any temporary migration scaffolding that survived too long.
   - [ ] Confirm no file has grown beyond maintainable size.
+
+Current Git perf snapshot (2026-03-07, `--no-gate`, `ts`, `50 files x 10000 lines`):
+
+- `ttfd_ms=5.53`
+- `selected_file_latency_ms=19.79`
+- `full_stream_ms=198.18`
+- `scroll_fps_avg=288.81`
+- `scroll_fps_p95=313.23`
 
 ## Acceptance Criteria
 

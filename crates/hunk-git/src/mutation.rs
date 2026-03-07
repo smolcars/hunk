@@ -355,7 +355,8 @@ fn remove_worktree_path(path: &Path) -> Result<()> {
         std::fs::remove_dir_all(path)
             .with_context(|| format!("failed to remove {}", path.display()))?;
     } else {
-        std::fs::remove_file(path).with_context(|| format!("failed to remove {}", path.display()))?;
+        std::fs::remove_file(path)
+            .with_context(|| format!("failed to remove {}", path.display()))?;
     }
     Ok(())
 }

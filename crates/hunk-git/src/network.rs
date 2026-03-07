@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, anyhow};
 use git2::{
-    AutotagOption, BranchType, CredentialType, Cred, FetchOptions, PushOptions, RemoteCallbacks,
+    AutotagOption, BranchType, Cred, CredentialType, FetchOptions, PushOptions, RemoteCallbacks,
     Repository,
 };
 
@@ -66,7 +66,9 @@ pub fn push_current_branch(
     if !require_existing_upstream {
         let mut branch = repo.find_branch(branch_name, BranchType::Local)?;
         branch
-            .set_upstream(Some(format!("{}/{}", upstream.remote_name, upstream.remote_branch_name).as_str()))
+            .set_upstream(Some(
+                format!("{}/{}", upstream.remote_name, upstream.remote_branch_name).as_str(),
+            ))
             .with_context(|| {
                 format!(
                     "failed to set upstream for branch '{branch_name}' to '{}/{}'",
@@ -208,9 +210,7 @@ fn resolve_upstream_target(repo: &Repository, branch_name: &str) -> Result<Optio
     let tracking_ref_name = match repo.branch_upstream_name(local_ref_name.as_str()) {
         Ok(name) => name
             .as_str()
-            .ok_or_else(|| {
-                anyhow!("tracking branch name for '{branch_name}' is not valid UTF-8")
-            })?
+            .ok_or_else(|| anyhow!("tracking branch name for '{branch_name}' is not valid UTF-8"))?
             .to_string(),
         Err(err)
             if matches!(
@@ -248,12 +248,16 @@ fn resolve_publish_remote_name(repo: &Repository, branch_name: &str) -> Result<S
         }
     }
 
-    let remotes = repo.remotes().context("failed to list configured Git remotes")?;
+    let remotes = repo
+        .remotes()
+        .context("failed to list configured Git remotes")?;
     if remotes.iter().flatten().any(|name| name == "origin") {
         return Ok("origin".to_string());
     }
     if remotes.len() == 1 {
-        let remote_name = remotes.get(0).ok_or_else(|| anyhow!("remote name is missing"))?;
+        let remote_name = remotes
+            .get(0)
+            .ok_or_else(|| anyhow!("remote name is missing"))?;
         return Ok(remote_name.to_string());
     }
     if remotes.len() > 1 {
@@ -313,9 +317,7 @@ fn fast_forward_branch(
             format!("hunk sync fast-forward from {tracking_ref_name}").as_str(),
         )
         .with_context(|| {
-            format!(
-                "failed to fast-forward branch '{branch_name}' to '{tracking_ref_name}'"
-            )
+            format!("failed to fast-forward branch '{branch_name}' to '{tracking_ref_name}'")
         })?;
     Ok(())
 }
@@ -334,7 +336,11 @@ fn update_tracking_ref_to_local_head(repo: &Repository, branch_name: &str) -> Re
         upstream.tracking_ref_name.as_str(),
         local_target,
         true,
-        format!("hunk update tracking ref for {}", local_branch_ref_name(branch_name)).as_str(),
+        format!(
+            "hunk update tracking ref for {}",
+            local_branch_ref_name(branch_name)
+        )
+        .as_str(),
     )
     .with_context(|| {
         format!(
@@ -359,7 +365,9 @@ fn push_options(repo: &Repository) -> Result<PushOptions<'static>> {
 }
 
 fn remote_callbacks(repo: &Repository) -> Result<RemoteCallbacks<'static>> {
-    let config = repo.config().context("failed to load Git config for authentication")?;
+    let config = repo
+        .config()
+        .context("failed to load Git config for authentication")?;
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(move |url, username_from_url, allowed| {
         resolve_credentials(&config, url, username_from_url, allowed)
@@ -373,7 +381,9 @@ fn resolve_credentials(
     username_from_url: Option<&str>,
     allowed: CredentialType,
 ) -> std::result::Result<Cred, git2::Error> {
-    if allowed.contains(CredentialType::USERNAME) && let Some(username) = username_from_url {
+    if allowed.contains(CredentialType::USERNAME)
+        && let Some(username) = username_from_url
+    {
         return Cred::username(username);
     }
 
@@ -390,7 +400,9 @@ fn resolve_credentials(
         return Ok(cred);
     }
 
-    if allowed.contains(CredentialType::DEFAULT) && let Ok(cred) = Cred::default() {
+    if allowed.contains(CredentialType::DEFAULT)
+        && let Ok(cred) = Cred::default()
+    {
         return Ok(cred);
     }
 
