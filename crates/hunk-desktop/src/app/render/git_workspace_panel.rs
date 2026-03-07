@@ -427,7 +427,10 @@ impl DiffViewer {
         let branch_syncable = self.can_run_active_branch_actions();
         let sync_disabled = !self.can_sync_current_branch();
         let publish_disabled = !self.can_publish_current_branch();
-        let rename_disabled = self.git_action_loading || !self.can_run_active_branch_actions();
+        let rename_disabled = self.git_action_loading
+            || !self.can_run_active_branch_actions()
+            || !self.branch_input_has_text;
+        let create_or_activate_disabled = self.git_action_loading || !self.branch_input_has_text;
         let active_review_blocker = self.active_review_action_blocker();
         let review_url_disabled = active_review_blocker.is_some();
         let active_branch_label = self
@@ -615,7 +618,7 @@ impl DiffViewer {
                             .tooltip(
                                 "Create a branch from the entered name or activate it if it already exists.",
                             )
-                            .disabled(self.git_action_loading)
+                            .disabled(create_or_activate_disabled)
                             .on_click(move |_, window, cx| {
                                 view.update(cx, |this, cx| {
                                     this.create_or_switch_branch_from_input(window, cx);

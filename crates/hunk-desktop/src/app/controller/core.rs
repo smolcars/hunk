@@ -402,6 +402,7 @@ impl DiffViewer {
             files: Vec::new(),
             file_status_by_path: BTreeMap::new(),
             branch_input_state,
+            branch_input_has_text: false,
             commit_input_state,
             staged_commit_files: BTreeSet::new(),
             last_commit_subject: None,
@@ -494,6 +495,16 @@ impl DiffViewer {
         let editor_state = view.editor_input_state.clone();
         cx.observe(&editor_state, |this, _, cx| {
             this.sync_editor_dirty_from_input(cx);
+        })
+        .detach();
+
+        let branch_input_state = view.branch_input_state.clone();
+        cx.subscribe(&branch_input_state, |this, _, event, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.branch_input_has_text =
+                    !this.branch_input_state.read(cx).value().trim().is_empty();
+                cx.notify();
+            }
         })
         .detach();
 

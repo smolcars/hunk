@@ -1047,6 +1047,7 @@ struct DiffViewer {
     files: Vec<ChangedFile>,
     file_status_by_path: BTreeMap<String, FileStatus>,
     branch_input_state: Entity<InputState>,
+    branch_input_has_text: bool,
     commit_input_state: Entity<InputState>,
     staged_commit_files: BTreeSet<String>,
     last_commit_subject: Option<String>,
