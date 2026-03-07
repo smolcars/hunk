@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+#[cfg(unix)]
 use std::io;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -28,7 +29,9 @@ use crate::errors::Result;
 const STDERR_BUFFER_LIMIT: usize = 256;
 const READY_PROBE_INTERVAL: Duration = Duration::from_millis(75);
 const READY_PROBE_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
+#[cfg(unix)]
 const STOP_TERM_GRACE_TIMEOUT: Duration = Duration::from_millis(750);
+#[cfg(unix)]
 const STOP_TERM_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const STDERR_READER_JOIN_TIMEOUT: Duration = Duration::from_millis(750);
 static TRACKED_HOST_PROCESS_IDS: OnceLock<Mutex<BTreeSet<u32>>> = OnceLock::new();
@@ -253,6 +256,7 @@ impl HostRuntime {
 
         #[cfg(not(unix))]
         {
+            let _ = process_id;
             if let Err(error) = child.kill() {
                 let already_exited = matches!(child.try_wait(), Ok(Some(_)));
                 if !already_exited {
@@ -388,6 +392,7 @@ impl HostRuntime {
     }
 }
 
+#[cfg(unix)]
 fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> io::Result<bool> {
     let started_at = Instant::now();
     loop {

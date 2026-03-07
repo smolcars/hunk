@@ -8,11 +8,13 @@ use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
+#[cfg(unix)]
 use std::time::Instant;
 
 use hunk_codex::host::HostConfig;
 use hunk_codex::host::HostLifecycleState;
 use hunk_codex::host::HostRuntime;
+#[cfg(unix)]
 use hunk_codex::host::cleanup_tracked_hosts_for_shutdown;
 use tempfile::TempDir;
 use tungstenite::Message;
