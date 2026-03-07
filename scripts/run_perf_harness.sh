@@ -2,9 +2,12 @@
 set -euo pipefail
 
 repo_dir=""
+scenario="default"
 lang="ts"
 files=50
 lines=10000
+files_explicit=0
+lines_explicit=0
 enforce=1
 max_ttfd_ms=300
 max_selected_file_ms=800
@@ -18,13 +21,14 @@ build_profile="--release"
 
 usage() {
     cat <<'USAGE'
-Run Hunk's large-diff performance harness and enforce perf thresholds.
+Run Hunk's performance harness and enforce perf thresholds.
 
 Usage:
   ./scripts/run_perf_harness.sh [options]
 
 Options:
   --repo <path>                   Use an existing Git repo fixture
+  --scenario <name>               Fixture scenario: default | many-files-small-patches | rename-heavy | binary-heavy | ignored-tree-pressure
   --lang <txt|js|ts>              Fixture language (default: ts)
   --files <count>                 Fixture changed file count (default: 50)
   --lines <count>                 Changed lines per file (default: 10000)
@@ -42,6 +46,7 @@ Options:
 
 Examples:
   ./scripts/run_perf_harness.sh
+  ./scripts/run_perf_harness.sh --scenario many-files-small-patches --no-gate
   ./scripts/run_perf_harness.sh --lang txt --no-gate
   ./scripts/run_perf_harness.sh --repo /tmp/hunk-large-diff-repo --min-scroll-fps 100
 USAGE
@@ -63,6 +68,11 @@ while [[ $# -gt 0 ]]; do
             repo_dir="$2"
             shift 2
             ;;
+        --scenario)
+            [[ $# -ge 2 ]] || { echo "Missing value for --scenario" >&2; exit 1; }
+            scenario="$2"
+            shift 2
+            ;;
         --lang)
             [[ $# -ge 2 ]] || { echo "Missing value for --lang" >&2; exit 1; }
             lang="$2"
@@ -71,11 +81,13 @@ while [[ $# -gt 0 ]]; do
         --files)
             [[ $# -ge 2 ]] || { echo "Missing value for --files" >&2; exit 1; }
             files="$2"
+            files_explicit=1
             shift 2
             ;;
         --lines)
             [[ $# -ge 2 ]] || { echo "Missing value for --lines" >&2; exit 1; }
             lines="$2"
+            lines_explicit=1
             shift 2
             ;;
         --no-gate)
@@ -138,6 +150,41 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+case "$scenario" in
+    large-diff)
+        scenario="default"
+        ;;
+    default|many-files-small-patches|rename-heavy|binary-heavy|ignored-tree-pressure)
+        ;;
+    *)
+        echo "--scenario must be one of: default, many-files-small-patches, rename-heavy, binary-heavy, ignored-tree-pressure" >&2
+        exit 1
+        ;;
+esac
+
+apply_scenario_defaults() {
+    case "$scenario" in
+        many-files-small-patches)
+            [[ "$files_explicit" -eq 1 ]] || files=400
+            [[ "$lines_explicit" -eq 1 ]] || lines=80
+            ;;
+        rename-heavy)
+            [[ "$files_explicit" -eq 1 ]] || files=150
+            [[ "$lines_explicit" -eq 1 ]] || lines=400
+            ;;
+        binary-heavy)
+            [[ "$files_explicit" -eq 1 ]] || files=60
+            [[ "$lines_explicit" -eq 1 ]] || lines=1500
+            ;;
+        ignored-tree-pressure)
+            [[ "$files_explicit" -eq 1 ]] || files=50
+            [[ "$lines_explicit" -eq 1 ]] || lines=2000
+            ;;
+    esac
+}
+
+apply_scenario_defaults
+
 case "$lang" in
     txt|js|ts) ;;
     *)
@@ -158,8 +205,9 @@ is_positive_number "$max_selected_file_ms" || { echo "--max-selected-ms must be 
 is_positive_number "$min_scroll_fps" || { echo "--min-scroll-fps must be a positive number" >&2; exit 1; }
 
 if [[ -z "$repo_dir" ]]; then
-    repo_dir="/tmp/hunk-perf-fixture-${lang}-${files}f-${lines}l-$(date +%s)-$$"
+    repo_dir="/tmp/hunk-perf-fixture-${scenario}-${lang}-${files}f-${lines}l-$(date +%s)-$$"
     ./scripts/create_large_diff_repo.sh \
+        --scenario "$scenario" \
         --dir "$repo_dir" \
         --files "$files" \
         --lines "$lines" \
@@ -169,10 +217,12 @@ fi
 
 echo "Running performance harness"
 echo "  repo: $repo_dir"
+echo "  scenario: $scenario"
 echo "  gate: $enforce"
 echo "  thresholds: ttfd<=${max_ttfd_ms}ms selected<=${max_selected_file_ms}ms scroll_p95>=${min_scroll_fps}fps"
 
 HUNK_PERF_REPO="$repo_dir" \
+HUNK_PERF_SCENARIO="$scenario" \
 HUNK_PERF_LANG="$lang" \
 HUNK_PERF_FILES="$files" \
 HUNK_PERF_LINES="$lines" \

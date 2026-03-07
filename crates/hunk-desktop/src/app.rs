@@ -58,7 +58,8 @@ use data::{
 };
 use refresh_policy::{
     SnapshotRefreshBehavior, SnapshotRefreshPriority, SnapshotRefreshRequest, diff_state_changed,
-    repo_watch_refresh_request, should_reload_diff_after_snapshot,
+    line_stats_paths_from_dirty_paths, missing_line_stat_paths, repo_watch_refresh_request,
+    should_refresh_line_stats_after_snapshot, should_reload_diff_after_snapshot,
     should_reload_repo_tree_after_snapshot, should_run_cold_start_reconcile,
     should_scroll_selected_after_reload,
 };

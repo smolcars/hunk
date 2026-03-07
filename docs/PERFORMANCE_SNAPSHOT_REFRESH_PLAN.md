@@ -2,7 +2,7 @@
 
 Date: 2026-03-07
 Owner: Codex
-Status: Phase 1 Complete
+Status: Phases 1-3 Complete, Phase 4 Not Required
 Scope: Reduce unnecessary snapshot and diff-refresh cost in the Git backend and desktop refresh controller without changing product behavior.
 
 ## Problem
@@ -197,6 +197,9 @@ The difficult part is correctness, not raw code volume. The controller already h
 
 - Plan written
 - Phase 1 complete
+- Phase 2 complete
+- Phase 3 complete
+- Phase 4 reviewed and closed with no additional product-path optimization required right now
 
 ## Phase 1 Result
 
@@ -226,3 +229,75 @@ Current large-diff harness snapshot:
 - `selected_file_latency_ms=20.97`
 - `full_stream_ms=194.07`
 - `scroll_fps_p95=317.41`
+
+## Phase 2 Result
+
+Implemented in `crates/hunk-desktop`:
+
+- no-op and forced refreshes now preserve cached per-file line stats when the diff state did not actually change
+- background read-only refreshes still skip line-stat work entirely
+- background dirty-path refreshes continue using path-scoped line-stat reloads
+- missing cached line stats are filled in path-scoped form instead of forcing a full recompute
+
+Validation completed:
+
+- `cargo test -p hunk-desktop --test refresh_policy`
+- `cargo build -p hunk-desktop`
+
+Deep review findings and fixes:
+
+- preserved the existing read-only background refresh behavior so polling stays cheap
+- avoided a false optimization where unchanged diff state would have skipped filling missing cached line stats
+- kept the top-level line counter derived from file-level stats rather than recomputing from scratch on no-op refreshes
+
+## Phase 3 Result
+
+Implemented in the benchmark tooling:
+
+- scenario-aware fixture generation for:
+  - `default`
+  - `many-files-small-patches`
+  - `rename-heavy`
+  - `binary-heavy`
+  - `ignored-tree-pressure`
+- scenario-aware wrapper defaults in [run_perf_harness.sh](/Volumes/hulk/dev/projects/hunk/scripts/run_perf_harness.sh)
+- harness support for scenario parsing, binary-aware threshold behavior, and safer selected-file selection in [performance_harness.rs](/Volumes/hulk/dev/projects/hunk/crates/hunk-desktop/tests/performance_harness.rs)
+- standalone harness fixture creation now resolves the workspace `scripts/` path correctly instead of depending on the wrapper
+
+Validation completed:
+
+- `bash -n scripts/create_large_diff_repo.sh`
+- `bash -n scripts/run_perf_harness.sh`
+- `cargo test -p hunk-desktop --test performance_harness`
+- multi-scenario perf sweep with `--no-gate`
+
+Deep review findings and fixes:
+
+- normalized `default` as the canonical baseline scenario name while still accepting `large-diff` as an alias
+- fixed the standalone harness script lookup path
+- made selected-file latency prefer non-deleted text entries so `binary-heavy` and `rename-heavy` runs are less misleading
+- documented two remaining harness caveats:
+  - the synthetic scroll-FPS proxy can saturate on very small fixtures and should be treated as a coarse regression signal, not a literal UI FPS measurement
+  - the `rename-heavy` fixture currently behaves as path churn in the unstaged worktree benchmark rather than a fully collapsed rename-only view at large scale
+
+See the benchmark baseline table in [PERFORMANCE_BENCHMARK.md](/Volumes/hulk/dev/projects/hunk/docs/PERFORMANCE_BENCHMARK.md).
+
+## Phase 4 Decision
+
+Phase 4 was reviewed after the broader benchmark sweep.
+
+Decision:
+
+- no additional product-path optimization is required right now
+
+Reasoning:
+
+- the default large-diff path remains comfortably inside the current thresholds
+- Phase 1 removed the unnecessary heavy backend work on read-only refreshes
+- Phase 2 stopped unnecessary line-stat recomputation after no-op refreshes
+- the broader fixtures did not reveal a new backend bottleneck severe enough to justify deeper caching or a second snapshot architecture
+
+Remaining watch items:
+
+- keep an eye on very large changed-file counts beyond the current fixture set
+- revisit line-stat memoization or deeper diff batching only if a future profile shows a concrete regression

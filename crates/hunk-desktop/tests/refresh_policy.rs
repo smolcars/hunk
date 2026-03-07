@@ -1,9 +1,13 @@
 #[path = "../src/app/refresh_policy.rs"]
 mod refresh_policy;
 
+use std::collections::BTreeSet;
+
+use hunk_git::git::{ChangedFile, FileStatus, LineStats};
 use refresh_policy::{
     SnapshotRefreshBehavior, SnapshotRefreshPriority, SnapshotRefreshRequest, diff_state_changed,
-    repo_watch_refresh_request, should_reload_diff_after_snapshot,
+    line_stats_paths_from_dirty_paths, missing_line_stat_paths, repo_watch_refresh_request,
+    should_refresh_line_stats_after_snapshot, should_reload_diff_after_snapshot,
     should_reload_repo_tree_after_snapshot, should_run_cold_start_reconcile,
     should_scroll_selected_after_reload,
 };
@@ -93,4 +97,93 @@ fn cold_start_reconcile_only_runs_for_mutating_refreshes() {
         true,
         SnapshotRefreshBehavior::RefreshWorkingCopy,
     ));
+}
+
+#[test]
+fn line_stats_refresh_requires_real_diff_state_changes() {
+    assert!(!should_refresh_line_stats_after_snapshot(
+        SnapshotRefreshRequest::user(false),
+        false,
+    ));
+    assert!(should_refresh_line_stats_after_snapshot(
+        SnapshotRefreshRequest::user(false),
+        true,
+    ));
+    assert!(!should_refresh_line_stats_after_snapshot(
+        SnapshotRefreshRequest::background(),
+        true,
+    ));
+    assert!(should_refresh_line_stats_after_snapshot(
+        SnapshotRefreshRequest::background_refresh_working_copy(),
+        true,
+    ));
+}
+
+#[test]
+fn dirty_path_matching_supports_exact_and_directory_prefix_hits() {
+    let files = vec![
+        ChangedFile {
+            path: "src/lib.rs".to_string(),
+            status: FileStatus::Modified,
+            staged: false,
+            untracked: false,
+        },
+        ChangedFile {
+            path: "src/nested/util.rs".to_string(),
+            status: FileStatus::Modified,
+            staged: false,
+            untracked: false,
+        },
+        ChangedFile {
+            path: "README.md".to_string(),
+            status: FileStatus::Modified,
+            staged: false,
+            untracked: false,
+        },
+    ];
+    let dirty_paths = BTreeSet::from([
+        String::from("src"),
+        String::from("README.md"),
+        String::from("missing.txt"),
+    ]);
+
+    let matched = line_stats_paths_from_dirty_paths(&files, &dirty_paths);
+
+    assert_eq!(
+        matched,
+        BTreeSet::from([
+            String::from("README.md"),
+            String::from("src/lib.rs"),
+            String::from("src/nested/util.rs"),
+        ])
+    );
+}
+
+#[test]
+fn missing_line_stats_only_returns_changed_files_without_cached_stats() {
+    let files = vec![
+        ChangedFile {
+            path: "src/lib.rs".to_string(),
+            status: FileStatus::Modified,
+            staged: false,
+            untracked: false,
+        },
+        ChangedFile {
+            path: "README.md".to_string(),
+            status: FileStatus::Added,
+            staged: false,
+            untracked: true,
+        },
+    ];
+    let file_line_stats = std::collections::BTreeMap::from([(
+        String::from("src/lib.rs"),
+        LineStats {
+            added: 1,
+            removed: 1,
+        },
+    )]);
+
+    let missing = missing_line_stat_paths(&files, &file_line_stats);
+
+    assert_eq!(missing, BTreeSet::from([String::from("README.md")]));
 }

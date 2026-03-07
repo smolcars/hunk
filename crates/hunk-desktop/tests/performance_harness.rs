@@ -7,11 +7,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use hunk_domain::diff::{DiffCellKind, DiffRowKind, parse_patch_side_by_side};
-use hunk_git::git::{ChangedFile, load_patches_for_files, load_snapshot};
+use hunk_git::git::{ChangedFile, FileStatus, load_patches_for_files, load_snapshot};
 
 const DEFAULT_LANG: &str = "ts";
+const DEFAULT_SCENARIO: &str = "default";
 const DEFAULT_FILES: usize = 50;
 const DEFAULT_LINES: usize = 10_000;
 const DEFAULT_MAX_TTFD_MS: f64 = 300.0;
@@ -31,9 +32,52 @@ struct PerfThresholds {
     min_scroll_fps: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PerfScenario {
+    LargeDiff,
+    ManyFilesSmallPatches,
+    RenameHeavy,
+    BinaryHeavy,
+    IgnoredTreePressure,
+}
+
+impl PerfScenario {
+    fn from_env() -> Self {
+        Self::parse(env::var("HUNK_PERF_SCENARIO").unwrap_or_else(|_| DEFAULT_SCENARIO.to_string()))
+            .unwrap_or(Self::LargeDiff)
+    }
+
+    fn parse(raw: impl AsRef<str>) -> Result<Self> {
+        match raw.as_ref().trim() {
+            "default" => Ok(Self::LargeDiff),
+            "large-diff" => Ok(Self::LargeDiff),
+            "many-files-small-patches" => Ok(Self::ManyFilesSmallPatches),
+            "rename-heavy" => Ok(Self::RenameHeavy),
+            "binary-heavy" => Ok(Self::BinaryHeavy),
+            "ignored-tree-pressure" => Ok(Self::IgnoredTreePressure),
+            other => bail!("unsupported perf scenario '{other}'"),
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::LargeDiff => "default",
+            Self::ManyFilesSmallPatches => "many-files-small-patches",
+            Self::RenameHeavy => "rename-heavy",
+            Self::BinaryHeavy => "binary-heavy",
+            Self::IgnoredTreePressure => "ignored-tree-pressure",
+        }
+    }
+
+    const fn supports_scroll_metrics(self) -> bool {
+        !matches!(self, Self::BinaryHeavy)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct PerfHarnessConfig {
     repo: Option<PathBuf>,
+    scenario: PerfScenario,
     lang: String,
     files: usize,
     lines: usize,
@@ -72,6 +116,7 @@ struct PerfMetrics {
 impl PerfHarnessConfig {
     fn from_env() -> Self {
         let repo = env::var_os("HUNK_PERF_REPO").map(PathBuf::from);
+        let scenario = PerfScenario::from_env();
         let lang = env::var("HUNK_PERF_LANG").unwrap_or_else(|_| DEFAULT_LANG.to_string());
         let files = env_usize("HUNK_PERF_FILES", DEFAULT_FILES).max(1);
         let lines = env_usize("HUNK_PERF_LINES", DEFAULT_LINES).max(1);
@@ -101,6 +146,7 @@ impl PerfHarnessConfig {
 
         Self {
             repo,
+            scenario,
             lang,
             files,
             lines,
@@ -116,12 +162,13 @@ impl PerfHarnessConfig {
 }
 
 #[test]
-#[ignore = "Runs a large-diff benchmark harness and enforces perf thresholds when configured."]
+#[ignore = "Runs the performance benchmark harness and enforces perf thresholds when configured."]
 fn large_diff_perf_harness() -> Result<()> {
     let cfg = PerfHarnessConfig::from_env();
     let repo_root = prepare_repo(&cfg)?;
     let metrics = run_perf_harness(&repo_root, &cfg)?;
 
+    println!("PERF_INFO scenario={}", cfg.scenario.as_str());
     println!("PERF_METRIC changed_files={}", metrics.changed_files);
     println!("PERF_METRIC total_core_rows={}", metrics.total_core_rows);
     println!("PERF_METRIC total_code_rows={}", metrics.total_code_rows);
@@ -139,7 +186,7 @@ fn large_diff_perf_harness() -> Result<()> {
     println!("PERF_METRIC scroll_fps_p95={:.2}", metrics.scroll_fps_p95);
 
     if cfg.enforce {
-        let failures = threshold_failures(&metrics, cfg.thresholds);
+        let failures = threshold_failures(&metrics, cfg.thresholds, cfg.scenario);
         if !failures.is_empty() {
             return Err(anyhow!(failures.join("\n")));
         }
@@ -159,17 +206,23 @@ fn run_perf_harness(repo_root: &Path, cfg: &PerfHarnessConfig) -> Result<PerfMet
         ));
     }
 
-    let selected_file = files[0].clone();
+    let selected_file = select_benchmark_file(&files)
+        .ok_or_else(|| anyhow!("repository has no selectable changed files for perf harness"))?
+        .clone();
     let (ttfd_ms, selected_file_latency_ms) =
         measure_selected_file_latency(repo_root, &selected_file, cfg)?;
     let (full_stream_ms, total_core_rows, total_code_rows, scroll_rows) =
         measure_full_stream_and_collect_scroll_rows(repo_root, &files, cfg.scroll_row_budget)?;
-    if total_code_rows == 0 {
+    if total_code_rows == 0 && cfg.scenario.supports_scroll_metrics() {
         return Err(anyhow!(
             "parsed zero code rows; fixture is invalid for perf benchmarking"
         ));
     }
-    let (scroll_fps_avg, scroll_fps_p95) = measure_scroll_fps(&scroll_rows, cfg);
+    let (scroll_fps_avg, scroll_fps_p95) = if cfg.scenario.supports_scroll_metrics() {
+        measure_scroll_fps(&scroll_rows, cfg)
+    } else {
+        (0.0, 0.0)
+    };
 
     Ok(PerfMetrics {
         changed_files: files.len(),
@@ -223,11 +276,15 @@ fn measure_selected_file_latency(
             });
         }
     }
-    if code_rows.is_empty() {
+    if code_rows.is_empty() && cfg.scenario.supports_scroll_metrics() {
         return Err(anyhow!(
             "selected file '{}' produced zero code rows",
             selected_file.path
         ));
+    }
+    if code_rows.is_empty() {
+        let selected_file_latency_ms = selected_stage_started.elapsed().as_secs_f64() * 1_000.0;
+        return Ok((ttfd_ms, selected_file_latency_ms));
     }
     let use_detailed_segments = selected_changed_lines <= DETAILED_SEGMENT_MAX_CHANGED_LINES;
     for row in &mut code_rows {
@@ -417,7 +474,11 @@ fn compute_cell_segment_count(
     segment_count
 }
 
-fn threshold_failures(metrics: &PerfMetrics, thresholds: PerfThresholds) -> Vec<String> {
+fn threshold_failures(
+    metrics: &PerfMetrics,
+    thresholds: PerfThresholds,
+    scenario: PerfScenario,
+) -> Vec<String> {
     let mut failures = Vec::new();
 
     if metrics.ttfd_ms > thresholds.max_ttfd_ms {
@@ -432,7 +493,7 @@ fn threshold_failures(metrics: &PerfMetrics, thresholds: PerfThresholds) -> Vec<
             metrics.selected_file_latency_ms, thresholds.max_selected_file_ms
         ));
     }
-    if metrics.scroll_fps_p95 < thresholds.min_scroll_fps {
+    if scenario.supports_scroll_metrics() && metrics.scroll_fps_p95 < thresholds.min_scroll_fps {
         failures.push(format!(
             "Scroll FPS p95 {:.2} below threshold {:.2}",
             metrics.scroll_fps_p95, thresholds.min_scroll_fps
@@ -440,6 +501,34 @@ fn threshold_failures(metrics: &PerfMetrics, thresholds: PerfThresholds) -> Vec<
     }
 
     failures
+}
+
+fn select_benchmark_file(files: &[ChangedFile]) -> Option<&ChangedFile> {
+    files
+        .iter()
+        .find(|file| file.status != FileStatus::Deleted && !is_probably_binary_path(&file.path))
+        .or_else(|| files.iter().find(|file| file.status != FileStatus::Deleted))
+        .or_else(|| {
+            files
+                .iter()
+                .find(|file| !is_probably_binary_path(&file.path))
+        })
+        .or_else(|| files.first())
+}
+
+fn is_probably_binary_path(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("bin"))
+}
+
+fn create_large_diff_repo_script_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("scripts")
+        .join("create_large_diff_repo.sh")
 }
 
 fn prepare_repo(cfg: &PerfHarnessConfig) -> Result<PathBuf> {
@@ -453,11 +542,17 @@ fn prepare_repo(cfg: &PerfHarnessConfig) -> Result<PathBuf> {
         .as_nanos();
     let repo = env::temp_dir().join(format!("hunk-perf-harness-{unique}"));
 
-    let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("scripts")
-        .join("create_large_diff_repo.sh");
+    let script_path = create_large_diff_repo_script_path();
+    if !script_path.is_file() {
+        return Err(anyhow!(
+            "create_large_diff_repo.sh not found at '{}'",
+            script_path.display()
+        ));
+    }
     let status = Command::new("bash")
         .arg(script_path)
+        .arg("--scenario")
+        .arg(cfg.scenario.as_str())
         .arg("--dir")
         .arg(&repo)
         .arg("--files")
@@ -510,4 +605,92 @@ fn percentile_fps(samples: &mut [f64], percentile: usize) -> f64 {
     let p = percentile.clamp(1, 100);
     let rank = (samples.len().saturating_mul(p).div_ceil(100)).saturating_sub(1);
     samples[rank.min(samples.len().saturating_sub(1))]
+}
+
+#[test]
+fn perf_scenario_parser_accepts_all_supported_values() -> Result<()> {
+    assert_eq!(PerfScenario::parse("default")?, PerfScenario::LargeDiff);
+    assert_eq!(PerfScenario::parse("large-diff")?, PerfScenario::LargeDiff);
+    assert_eq!(
+        PerfScenario::parse("many-files-small-patches")?,
+        PerfScenario::ManyFilesSmallPatches
+    );
+    assert_eq!(
+        PerfScenario::parse("rename-heavy")?,
+        PerfScenario::RenameHeavy
+    );
+    assert_eq!(
+        PerfScenario::parse("binary-heavy")?,
+        PerfScenario::BinaryHeavy
+    );
+    assert_eq!(
+        PerfScenario::parse("ignored-tree-pressure")?,
+        PerfScenario::IgnoredTreePressure
+    );
+    Ok(())
+}
+
+#[test]
+fn large_diff_alias_normalizes_to_default_scenario_name() {
+    assert_eq!(PerfScenario::LargeDiff.as_str(), "default");
+}
+
+#[test]
+fn benchmark_file_selection_prefers_non_deleted_text_entries() {
+    let deleted_text = ChangedFile {
+        path: "stress/original/file_001.ts".to_string(),
+        status: FileStatus::Deleted,
+        staged: false,
+        untracked: false,
+    };
+    let binary_file = ChangedFile {
+        path: "stress/binary_001.bin".to_string(),
+        status: FileStatus::Modified,
+        staged: false,
+        untracked: false,
+    };
+    let renamed_target = ChangedFile {
+        path: "stress/renamed/file_001.ts".to_string(),
+        status: FileStatus::Added,
+        staged: false,
+        untracked: false,
+    };
+
+    let candidates = [
+        deleted_text.clone(),
+        binary_file.clone(),
+        renamed_target.clone(),
+    ];
+    let selected = select_benchmark_file(&candidates).expect("a benchmark file should be selected");
+
+    assert_eq!(selected.path, renamed_target.path);
+}
+
+#[test]
+fn standalone_harness_script_path_resolves_from_workspace_root() {
+    assert!(create_large_diff_repo_script_path().is_file());
+}
+
+#[test]
+fn binary_scenarios_skip_scroll_threshold_failures() {
+    let metrics = PerfMetrics {
+        changed_files: 10,
+        total_core_rows: 0,
+        total_code_rows: 0,
+        scroll_sample_rows: 0,
+        ttfd_ms: 10.0,
+        selected_file_latency_ms: 20.0,
+        full_stream_ms: 30.0,
+        scroll_fps_avg: 0.0,
+        scroll_fps_p95: 0.0,
+    };
+    let thresholds = PerfThresholds {
+        max_ttfd_ms: 100.0,
+        max_selected_file_ms: 100.0,
+        min_scroll_fps: 120.0,
+    };
+
+    let failures = threshold_failures(&metrics, thresholds, PerfScenario::BinaryHeavy);
+
+    assert!(failures.is_empty());
 }

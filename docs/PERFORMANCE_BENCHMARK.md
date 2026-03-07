@@ -1,74 +1,34 @@
-# Performance Benchmark Protocol
+# Performance Benchmark Baseline
 
-This document defines the repeatable benchmark harness for large-diff performance work.
+Date: 2026-03-07
+Build: `cargo test --release -p hunk-desktop --test performance_harness large_diff_perf_harness -- --ignored --nocapture`
+Harness entrypoint: [performance_harness.rs](/Volumes/hulk/dev/projects/hunk/crates/hunk-desktop/tests/performance_harness.rs)
+Fixture generator: [create_large_diff_repo.sh](/Volumes/hulk/dev/projects/hunk/scripts/create_large_diff_repo.sh)
+Wrapper: [run_perf_harness.sh](/Volumes/hulk/dev/projects/hunk/scripts/run_perf_harness.sh)
 
-## Scope
+## Scenarios
 
-The harness tracks and gates these metrics:
-
-- `TTFD` (time to first diff content) in milliseconds.
-- `selected_file_latency_ms` (selected file first-paint proxy) in milliseconds.
-- `scroll_fps_avg` (average synthetic scroll frame-rate proxy).
-- `scroll_fps_p95` (95th percentile synthetic per-frame FPS).
-
-## Default Fixture
-
-- Changed files: `50`
-- Lines per file: `10000`
-- Language mode: `ts`
-
-Generate fixture manually:
-
-```bash
-./scripts/create_large_diff_repo.sh --lines 10000 --files 50 --lang ts --force
-```
-
-## Run Harness
-
-```bash
-./scripts/run_perf_harness.sh
-```
-
-The harness runs `tests/performance_harness.rs` in release mode and prints:
-
-- `changed_files`
-- `total_core_rows`
-- `total_code_rows`
-- `scroll_sample_rows`
-- `ttfd_ms`
-- `selected_file_latency_ms`
-- `full_stream_ms`
-- `scroll_fps_avg`
-- `scroll_fps_p95`
-
-## Thresholds (Default)
-
-- `TTFD <= 300 ms`
-- `selected_file_latency_ms <= 800 ms`
-- `scroll_fps_p95 >= 115`
-
-If a metric crosses threshold, harness exits non-zero.
-
-## Tuning / Overrides
-
-You can override thresholds and workload parameters:
-
-```bash
-./scripts/run_perf_harness.sh \
-  --max-ttfd-ms 350 \
-  --max-selected-ms 900 \
-  --min-scroll-fps 105 \
-  --scroll-frames 300
-```
-
-Use `--no-gate` to collect metrics without failing:
-
-```bash
-./scripts/run_perf_harness.sh --no-gate
-```
+| Scenario | Fixture shape | changed_files | total_code_rows | ttfd_ms | selected_file_latency_ms | full_stream_ms | scroll_fps_p95 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `default` | 50 files x 10,000 changed lines | 52 | 500,000 | 5.43 | 20.14 | 195.67 | 319.10 |
+| `many-files-small-patches` | 400 files x 80 lines with sparse edits | 402 | 4,400 | 1.90 | 5.56 | 32.57 | 86021.51 |
+| `rename-heavy` | 150 moved files x 400 lines with sparse edits | 302 | 120,000 | 9.64 | 17.92 | 43.19 | 674.76 |
+| `binary-heavy` | 60 mixed text/binary files | 60 | 45,000 | 2.09 | 16.95 | 22.80 | 0.00 |
+| `ignored-tree-pressure` | 50 files x 2,000 lines plus 2,400 ignored files | 52 | 17,350 | 2.24 | 15.89 | 32.85 | 324.86 |
 
 ## Notes
 
-- `scroll_fps_avg` and `scroll_fps_p95` are deterministic CPU-side proxies based on diff row segment generation and cache behavior.
-- It is intended for regression detection and cross-branch comparison; it is not a replacement for on-screen FPS validation in the GUI.
-- Harness scripts currently require a Unix-like shell environment (`bash`).
+- `scroll_fps_p95` is a synthetic scroll/render proxy from the harness, not a literal on-screen UI FPS reading.
+- Small fixtures can saturate the proxy and produce very large values. Treat it as a coarse regression detector, not a user-facing performance number.
+- `binary-heavy` intentionally skips scroll-threshold enforcement because a binary-first selected file may not produce code rows for the scroll simulation.
+- The current large-scale `rename-heavy` scenario behaves more like path churn in the unstaged worktree benchmark than a perfectly collapsed rename-only view. It is still useful for measuring path-change pressure, but it should not be read as a pure rename benchmark.
+
+## Conclusion
+
+The current Git refresh path is in good shape:
+
+- the default large-diff path remains well inside the current thresholds
+- background read-only refreshes now use the lightweight Git snapshot path
+- no-op/manual refreshes no longer trigger unnecessary full line-stat recomputation
+
+Based on this sweep, no Phase 4 product-path optimization is required right now.

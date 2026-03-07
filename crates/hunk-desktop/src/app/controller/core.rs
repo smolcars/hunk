@@ -752,6 +752,7 @@ impl DiffViewer {
     fn take_line_stats_refresh_scope(
         &mut self,
         request: SnapshotRefreshRequest,
+        diff_changed: bool,
     ) -> Option<LineStatsRefreshScope> {
         if self.files.is_empty() {
             self.pending_dirty_paths.clear();
@@ -765,27 +766,21 @@ impl DiffViewer {
             return None;
         }
 
+        if !diff_changed {
+            self.pending_dirty_paths.clear();
+            let missing_paths = missing_line_stat_paths(&self.files, &self.file_line_stats);
+            return (!missing_paths.is_empty()).then_some(LineStatsRefreshScope::Paths(missing_paths));
+        }
+
         if request.priority == SnapshotRefreshPriority::Background {
             let pending_dirty_paths = std::mem::take(&mut self.pending_dirty_paths);
             if !pending_dirty_paths.is_empty() {
-                let dirty_paths = self
-                    .files
-                    .iter()
-                    .filter(|file| {
-                        pending_dirty_paths.iter().any(|dirty_path| {
-                            file.path == *dirty_path
-                                || file
-                                    .path
-                                    .strip_prefix(dirty_path.as_str())
-                                    .is_some_and(|suffix| suffix.starts_with('/'))
-                        })
-                    })
-                    .map(|file| file.path.clone())
-                    .collect::<BTreeSet<_>>();
+                let dirty_paths =
+                    line_stats_paths_from_dirty_paths(&self.files, &pending_dirty_paths);
                 if !dirty_paths.is_empty() {
                     return Some(LineStatsRefreshScope::Paths(dirty_paths));
                 }
-                return None;
+                return Some(LineStatsRefreshScope::Full);
             }
         } else {
             self.pending_dirty_paths.clear();
@@ -1128,9 +1123,8 @@ impl DiffViewer {
                     this.last_snapshot_fingerprint = Some(fingerprint);
                     this.workflow_loading = false;
                     let diff_changed = this.apply_workflow_snapshot(*workflow_snapshot, true, cx);
-                    if (diff_changed
-                        || matches!(request.behavior, SnapshotRefreshBehavior::RefreshWorkingCopy))
-                        && let Some(line_stats_scope) = this.take_line_stats_refresh_scope(request)
+                    if let Some(line_stats_scope) =
+                        this.take_line_stats_refresh_scope(request, diff_changed)
                     {
                         this.schedule_line_stats_refresh(
                             line_stats_repo_root.clone(),
@@ -1140,9 +1134,7 @@ impl DiffViewer {
                             cold_start,
                             cx,
                         );
-                    } else if diff_changed
-                        || matches!(request.behavior, SnapshotRefreshBehavior::RefreshWorkingCopy)
-                    {
+                    } else if should_refresh_line_stats_after_snapshot(request, diff_changed) {
                         this.cancel_line_stats_refresh();
                     } else {
                         this.pending_dirty_paths.clear();

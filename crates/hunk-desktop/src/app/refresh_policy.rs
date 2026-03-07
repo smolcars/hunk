@@ -1,3 +1,7 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use hunk_git::git::{ChangedFile, LineStats};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum SnapshotRefreshPriority {
     Background,
@@ -99,6 +103,20 @@ pub(super) const fn repo_watch_refresh_request(
     None
 }
 
+pub(super) const fn should_refresh_line_stats_after_snapshot(
+    request: SnapshotRefreshRequest,
+    diff_state_changed: bool,
+) -> bool {
+    diff_state_changed
+        && !matches!(
+            (request.priority, request.behavior),
+            (
+                SnapshotRefreshPriority::Background,
+                SnapshotRefreshBehavior::ReadOnly
+            )
+        )
+}
+
 pub(super) const fn diff_state_changed(
     root_changed: bool,
     working_copy_commit_changed: bool,
@@ -138,4 +156,38 @@ pub(super) const fn should_run_cold_start_reconcile(
     cold_start
         && loaded_without_refresh
         && matches!(behavior, SnapshotRefreshBehavior::RefreshWorkingCopy)
+}
+
+pub(super) fn missing_line_stat_paths(
+    files: &[ChangedFile],
+    file_line_stats: &BTreeMap<String, LineStats>,
+) -> BTreeSet<String> {
+    files
+        .iter()
+        .filter(|file| !file_line_stats.contains_key(file.path.as_str()))
+        .map(|file| file.path.clone())
+        .collect()
+}
+
+pub(super) fn line_stats_paths_from_dirty_paths(
+    files: &[ChangedFile],
+    pending_dirty_paths: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    if pending_dirty_paths.is_empty() {
+        return BTreeSet::new();
+    }
+
+    files
+        .iter()
+        .filter(|file| {
+            pending_dirty_paths.iter().any(|dirty_path| {
+                file.path == *dirty_path
+                    || file
+                        .path
+                        .strip_prefix(dirty_path.as_str())
+                        .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+        })
+        .map(|file| file.path.clone())
+        .collect()
 }
