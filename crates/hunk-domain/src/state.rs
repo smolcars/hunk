@@ -67,6 +67,7 @@ pub struct CachedWorkflowState {
     pub branch_name: String,
     pub branch_has_upstream: bool,
     pub branch_ahead_count: usize,
+    pub branch_behind_count: usize,
     pub branches: Vec<CachedLocalBranchState>,
     pub files: Vec<CachedChangedFileState>,
     pub last_commit_subject: Option<String>,

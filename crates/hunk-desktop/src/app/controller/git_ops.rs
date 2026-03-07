@@ -1,4 +1,24 @@
 impl DiffViewer {
+    fn push_success_notification(message: String, cx: &mut Context<Self>) {
+        let window_handles = cx.windows().into_iter().collect::<Vec<_>>();
+        if window_handles.is_empty() {
+            error!("cannot show git action success notification: no windows available");
+            return;
+        }
+
+        for window_handle in window_handles {
+            if let Err(err) = cx.update_window(window_handle, |_, window, cx| {
+                gpui_component::WindowExt::push_notification(
+                    window,
+                    gpui_component::notification::Notification::success(message.clone()),
+                    cx,
+                );
+            }) {
+                error!("failed to show git action success notification: {err:#}");
+            }
+        }
+    }
+
     fn push_error_notification(message: String, cx: &mut Context<Self>) {
         let window_handles = cx.windows().into_iter().collect::<Vec<_>>();
         if window_handles.is_empty() {
@@ -59,6 +79,45 @@ impl DiffViewer {
 
     fn refresh_after_git_action(&mut self, cx: &mut Context<Self>) {
         self.request_snapshot_refresh_workflow_only(true, cx);
+    }
+
+    fn apply_optimistic_commit_success(
+        &mut self,
+        committed_paths: &[String],
+        subject: &str,
+    ) {
+        let committed_paths = committed_paths
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+
+        self.staged_commit_files.clear();
+        self.last_commit_subject = Some(subject.to_string());
+        self.files
+            .retain(|file| !committed_paths.contains(file.path.as_str()));
+        self.file_status_by_path = self
+            .files
+            .iter()
+            .map(|file| (file.path.clone(), file.status))
+            .collect();
+        self.file_line_stats
+            .retain(|path, _| self.files.iter().any(|file| file.path == *path));
+        self.recompute_overall_line_stats_from_file_stats();
+        self.collapsed_files
+            .retain(|path| self.files.iter().any(|file| file.path == *path));
+        self.selected_path = self
+            .selected_path
+            .clone()
+            .filter(|selected| self.files.iter().any(|file| &file.path == selected))
+            .or_else(|| self.files.first().map(|file| file.path.clone()));
+        self.selected_status = self
+            .selected_path
+            .as_deref()
+            .and_then(|selected| self.status_for_path(selected));
+
+        if self.branch_has_upstream {
+            self.branch_ahead_count = self.branch_ahead_count.saturating_add(1);
+        }
     }
 
     fn run_git_action<F>(&mut self, action_name: &'static str, cx: &mut Context<Self>, action: F)
@@ -181,33 +240,38 @@ impl DiffViewer {
         self.request_activate_or_create_branch_with_dirty_guard(branch_name, cx);
     }
 
-    pub(super) fn toggle_commit_file_included(
+    pub(super) fn toggle_commit_file_staged(
         &mut self,
         file_path: String,
-        include: bool,
+        staged: bool,
         cx: &mut Context<Self>,
     ) {
-        if include {
-            self.commit_excluded_files.remove(file_path.as_str());
+        if staged {
+            self.staged_commit_files.insert(file_path);
         } else {
-            self.commit_excluded_files.insert(file_path);
+            self.staged_commit_files.remove(file_path.as_str());
         }
         cx.notify();
     }
 
-    pub(super) fn include_all_files_for_commit(&mut self, cx: &mut Context<Self>) {
-        if self.commit_excluded_files.is_empty() {
+    pub(super) fn stage_all_files_for_commit(&mut self, cx: &mut Context<Self>) {
+        if self.staged_commit_files.len() == self.files.len() {
             return;
         }
-        self.commit_excluded_files.clear();
+        self.staged_commit_files = self.files.iter().map(|file| file.path.clone()).collect();
         cx.notify();
     }
 
-    pub(super) fn included_commit_file_count(&self) -> usize {
-        self.files
-            .iter()
-            .filter(|file| !self.commit_excluded_files.contains(file.path.as_str()))
-            .count()
+    pub(super) fn unstage_all_files_for_commit(&mut self, cx: &mut Context<Self>) {
+        if self.staged_commit_files.is_empty() {
+            return;
+        }
+        self.staged_commit_files.clear();
+        cx.notify();
+    }
+
+    pub(super) fn staged_commit_file_count(&self) -> usize {
+        self.staged_commit_files.len()
     }
 
     pub(super) fn branch_syncable(&self) -> bool {
@@ -267,10 +331,10 @@ impl DiffViewer {
             && !self.git_action_loading
     }
 
-    fn selected_commit_paths(&self) -> Vec<String> {
+    fn staged_commit_paths(&self) -> Vec<String> {
         self.files
             .iter()
-            .filter(|file| !self.commit_excluded_files.contains(file.path.as_str()))
+            .filter(|file| self.staged_commit_files.contains(file.path.as_str()))
             .map(|file| file.path.clone())
             .collect()
     }
@@ -531,8 +595,9 @@ impl DiffViewer {
                             match action {
                                 ReviewUrlAction::Copy => {
                                     cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
-                                    this.git_status_message =
-                                        Some(format!("Copied review URL for {}", branch_name));
+                                    let message = format!("Copied review URL for {}", branch_name);
+                                    this.git_status_message = Some(message.clone());
+                                    Self::push_success_notification(message, cx);
                                 }
                                 ReviewUrlAction::Open => match open_url_in_browser(url.as_str()) {
                                     Ok(()) => {
@@ -627,14 +692,15 @@ impl DiffViewer {
             cx.notify();
             return;
         };
-        let selected_paths = self.selected_commit_paths();
-        if selected_paths.is_empty() {
+        let staged_paths = self.staged_commit_paths();
+        if staged_paths.is_empty() {
             self.git_status_message =
-                Some("Select at least one file to include in commit.".to_string());
+                Some("Stage at least one file before creating a commit.".to_string());
             cx.notify();
             return;
         }
-        let partial_commit = selected_paths.len() != self.files.len();
+        let partial_commit = staged_paths.len() != self.files.len();
+        let staged_paths_for_ui = staged_paths.clone();
 
         let epoch = self.begin_git_action("Create commit", cx);
         let started_at = Instant::now();
@@ -645,7 +711,7 @@ impl DiffViewer {
                 .spawn(async move {
                     let execution_started_at = Instant::now();
                     let result = if partial_commit {
-                        match commit_selected_paths(&repo_root, &message, &selected_paths) {
+                        match commit_selected_paths(&repo_root, &message, &staged_paths) {
                             Ok(_) => Ok::<String, anyhow::Error>(message.trim_end().to_string()),
                             Err(err) => Err(err),
                         }
@@ -676,9 +742,11 @@ impl DiffViewer {
                                 total_elapsed.as_millis(),
                                 partial_commit
                             );
-                            this.commit_excluded_files.clear();
                             this.git_status_message = Some("Created commit".to_string());
-                            this.last_commit_subject = Some(subject);
+                            this.apply_optimistic_commit_success(
+                                staged_paths_for_ui.as_slice(),
+                                subject.as_str(),
+                            );
 
                             let commit_input_state = this.commit_input_state.clone();
                             if let Some(window_handle) = cx.windows().into_iter().next()

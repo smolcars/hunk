@@ -53,6 +53,7 @@ fn app_state_round_trips_last_project_path() {
             branch_name: "main".to_string(),
             branch_has_upstream: true,
             branch_ahead_count: 2,
+            branch_behind_count: 1,
             branches: vec![CachedLocalBranchState {
                 name: "main".to_string(),
                 is_current: true,

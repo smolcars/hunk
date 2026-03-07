@@ -15,6 +15,11 @@ impl DiffViewer {
         };
         let theme_button_label = format!("Theme ({theme_label})");
         let is_dark = cx.theme().mode.is_dark();
+        let git_selected = self.workspace_view_mode == WorkspaceViewMode::GitWorkspace;
+        let active_branch = self
+            .checked_out_branch_name()
+            .unwrap_or(self.branch_name.as_str())
+            .to_string();
         let chip_colors = hunk_toolbar_chip(cx.theme(), is_dark);
         let brand_colors = hunk_toolbar_brand_chip(cx.theme(), is_dark);
         let dropdown_bg = hunk_dropdown_fill(cx.theme(), is_dark);
@@ -67,7 +72,7 @@ impl DiffViewer {
                                     .text_sm()
                                     .font_medium()
                                     .text_color(cx.theme().foreground)
-                                    .child(self.branch_name.clone()),
+                                    .child(active_branch),
                             ),
                     )
                     .child(
@@ -164,7 +169,6 @@ impl DiffViewer {
                                 }),
                         ),
                     )
-                    .child(self.render_line_stats("overall", self.overall_line_stats, cx))
                     .child({
                         let view = view.clone();
                         Button::new("toggle-comments-preview")
@@ -179,48 +183,96 @@ impl DiffViewer {
                                 });
                             })
                     })
-                    .child({
-                        let view = view.clone();
-                        Button::new("toggle-diff-whitespace")
-                            .outline()
-                            .compact()
-                            .rounded(px(7.0))
-                            .bg(dropdown_bg)
-                            .label(if self.diff_show_whitespace {
-                                "Whitespace: On"
+                    .when(git_selected, |this| {
+                        this.when(self.overall_line_stats.changed() > 0, |this| {
+                            this.child(self.render_line_stats("overall", self.overall_line_stats, cx))
+                        })
+                        .child(self.render_git_metric_pill(
+                            if self.branch_has_upstream {
+                                "Published"
                             } else {
-                                "Whitespace: Off"
-                            })
-                            .on_click(move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    this.toggle_diff_show_whitespace(cx);
-                                });
-                            })
-                    })
-                    .child({
-                        let view = view.clone();
-                        Button::new("toggle-diff-eol")
-                            .outline()
-                            .compact()
-                            .rounded(px(7.0))
-                            .bg(dropdown_bg)
-                            .label(if self.diff_show_eol_markers {
-                                "EOL: On"
+                                "Local Only"
+                            },
+                            if self.branch_has_upstream {
+                                HunkAccentTone::Success
                             } else {
-                                "EOL: Off"
-                            })
-                            .on_click(move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    this.toggle_diff_show_eol_markers(cx);
-                                });
-                            })
+                                HunkAccentTone::Warning
+                            },
+                            cx,
+                        ))
+                        .child(self.render_git_metric_pill(
+                            format!("Ahead {}", self.branch_ahead_count),
+                            if self.branch_ahead_count > 0 {
+                                HunkAccentTone::Accent
+                            } else {
+                                HunkAccentTone::Neutral
+                            },
+                            cx,
+                        ))
+                        .child(self.render_git_metric_pill(
+                            format!("Behind {}", self.branch_behind_count),
+                            if self.branch_behind_count > 0 {
+                                HunkAccentTone::Warning
+                            } else {
+                                HunkAccentTone::Neutral
+                            },
+                            cx,
+                        ))
+                        .child(self.render_git_metric_pill(
+                            format!("Changed {}", self.files.len()),
+                            if self.files.is_empty() {
+                                HunkAccentTone::Neutral
+                            } else {
+                                HunkAccentTone::Accent
+                            },
+                            cx,
+                        ))
                     })
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} files", self.files.len())),
-                    )
+                    .when(!git_selected, |this| {
+                        this.child(self.render_line_stats("overall", self.overall_line_stats, cx))
+                            .child({
+                                let view = view.clone();
+                                Button::new("toggle-diff-whitespace")
+                                    .outline()
+                                    .compact()
+                                    .rounded(px(7.0))
+                                    .bg(dropdown_bg)
+                                    .label(if self.diff_show_whitespace {
+                                        "Whitespace: On"
+                                    } else {
+                                        "Whitespace: Off"
+                                    })
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.toggle_diff_show_whitespace(cx);
+                                        });
+                                    })
+                            })
+                            .child({
+                                let view = view.clone();
+                                Button::new("toggle-diff-eol")
+                                    .outline()
+                                    .compact()
+                                    .rounded(px(7.0))
+                                    .bg(dropdown_bg)
+                                    .label(if self.diff_show_eol_markers {
+                                        "EOL: On"
+                                    } else {
+                                        "EOL: Off"
+                                    })
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.toggle_diff_show_eol_markers(cx);
+                                        });
+                                    })
+                            })
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("{} files", self.files.len())),
+                            )
+                    })
                     .when(self.config.show_fps_counter, |this| {
                         this.child(
                             div()

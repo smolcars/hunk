@@ -131,6 +131,24 @@ impl DiffViewer {
         let active_branch = self
             .checked_out_branch_name()
             .map_or_else(|| "detached".to_string(), ToOwned::to_owned);
+        let footer_summary = if git_selected {
+            if self.branch_has_upstream {
+                format!(
+                    "{} changed files • {} ahead • {} behind",
+                    self.files.len(),
+                    self.branch_ahead_count,
+                    self.branch_behind_count
+                )
+            } else {
+                format!("{} changed files • branch not published", self.files.len())
+            }
+        } else {
+            format!(
+                "{} changed files • active branch: {}",
+                self.files.len(),
+                active_branch
+            )
+        };
 
         h_flex()
             .w_full()
@@ -289,11 +307,7 @@ impl DiffViewer {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!(
-                        "{} changed files • active branch: {}",
-                        self.files.len(),
-                        active_branch
-                    )),
+                    .child(footer_summary),
             )
             .into_any_element()
     }
