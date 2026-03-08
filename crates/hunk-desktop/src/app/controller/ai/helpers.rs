@@ -384,7 +384,18 @@ fn should_sync_selected_thread_from_active_thread(
     selected_thread_id.is_none_or(|selected| !state.threads.contains_key(selected))
 }
 
-fn thread_metadata_refresh_key_after_turn_completion(
+pub(crate) fn ai_prompt_send_waiting_on_connection(
+    connection_state: AiConnectionState,
+    bootstrap_loading: bool,
+) -> bool {
+    bootstrap_loading
+        || matches!(
+            connection_state,
+            AiConnectionState::Connecting | AiConnectionState::Reconnecting
+        )
+}
+
+fn thread_metadata_refresh_key(
     state: &hunk_codex::state::AiState,
     thread_id: &str,
 ) -> Option<String> {
@@ -412,12 +423,80 @@ fn thread_metadata_refresh_key_after_turn_completion(
     if turn_states.is_empty() {
         return None;
     }
-    if turn_states.iter().any(|state| state.ends_with(":in-progress")) {
-        return None;
-    }
 
     turn_states.sort();
     Some(turn_states.join("|"))
+}
+
+fn next_thread_metadata_refresh_attempt(
+    refresh_state_by_thread: &mut BTreeMap<String, AiThreadTitleRefreshState>,
+    state: &hunk_codex::state::AiState,
+    thread_id: &str,
+    now: Instant,
+) -> Option<(String, u8)> {
+    let Some(thread) = state.threads.get(thread_id) else {
+        refresh_state_by_thread.remove(thread_id);
+        return None;
+    };
+    if thread
+        .title
+        .as_deref()
+        .is_some_and(|title| !title.trim().is_empty())
+    {
+        if let Some(existing) = refresh_state_by_thread.remove(thread_id) {
+            tracing::debug!(
+                thread_id,
+                attempts = existing.attempts,
+                "AI thread title polling finished: title populated"
+            );
+        }
+        return None;
+    }
+
+    let Some(refresh_key) = thread_metadata_refresh_key(state, thread_id) else {
+        if let Some(existing) = refresh_state_by_thread.remove(thread_id) {
+            tracing::debug!(
+                thread_id,
+                attempts = existing.attempts,
+                "AI thread title polling finished: thread no longer eligible"
+            );
+        }
+        return None;
+    };
+
+    match refresh_state_by_thread.get(thread_id).cloned() {
+        None => Some((refresh_key, 1)),
+        Some(existing) if existing.key != refresh_key => {
+            refresh_state_by_thread.remove(thread_id);
+            Some((refresh_key, 1))
+        }
+        Some(existing) if existing.in_flight => {
+            if let Some(state) = refresh_state_by_thread.get_mut(thread_id) {
+                state.in_flight = false;
+            }
+            tracing::debug!(
+                thread_id,
+                attempts = existing.attempts,
+                "AI thread title poll completed"
+            );
+            None
+        }
+        Some(existing)
+            if now.duration_since(existing.last_attempt_at) < AI_THREAD_TITLE_REFRESH_RETRY_INTERVAL =>
+        {
+            None
+        }
+        Some(existing) if existing.attempts >= AI_THREAD_TITLE_REFRESH_MAX_ATTEMPTS => {
+            refresh_state_by_thread.remove(thread_id);
+            tracing::debug!(
+                thread_id,
+                attempts = existing.attempts,
+                "AI thread title polling finished: retry budget exhausted"
+            );
+            None
+        }
+        Some(existing) => Some((refresh_key, existing.attempts.saturating_add(1))),
+    }
 }
 
 fn thread_latest_timeline_sequence(state: &hunk_codex::state::AiState, thread_id: &str) -> u64 {

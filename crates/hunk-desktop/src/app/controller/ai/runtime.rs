@@ -17,7 +17,10 @@ impl DiffViewer {
                             if this.ai_event_epoch != epoch {
                                 return;
                             }
-                            if this.sync_ai_composer_activity_elapsed_second() {
+                            let activity_elapsed_second_changed =
+                                this.sync_ai_composer_activity_elapsed_second();
+                            if activity_elapsed_second_changed {
+                                this.maybe_refresh_selected_thread_metadata(cx);
                                 cx.notify();
                             }
                         });
@@ -58,7 +61,7 @@ impl DiffViewer {
         self.ai_command_tx = None;
         self.ai_worker_workspace_key = None;
         self.join_ai_worker_thread("event stream disconnect");
-        self.ai_thread_title_refresh_key_by_thread.clear();
+        self.ai_thread_title_refresh_state_by_thread.clear();
         self.ai_pending_approvals.clear();
         self.ai_pending_user_inputs.clear();
         self.ai_pending_user_input_answers.clear();
@@ -113,7 +116,7 @@ impl DiffViewer {
                 self.ai_command_tx = None;
                 self.ai_worker_workspace_key = None;
                 self.join_ai_worker_thread("fatal worker event");
-                self.ai_thread_title_refresh_key_by_thread.clear();
+                self.ai_thread_title_refresh_state_by_thread.clear();
                 self.ai_pending_approvals.clear();
                 self.ai_pending_user_inputs.clear();
                 self.ai_pending_user_input_answers.clear();
@@ -187,7 +190,7 @@ impl DiffViewer {
         self.ai_collaboration_modes = collaboration_modes;
         self.ai_include_hidden_models = include_hidden_models;
         self.ai_mad_max_mode = mad_max_mode;
-        self.ai_thread_title_refresh_key_by_thread
+        self.ai_thread_title_refresh_state_by_thread
             .retain(|thread_id, _| self.ai_state_snapshot.threads.contains_key(thread_id));
         self.ai_timeline_visible_turn_limit_by_thread
             .retain(|thread_id, _| self.ai_state_snapshot.threads.contains_key(thread_id));
@@ -302,30 +305,16 @@ impl DiffViewer {
         let Some(thread_id) = self.ai_selected_thread_id.clone() else {
             return;
         };
+        let now = Instant::now();
 
-        let Some(refresh_key) = thread_metadata_refresh_key_after_turn_completion(
+        let Some((refresh_key, attempts)) = next_thread_metadata_refresh_attempt(
+            &mut self.ai_thread_title_refresh_state_by_thread,
             &self.ai_state_snapshot,
             thread_id.as_str(),
+            now,
         ) else {
-            if self
-                .ai_state_snapshot
-                .threads
-                .get(thread_id.as_str())
-                .and_then(|thread| thread.title.as_deref())
-                .is_some_and(|title| !title.trim().is_empty())
-            {
-                self.ai_thread_title_refresh_key_by_thread
-                    .remove(thread_id.as_str());
-            }
             return;
         };
-        if self
-            .ai_thread_title_refresh_key_by_thread
-            .get(thread_id.as_str())
-            .is_some_and(|attempted_key| attempted_key == &refresh_key)
-        {
-            return;
-        }
 
         if self.send_ai_worker_command_if_running(
             AiWorkerCommand::RefreshThreadMetadata {
@@ -333,8 +322,21 @@ impl DiffViewer {
             },
             cx,
         ) {
-            self.ai_thread_title_refresh_key_by_thread
-                .insert(thread_id, refresh_key);
+            tracing::debug!(
+                thread_id = thread_id.as_str(),
+                attempts,
+                refresh_key = refresh_key.as_str(),
+                "Polling AI thread metadata for title refresh"
+            );
+            self.ai_thread_title_refresh_state_by_thread.insert(
+                thread_id,
+                AiThreadTitleRefreshState {
+                    key: refresh_key,
+                    attempts,
+                    in_flight: true,
+                    last_attempt_at: now,
+                },
+            );
         }
     }
 
@@ -558,6 +560,21 @@ impl DiffViewer {
         if !local_image_paths.is_empty() && !self.current_ai_model_supports_image_inputs() {
             self.set_current_ai_composer_status(
                 "Selected model does not support image attachments. Remove attachments or switch models.",
+            );
+            cx.notify();
+            return false;
+        }
+        if self.ai_command_tx.is_none() {
+            self.ensure_ai_runtime_started(cx);
+        }
+        if self.ai_command_tx.is_none()
+            || ai_prompt_send_waiting_on_connection(
+                self.ai_connection_state,
+                self.ai_bootstrap_loading,
+            )
+        {
+            self.set_current_ai_composer_status(
+                "Cannot send until Codex finishes connecting.",
             );
             cx.notify();
             return false;

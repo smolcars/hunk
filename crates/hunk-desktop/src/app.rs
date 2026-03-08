@@ -97,6 +97,8 @@ const COMMENT_FUZZY_MATCH_MIN_SCORE: i32 = 6;
 const COMMENT_FUZZY_RENAME_MATCH_MIN_SCORE: i32 = 11;
 const AI_TIMELINE_DEFAULT_VISIBLE_TURNS: usize = 80;
 const AI_TIMELINE_TURN_PAGE_SIZE: usize = 80;
+const AI_THREAD_TITLE_REFRESH_MAX_ATTEMPTS: u8 = 20;
+const AI_THREAD_TITLE_REFRESH_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 mod ai_paths;
 mod branch_activation;
@@ -186,6 +188,14 @@ enum AiComposerDraftKey {
 struct AiComposerDraft {
     prompt: String,
     local_images: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiThreadTitleRefreshState {
+    key: String,
+    attempts: u8,
+    in_flight: bool,
+    last_attempt_at: Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1073,7 +1083,7 @@ struct DiffViewer {
     ai_thread_inline_toast: Option<String>,
     ai_thread_inline_toast_epoch: usize,
     ai_thread_inline_toast_task: Task<()>,
-    ai_thread_title_refresh_key_by_thread: BTreeMap<String, String>,
+    ai_thread_title_refresh_state_by_thread: BTreeMap<String, AiThreadTitleRefreshState>,
     ai_timeline_list_state: ListState,
     ai_timeline_list_row_count: usize,
     ai_timeline_visible_turn_limit_by_thread: BTreeMap<String, usize>,

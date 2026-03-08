@@ -412,8 +412,7 @@ impl AiWorkerRuntime {
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::RefreshThreadMetadata { thread_id } => {
-                self.service
-                    .read_thread(&mut self.session, thread_id, false, self.request_timeout)?;
+                self.refresh_thread_metadata_snapshot(thread_id)?;
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::RefreshAccount => {
@@ -463,23 +462,7 @@ impl AiWorkerRuntime {
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::SelectThread { thread_id } => {
-                let selected_thread_id = thread_id.clone();
-                self.service.resume_thread(
-                    &mut self.session,
-                    ThreadResumeParams {
-                        thread_id,
-                        persist_extended_history: true,
-                        ..ThreadResumeParams::default()
-                    },
-                    self.request_timeout,
-                )?;
-                self.service.read_thread(
-                    &mut self.session,
-                    selected_thread_id.clone(),
-                    true,
-                    self.request_timeout,
-                )?;
-                self.hydrate_thread_from_rollout_fallback_if_needed(selected_thread_id.as_str());
+                self.load_thread_snapshot(thread_id)?;
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::ArchiveThread { thread_id } => {
@@ -722,6 +705,39 @@ impl AiWorkerRuntime {
         self.apply_turn_session_overrides(&mut params, &session_overrides);
         self.service
             .start_turn(&mut self.session, params, self.request_timeout)?;
+        Ok(())
+    }
+
+    fn load_thread_snapshot(
+        &mut self,
+        thread_id: String,
+    ) -> Result<(), CodexIntegrationError> {
+        let read_thread_id = thread_id.clone();
+        self.service.resume_thread(
+            &mut self.session,
+            ThreadResumeParams {
+                thread_id,
+                persist_extended_history: true,
+                ..ThreadResumeParams::default()
+            },
+            self.request_timeout,
+        )?;
+        self.service.read_thread(
+            &mut self.session,
+            read_thread_id.clone(),
+            true,
+            self.request_timeout,
+        )?;
+        self.hydrate_thread_from_rollout_fallback_if_needed(read_thread_id.as_str());
+        Ok(())
+    }
+
+    fn refresh_thread_metadata_snapshot(
+        &mut self,
+        thread_id: String,
+    ) -> Result<(), CodexIntegrationError> {
+        self.service
+            .read_thread(&mut self.session, thread_id, false, self.request_timeout)?;
         Ok(())
     }
 

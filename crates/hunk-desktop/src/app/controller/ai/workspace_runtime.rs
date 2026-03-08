@@ -33,7 +33,7 @@ impl DiffViewer {
         self.ai_selected_thread_id = None;
         self.ai_new_thread_draft_active = false;
         self.ai_pending_new_thread_selection = false;
-        self.ai_thread_title_refresh_key_by_thread.clear();
+        self.ai_thread_title_refresh_state_by_thread.clear();
         self.ai_pending_approvals.clear();
         self.ai_pending_user_inputs.clear();
         self.ai_pending_user_input_answers.clear();

@@ -78,6 +78,11 @@ impl DiffViewer {
         let (connection_label, connection_color) = ai_connection_label(self.ai_connection_state, cx);
         let composer_attachment_paths = self.current_ai_composer_local_images();
         let composer_attachment_count = composer_attachment_paths.len();
+        let composer_send_waiting_on_connection =
+            crate::app::controller::ai_prompt_send_waiting_on_connection(
+                self.ai_connection_state,
+                self.ai_bootstrap_loading,
+            );
         let composer_interrupt_available = selected_thread_id
             .as_deref()
             .and_then(|thread_id| self.current_ai_in_progress_turn_id(thread_id))
@@ -299,7 +304,12 @@ impl DiffViewer {
                                                         .rounded(px(999.0))
                                                         .with_size(gpui_component::Size::Small)
                                                         .icon(Icon::new(IconName::ArrowUp).size(px(16.0)))
-                                                        .tooltip("Send prompt")
+                                                        .tooltip(if composer_send_waiting_on_connection {
+                                                            "Wait for Codex to finish connecting."
+                                                        } else {
+                                                            "Send prompt"
+                                                        })
+                                                        .disabled(composer_send_waiting_on_connection)
                                                         .on_click(move |_, window, cx| {
                                                             view.update(cx, |this, cx| {
                                                                 this.ai_send_prompt_action(window, cx);

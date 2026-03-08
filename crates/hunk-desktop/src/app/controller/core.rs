@@ -369,7 +369,7 @@ impl DiffViewer {
             ai_thread_inline_toast: None,
             ai_thread_inline_toast_epoch: 0,
             ai_thread_inline_toast_task: Task::ready(()),
-            ai_thread_title_refresh_key_by_thread: BTreeMap::new(),
+            ai_thread_title_refresh_state_by_thread: BTreeMap::new(),
             ai_timeline_list_state: ListState::new(0, ListAlignment::Top, px(360.0)),
             ai_timeline_list_row_count: 0,
             ai_timeline_visible_turn_limit_by_thread: BTreeMap::new(),
