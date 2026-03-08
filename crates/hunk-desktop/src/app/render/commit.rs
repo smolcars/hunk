@@ -142,6 +142,7 @@ impl DiffViewer {
                 } else {
                     v_flex()
                         .w_full()
+                        .items_stretch()
                         .gap_1()
                         .pb_2()
                         .children(self.files.iter().enumerate().map(|(row_ix, file)| {
@@ -165,7 +166,6 @@ impl DiffViewer {
                             .size_full()
                             .track_scroll(&self.git_working_tree_scroll_handle)
                             .overflow_y_scroll()
-                            .pr(px(GIT_WORKING_TREE_SCROLLBAR_GUTTER))
                             .child(
                                 div()
                                     .w_full()

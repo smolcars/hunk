@@ -7,7 +7,6 @@ impl DiffViewer {
     ) -> AnyElement {
         let view = cx.entity();
         let staged_for_commit = self.staged_commit_files.contains(file.path.as_str());
-        let is_selected = self.selected_path.as_deref() == Some(file.path.as_str());
         let is_dark = cx.theme().mode.is_dark();
         let card_surface = hunk_card_surface(cx.theme(), is_dark);
         let undo_loading = self.git_action_loading_named("Undo file changes");
@@ -20,16 +19,6 @@ impl DiffViewer {
             HunkAccentTone::Warning
         };
         let tracking_colors = hunk_tinted_button(cx.theme(), is_dark, tracking_tone);
-        let row_background = if is_selected {
-            hunk_blend(card_surface.background, status_color, is_dark, 0.18, 0.10)
-        } else {
-            card_surface.background
-        };
-        let row_border = if is_selected {
-            hunk_opacity(status_color, is_dark, 0.54, 0.34)
-        } else {
-            card_surface.border
-        };
         let status_badge_background = hunk_opacity(status_color, is_dark, 0.18, 0.10);
         let status_badge_border = hunk_opacity(status_color, is_dark, 0.62, 0.38);
         let accent_strip = hunk_tone(status_color, is_dark, 0.18, 0.10);
@@ -57,8 +46,8 @@ impl DiffViewer {
             .py_2p5()
             .rounded(px(10.0))
             .border_1()
-            .border_color(row_border)
-            .bg(row_background)
+            .border_color(card_surface.border)
+            .bg(card_surface.background)
             .child({
                 h_flex()
                     .w_full()
@@ -196,11 +185,6 @@ impl DiffViewer {
                     .w(px(3.0))
                     .bg(accent_strip),
             )
-            .on_click(move |_, _, cx| {
-                view.update(cx, |this, cx| {
-                    this.select_file(path.clone(), cx);
-                });
-            })
             .into_any_element()
     }
 }

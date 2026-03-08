@@ -477,18 +477,6 @@ impl DiffViewer {
         } else {
             "Publish this branch to upstream and start tracking it."
         };
-        let branch_menu_entries = self
-            .branches
-            .iter()
-            .map(|branch| {
-                (
-                    branch.name.clone(),
-                    branch.is_current,
-                    relative_time_label(branch.tip_unix_time),
-                )
-            })
-            .collect::<Vec<_>>();
-
         v_flex()
             .w_full()
             .gap_2()
@@ -553,49 +541,30 @@ impl DiffViewer {
                     )),
             )
             .child(
-                Button::new("branch-selector-v3")
-                    .outline()
-                    .with_size(gpui_component::Size::Small)
+                Select::new(&self.branch_picker_state)
+                    .with_size(gpui_component::Size::Medium)
+                    .placeholder(active_branch_label)
+                    .search_placeholder("Find a branch")
                     .rounded(px(8.0))
-                    .loading(activate_branch_loading)
                     .w_full()
                     .bg(colors.muted_card.background)
                     .border_color(colors.muted_card.border)
-                    .label(active_branch_label)
-                    .dropdown_caret(true)
-                    .tooltip("Select a branch to activate it.")
                     .disabled(self.git_action_loading)
-                    .dropdown_menu({
-                        let view = view.clone();
-                        move |menu, _, _| {
-                            branch_menu_entries.iter().fold(menu, |menu, entry| {
-                                let view = view.clone();
-                                let branch_name = entry.0.clone();
-                                let branch_label = format!("{} · {}", entry.0, entry.2);
-
-                                menu.item(
-                                    PopupMenuItem::new(branch_label)
-                                        .checked(entry.1)
-                                        .on_click(move |_, window, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.checkout_branch(
-                                                    branch_name.clone(),
-                                                    window,
-                                                    cx,
-                                                );
-                                            });
-                                        }),
-                                )
-                            })
-                        }
-                    }),
+                    .empty(
+                        h_flex()
+                            .h(px(84.0))
+                            .justify_center()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("No branches match your search."),
+                    ),
             )
             .child(
                 div()
                     .w_full()
-                    .min_h(px(42.0))
+                    .min_h(px(36.0))
                     .px_2p5()
-                    .py_2()
+                    .py_1p5()
                     .rounded(px(8.0))
                     .border_1()
                     .border_color(colors.muted_card.border)

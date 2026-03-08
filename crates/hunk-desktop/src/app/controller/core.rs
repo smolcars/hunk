@@ -182,6 +182,7 @@ impl DiffViewer {
             .selected_path
             .as_deref()
             .and_then(|selected| self.status_for_path(selected));
+        self.sync_branch_picker_state(cx);
         self.repo_discovery_failed = false;
         self.error_message = None;
         debug!(
@@ -297,8 +298,11 @@ impl DiffViewer {
             .unwrap_or(true);
         let diff_show_whitespace = config.show_whitespace;
         let diff_show_eol_markers = config.show_eol_markers;
+        let branch_picker_state = cx.new(|cx| {
+            SelectState::new(BranchPickerDelegate::default(), None, window, cx).searchable(true)
+        });
         let branch_input_state = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Select or create branch")
+            InputState::new(window, cx).placeholder("Create or rename branch")
         });
         let commit_input_state = cx
             .new(|cx| InputState::new(window, cx).multi_line(true).rows(4).placeholder("Commit message"));
@@ -402,6 +406,7 @@ impl DiffViewer {
             ai_composer_drafts: BTreeMap::new(),
             files: Vec::new(),
             file_status_by_path: BTreeMap::new(),
+            branch_picker_state,
             branch_input_state,
             branch_input_has_text: false,
             commit_input_state,
@@ -529,6 +534,23 @@ impl DiffViewer {
         })
         .detach();
 
+        let branch_picker_state = view.branch_picker_state.clone();
+        cx.subscribe(
+            &branch_picker_state,
+            |this, _, event: &SelectEvent<BranchPickerDelegate>, cx| {
+                let SelectEvent::Confirm(branch_name) = event;
+                let Some(branch_name) = branch_name.clone() else {
+                    return;
+                };
+                if this.checked_out_branch_name() == Some(branch_name.as_str()) {
+                    return;
+                }
+                this.checkout_branch(branch_name, cx);
+            },
+        )
+        .detach();
+
+        view.update_branch_picker_state(window, cx);
         view.apply_theme_preference(window, cx);
         cx.observe_window_appearance(window, |this, window, cx| {
             this.sync_theme_with_system_if_needed(window, cx);
@@ -547,6 +569,37 @@ impl DiffViewer {
         view
     }
 
+    fn update_branch_picker_state(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let delegate = build_branch_picker_delegate(&self.branches);
+        let selected_index =
+            branch_picker_selected_index(&self.branches, self.checked_out_branch_name());
+        self.branch_picker_state.update(cx, |state, cx| {
+            state.set_items(delegate, window, cx);
+            state.set_selected_index(selected_index, window, cx);
+        });
+        cx.notify();
+    }
+
+    fn sync_branch_picker_state(&mut self, cx: &mut Context<Self>) {
+        let Some(window_handle) = cx.windows().into_iter().next() else {
+            return;
+        };
+
+        let branch_picker_state = self.branch_picker_state.clone();
+        let delegate = build_branch_picker_delegate(&self.branches);
+        let selected_index =
+            branch_picker_selected_index(&self.branches, self.checked_out_branch_name());
+
+        if let Err(err) = cx.update_window(window_handle, move |_, window, cx| {
+            branch_picker_state.update(cx, |state, cx| {
+                state.set_items(delegate, window, cx);
+                state.set_selected_index(selected_index, window, cx);
+            });
+        }) {
+            error!("failed to sync branch picker state: {err:#}");
+        }
+    }
+
     pub(super) fn open_project_action(
         &mut self,
         _: &OpenProject,
@@ -554,16 +607,6 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         self.open_project_picker(cx);
-    }
-
-    pub(super) fn select_file(&mut self, path: String, cx: &mut Context<Self>) {
-        self.selected_path = Some(path.clone());
-        self.selected_status = self.status_for_path(path.as_str());
-        self.scroll_to_file_start(&path);
-        self.last_visible_row_start = None;
-        self.last_diff_scroll_offset = None;
-        self.last_scroll_activity_at = Instant::now();
-        cx.notify();
     }
 
     pub(super) fn status_for_path(&self, path: &str) -> Option<FileStatus> {
@@ -1356,6 +1399,7 @@ impl DiffViewer {
         self.branch_ahead_count = branch_ahead_count;
         self.branch_behind_count = branch_behind_count;
         self.branches = branches;
+        self.sync_branch_picker_state(cx);
         self.files = files;
         self.file_status_by_path = self
             .files
@@ -1527,6 +1571,7 @@ impl DiffViewer {
             self.persist_state();
         }
         self.clear_recent_commits_cache();
+        self.sync_branch_picker_state(cx);
         cx.notify();
     }
 

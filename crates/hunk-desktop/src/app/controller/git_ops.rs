@@ -234,12 +234,7 @@ impl DiffViewer {
         self.checkout_or_create_branch_with_options(target_branch, cx);
     }
 
-    pub(super) fn checkout_branch(
-        &mut self,
-        branch_name: String,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn checkout_branch(&mut self, branch_name: String, cx: &mut Context<Self>) {
         self.request_activate_or_create_branch_with_dirty_guard(branch_name, cx);
     }
 

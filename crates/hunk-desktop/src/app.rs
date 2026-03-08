@@ -21,6 +21,7 @@ use gpui_component::{
     menu::AppMenuBar,
     resizable::{h_resizable, resizable_panel},
     scroll::ScrollableElement,
+    select::{SelectEvent, SelectState},
     v_flex,
 };
 use gpui_component_assets::Assets;
@@ -56,6 +57,9 @@ use ai_runtime::AiWorkerCommand;
 use ai_runtime::AiWorkerEvent;
 use ai_runtime::AiWorkerStartConfig;
 use ai_runtime::spawn_ai_worker;
+use branch_picker::{
+    BranchPickerDelegate, branch_picker_selected_index, build_branch_picker_delegate,
+};
 use data::{
     DiffRowSegmentCache, DiffStreamRowMeta, FileRowRange, RepoTreeNode, RepoTreeNodeKind,
     RepoTreeRow, WorkspaceSwitchAction, WorkspaceViewMode,
@@ -95,6 +99,7 @@ const AI_TIMELINE_DEFAULT_VISIBLE_TURNS: usize = 80;
 const AI_TIMELINE_TURN_PAGE_SIZE: usize = 80;
 
 mod ai_paths;
+mod branch_picker;
 mod refresh_policy;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1104,6 +1109,7 @@ struct DiffViewer {
     ai_composer_drafts: BTreeMap<AiComposerDraftKey, AiComposerDraft>,
     files: Vec<ChangedFile>,
     file_status_by_path: BTreeMap<String, FileStatus>,
+    branch_picker_state: Entity<SelectState<BranchPickerDelegate>>,
     branch_input_state: Entity<InputState>,
     branch_input_has_text: bool,
     commit_input_state: Entity<InputState>,
