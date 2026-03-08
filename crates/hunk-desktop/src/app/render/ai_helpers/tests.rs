@@ -7,6 +7,7 @@ mod ai_helper_tests {
     use super::ai_composer_status_tone;
     use super::ai_collaboration_picker_label;
     use super::ai_tool_compact_summary;
+    use super::ai_thread_display_title;
     use super::ai_thread_status_text;
     use super::ai_tool_header_title;
     use super::ai_item_display_label;
@@ -18,6 +19,7 @@ mod ai_helper_tests {
     use hunk_codex::state::ItemDisplayMetadata;
     use hunk_codex::state::ItemStatus;
     use hunk_codex::state::ItemSummary;
+    use hunk_codex::state::ThreadSummary;
     use hunk_codex::state::ThreadLifecycleStatus;
     use hunk_domain::state::AiCollaborationModeSelection;
     use hunk_domain::markdown_preview::MarkdownPreviewBlock;
@@ -139,6 +141,21 @@ mod ai_helper_tests {
             ai_thread_status_text(ThreadLifecycleStatus::NotLoaded),
             "not loaded"
         );
+    }
+
+    #[test]
+    fn thread_display_title_avoids_exposing_thread_id_when_title_missing() {
+        let thread = ThreadSummary {
+            id: "019ccb4e-165a-75e1-a9ac-ddbc307ec84a".to_string(),
+            cwd: "/repo".to_string(),
+            title: None,
+            status: ThreadLifecycleStatus::Idle,
+            created_at: 0,
+            updated_at: 0,
+            last_sequence: 0,
+        };
+
+        assert_eq!(ai_thread_display_title(&thread), "Untitled thread");
     }
 
     #[test]

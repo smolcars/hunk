@@ -56,6 +56,16 @@ fn ai_thread_activity_label(unix_time: i64) -> Option<String> {
     })
 }
 
+fn ai_thread_display_title(thread: &hunk_codex::state::ThreadSummary) -> String {
+    thread
+        .title
+        .as_ref()
+        .map(|title| title.trim())
+        .filter(|title| !title.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "Untitled thread".to_string())
+}
+
 fn render_ai_thread_sidebar_row(
     thread: hunk_codex::state::ThreadSummary,
     selected_thread_id: Option<&str>,
@@ -64,10 +74,7 @@ fn render_ai_thread_sidebar_row(
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let thread_id = thread.id.clone();
-    let title = thread
-        .title
-        .clone()
-        .unwrap_or_else(|| thread.id.clone());
+    let title = ai_thread_display_title(&thread);
     let selected = selected_thread_id == Some(thread.id.as_str());
     let row_background = if selected {
         cx.theme().secondary_active
@@ -166,26 +173,10 @@ fn render_ai_thread_sidebar_row(
                             .text_color(time_color)
                             .child(label),
                     )
-                }),
-        )
-        .child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .justify_between()
-                .gap_2()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_xs()
-                        .text_color(metadata_color)
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .truncate()
-                        .child(thread.id),
-                )
+                })
                 .child(
                     h_flex()
+                        .flex_none()
                         .items_center()
                         .gap_1()
                         .when_some(status_indicator, |this, indicator| this.child(indicator))
