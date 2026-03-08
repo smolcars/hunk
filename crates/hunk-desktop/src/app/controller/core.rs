@@ -408,7 +408,6 @@ impl DiffViewer {
             staged_commit_files: BTreeSet::new(),
             last_commit_subject: None,
             recent_commits: Vec::new(),
-            recent_commits_author_label: None,
             recent_commits_error: None,
             git_action_epoch: 0,
             git_action_task: Task::ready(()),

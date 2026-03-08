@@ -17,14 +17,12 @@ pub struct RecentCommitSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecentCommitsSnapshot {
     pub root: PathBuf,
-    pub author_label: Option<String>,
     pub commits: Vec<RecentCommitSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecentCommitsFingerprint {
     root: PathBuf,
-    author_key: Option<String>,
     head_ref_name: Option<String>,
     head_commit_id: Option<String>,
     base_tip_id: Option<String>,
@@ -34,10 +32,6 @@ pub struct RecentCommitsFingerprint {
 impl RecentCommitsFingerprint {
     pub fn root(&self) -> &Path {
         self.root.as_path()
-    }
-
-    pub fn author_key(&self) -> Option<&str> {
-        self.author_key.as_deref()
     }
 
     pub fn head_ref_name(&self) -> Option<&str> {
@@ -53,65 +47,6 @@ impl RecentCommitsFingerprint {
     }
 }
 
-#[derive(Debug, Clone)]
-struct RecentCommitAuthorMatcher {
-    key: Option<String>,
-    label: Option<String>,
-    email: Option<String>,
-    name: Option<String>,
-}
-
-impl RecentCommitAuthorMatcher {
-    fn from_repo(repo: &gix::Repository) -> Result<Self> {
-        let signature = match repo.author() {
-            Some(result) => Some(result.context("failed to parse Git author identity")?),
-            None => None,
-        };
-        let Some(signature) = signature else {
-            return Ok(Self {
-                key: None,
-                label: None,
-                email: None,
-                name: None,
-            });
-        };
-
-        let email = normalize_identity_value(signature.email);
-        let name = normalize_identity_value(signature.name);
-        let label = match (name.as_deref(), email.as_deref()) {
-            (Some(name), Some(email)) => Some(format!("{name} <{email}>")),
-            (Some(name), None) => Some(name.to_string()),
-            (None, Some(email)) => Some(email.to_string()),
-            (None, None) => None,
-        };
-        let key = email
-            .as_ref()
-            .map(|email| format!("email:{}", email.to_ascii_lowercase()))
-            .or_else(|| name.as_ref().map(|name| format!("name:{name}")));
-
-        Ok(Self {
-            key,
-            label,
-            email,
-            name,
-        })
-    }
-
-    fn matches(&self, signature: gix::actor::SignatureRef<'_>) -> bool {
-        if let Some(expected_email) = self.email.as_deref() {
-            return normalize_identity_value(signature.email)
-                .is_some_and(|email| email.eq_ignore_ascii_case(expected_email));
-        }
-
-        if let Some(expected_name) = self.name.as_deref() {
-            return normalize_identity_value(signature.name)
-                .is_some_and(|name| name == expected_name);
-        }
-
-        false
-    }
-}
-
 pub fn load_recent_authored_commits(path: &Path, limit: usize) -> Result<RecentCommitsSnapshot> {
     let (_, snapshot) = load_recent_authored_commits_with_fingerprint(path, limit)?;
     Ok(snapshot)
@@ -121,7 +56,7 @@ pub fn load_recent_authored_commits_fingerprint(
     path: &Path,
     limit: usize,
 ) -> Result<RecentCommitsFingerprint> {
-    let (_, _, _, _, fingerprint) = recent_commits_context(path, limit)?;
+    let (_, _, _, fingerprint) = recent_commits_context(path, limit)?;
     Ok(fingerprint)
 }
 
@@ -129,20 +64,14 @@ pub fn load_recent_authored_commits_with_fingerprint(
     path: &Path,
     limit: usize,
 ) -> Result<(RecentCommitsFingerprint, RecentCommitsSnapshot)> {
-    let (repo, author, tip_id, base_tip_id, fingerprint) = recent_commits_context(path, limit)?;
-    let commits = load_recent_authored_commits_from_context(
-        repo.repository(),
-        &author,
-        tip_id,
-        base_tip_id,
-        limit,
-    )?;
+    let (repo, tip_id, base_tip_id, fingerprint) = recent_commits_context(path, limit)?;
+    let commits =
+        load_recent_authored_commits_from_context(repo.repository(), tip_id, base_tip_id, limit)?;
 
     Ok((
         fingerprint,
         RecentCommitsSnapshot {
             root: repo.root().to_path_buf(),
-            author_label: author.label,
             commits,
         },
     ))
@@ -153,22 +82,16 @@ pub fn load_recent_authored_commits_if_changed(
     limit: usize,
     previous_fingerprint: Option<&RecentCommitsFingerprint>,
 ) -> Result<(RecentCommitsFingerprint, Option<RecentCommitsSnapshot>)> {
-    let (repo, author, tip_id, base_tip_id, fingerprint) = recent_commits_context(path, limit)?;
+    let (repo, tip_id, base_tip_id, fingerprint) = recent_commits_context(path, limit)?;
     if previous_fingerprint.is_some_and(|previous| previous == &fingerprint) {
         return Ok((fingerprint, None));
     }
-    let commits = load_recent_authored_commits_from_context(
-        repo.repository(),
-        &author,
-        tip_id,
-        base_tip_id,
-        limit,
-    )?;
+    let commits =
+        load_recent_authored_commits_from_context(repo.repository(), tip_id, base_tip_id, limit)?;
     Ok((
         fingerprint,
         Some(RecentCommitsSnapshot {
             root: repo.root().to_path_buf(),
-            author_label: author.label,
             commits,
         }),
     ))
@@ -179,13 +102,11 @@ fn recent_commits_context(
     limit: usize,
 ) -> Result<(
     crate::git::GitRepo,
-    RecentCommitAuthorMatcher,
     gix::ObjectId,
     Option<gix::ObjectId>,
     RecentCommitsFingerprint,
 )> {
     let repo = open_repo(path)?;
-    let author = RecentCommitAuthorMatcher::from_repo(repo.repository())?;
     let head_ref_name = repo
         .repository()
         .head_name()
@@ -194,7 +115,6 @@ fn recent_commits_context(
     let Some(head_commit_id) = repo.repository().head_id().ok().map(|id| id.detach()) else {
         let fingerprint = RecentCommitsFingerprint {
             root: repo.root().to_path_buf(),
-            author_key: author.key.clone(),
             head_ref_name,
             head_commit_id: None,
             base_tip_id: None,
@@ -202,7 +122,6 @@ fn recent_commits_context(
         };
         return Ok((
             repo,
-            author,
             gix::ObjectId::null(gix::hash::Kind::Sha1),
             None,
             fingerprint,
@@ -212,31 +131,28 @@ fn recent_commits_context(
         branch_base_tip_id(repo.repository(), head_ref_name.as_deref(), head_commit_id)?;
     let fingerprint = RecentCommitsFingerprint {
         root: repo.root().to_path_buf(),
-        author_key: author.key.clone(),
         head_ref_name,
         head_commit_id: Some(head_commit_id.to_string()),
         base_tip_id: base_tip_id.as_ref().map(ToString::to_string),
         limit,
     };
-    Ok((repo, author, head_commit_id, base_tip_id, fingerprint))
+    Ok((repo, head_commit_id, base_tip_id, fingerprint))
 }
 
 fn load_recent_authored_commits_from_context(
     repo: &gix::Repository,
-    author: &RecentCommitAuthorMatcher,
     tip_id: gix::ObjectId,
     base_tip_id: Option<gix::ObjectId>,
     limit: usize,
 ) -> Result<Vec<RecentCommitSummary>> {
-    if author.key.is_none() || tip_id.is_null() || limit == 0 {
+    if tip_id.is_null() || limit == 0 {
         return Ok(Vec::new());
     }
-    collect_recent_authored_commits(repo, author, tip_id, base_tip_id, limit)
+    collect_recent_authored_commits(repo, tip_id, base_tip_id, limit)
 }
 
 fn collect_recent_authored_commits(
     repo: &gix::Repository,
-    author: &RecentCommitAuthorMatcher,
     tip_id: gix::ObjectId,
     base_tip_id: Option<gix::ObjectId>,
     limit: usize,
@@ -260,12 +176,6 @@ fn collect_recent_authored_commits(
         let commit = info
             .object()
             .with_context(|| format!("failed to load commit {}", info.id))?;
-        let commit_author = commit
-            .author()
-            .with_context(|| format!("failed to read commit author for {}", info.id))?;
-        if !author.matches(commit_author) {
-            continue;
-        }
 
         commits.push(RecentCommitSummary {
             commit_id: info.id.to_string(),
@@ -339,14 +249,18 @@ fn remote_default_branch_tip_id(
         return Ok(None);
     };
     let default_remote_head_ref = format!("refs/remotes/{remote_name}/HEAD");
-    let Some(mut default_remote_head) = find_reference(repo, default_remote_head_ref.as_str()) else {
+    let Some(mut default_remote_head) = find_reference(repo, default_remote_head_ref.as_str())
+    else {
         return Ok(None);
     };
     if default_remote_head
         .target()
         .try_name()
         .map(|name| name.to_string())
-        .and_then(|name| name.strip_prefix(format!("refs/remotes/{remote_name}/").as_str()).map(str::to_owned))
+        .and_then(|name| {
+            name.strip_prefix(format!("refs/remotes/{remote_name}/").as_str())
+                .map(str::to_owned)
+        })
         .as_deref()
         == Some(current_branch_name)
     {
@@ -362,7 +276,10 @@ fn remote_default_branch_tip_id(
     Ok(Some(base_tip_id))
 }
 
-fn find_reference<'repo>(repo: &'repo gix::Repository, ref_name: &str) -> Option<gix::Reference<'repo>> {
+fn find_reference<'repo>(
+    repo: &'repo gix::Repository,
+    ref_name: &str,
+) -> Option<gix::Reference<'repo>> {
     repo.find_reference(ref_name).ok()
 }
 
@@ -378,11 +295,6 @@ fn peel_reference_to_id(repo: &gix::Repository, ref_name: &str) -> Result<Option
 
 fn short_branch_name(head_ref_name: &str) -> Option<&str> {
     head_ref_name.strip_prefix("refs/heads/")
-}
-
-fn normalize_identity_value(value: &gix::bstr::BStr) -> Option<String> {
-    let normalized = String::from_utf8_lossy(value.as_ref()).trim().to_string();
-    (!normalized.is_empty()).then_some(normalized)
 }
 
 fn commit_subject(commit: &gix::Commit<'_>) -> String {

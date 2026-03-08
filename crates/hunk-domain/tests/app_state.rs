@@ -74,8 +74,6 @@ fn app_state_round_trips_last_project_path() {
         }),
         git_recent_commits_cache: Some(CachedRecentCommitsState {
             root: Some(PathBuf::from("/tmp/hunk-repo")),
-            author_key: Some("email:hunk@example.com".to_string()),
-            author_label: Some("Hunk <hunk@example.com>".to_string()),
             head_ref_name: Some("refs/heads/main".to_string()),
             head_commit_id: Some("0123456789abcdef0123456789abcdef01234567".to_string()),
             base_tip_id: None,

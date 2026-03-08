@@ -17,31 +17,10 @@ impl DiffViewer {
         } else {
             format!("branch {}", branch_scope_label)
         };
-        let subtitle = self
-            .recent_commits_author_label
-            .as_ref()
-            .map(|label| format!("Newest authored commits on {branch_scope_description} for {label}."))
-            .unwrap_or_else(|| {
-                "Configure Git user.name and user.email to filter your commits on the current branch."
-                    .to_string()
-            });
+        let subtitle = format!("Latest commits on {branch_scope_description}.");
 
         let list_container = if self.recent_commits_loading && self.recent_commits.is_empty() {
             self.render_git_recent_commits_loading_skeleton(cx)
-        } else if self.recent_commits_author_label.is_none() {
-            v_flex()
-                .w_full()
-                .items_center()
-                .justify_center()
-                .p_3()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .whitespace_normal()
-                        .child("Set Git user.name and user.email to show your recent commits on the current branch."),
-                )
-                .into_any_element()
         } else if let Some(error) = self
             .recent_commits_error
             .as_ref()
@@ -71,7 +50,7 @@ impl DiffViewer {
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
                         .whitespace_normal()
-                        .child("No recent authored commits on the current branch."),
+                        .child("No recent commits on the current branch."),
                 )
                 .into_any_element()
         } else {

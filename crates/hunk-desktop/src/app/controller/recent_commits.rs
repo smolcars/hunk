@@ -23,7 +23,6 @@ impl DiffViewer {
             return;
         };
         if current_fingerprint.root() != root.as_path()
-            || current_fingerprint.author_key() != cache.author_key.as_deref()
             || current_fingerprint.head_ref_name() != cache.head_ref_name.as_deref()
             || current_fingerprint.head_commit_id() != cache.head_commit_id.as_deref()
             || current_fingerprint.base_tip_id() != cache.base_tip_id.as_deref()
@@ -44,7 +43,6 @@ impl DiffViewer {
                 committed_unix_time: commit.committed_unix_time,
             })
             .collect();
-        self.recent_commits_author_label = cache.author_label;
         self.recent_commits_error = None;
         debug!(
             "hydrated recent commits cache for {} (commits={})",
@@ -61,11 +59,6 @@ impl DiffViewer {
 
         let mut cache = CachedRecentCommitsState {
             root: Some(root),
-            author_key: self
-                .last_recent_commits_fingerprint
-                .as_ref()
-                .and_then(|fingerprint| fingerprint.author_key().map(str::to_string)),
-            author_label: self.recent_commits_author_label.clone(),
             head_ref_name: self
                 .last_recent_commits_fingerprint
                 .as_ref()
@@ -113,7 +106,6 @@ impl DiffViewer {
     fn reset_recent_commits_state(&mut self) {
         self.next_recent_commits_epoch();
         self.recent_commits.clear();
-        self.recent_commits_author_label = None;
         self.recent_commits_error = None;
         self.recent_commits_task = Task::ready(());
         self.recent_commits_loading = false;
@@ -275,7 +267,6 @@ impl DiffViewer {
                             );
                             this.last_recent_commits_fingerprint = Some(fingerprint);
                             this.recent_commits = snapshot.commits;
-                            this.recent_commits_author_label = snapshot.author_label;
                             this.recent_commits_error = None;
                             this.persist_recent_commits_cache();
                         }

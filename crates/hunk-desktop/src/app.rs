@@ -1110,7 +1110,6 @@ struct DiffViewer {
     staged_commit_files: BTreeSet<String>,
     last_commit_subject: Option<String>,
     recent_commits: Vec<RecentCommitSummary>,
-    recent_commits_author_label: Option<String>,
     recent_commits_error: Option<String>,
     git_action_epoch: usize,
     git_action_task: Task<()>,

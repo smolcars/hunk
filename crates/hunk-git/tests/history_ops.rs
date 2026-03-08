@@ -39,10 +39,6 @@ fn recent_authored_commits_only_include_the_checked_out_branch() -> Result<()> {
         .map(|commit| commit.subject.as_str())
         .collect::<Vec<_>>();
     assert_eq!(subjects, vec!["feature two", "feature one"]);
-    assert_eq!(
-        snapshot.author_label.as_deref(),
-        Some("Hunk <hunk@example.com>")
-    );
     assert_eq!(snapshot.commits.len(), 2);
     Ok(())
 }
@@ -70,22 +66,25 @@ fn recent_authored_commits_if_changed_skips_when_branch_tips_match() -> Result<(
 }
 
 #[test]
-fn recent_authored_commits_filter_to_the_configured_identity() -> Result<()> {
+fn recent_authored_commits_include_all_authors_on_the_checked_out_branch() -> Result<()> {
     let fixture = TempGitRepo::new()?;
     fixture.configure_signature("Configured", "configured@example.com")?;
     fixture.write_file("tracked.txt", "base\n")?;
     fixture.commit_all_at("initial", 1_700_000_000, "Hunk", "hunk@example.com")?;
+    fixture.write_file("tracked.txt", "second\n")?;
+    fixture.commit_all_at("second", 1_700_000_010, "Other", "other@example.com")?;
 
     let (_, snapshot) = load_recent_authored_commits_with_fingerprint(
         fixture.root(),
         DEFAULT_RECENT_AUTHORED_COMMIT_LIMIT,
     )?;
 
-    assert_eq!(
-        snapshot.author_label.as_deref(),
-        Some("Configured <configured@example.com>")
-    );
-    assert!(snapshot.commits.is_empty());
+    let subjects = snapshot
+        .commits
+        .iter()
+        .map(|commit| commit.subject.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(subjects, vec!["second", "initial"]);
     Ok(())
 }
 
