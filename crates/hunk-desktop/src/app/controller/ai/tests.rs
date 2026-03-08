@@ -1173,7 +1173,7 @@ mod ai_tests {
     }
 
     #[test]
-    fn active_thread_change_updates_selection_when_current_selection_is_valid() {
+    fn active_thread_change_does_not_override_valid_local_selection() {
         let mut state = AiState::default();
         state.threads.insert(
             "thread-old".to_string(),
@@ -1200,10 +1200,10 @@ mod ai_tests {
             },
         );
 
-        assert!(should_sync_selected_thread_from_active_thread(
+        assert!(!should_sync_selected_thread_from_active_thread(
             Some("thread-old"),
             Some("thread-new"),
-            Some("thread-old"),
+            false,
             &state,
         ));
     }
@@ -1239,7 +1239,7 @@ mod ai_tests {
         assert!(!should_sync_selected_thread_from_active_thread(
             Some("thread-b"),
             Some("thread-a"),
-            Some("thread-a"),
+            false,
             &state,
         ));
     }
@@ -1263,7 +1263,31 @@ mod ai_tests {
         assert!(should_sync_selected_thread_from_active_thread(
             None,
             Some("thread-a"),
+            false,
+            &state,
+        ));
+    }
+
+    #[test]
+    fn workspace_draft_preserves_empty_selection_even_with_active_thread() {
+        let mut state = AiState::default();
+        state.threads.insert(
+            "thread-a".to_string(),
+            ThreadSummary {
+                id: "thread-a".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                status: ThreadLifecycleStatus::Idle,
+                created_at: 1,
+                updated_at: 1,
+                last_sequence: 1,
+            },
+        );
+
+        assert!(!should_sync_selected_thread_from_active_thread(
+            None,
             Some("thread-a"),
+            true,
             &state,
         ));
     }

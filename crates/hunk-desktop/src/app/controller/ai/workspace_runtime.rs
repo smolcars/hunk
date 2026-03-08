@@ -31,10 +31,13 @@ impl DiffViewer {
         self.ai_status_message = None;
         self.ai_state_snapshot = hunk_codex::state::AiState::default();
         self.ai_selected_thread_id = None;
+        self.ai_new_thread_draft_active = false;
+        self.ai_pending_new_thread_selection = false;
         self.ai_thread_title_refresh_key_by_thread.clear();
         self.ai_pending_approvals.clear();
         self.ai_pending_user_inputs.clear();
         self.ai_pending_user_input_answers.clear();
+        self.ai_composer_status_by_draft.clear();
         self.ai_timeline_visible_turn_limit_by_thread.clear();
         self.ai_timeline_turn_ids_by_thread.clear();
         self.ai_timeline_row_ids_by_thread.clear();

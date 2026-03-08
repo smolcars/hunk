@@ -95,31 +95,28 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let prompt = self.ai_composer_input_state.read(cx).value().trim().to_string();
-        let prompt = (!prompt.is_empty()).then_some(prompt);
-        let local_image_paths = self.current_ai_composer_local_images();
-        if !local_image_paths.is_empty() && !self.current_ai_model_supports_image_inputs() {
-            self.ai_status_message = Some(
-                "Selected model does not support image attachments. Remove attachments or switch models."
-                    .to_string(),
-            );
-            cx.notify();
-            return;
+        let previous_draft_key = self.current_ai_composer_draft_key();
+        self.sync_ai_visible_composer_prompt_to_draft(cx);
+        if let Some(workspace_key) = self.workspace_ai_composer_draft_key() {
+            self.ai_composer_drafts
+                .insert(workspace_key.clone(), Default::default());
+            self.ai_composer_status_by_draft.remove(&workspace_key);
         }
-
-        let session_overrides = self.current_ai_turn_session_overrides();
-        if self.send_ai_worker_command(
-            AiWorkerCommand::StartThread {
-                prompt,
-                local_image_paths,
-                session_overrides,
-            },
-            cx,
-        ) {
-            self.ai_status_message = None;
+        self.ai_new_thread_draft_active = true;
+        self.ai_pending_new_thread_selection = false;
+        self.ai_selected_thread_id = None;
+        self.ai_timeline_follow_output = true;
+        self.ai_scroll_timeline_to_bottom = false;
+        self.ai_expanded_timeline_row_ids.clear();
+        self.ai_text_selection = None;
+        if previous_draft_key != self.current_ai_composer_draft_key() {
+            self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
+        } else {
             self.clear_ai_composer_input(window, cx);
         }
+        reset_ai_timeline_list_measurements(self, 0);
         self.focus_ai_composer_input(window, cx);
+        cx.notify();
     }
 
     pub(super) fn ai_new_thread_action(
@@ -148,6 +145,7 @@ impl DiffViewer {
             return;
         }
         let ai_composer_state = self.ai_composer_input_state.clone();
+        self.clear_current_ai_composer_status();
         if let Some(draft) = self.current_ai_composer_draft_mut() {
             draft.prompt.clear();
             draft.local_images.clear();
@@ -187,8 +185,9 @@ impl DiffViewer {
                 Err(err) => {
                     if let Some(this) = this.upgrade() {
                         this.update(cx, |this, cx| {
-                            this.ai_status_message =
-                                Some(format!("Failed to open image picker: {err:#}"));
+                            this.set_current_ai_composer_status(format!(
+                                "Failed to open image picker: {err:#}"
+                            ));
                             cx.notify();
                         });
                     }
@@ -203,7 +202,7 @@ impl DiffViewer {
                     if let Some(message) =
                         ai_attachment_status_message(selected_count, added)
                     {
-                        this.ai_status_message = Some(message);
+                        this.set_current_ai_composer_status(message);
                     }
                     cx.notify();
                 });
@@ -238,9 +237,8 @@ impl DiffViewer {
         }
 
         if !self.current_ai_model_supports_image_inputs() {
-            self.ai_status_message = Some(
-                "Selected model does not support image attachments. Remove attachments or switch models."
-                    .to_string(),
+            self.set_current_ai_composer_status(
+                "Selected model does not support image attachments. Remove attachments or switch models.",
             );
             cx.notify();
             return;
@@ -249,7 +247,7 @@ impl DiffViewer {
         let dropped_count = dropped_paths.len();
         let added = self.ai_add_composer_local_images(dropped_paths);
         if let Some(message) = ai_attachment_status_message(dropped_count, added) {
-            self.ai_status_message = Some(message);
+            self.set_current_ai_composer_status(message);
         }
         self.focus_ai_composer_input(window, cx);
         cx.notify();
@@ -261,7 +259,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         let Some(thread_id) = self.current_ai_thread_id() else {
-            self.ai_status_message = Some("Select a thread before starting review.".to_string());
+            self.set_current_ai_composer_status("Select a thread before starting review.");
             cx.notify();
             return;
         };
@@ -280,20 +278,20 @@ impl DiffViewer {
             },
             cx,
         ) {
-            self.ai_status_message = None;
+            self.clear_current_ai_composer_status();
             self.clear_ai_composer_input(window, cx);
         }
     }
 
     pub(super) fn ai_interrupt_turn_action(&mut self, cx: &mut Context<Self>) {
         let Some(thread_id) = self.current_ai_thread_id() else {
-            self.ai_status_message = Some("Select a thread before interrupting a turn.".to_string());
+            self.set_current_ai_composer_status("Select a thread before interrupting a turn.");
             cx.notify();
             return;
         };
 
         let Some(turn_id) = self.current_ai_in_progress_turn_id(thread_id.as_str()) else {
-            self.ai_status_message = Some("No in-progress turn to interrupt.".to_string());
+            self.set_current_ai_composer_status("No in-progress turn to interrupt.");
             cx.notify();
             return;
         };
@@ -302,7 +300,7 @@ impl DiffViewer {
             AiWorkerCommand::InterruptTurn { thread_id, turn_id },
             cx,
         ) {
-            self.ai_status_message = Some("Interrupted".to_string());
+            self.set_current_ai_composer_status("Interrupted");
             cx.notify();
         }
     }
@@ -413,6 +411,11 @@ impl DiffViewer {
         decision: AiApprovalDecision,
         cx: &mut Context<Self>,
     ) {
+        let status_target = self
+            .ai_pending_approvals
+            .iter()
+            .find(|approval| approval.request_id == request_id)
+            .map(|approval| AiComposerDraftKey::Thread(approval.thread_id.clone()));
         if self.send_ai_worker_command(
             AiWorkerCommand::ResolveApproval {
                 request_id,
@@ -420,10 +423,11 @@ impl DiffViewer {
             },
             cx,
         ) {
-            self.ai_status_message = Some(match decision {
+            let message = match decision {
                 AiApprovalDecision::Accept => "Approval accepted.".to_string(),
                 AiApprovalDecision::Decline => "Approval declined.".to_string(),
-            });
+            };
+            self.set_ai_composer_status_for_target(status_target, message);
             cx.notify();
         }
     }
@@ -440,6 +444,8 @@ impl DiffViewer {
         self.ai_scroll_timeline_to_bottom = true;
         self.ai_expanded_timeline_row_ids.clear();
         self.ai_text_selection = None;
+        self.ai_new_thread_draft_active = false;
+        self.ai_pending_new_thread_selection = false;
         self.ai_selected_thread_id = Some(thread_id.clone());
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
@@ -836,7 +842,7 @@ impl DiffViewer {
             .iter()
             .find(|request| request.request_id == request_id)
         else {
-            self.ai_status_message = Some("User input request no longer exists.".to_string());
+            self.set_current_ai_composer_status("User input request no longer exists.");
             cx.notify();
             return;
         };
@@ -846,6 +852,7 @@ impl DiffViewer {
             .get(request_id.as_str())
             .cloned()
             .unwrap_or_else(|| normalized_user_input_answers(request, None));
+        let request_thread_id = request.thread_id.clone();
 
         if self.send_ai_worker_command(
             AiWorkerCommand::SubmitUserInput {
@@ -854,12 +861,19 @@ impl DiffViewer {
             },
             cx,
         ) {
-            self.ai_status_message = Some(format!("Submitted user input for request {request_id}."));
+            self.set_ai_composer_status_for_target(
+                Some(AiComposerDraftKey::Thread(request_thread_id)),
+                format!("Submitted user input for request {request_id}."),
+            );
             cx.notify();
         }
     }
 
     pub(super) fn current_ai_thread_id(&self) -> Option<String> {
+        if self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection {
+            return None;
+        }
+
         if let Some(selected) = self.ai_selected_thread_id.as_ref()
             && self
                 .ai_state_snapshot

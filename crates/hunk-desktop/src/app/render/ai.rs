@@ -1179,7 +1179,7 @@ fn ai_render_composer_feedback_strip(
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> Option<AnyElement> {
-    if let Some(status) = this.ai_status_message.as_deref()
+    if let Some(status) = this.current_ai_composer_status_message()
         && let Some(tone) = ai_composer_status_tone(status)
     {
         return Some(ai_render_composer_status_strip(status, tone, is_dark, cx));

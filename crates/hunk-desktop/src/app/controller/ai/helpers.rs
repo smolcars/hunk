@@ -365,9 +365,12 @@ fn invalidate_ai_timeline_row_measurements(
 fn should_sync_selected_thread_from_active_thread(
     selected_thread_id: Option<&str>,
     active_thread_id: Option<&str>,
-    previous_active_thread_id: Option<&str>,
+    preserving_workspace_draft: bool,
     state: &hunk_codex::state::AiState,
 ) -> bool {
+    if preserving_workspace_draft {
+        return false;
+    }
     let Some(active_thread_id) = active_thread_id else {
         return false;
     };
@@ -378,10 +381,7 @@ fn should_sync_selected_thread_from_active_thread(
         return false;
     }
 
-    let selection_missing_or_invalid =
-        selected_thread_id.is_none_or(|selected| !state.threads.contains_key(selected));
-
-    selection_missing_or_invalid || previous_active_thread_id != Some(active_thread_id)
+    selected_thread_id.is_none_or(|selected| !state.threads.contains_key(selected))
 }
 
 fn thread_metadata_refresh_key_after_turn_completion(
