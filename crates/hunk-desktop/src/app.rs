@@ -870,6 +870,11 @@ pub fn run() -> Result<()> {
     app.run(move |cx| {
         gpui_component::init(cx);
         theme::install_hunk_themes(cx);
+        // Keep a global quit hook alive so tracked Codex hosts are cleaned up even if a
+        // particular view/runtime teardown path is bypassed during shutdown.
+        std::mem::forget(cx.on_app_quit(|_| async move {
+            hunk_codex::host::cleanup_tracked_hosts_for_shutdown();
+        }));
         cx.on_action(quit_app);
         bind_keyboard_shortcuts(cx, &keyboard_shortcuts);
         install_application_menus(cx);

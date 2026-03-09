@@ -21,6 +21,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use std::time::Instant;
 
+use tracing::debug;
 use tracing::warn;
 
 use crate::errors::CodexIntegrationError;
@@ -353,7 +354,7 @@ impl HostRuntime {
                 if line.trim().is_empty() {
                     continue;
                 }
-                warn!("codex host stderr: {line}");
+                debug!("codex host stderr: {line}");
 
                 let mut guard = lines.lock().expect("stderr buffer mutex poisoned");
                 guard.push(line);
