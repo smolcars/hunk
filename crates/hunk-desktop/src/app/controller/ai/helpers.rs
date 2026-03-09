@@ -164,6 +164,16 @@ fn ai_composer_prompt_for_target(
         .unwrap_or_default()
 }
 
+fn ai_state_has_user_message_for_thread(
+    state: &hunk_codex::state::AiState,
+    thread_id: &str,
+) -> bool {
+    state
+        .items
+        .values()
+        .any(|item| item.thread_id == thread_id && item.kind == "userMessage")
+}
+
 fn reasoning_effort_key(effort: &codex_protocol::openai_models::ReasoningEffort) -> String {
     serde_json::to_value(effort)
         .ok()

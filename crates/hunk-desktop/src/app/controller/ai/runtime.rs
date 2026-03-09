@@ -125,7 +125,7 @@ impl DiffViewer {
         self.ai_pending_user_input_answers.clear();
         self.ai_in_progress_turn_started_at.clear();
         self.ai_composer_activity_elapsed_second = None;
-        self.restore_ai_new_thread_draft_after_failure();
+        self.restore_ai_new_thread_draft_after_failure(cx);
         self.ai_account = None;
         self.ai_requires_openai_auth = false;
         self.ai_rate_limits = None;
@@ -164,7 +164,7 @@ impl DiffViewer {
                 self.ai_status_message = Some(message);
             }
             AiWorkerEventPayload::Error(message) => {
-                self.restore_ai_new_thread_draft_after_failure();
+                self.restore_ai_new_thread_draft_after_failure(cx);
                 self.ai_error_message = Some(message.clone());
                 self.ai_status_message = Some(message);
             }
@@ -181,7 +181,7 @@ impl DiffViewer {
                 self.ai_pending_user_input_answers.clear();
                 self.ai_in_progress_turn_started_at.clear();
                 self.ai_composer_activity_elapsed_second = None;
-                self.restore_ai_new_thread_draft_after_failure();
+                self.restore_ai_new_thread_draft_after_failure(cx);
                 self.ai_account = None;
                 self.ai_requires_openai_auth = false;
                 self.ai_rate_limits = None;
@@ -268,6 +268,14 @@ impl DiffViewer {
             self.ai_selected_thread_id = Some(active_thread_id.to_string());
         }
 
+        if let Some(pending) = self.ai_pending_thread_start.as_mut()
+            && pending.thread_id.is_none()
+        {
+            pending.thread_id = active_thread_id
+                .clone()
+                .or_else(|| self.ai_selected_thread_id.clone());
+        }
+
         if should_sync_selected_thread_from_active_thread(
             self.ai_selected_thread_id.as_deref(),
             active_thread_id.as_deref(),
@@ -299,6 +307,13 @@ impl DiffViewer {
             && let Some(first_thread) = self.ai_threads_for_current_workspace().first()
         {
             self.ai_selected_thread_id = Some(first_thread.id.clone());
+        }
+        if self.ai_pending_thread_start.as_ref().is_some_and(|pending| {
+            pending.thread_id.as_ref().is_some_and(|thread_id| {
+                ai_state_has_user_message_for_thread(&self.ai_state_snapshot, thread_id)
+            })
+        }) {
+            self.ai_pending_thread_start = None;
         }
         if should_scroll_timeline_to_bottom_on_selection_change(
             previous_selected_thread.as_deref(),
@@ -557,11 +572,26 @@ impl DiffViewer {
         });
     }
 
-    fn restore_ai_new_thread_draft_after_failure(&mut self) {
+    fn restore_ai_new_thread_draft_after_failure(&mut self, cx: &mut Context<Self>) {
         if self.ai_pending_new_thread_selection {
             self.ai_new_thread_draft_active = true;
         }
         self.ai_pending_new_thread_selection = false;
+        let Some(pending) = self.ai_pending_thread_start.take() else {
+            return;
+        };
+        let current_workspace_key = self.ai_workspace_key_for_draft();
+        if current_workspace_key.as_deref() != Some(pending.workspace_key.as_str()) {
+            self.ai_pending_thread_start = Some(pending);
+            return;
+        }
+        let target_key = self.workspace_ai_composer_draft_key();
+        if let Some(target_key) = target_key {
+            let draft = self.ai_composer_drafts.entry(target_key).or_default();
+            draft.prompt = pending.prompt;
+            draft.local_images = pending.local_images;
+        }
+        self.restore_ai_visible_composer_from_current_draft(cx);
     }
 
     fn current_ai_composer_activity_elapsed_second(&self) -> Option<u64> {
@@ -664,12 +694,27 @@ impl DiffViewer {
             return sent;
         }
 
-        self.prepare_workspace_and_start_ai_thread(
+        let pending_thread_start = self.ai_workspace_key_for_draft().map(|workspace_key| {
+            AiPendingThreadStart {
+                workspace_key,
+                prompt: prompt.clone().unwrap_or_default(),
+                local_images: local_image_paths.clone(),
+                started_at: Instant::now(),
+                start_mode: self.ai_new_thread_start_mode,
+                thread_id: None,
+            }
+        });
+        let started = self.prepare_workspace_and_start_ai_thread(
             prompt,
             local_image_paths,
             session_overrides,
             cx,
-        )
+        );
+        if started {
+            self.ai_pending_thread_start = pending_thread_start;
+            cx.notify();
+        }
+        started
     }
 
     fn prepare_workspace_and_start_ai_thread(
@@ -748,6 +793,12 @@ impl DiffViewer {
                                 this.request_snapshot_refresh_workflow_only(true, cx);
                                 this.request_recent_commits_refresh(true, cx);
                             }
+                            let pending_workspace_key = this.ai_workspace_key_for_draft();
+                            if let Some(workspace_key) = pending_workspace_key
+                                && let Some(pending) = this.ai_pending_thread_start.as_mut()
+                            {
+                                pending.workspace_key = workspace_key;
+                            }
 
                             if this.send_ai_worker_command(
                                 AiWorkerCommand::StartThread {
@@ -763,6 +814,7 @@ impl DiffViewer {
                                 let fallback_message =
                                     "Workspace prepared, but failed to start thread.".to_string();
                                 this.set_current_ai_composer_status(fallback_message);
+                                this.restore_ai_new_thread_draft_after_failure(cx);
                             }
                         }
                         Err(err) => {
@@ -782,6 +834,7 @@ impl DiffViewer {
                             this.set_current_ai_composer_status(
                                 format!("Failed to prepare workspace: {summary}"),
                             );
+                            this.restore_ai_new_thread_draft_after_failure(cx);
                         }
                     }
                     cx.notify();

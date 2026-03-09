@@ -50,6 +50,7 @@ mod ai_tests {
     use crate::app::AiComposerDraft;
     use crate::app::AiComposerDraftKey;
     use crate::app::AiNewThreadStartMode;
+    use crate::app::AiPendingThreadStart;
     use crate::app::AiThreadTitleRefreshState;
     use crate::app::AiTextSelection;
     use crate::app::AiTextSelectionSurfaceSpec;
@@ -291,6 +292,14 @@ mod ai_tests {
         let mut workspace_state = AiWorkspaceState {
             new_thread_draft_active: false,
             pending_new_thread_selection: true,
+            pending_thread_start: Some(AiPendingThreadStart {
+                workspace_key: "/repo/worktrees/task-1".to_string(),
+                prompt: "pending".to_string(),
+                local_images: Vec::new(),
+                started_at: Instant::now(),
+                start_mode: AiNewThreadStartMode::Local,
+                thread_id: Some("thread-1".to_string()),
+            }),
             ..AiWorkspaceState::default()
         };
 
@@ -298,6 +307,115 @@ mod ai_tests {
 
         assert!(workspace_state.new_thread_draft_active);
         assert!(!workspace_state.pending_new_thread_selection);
+        assert_eq!(
+            workspace_state
+                .pending_thread_start
+                .as_ref()
+                .and_then(|pending| pending.thread_id.as_deref()),
+            None
+        );
+    }
+
+    #[test]
+    fn apply_ai_snapshot_to_workspace_state_tracks_pending_thread_start_until_user_item_arrives() {
+        let mut workspace_state = AiWorkspaceState {
+            new_thread_draft_active: true,
+            pending_new_thread_selection: true,
+            pending_thread_start: Some(AiPendingThreadStart {
+                workspace_key: "/repo/worktrees/task-1".to_string(),
+                prompt: "Implement timeline update".to_string(),
+                local_images: Vec::new(),
+                started_at: Instant::now(),
+                start_mode: AiNewThreadStartMode::Worktree,
+                thread_id: None,
+            }),
+            ..AiWorkspaceState::default()
+        };
+        let mut first_snapshot_state = AiState::default();
+        first_snapshot_state.threads.insert(
+            "thread-1".to_string(),
+            ThreadSummary {
+                id: "thread-1".to_string(),
+                cwd: "/repo/worktrees/task-1".to_string(),
+                title: Some("Task 1".to_string()),
+                status: ThreadLifecycleStatus::Active,
+                created_at: 20,
+                updated_at: 20,
+                last_sequence: 3,
+            },
+        );
+
+        DiffViewer::apply_ai_snapshot_to_workspace_state(
+            &mut workspace_state,
+            AiSnapshot {
+                state: first_snapshot_state,
+                active_thread_id: Some("thread-1".to_string()),
+                pending_approvals: Vec::new(),
+                pending_user_inputs: Vec::new(),
+                account: None,
+                requires_openai_auth: false,
+                pending_chatgpt_login_id: None,
+                pending_chatgpt_auth_url: None,
+                rate_limits: None,
+                models: Vec::new(),
+                experimental_features: Vec::new(),
+                collaboration_modes: Vec::new(),
+                include_hidden_models: true,
+                mad_max_mode: false,
+            },
+        );
+
+        let pending = workspace_state
+            .pending_thread_start
+            .as_ref()
+            .expect("pending thread start should persist until user item appears");
+        assert_eq!(pending.thread_id.as_deref(), Some("thread-1"));
+
+        let mut second_snapshot_state = workspace_state.state_snapshot.clone();
+        second_snapshot_state.turns.insert(
+            "thread-1::turn-1".to_string(),
+            hunk_codex::state::TurnSummary {
+                id: "turn-1".to_string(),
+                thread_id: "thread-1".to_string(),
+                status: hunk_codex::state::TurnStatus::Completed,
+                last_sequence: 5,
+            },
+        );
+        second_snapshot_state.items.insert(
+            "thread-1::turn-1::item-user".to_string(),
+            hunk_codex::state::ItemSummary {
+                id: "item-user".to_string(),
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                kind: "userMessage".to_string(),
+                status: ItemStatus::Completed,
+                content: "Implement timeline update".to_string(),
+                display_metadata: None,
+                last_sequence: 5,
+            },
+        );
+
+        DiffViewer::apply_ai_snapshot_to_workspace_state(
+            &mut workspace_state,
+            AiSnapshot {
+                state: second_snapshot_state,
+                active_thread_id: Some("thread-1".to_string()),
+                pending_approvals: Vec::new(),
+                pending_user_inputs: Vec::new(),
+                account: None,
+                requires_openai_auth: false,
+                pending_chatgpt_login_id: None,
+                pending_chatgpt_auth_url: None,
+                rate_limits: None,
+                models: Vec::new(),
+                experimental_features: Vec::new(),
+                collaboration_modes: Vec::new(),
+                include_hidden_models: true,
+                mad_max_mode: false,
+            },
+        );
+
+        assert!(workspace_state.pending_thread_start.is_none());
     }
 
     #[test]

@@ -218,6 +218,16 @@ struct AiComposerDraft {
 }
 
 #[derive(Debug, Clone)]
+struct AiPendingThreadStart {
+    workspace_key: String,
+    prompt: String,
+    local_images: Vec<PathBuf>,
+    started_at: Instant,
+    start_mode: AiNewThreadStartMode,
+    thread_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 struct AiWorkspaceState {
     connection_state: AiConnectionState,
     bootstrap_loading: bool,
@@ -229,6 +239,7 @@ struct AiWorkspaceState {
     new_thread_start_mode: AiNewThreadStartMode,
     worktree_base_branch_name: Option<String>,
     pending_new_thread_selection: bool,
+    pending_thread_start: Option<AiPendingThreadStart>,
     timeline_follow_output: bool,
     thread_title_refresh_state_by_thread: BTreeMap<String, AiThreadTitleRefreshState>,
     timeline_visible_turn_limit_by_thread: BTreeMap<String, usize>,
@@ -266,6 +277,7 @@ impl Default for AiWorkspaceState {
             new_thread_start_mode: AiNewThreadStartMode::Local,
             worktree_base_branch_name: None,
             pending_new_thread_selection: false,
+            pending_thread_start: None,
             timeline_follow_output: true,
             thread_title_refresh_state_by_thread: BTreeMap::new(),
             timeline_visible_turn_limit_by_thread: BTreeMap::new(),
@@ -1223,6 +1235,7 @@ struct DiffViewer {
     ai_new_thread_start_mode: AiNewThreadStartMode,
     ai_worktree_base_branch_name: Option<String>,
     ai_pending_new_thread_selection: bool,
+    ai_pending_thread_start: Option<AiPendingThreadStart>,
     ai_scroll_timeline_to_bottom: bool,
     ai_timeline_follow_output: bool,
     ai_thread_list_scroll_handle: ScrollHandle,

@@ -120,6 +120,7 @@ impl DiffViewer {
         }
         self.ai_new_thread_draft_active = true;
         self.ai_pending_new_thread_selection = false;
+        self.ai_pending_thread_start = None;
         self.ai_selected_thread_id = None;
         self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = false;
@@ -130,6 +131,7 @@ impl DiffViewer {
         self.ai_worktree_base_branch_name = draft_worktree_base_branch_name;
         self.ai_new_thread_draft_active = true;
         self.ai_pending_new_thread_selection = false;
+        self.ai_pending_thread_start = None;
         self.ai_selected_thread_id = None;
         self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = false;
@@ -1151,6 +1153,28 @@ impl DiffViewer {
         })
     }
 
+    pub(crate) fn ai_pending_thread_start_for_timeline(&self) -> Option<AiPendingThreadStart> {
+        let pending = self.ai_pending_thread_start.clone()?;
+        if self.ai_workspace_key().as_deref() != Some(pending.workspace_key.as_str()) {
+            return None;
+        }
+        let selected_thread_id = self.current_ai_thread_id();
+        if let Some(thread_id) = pending.thread_id.as_deref() {
+            if ai_state_has_user_message_for_thread(&self.ai_state_snapshot, thread_id) {
+                return None;
+            }
+            if selected_thread_id
+                .as_deref()
+                .is_some_and(|selected_thread_id| selected_thread_id != thread_id)
+            {
+                return None;
+            }
+        } else if selected_thread_id.is_some() {
+            return None;
+        }
+        Some(pending)
+    }
+
     pub(super) fn current_ai_in_progress_turn_id(&self, thread_id: &str) -> Option<String> {
         self.ai_state_snapshot
             .turns
@@ -1509,6 +1533,7 @@ impl DiffViewer {
             new_thread_start_mode: self.ai_new_thread_start_mode,
             worktree_base_branch_name: self.ai_worktree_base_branch_name.clone(),
             pending_new_thread_selection: self.ai_pending_new_thread_selection,
+            pending_thread_start: self.ai_pending_thread_start.clone(),
             timeline_follow_output: self.ai_timeline_follow_output,
             thread_title_refresh_state_by_thread: self.ai_thread_title_refresh_state_by_thread.clone(),
             timeline_visible_turn_limit_by_thread: self.ai_timeline_visible_turn_limit_by_thread.clone(),
@@ -1545,6 +1570,7 @@ impl DiffViewer {
         self.ai_new_thread_start_mode = state.new_thread_start_mode;
         self.ai_worktree_base_branch_name = state.worktree_base_branch_name;
         self.ai_pending_new_thread_selection = state.pending_new_thread_selection;
+        self.ai_pending_thread_start = state.pending_thread_start;
         self.ai_scroll_timeline_to_bottom = false;
         self.ai_timeline_follow_output = state.timeline_follow_output;
         self.ai_thread_inline_toast = None;
@@ -1580,6 +1606,13 @@ impl DiffViewer {
         self.sync_ai_pending_user_input_answers();
         self.ai_expanded_timeline_row_ids
             .retain(|row_id| self.ai_timeline_rows_by_id.contains_key(row_id));
+        if self.ai_pending_thread_start.as_ref().is_some_and(|pending| {
+            pending.thread_id.as_ref().is_some_and(|thread_id| {
+                ai_state_has_user_message_for_thread(&self.ai_state_snapshot, thread_id)
+            })
+        }) {
+            self.ai_pending_thread_start = None;
+        }
         if self.ai_selected_thread_id.as_ref().is_some_and(|selected| {
             self.ai_state_snapshot
                 .threads
@@ -1740,6 +1773,22 @@ impl DiffViewer {
             state.selected_thread_id = Some(active_thread_id.to_string());
         }
 
+        if let Some(pending) = state.pending_thread_start.as_mut()
+            && pending.thread_id.is_none()
+        {
+            pending.thread_id = active_thread_id
+                .clone()
+                .or_else(|| state.selected_thread_id.clone());
+        }
+
+        if state.pending_thread_start.as_ref().is_some_and(|pending| {
+            pending.thread_id.as_ref().is_some_and(|thread_id| {
+                ai_state_has_user_message_for_thread(&state.state_snapshot, thread_id)
+            })
+        }) {
+            state.pending_thread_start = None;
+        }
+
         if state.selected_thread_id.as_ref().is_some_and(|selected| {
             state
                 .state_snapshot
@@ -1778,6 +1827,9 @@ impl DiffViewer {
             state.new_thread_draft_active = true;
         }
         state.pending_new_thread_selection = false;
+        if let Some(pending) = state.pending_thread_start.as_mut() {
+            pending.thread_id = None;
+        }
     }
 
     fn handle_background_ai_worker_event(

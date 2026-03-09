@@ -37,6 +37,7 @@ impl DiffViewer {
         let pending_user_inputs_for_timeline = pending_user_inputs.clone();
         let pending_user_input_count = pending_user_inputs.len();
         let selected_thread_id = self.current_ai_thread_id();
+        let pending_thread_start = self.ai_pending_thread_start_for_timeline();
         let selected_thread_start_mode = selected_thread_id
             .as_deref()
             .and_then(|thread_id| self.ai_thread_start_mode(thread_id));
@@ -85,6 +86,8 @@ impl DiffViewer {
         let ai_timeline_follow_output = self.ai_timeline_follow_output;
         let timeline_loading =
             show_global_loading_overlay && selected_thread_id.is_some() && timeline_visible_row_ids.is_empty();
+        let show_select_thread_empty_state =
+            selected_thread_id.is_none() && !timeline_loading && pending_thread_start.is_none();
         let ai_timeline_list_state = self.ai_timeline_list_state.clone();
         let (connection_label, connection_color) = ai_connection_label(self.ai_connection_state, cx);
         let composer_attachment_paths = self.current_ai_composer_local_images();
@@ -1045,7 +1048,19 @@ impl DiffViewer {
                                                         ),
                                                     )
                                                 })
-                                                .when(selected_thread_id.is_none() && !timeline_loading, |this| {
+                                                .when_some(
+                                                    pending_thread_start.clone().filter(|_| !timeline_loading),
+                                                    |this, pending| {
+                                                        this.child(
+                                                            render_ai_pending_thread_start(
+                                                                &pending,
+                                                                is_dark,
+                                                                cx,
+                                                            ),
+                                                        )
+                                                    },
+                                                )
+                                                .when(show_select_thread_empty_state, |this| {
                                                     this.child(
                                                         div()
                                                             .rounded_md()

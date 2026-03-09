@@ -132,3 +132,102 @@ fn render_ai_timeline_loading_skeleton(
         }))
         .into_any_element()
 }
+
+fn render_ai_pending_thread_start(
+    pending: &AiPendingThreadStart,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let status_text = if pending.thread_id.is_some() {
+        "Sending first message..."
+    } else {
+        "Creating thread..."
+    };
+    let elapsed_seconds = pending.started_at.elapsed().as_secs();
+    let attachment_summary = match pending.local_images.len() {
+        0 => None,
+        1 => Some("1 attachment".to_string()),
+        count => Some(format!("{count} attachments")),
+    };
+    let message_text = if pending.prompt.trim().is_empty() {
+        attachment_summary
+            .clone()
+            .unwrap_or_else(|| "Submitting request...".to_string())
+    } else {
+        pending.prompt.clone()
+    };
+
+    h_flex()
+        .w_full()
+        .justify_end()
+        .child(
+            v_flex()
+                .max_w(px(680.0))
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .child(div().text_xs().font_semibold().child("You"))
+                        .child(
+                            h_flex()
+                                .items_center()
+                                .gap_1p5()
+                                .child(
+                                    gpui_component::spinner::Spinner::new()
+                                        .with_size(gpui_component::Size::Small)
+                                        .color(cx.theme().muted_foreground),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(status_text),
+                                ),
+                        ),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .rounded(px(14.0))
+                        .border_1()
+                        .border_color(hunk_opacity(cx.theme().accent, is_dark, 0.68, 0.54))
+                        .bg(hunk_blend(
+                            cx.theme().accent,
+                            cx.theme().background,
+                            is_dark,
+                            0.46,
+                            0.18,
+                        ))
+                        .px_3()
+                        .py_2()
+                        .child(
+                            div()
+                                .text_sm()
+                                .whitespace_normal()
+                                .child(message_text),
+                        ),
+                )
+                .child(
+                    h_flex()
+                        .w_full()
+                        .justify_end()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!(
+                                    "{} | {} | {}s",
+                                    pending.start_mode.label(),
+                                    attachment_summary.unwrap_or_else(|| "No attachments".to_string()),
+                                    elapsed_seconds
+                                )),
+                        ),
+                ),
+        )
+        .into_any_element()
+}

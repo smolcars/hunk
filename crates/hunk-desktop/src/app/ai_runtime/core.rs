@@ -491,6 +491,7 @@ impl AiWorkerRuntime {
                         self.workspace_key.clone(),
                         response.thread.id.clone(),
                     );
+                self.emit_snapshot_after_sync(event_tx)?;
                 if prompt.as_ref().is_some_and(|value| !value.trim().is_empty())
                     || !local_image_paths.is_empty()
                 {
@@ -500,8 +501,8 @@ impl AiWorkerRuntime {
                         local_image_paths,
                         session_overrides,
                     )?;
+                    self.emit_snapshot_after_sync(event_tx)?;
                 }
-                self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::SelectThread { thread_id } => {
                 self.load_thread_snapshot(thread_id)?;
