@@ -1250,8 +1250,6 @@ struct DiffViewer {
     ai_timeline_follow_output: bool,
     ai_thread_list_scroll_handle: ScrollHandle,
     ai_thread_inline_toast: Option<String>,
-    ai_thread_inline_toast_epoch: usize,
-    ai_thread_inline_toast_task: Task<()>,
     ai_git_progress: Option<AiGitProgressState>,
     ai_thread_title_refresh_state_by_thread: BTreeMap<String, AiThreadTitleRefreshState>,
     ai_timeline_list_state: ListState,

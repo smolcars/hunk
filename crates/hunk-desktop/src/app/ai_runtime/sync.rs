@@ -1,5 +1,13 @@
 impl AiWorkerRuntime {
     fn refresh_thread_list(&mut self) -> Result<(), CodexIntegrationError> {
+        let _ = self.refresh_thread_list_contains_thread(None)?;
+        Ok(())
+    }
+
+    fn refresh_thread_list_contains_thread(
+        &mut self,
+        thread_id: Option<&str>,
+    ) -> Result<bool, CodexIntegrationError> {
         let response =
             self.service
                 .list_threads(&mut self.session, None, Some(200), self.request_timeout)?;
@@ -11,7 +19,69 @@ impl AiWorkerRuntime {
                 .state_mut()
                 .set_active_thread_for_cwd(self.workspace_key.clone(), first_thread.id.clone());
         }
-        Ok(())
+        Ok(thread_id.is_some_and(|thread_id| {
+            response.data.iter().any(|thread| thread.id == thread_id)
+        }))
+    }
+
+    fn update_active_thread_after_archive(&mut self, archived_thread_id: &str) {
+        if self.service.active_thread_for_workspace() == Some(archived_thread_id) {
+            self.service
+                .state_mut()
+                .active_thread_by_cwd
+                .remove(self.workspace_key.as_str());
+        }
+
+        if self.service.active_thread_for_workspace().is_some() {
+            return;
+        }
+
+        let replacement_thread_id = self
+            .service
+            .state()
+            .threads
+            .values()
+            .filter(|thread| {
+                thread.cwd == self.workspace_key
+                    && thread.status != ThreadLifecycleStatus::Archived
+                    && thread.id != archived_thread_id
+            })
+            .max_by(|left, right| {
+                left.created_at
+                    .cmp(&right.created_at)
+                    .then_with(|| left.id.cmp(&right.id))
+            })
+            .map(|thread| thread.id.clone());
+
+        if let Some(next_thread_id) = replacement_thread_id {
+            self.service
+                .state_mut()
+                .set_active_thread_for_cwd(self.workspace_key.clone(), next_thread_id);
+        }
+    }
+
+    fn reconcile_missing_rollout_thread_error(
+        &mut self,
+        thread_id: &str,
+    ) -> Result<bool, CodexIntegrationError> {
+        if self
+            .service
+            .state()
+            .threads
+            .get(thread_id)
+            .is_some_and(|thread| thread.status == ThreadLifecycleStatus::Archived)
+        {
+            self.update_active_thread_after_archive(thread_id);
+            return Ok(true);
+        }
+
+        if self.refresh_thread_list_contains_thread(Some(thread_id))? {
+            return Ok(false);
+        }
+
+        self.service.mark_thread_archived_if_known(thread_id.to_string());
+        self.update_active_thread_after_archive(thread_id);
+        Ok(true)
     }
 
     fn hydrate_initial_timeline(&mut self) -> Result<(), CodexIntegrationError> {

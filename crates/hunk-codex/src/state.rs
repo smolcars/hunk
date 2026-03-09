@@ -518,7 +518,7 @@ impl AiState {
             .threads
             .entry(thread_id.clone())
             .or_insert_with(|| ThreadSummary {
-                id: thread_id,
+                id: thread_id.clone(),
                 cwd: String::new(),
                 title: None,
                 status,
@@ -533,6 +533,13 @@ impl AiState {
 
         thread.status = status;
         thread.last_sequence = sequence;
+        if matches!(
+            thread.status,
+            ThreadLifecycleStatus::Archived | ThreadLifecycleStatus::Closed
+        ) {
+            self.active_thread_by_cwd
+                .retain(|_, active_thread_id| active_thread_id != &thread_id);
+        }
         ApplyOutcome::Applied
     }
 

@@ -34,6 +34,7 @@ mod ai_tests {
     use super::dispatch_ai_worker_result;
     use super::reconnect_backoff;
     use super::is_transient_rollout_load_error;
+    use super::is_missing_thread_rollout_error;
     use super::map_command_approval_decision;
     use super::map_file_change_approval_decision;
     use super::panic_payload_message;
@@ -290,6 +291,28 @@ mod ai_tests {
             &CodexIntegrationError::JsonRpcServerError {
                 code: -32602,
                 message: "failed to load rollout '/tmp/rollout.jsonl' for thread thread-1: rollout at /tmp/rollout.jsonl is empty".to_string(),
+            }
+        ));
+    }
+
+    #[test]
+    fn missing_thread_rollout_error_helper_matches_missing_rollout_server_errors_only() {
+        assert!(is_missing_thread_rollout_error(
+            &CodexIntegrationError::JsonRpcServerError {
+                code: -32600,
+                message: "no rollout found for thread id thread-1".to_string(),
+            }
+        ));
+        assert!(!is_missing_thread_rollout_error(
+            &CodexIntegrationError::JsonRpcServerError {
+                code: -32603,
+                message: "no rollout found for thread id thread-1".to_string(),
+            }
+        ));
+        assert!(!is_missing_thread_rollout_error(
+            &CodexIntegrationError::JsonRpcServerError {
+                code: -32600,
+                message: "failed to load rollout '/tmp/rollout.jsonl'".to_string(),
             }
         ));
     }

@@ -274,6 +274,7 @@ fn archive_and_unarchive_round_trip_updates_state() {
             .status,
         ThreadLifecycleStatus::Archived
     );
+    assert_eq!(service.active_thread_for_workspace(), None);
 
     service
         .unarchive_thread(&mut session, "thread-archive".to_string(), TIMEOUT)
