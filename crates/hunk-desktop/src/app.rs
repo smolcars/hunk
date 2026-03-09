@@ -201,6 +201,15 @@ enum AiNewThreadStartMode {
     Worktree,
 }
 
+impl AiNewThreadStartMode {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Local => "Local",
+            Self::Worktree => "Worktree",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct AiComposerDraft {
     prompt: String,
@@ -450,6 +459,7 @@ actions!(
         SwitchToGitView,
         SwitchToAiView,
         AiNewThread,
+        AiNewWorktreeThread,
         AiInterruptSelectedTurn,
         OpenProject,
         SaveCurrentFile,
@@ -663,6 +673,16 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
     );
     bindings.push(KeyBinding::new("cmd-n", AiNewThread, Some("DiffViewer")));
     bindings.push(KeyBinding::new("ctrl-n", AiNewThread, Some("DiffViewer")));
+    bindings.push(KeyBinding::new(
+        "cmd-shift-n",
+        AiNewWorktreeThread,
+        Some("DiffViewer"),
+    ));
+    bindings.push(KeyBinding::new(
+        "ctrl-shift-n",
+        AiNewWorktreeThread,
+        Some("DiffViewer"),
+    ));
     bindings.extend(
         shortcuts
             .open_project

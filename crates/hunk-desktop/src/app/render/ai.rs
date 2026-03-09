@@ -25,6 +25,7 @@ impl DiffViewer {
 
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
+        let new_thread_menu_action_context = self.focus_handle.clone();
         let threads = self.ai_visible_threads();
         let show_global_loading_overlay = self.ai_bootstrap_loading;
         let threads_loading = show_global_loading_overlay && threads.is_empty();
@@ -36,6 +37,9 @@ impl DiffViewer {
         let pending_user_inputs_for_timeline = pending_user_inputs.clone();
         let pending_user_input_count = pending_user_inputs.len();
         let selected_thread_id = self.current_ai_thread_id();
+        let selected_thread_start_mode = selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.ai_thread_start_mode(thread_id));
         let previous_timeline_row_count = self.ai_timeline_list_row_count;
         let (
             timeline_total_turn_count,
@@ -482,7 +486,6 @@ impl DiffViewer {
                                                                     })
                                                             })
                                                             .child({
-                                                                let view = view.clone();
                                                                 Button::new("ai-thread-new")
                                                                     .compact()
                                                                     .primary()
@@ -492,33 +495,19 @@ impl DiffViewer {
                                                                     .label("New")
                                                                     .min_w(px(52.0))
                                                                     .dropdown_menu(move |menu, _, _| {
-                                                                        menu.item(
+                                                                        menu.action_context(
+                                                                            new_thread_menu_action_context
+                                                                                .clone(),
+                                                                        )
+                                                                        .item(
                                                                             PopupMenuItem::new("Local thread")
-                                                                                .on_click({
-                                                                                    let view = view.clone();
-                                                                                    move |_, window, cx| {
-                                                                                        view.update(cx, |this, cx| {
-                                                                                            this.ai_new_local_thread_action(
-                                                                                                window,
-                                                                                                cx,
-                                                                                            );
-                                                                                        });
-                                                                                    }
-                                                                                }),
+                                                                                .action(Box::new(AiNewThread)),
                                                                         )
                                                                         .item(
                                                                             PopupMenuItem::new("Worktree thread")
-                                                                                .on_click({
-                                                                                    let view = view.clone();
-                                                                                    move |_, window, cx| {
-                                                                                        view.update(cx, |this, cx| {
-                                                                                            this.ai_new_worktree_thread_action(
-                                                                                                window,
-                                                                                                cx,
-                                                                                            );
-                                                                                        });
-                                                                                    }
-                                                                                }),
+                                                                                .action(Box::new(
+                                                                                    AiNewWorktreeThread,
+                                                                                )),
                                                                         )
                                                                     })
                                                             }),
@@ -689,6 +678,18 @@ impl DiffViewer {
                                                                                     },
                                                                                 )
                                                                                 .child(thread_id),
+                                                                        )
+                                                                    },
+                                                                )
+                                                                .when_some(
+                                                                    selected_thread_start_mode,
+                                                                    |this, start_mode| {
+                                                                        this.child(
+                                                                            ai_render_thread_start_mode_chip(
+                                                                                start_mode,
+                                                                                is_dark,
+                                                                                cx,
+                                                                            ),
                                                                         )
                                                                     },
                                                                 ),
@@ -1445,5 +1446,38 @@ fn ai_render_composer_activity_strip(
                 .text_color(hunk_opacity(cx.theme().muted_foreground, is_dark, 0.84, 0.76))
                 .child(ai_activity_elapsed_label(activity.elapsed)),
         )
+        .into_any_element()
+}
+
+fn ai_render_thread_start_mode_chip(
+    start_mode: AiNewThreadStartMode,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let (border_color, background_color, text_color) = match start_mode {
+        AiNewThreadStartMode::Local => (
+            hunk_opacity(cx.theme().border, is_dark, 0.78, 0.64),
+            hunk_blend(cx.theme().background, cx.theme().muted, is_dark, 0.14, 0.18),
+            cx.theme().muted_foreground,
+        ),
+        AiNewThreadStartMode::Worktree => (
+            hunk_opacity(cx.theme().accent, is_dark, 0.76, 0.60),
+            hunk_opacity(cx.theme().accent, is_dark, 0.18, 0.12),
+            cx.theme().accent,
+        ),
+    };
+
+    div()
+        .flex_none()
+        .rounded(px(999.0))
+        .border_1()
+        .border_color(border_color)
+        .bg(background_color)
+        .px_2()
+        .py_0p5()
+        .text_xs()
+        .font_semibold()
+        .text_color(text_color)
+        .child(start_mode.label())
         .into_any_element()
 }
