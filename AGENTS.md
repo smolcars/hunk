@@ -10,6 +10,7 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - Tests always in crate-level `tests` directories (for example `crates/hunk-git/tests`)
 - Make sure workspace clippy passes
 - Make sure workspace builds pass
+- Always resolve `CARGO_TARGET_DIR` via `./scripts/resolve_cargo_target_dir.sh` or the existing `just` recipes so builds, clippy runs, and tests write only to the shared `target-shared` directory and save disk space across worktrees.
 - Do not run clippy and tests over and over again, run them after you finished your work and make sure they pass at the end. Just once is enough.
 - GPUI docs https://raw.githubusercontent.com/zed-industries/zed/refs/heads/main/crates/gpui/README.md
 - GPUI component library docs https://docs.rs/gpui-component/latest/gpui_component/

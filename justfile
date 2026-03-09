@@ -8,6 +8,9 @@ start:
 build:
     cargo build -p hunk-desktop
 
+build-worktree worktree:
+    ./scripts/build_worktree.sh {{worktree}}
+
 release:
     cargo build -p hunk-desktop --release
 
