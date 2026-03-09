@@ -82,7 +82,7 @@ struct SharedHostEntry {
 #[derive(Debug)]
 pub struct SharedHostLease {
     key: SharedHostKey,
-    port: u16,
+    fallback_port: u16,
 }
 
 impl SharedHostLease {
@@ -101,7 +101,7 @@ impl SharedHostLease {
             entry.lease_count = entry.lease_count.saturating_add(1);
             return Ok(Self {
                 key,
-                port: entry.runtime.config().port,
+                fallback_port: entry.runtime.config().port,
             });
         }
 
@@ -115,11 +115,19 @@ impl SharedHostLease {
                 runtime,
             },
         );
-        Ok(Self { key, port })
+        Ok(Self {
+            key,
+            fallback_port: port,
+        })
     }
 
     pub fn port(&self) -> u16 {
-        self.port
+        shared_hosts()
+            .lock()
+            .expect("shared host registry mutex poisoned")
+            .get(&self.key)
+            .map(|entry| entry.runtime.config().port)
+            .unwrap_or(self.fallback_port)
     }
 
     pub fn ensure_running(&self, timeout: Duration) -> Result<()> {
