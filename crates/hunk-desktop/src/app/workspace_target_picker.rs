@@ -121,7 +121,7 @@ impl SelectItem for WorkspaceTargetPickerItem {
                                 .rounded_full()
                                 .border_1()
                                 .border_color(muted_border)
-                                .child("Project"),
+                                .child("Primary"),
                         )
                     })
                     .when(self.is_active, |this| {

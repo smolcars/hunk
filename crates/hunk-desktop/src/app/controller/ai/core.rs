@@ -1093,12 +1093,12 @@ impl DiffViewer {
                     .find(|target| target.id == target_id)
             })
             .map(|target| target.display_name.clone())
-            .unwrap_or_else(|| "Project".to_string())
+            .unwrap_or_else(|| "Primary Checkout".to_string())
     }
 
     pub(crate) fn ai_active_workspace_label(&self) -> String {
         let Some(workspace_root) = self.ai_workspace_cwd() else {
-            return "Project".to_string();
+            return "Primary Checkout".to_string();
         };
 
         self.workspace_targets

@@ -626,31 +626,7 @@ impl DiffViewer {
         )
         .detach();
 
-        let review_left_picker_state = view.review_left_picker_state.clone();
-        cx.subscribe(
-            &review_left_picker_state,
-            |this, _, event: &SelectEvent<ReviewComparePickerDelegate>, cx| {
-                let SelectEvent::Confirm(source_id) = event;
-                let Some(source_id) = source_id.clone() else {
-                    return;
-                };
-                this.update_review_compare_selection(Some(source_id), None, cx);
-            },
-        )
-        .detach();
-
-        let review_right_picker_state = view.review_right_picker_state.clone();
-        cx.subscribe(
-            &review_right_picker_state,
-            |this, _, event: &SelectEvent<ReviewComparePickerDelegate>, cx| {
-                let SelectEvent::Confirm(source_id) = event;
-                let Some(source_id) = source_id.clone() else {
-                    return;
-                };
-                this.update_review_compare_selection(None, Some(source_id), cx);
-            },
-        )
-        .detach();
+        view.subscribe_review_compare_picker_states(cx);
 
         let ai_workspace_target_picker_state = view.ai_workspace_target_picker_state.clone();
         cx.subscribe(

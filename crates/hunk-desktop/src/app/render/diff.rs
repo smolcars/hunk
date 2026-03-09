@@ -872,9 +872,21 @@ impl DiffViewer {
     }
 
     fn render_review_compare_controls(&self, cx: &mut Context<Self>) -> AnyElement {
+        let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
         let left_label = self.review_compare_source_label(self.review_left_source_id.as_deref());
         let right_label = self.review_compare_source_label(self.review_right_source_id.as_deref());
+        let reset_available = self.review_compare_reset_available();
+        let picker_surface = hunk_blend(
+            cx.theme().background,
+            cx.theme().muted,
+            is_dark,
+            0.24,
+            0.16,
+        );
+        let picker_border = hunk_opacity(cx.theme().border, is_dark, 0.96, 0.84);
+        let picker_title = hunk_opacity(cx.theme().foreground, is_dark, 0.82, 0.90);
+        let arrow_color = hunk_tone(cx.theme().accent, is_dark, 0.26, 0.42);
         let status_message = if let Some(error) = self.review_compare_error.as_ref() {
             error.clone()
         } else if self.review_compare_loading {
@@ -885,7 +897,7 @@ impl DiffViewer {
             self.review_compare_source_detail(self.review_left_source_id.as_deref())
                 .zip(self.review_compare_source_detail(self.review_right_source_id.as_deref()))
                 .map(|(left, right)| format!("{left} -> {right}"))
-                .unwrap_or_else(|| "Pick two sources to compare.".to_string())
+                .unwrap_or_else(|| "Choose a base source and a compare source.".to_string())
         };
 
         v_flex()
@@ -914,24 +926,45 @@ impl DiffViewer {
                             .text_xs()
                             .font_semibold()
                             .text_color(cx.theme().muted_foreground)
-                            .child("Compare Sources"),
+                            .child("Diff Sources"),
                     )
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(if self.review_compare_error.is_some() {
-                                cx.theme().danger
-                            } else if self.review_compare_loading {
-                                cx.theme().warning
-                            } else {
-                                cx.theme().muted_foreground
-                            })
-                            .child(status_message),
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .flex_wrap()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(if self.review_compare_error.is_some() {
+                                        cx.theme().danger
+                                    } else if self.review_compare_loading {
+                                        cx.theme().warning
+                                    } else {
+                                        cx.theme().muted_foreground
+                                    })
+                                    .child(status_message),
+                            )
+                            .child({
+                                let view = view.clone();
+                                Button::new("review-compare-reset")
+                                    .compact()
+                                    .outline()
+                                    .rounded(px(7.0))
+                                    .label("Reset")
+                                    .disabled(!reset_available || self.review_compare_loading)
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.reset_review_compare_selection(cx);
+                                        });
+                                    })
+                            }),
                     ),
             )
             .child(
                 h_flex()
                     .w_full()
+                    .items_center()
                     .gap_2()
                     .flex_wrap()
                     .child(
@@ -943,26 +976,42 @@ impl DiffViewer {
                                 div()
                                     .text_xs()
                                     .font_semibold()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("Left"),
+                                    .text_color(picker_title)
+                                    .child("Base"),
                             )
                             .child(
-                                Select::new(&self.review_left_picker_state)
-                                    .with_size(gpui_component::Size::Medium)
-                                    .placeholder(left_label)
-                                    .search_placeholder("Find a branch or worktree")
-                                    .rounded(px(8.0))
+                                div()
                                     .w_full()
-                                    .disabled(self.review_compare_sources.is_empty())
-                                    .empty(
-                                        h_flex()
-                                            .h(px(72.0))
-                                            .justify_center()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("No compare sources available."),
+                                    .p_1()
+                                    .rounded(px(10.0))
+                                    .border_1()
+                                    .border_color(picker_border)
+                                    .bg(picker_surface)
+                                    .child(
+                                        Select::new(&self.review_left_picker_state)
+                                            .with_size(gpui_component::Size::Medium)
+                                            .placeholder(left_label)
+                                            .search_placeholder("Find a branch or worktree")
+                                            .rounded(px(8.0))
+                                            .w_full()
+                                            .disabled(self.review_compare_sources.is_empty())
+                                            .empty(
+                                                h_flex()
+                                                    .h(px(72.0))
+                                                    .justify_center()
+                                                    .text_sm()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child("No compare sources available."),
+                                            ),
                                     ),
                             ),
+                    )
+                    .child(
+                        div()
+                            .mt(px(20.0))
+                            .flex_none()
+                            .text_color(arrow_color)
+                            .child(Icon::new(IconName::ArrowRight).size(px(20.0))),
                     )
                     .child(
                         v_flex()
@@ -973,24 +1022,33 @@ impl DiffViewer {
                                 div()
                                     .text_xs()
                                     .font_semibold()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("Right"),
+                                    .text_color(picker_title)
+                                    .child("Compare"),
                             )
                             .child(
-                                Select::new(&self.review_right_picker_state)
-                                    .with_size(gpui_component::Size::Medium)
-                                    .placeholder(right_label)
-                                    .search_placeholder("Find a branch or worktree")
-                                    .rounded(px(8.0))
+                                div()
                                     .w_full()
-                                    .disabled(self.review_compare_sources.is_empty())
-                                    .empty(
-                                        h_flex()
-                                            .h(px(72.0))
-                                            .justify_center()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("No compare sources available."),
+                                    .p_1()
+                                    .rounded(px(10.0))
+                                    .border_1()
+                                    .border_color(picker_border)
+                                    .bg(picker_surface)
+                                    .child(
+                                        Select::new(&self.review_right_picker_state)
+                                            .with_size(gpui_component::Size::Medium)
+                                            .placeholder(right_label)
+                                            .search_placeholder("Find a branch or worktree")
+                                            .rounded(px(8.0))
+                                            .w_full()
+                                            .disabled(self.review_compare_sources.is_empty())
+                                            .empty(
+                                                h_flex()
+                                                    .h(px(72.0))
+                                                    .justify_center()
+                                                    .text_sm()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child("No compare sources available."),
+                                            ),
                                     ),
                             ),
                     ),

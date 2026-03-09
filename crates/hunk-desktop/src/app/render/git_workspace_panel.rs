@@ -92,7 +92,7 @@ impl DiffViewer {
                         .map(str::to_string)
                 })
             })
-            .unwrap_or_else(|| "Project".to_string());
+            .unwrap_or_else(|| "Primary Checkout".to_string());
         let active_branch_label = self
             .checked_out_branch_name()
             .map_or_else(|| "detached".to_string(), ToOwned::to_owned);

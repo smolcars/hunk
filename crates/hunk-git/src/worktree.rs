@@ -223,7 +223,7 @@ fn primary_workspace_target_summary(
         kind: WorkspaceTargetKind::PrimaryCheckout,
         root: primary_root.to_path_buf(),
         name: primary_checkout_name(primary_root),
-        display_name: "Project".to_string(),
+        display_name: "Primary Checkout".to_string(),
         branch_name: checked_out_branch_name(primary_root)?,
         managed: false,
         is_active: primary_root == active_root,

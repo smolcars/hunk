@@ -33,7 +33,7 @@ impl ReviewCompareSourceOption {
     pub(crate) fn from_workspace_target(target: &WorkspaceTargetSummary) -> Self {
         let detail = match target.kind {
             WorkspaceTargetKind::PrimaryCheckout => {
-                format!("Project checkout • {}", target.branch_name)
+                format!("Primary checkout • {}", target.branch_name)
             }
             WorkspaceTargetKind::LinkedWorktree
                 if target.managed
@@ -60,7 +60,7 @@ impl ReviewCompareSourceOption {
             detail,
             workspace_target_id: Some(target.id.clone()),
             workspace_root: Some(target.root.clone()),
-            branch_name: None,
+            branch_name: Some(target.branch_name.clone()),
         }
     }
 
