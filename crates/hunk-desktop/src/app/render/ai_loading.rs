@@ -157,26 +157,38 @@ fn render_ai_pending_thread_start(
     } else {
         pending.prompt.clone()
     };
+    let attachment_status = attachment_summary.unwrap_or_else(|| "No attachments".to_string());
 
     h_flex()
         .w_full()
+        .min_w_0()
         .justify_end()
         .child(
             v_flex()
                 .max_w(px(680.0))
                 .w_full()
                 .min_w_0()
-                .items_end()
-                .gap_1()
+                .gap_1p5()
                 .child(
-                    div()
-                        .text_xs()
-                        .font_semibold()
-                        .child("You"),
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_none()
+                                .whitespace_nowrap()
+                                .text_xs()
+                                .font_semibold()
+                                .child("You"),
+                        ),
                 )
                 .child(
                     div()
                         .w_full()
+                        .min_w_0()
                         .text_sm()
                         .text_color(pending_colors.text)
                         .whitespace_normal()
@@ -184,10 +196,13 @@ fn render_ai_pending_thread_start(
                 )
                 .child(
                     v_flex()
-                        .items_end()
+                        .w_full()
+                        .min_w_0()
                         .gap_0p5()
                         .child(
                             h_flex()
+                                .w_full()
+                                .min_w_0()
                                 .items_center()
                                 .gap_1p5()
                                 .child(
@@ -204,12 +219,14 @@ fn render_ai_pending_thread_start(
                         )
                         .child(
                             div()
+                                .w_full()
+                                .min_w_0()
                                 .text_xs()
                                 .text_color(pending_colors.meta)
                                 .child(format!(
                                     "{} | {} | {}s",
                                     pending.start_mode.label(),
-                                    attachment_summary.unwrap_or_else(|| "No attachments".to_string()),
+                                    attachment_status,
                                     elapsed_seconds
                                 )),
                         ),
