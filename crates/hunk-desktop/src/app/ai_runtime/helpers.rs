@@ -51,6 +51,18 @@ fn is_transient_rollout_load_error(error: &CodexIntegrationError) -> bool {
         && normalized_message.contains("is empty")
 }
 
+fn is_missing_thread_rollout_error(error: &CodexIntegrationError) -> bool {
+    let CodexIntegrationError::JsonRpcServerError { code, message } = error else {
+        return false;
+    };
+    if *code != -32600 {
+        return false;
+    }
+
+    let normalized_message = message.to_ascii_lowercase();
+    normalized_message.contains("no rollout found for thread id")
+}
+
 fn retry_transient_rollout_load<T, F>(
     max_retries: usize,
     retry_delay: std::time::Duration,

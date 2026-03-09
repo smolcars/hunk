@@ -485,6 +485,34 @@ fn should_sync_selected_thread_from_active_thread(
     selected_thread_id.is_none_or(|selected| !state.threads.contains_key(selected))
 }
 
+fn current_visible_thread_id_from_snapshot(
+    state: &hunk_codex::state::AiState,
+    selected_thread_id: Option<&str>,
+    workspace_key: Option<&str>,
+    preserving_workspace_draft: bool,
+) -> Option<String> {
+    if preserving_workspace_draft {
+        return None;
+    }
+
+    if let Some(selected_thread_id) = selected_thread_id
+        && state
+            .threads
+            .get(selected_thread_id)
+            .is_some_and(|thread| thread.status != ThreadLifecycleStatus::Archived)
+    {
+        return Some(selected_thread_id.to_string());
+    }
+
+    let workspace_key = workspace_key?;
+    let active_thread_id = state.active_thread_for_cwd(workspace_key)?;
+    state
+        .threads
+        .get(active_thread_id)
+        .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
+        .map(|_| active_thread_id.to_string())
+}
+
 pub(crate) fn ai_prompt_send_waiting_on_connection(
     connection_state: AiConnectionState,
     bootstrap_loading: bool,

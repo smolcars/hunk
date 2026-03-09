@@ -17,6 +17,12 @@ impl ThreadService {
         Ok(response)
     }
 
+    pub fn mark_thread_archived_if_known(&mut self, thread_id: String) {
+        if self.is_known_thread(&thread_id) {
+            self.apply_event(ReducerEvent::ThreadArchived { thread_id });
+        }
+    }
+
     pub fn unarchive_thread(
         &mut self,
         session: &mut JsonRpcSession,

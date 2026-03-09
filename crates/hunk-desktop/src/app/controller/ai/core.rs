@@ -12,7 +12,6 @@ use hunk_domain::state::AppState;
 
 impl DiffViewer {
     const AI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(33);
-    const AI_THREAD_INLINE_TOAST_DURATION: Duration = Duration::from_millis(2200);
 
     pub(super) fn ensure_ai_runtime_started(&mut self, cx: &mut Context<Self>) {
         let Some(cwd) = self.ai_workspace_cwd() else {
@@ -540,46 +539,18 @@ impl DiffViewer {
         cx.notify();
     }
 
-    fn show_ai_thread_inline_toast(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
-        self.ai_thread_inline_toast_epoch = self.ai_thread_inline_toast_epoch.wrapping_add(1);
-        let epoch = self.ai_thread_inline_toast_epoch;
-        self.ai_thread_inline_toast = Some(message.into());
-        self.ai_thread_inline_toast_task = cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Self::AI_THREAD_INLINE_TOAST_DURATION)
-                .await;
-            let Some(this) = this.upgrade() else {
-                return;
-            };
-            this.update(cx, |this, cx| {
-                if this.ai_thread_inline_toast_epoch != epoch {
-                    return;
-                }
-                this.ai_thread_inline_toast = None;
-                cx.notify();
-            });
-        });
-        cx.notify();
-    }
-
     pub(super) fn ai_archive_thread_action(&mut self, thread_id: String, cx: &mut Context<Self>) {
-        if !self.send_ai_worker_command(
+        let workspace_key = self
+            .ai_thread_workspace_root(thread_id.as_str())
+            .map(|root| root.to_string_lossy().to_string());
+        if !self.send_ai_worker_command_for_workspace(
+            workspace_key.as_deref(),
             AiWorkerCommand::ArchiveThread {
                 thread_id: thread_id.clone(),
             },
+            true,
             cx,
-        ) {
-            return;
-        }
-
-        if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
-            self.ai_selected_thread_id = None;
-            self.ai_expanded_timeline_row_ids.clear();
-            self.ai_text_selection = None;
-            self.ai_timeline_follow_output = true;
-            self.ai_scroll_timeline_to_bottom = true;
-        }
-        self.show_ai_thread_inline_toast("Thread archived.", cx);
+        ) {}
     }
 
     pub(super) fn ai_toggle_timeline_row_expansion_action(
@@ -647,22 +618,6 @@ impl DiffViewer {
         self.ai_thread_summary(thread_id)
             .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
             .map(|thread| std::path::PathBuf::from(thread.cwd))
-    }
-
-    fn ai_active_thread_for_workspace_key(&self, workspace_key: &str) -> Option<String> {
-        self.ai_state_snapshot
-            .active_thread_for_cwd(workspace_key)
-            .map(ToOwned::to_owned)
-            .or_else(|| {
-                self.ai_workspace_states
-                    .get(workspace_key)
-                    .and_then(|state| {
-                        state
-                            .state_snapshot
-                            .active_thread_for_cwd(workspace_key)
-                            .map(ToOwned::to_owned)
-                    })
-            })
     }
 
     fn ai_pending_approval(&self, request_id: &str) -> Option<AiPendingApproval> {
@@ -1124,27 +1079,12 @@ impl DiffViewer {
     }
 
     pub(super) fn current_ai_thread_id(&self) -> Option<String> {
-        if self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection {
-            return None;
-        }
-
-        if let Some(selected) = self.ai_selected_thread_id.as_ref()
-            && self
-                .ai_thread_summary(selected)
-                .is_some_and(|thread| thread.status != ThreadLifecycleStatus::Archived)
-        {
-            return Some(selected.clone());
-        }
-
-        self.ai_workspace_key_for_draft().and_then(|cwd| {
-            self.ai_active_thread_for_workspace_key(cwd.as_str())
-                .as_deref()
-                .and_then(|thread_id| {
-                    self.ai_thread_summary(thread_id)
-                        .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
-                        .map(|_| thread_id.to_string())
-                })
-        })
+        current_visible_thread_id_from_snapshot(
+            &self.ai_state_snapshot,
+            self.ai_selected_thread_id.as_deref(),
+            self.ai_workspace_key_for_draft().as_deref(),
+            self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection,
+        )
     }
 
     pub(crate) fn ai_pending_thread_start_for_timeline(&self) -> Option<AiPendingThreadStart> {

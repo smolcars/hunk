@@ -510,43 +510,19 @@ impl AiWorkerRuntime {
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::ArchiveThread { thread_id } => {
-                let was_active =
-                    self.service.active_thread_for_workspace() == Some(thread_id.as_str());
-                self.service.archive_thread(
+                let archive_result = self.service.archive_thread(
                     &mut self.session,
                     thread_id.clone(),
                     self.request_timeout,
-                )?;
-                if was_active {
-                    let replacement_thread_id = self
-                        .service
-                        .state()
-                        .threads
-                        .values()
-                        .filter(|thread| {
-                            thread.cwd == self.workspace_key
-                                && thread.status != ThreadLifecycleStatus::Archived
-                                && thread.id != thread_id
-                        })
-                        .max_by(|left, right| {
-                            left.created_at
-                                .cmp(&right.created_at)
-                                .then_with(|| left.id.cmp(&right.id))
-                        })
-                        .map(|thread| thread.id.clone());
-                    if let Some(next_thread_id) = replacement_thread_id {
-                        self.service
-                            .state_mut()
-                            .set_active_thread_for_cwd(
-                                self.workspace_key.clone(),
-                                next_thread_id,
-                            );
-                    } else {
-                        self.service
-                            .state_mut()
-                            .active_thread_by_cwd
-                            .remove(self.workspace_key.as_str());
+                );
+                match archive_result {
+                    Ok(_) => {
+                        self.update_active_thread_after_archive(thread_id.as_str());
                     }
+                    Err(error)
+                        if is_missing_thread_rollout_error(&error)
+                            && self.reconcile_missing_rollout_thread_error(thread_id.as_str())? => {}
+                    Err(error) => return Err(error),
                 }
                 self.emit_snapshot_after_sync(event_tx)?;
             }
@@ -805,6 +781,9 @@ impl AiWorkerRuntime {
                     "ignoring transient rollout load error while hydrating thread snapshot"
                 );
             }
+            Err(error)
+                if is_missing_thread_rollout_error(&error)
+                    && self.reconcile_missing_rollout_thread_error(read_thread_id.as_str())? => {}
             Err(error) => return Err(error),
         }
         self.hydrate_thread_from_rollout_fallback_if_needed(read_thread_id.as_str());
@@ -832,6 +811,9 @@ impl AiWorkerRuntime {
                     "ignoring transient rollout load error while refreshing thread metadata"
                 );
             }
+            Err(error)
+                if is_missing_thread_rollout_error(&error)
+                    && self.reconcile_missing_rollout_thread_error(thread_id.as_str())? => {}
             Err(error) => return Err(error),
         }
         Ok(())

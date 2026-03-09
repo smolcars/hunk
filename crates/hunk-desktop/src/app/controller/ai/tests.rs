@@ -21,6 +21,7 @@ mod ai_tests {
     use super::bundled_codex_executable_candidates;
     use super::codex_runtime_binary_name;
     use super::codex_runtime_platform_dir;
+    use super::current_visible_thread_id_from_snapshot;
     use super::drain_ai_worker_events;
     use super::group_ai_timeline_rows_for_thread;
     use super::item_status_chip;
@@ -394,6 +395,37 @@ mod ai_tests {
         assert!(!workspace_state.new_thread_draft_active);
         assert!(!workspace_state.pending_new_thread_selection);
         assert!(workspace_state.error_message.is_none());
+    }
+
+    #[test]
+    fn current_visible_thread_id_from_snapshot_prefers_live_snapshot_threads_only() {
+        let mut state = AiState::default();
+        state.threads.insert(
+            "thread-active".to_string(),
+            ThreadSummary {
+                id: "thread-active".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Active".to_string()),
+                status: ThreadLifecycleStatus::Idle,
+                created_at: 20,
+                updated_at: 20,
+                last_sequence: 2,
+            },
+        );
+        state
+            .active_thread_by_cwd
+            .insert("/repo".to_string(), "thread-active".to_string());
+
+        assert_eq!(
+            current_visible_thread_id_from_snapshot(
+                &state,
+                Some("thread-stale"),
+                Some("/repo"),
+                false,
+            )
+            .as_deref(),
+            Some("thread-active")
+        );
     }
 
     #[test]
