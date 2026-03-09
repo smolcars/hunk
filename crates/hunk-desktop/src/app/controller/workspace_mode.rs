@@ -1,6 +1,7 @@
 impl DiffViewer {
     fn branch_workspace_target(&self, branch_name: &str) -> Option<(String, String)> {
-        self.branches
+        self.git_workspace
+            .branches
             .iter()
             .find(|branch| branch.name == branch_name)
             .and_then(|branch| {
@@ -59,7 +60,7 @@ impl DiffViewer {
         let target_branch = branch_name.trim().to_string();
         let source_branch = self
             .checked_out_branch_name()
-            .unwrap_or(self.branch_name.as_str())
+            .unwrap_or(self.git_workspace.branch_name.as_str())
             .to_string();
 
         if let Some(message) = branch_activation::branch_activation_preflight_message(
@@ -89,7 +90,7 @@ impl DiffViewer {
             target_branch.as_str(),
             source_branch.as_str(),
             self.git_controls_busy(),
-            self.files.len(),
+            self.git_workspace.files.len(),
         ) {
             self.set_git_warning_message(message, window, cx);
             self.sync_branch_picker_state(cx);
@@ -106,7 +107,7 @@ impl DiffViewer {
         if !self.can_run_active_branch_actions() {
             return Some("Activate a branch before opening PR/MR.".to_string());
         }
-        if !self.branch_has_upstream {
+        if !self.git_workspace.branch_has_upstream {
             return Some("Publish this branch before opening PR/MR.".to_string());
         }
         None

@@ -296,7 +296,7 @@ impl DiffViewer {
         if !self.ai_new_thread_draft_active
             && !self.ai_pending_new_thread_selection
             && self.ai_selected_thread_id.is_none()
-            && let Some(first_thread) = self.ai_visible_threads().first()
+            && let Some(first_thread) = self.ai_threads_for_current_workspace().first()
         {
             self.ai_selected_thread_id = Some(first_thread.id.clone());
         }
@@ -729,6 +729,7 @@ impl DiffViewer {
                     this.finish_git_action();
                     match result {
                         Ok(prepared) => {
+                            let previous_workspace_key = this.ai_workspace_key();
                             debug!(
                                 "git action complete: epoch={} action=Prepare AI thread exec_elapsed_ms={} total_elapsed_ms={} mode={:?} branch={}",
                                 epoch,
@@ -742,7 +743,7 @@ impl DiffViewer {
                                 this.sync_ai_visible_composer_prompt_to_draft(cx);
                                 this.refresh_workspace_targets_from_git_state(cx);
                                 this.ai_draft_workspace_target_id = Some(target_id.clone());
-                                this.activate_workspace_target(target_id, cx);
+                                this.ai_handle_workspace_change(previous_workspace_key, cx);
                             } else {
                                 this.request_snapshot_refresh_workflow_only(true, cx);
                                 this.request_recent_commits_refresh(true, cx);

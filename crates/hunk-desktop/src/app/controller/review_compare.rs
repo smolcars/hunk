@@ -105,7 +105,10 @@ impl DiffViewer {
             .map(|path| path.to_string_lossy().to_string())
     }
 
-    fn review_compare_source_option(&self, source_id: &str) -> Option<&ReviewCompareSourceOption> {
+    pub(crate) fn review_compare_source_option(
+        &self,
+        source_id: &str,
+    ) -> Option<&ReviewCompareSourceOption> {
         self.review_compare_sources
             .iter()
             .find(|source| source.id == source_id)

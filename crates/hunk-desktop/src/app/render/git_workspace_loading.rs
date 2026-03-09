@@ -55,10 +55,10 @@ fn render_git_workspace_loading_overlay(
 
 impl DiffViewer {
     fn git_workflow_ready_for_panel(&self) -> bool {
-        self.repo_root.is_some()
-            || self.branch_name != "unknown"
-            || !self.branches.is_empty()
-            || !self.files.is_empty()
+        self.git_workspace.root.is_some()
+            || self.git_workspace.branch_name != "unknown"
+            || !self.git_workspace.branches.is_empty()
+            || !self.git_workspace.files.is_empty()
             || self.last_commit_subject.is_some()
     }
 

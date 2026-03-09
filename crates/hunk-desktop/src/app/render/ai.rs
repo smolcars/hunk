@@ -628,14 +628,19 @@ impl DiffViewer {
                                                                                             0.96,
                                                                                         ))
                                                                                         .child(
-                                                                                            "No threads in this workspace yet.",
+                                                                                            "No threads in this repo yet.",
                                                                                         ),
                                                                                 ),
                                                                         )
                                                                     })
                                                                     .children(threads.into_iter().map(|thread| {
+                                                                        let workspace_label = self
+                                                                            .ai_thread_workspace_label(
+                                                                                thread.id.as_str(),
+                                                                            );
                                                                         render_ai_thread_sidebar_row(
                                                                             thread,
+                                                                            workspace_label,
                                                                             selected_thread_id.as_deref(),
                                                                             view.clone(),
                                                                             is_dark,

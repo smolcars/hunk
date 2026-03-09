@@ -18,7 +18,7 @@ impl DiffViewer {
         let git_selected = self.workspace_view_mode == WorkspaceViewMode::GitWorkspace;
         let review_selected = self.workspace_view_mode == WorkspaceViewMode::Diff;
         let active_branch = self
-            .checked_out_branch_name()
+            .primary_checked_out_branch_name()
             .unwrap_or(self.branch_name.as_str())
             .to_string();
         let chip_colors = hunk_toolbar_chip(cx.theme(), is_dark);
@@ -27,6 +27,8 @@ impl DiffViewer {
         let visible_line_stats = self.active_diff_overall_line_stats();
         let visible_file_count = if review_selected {
             self.active_diff_file_count()
+        } else if git_selected {
+            self.git_workspace.files.len()
         } else {
             self.files.len()
         };
@@ -191,16 +193,20 @@ impl DiffViewer {
                             })
                     })
                     .when(git_selected, |this| {
-                        this.when(self.overall_line_stats.changed() > 0, |this| {
-                            this.child(self.render_line_stats("overall", self.overall_line_stats, cx))
+                        this.when(self.git_workspace.overall_line_stats.changed() > 0, |this| {
+                            this.child(self.render_line_stats(
+                                "overall",
+                                self.git_workspace.overall_line_stats,
+                                cx,
+                            ))
                         })
                         .child(self.render_git_metric_pill(
-                            if self.branch_has_upstream {
+                            if self.git_workspace.branch_has_upstream {
                                 "Published"
                             } else {
                                 "Local Only"
                             },
-                            if self.branch_has_upstream {
+                            if self.git_workspace.branch_has_upstream {
                                 HunkAccentTone::Success
                             } else {
                                 HunkAccentTone::Warning
@@ -208,8 +214,8 @@ impl DiffViewer {
                             cx,
                         ))
                         .child(self.render_git_metric_pill(
-                            format!("Ahead {}", self.branch_ahead_count),
-                            if self.branch_ahead_count > 0 {
+                            format!("Ahead {}", self.git_workspace.branch_ahead_count),
+                            if self.git_workspace.branch_ahead_count > 0 {
                                 HunkAccentTone::Accent
                             } else {
                                 HunkAccentTone::Neutral
@@ -217,8 +223,8 @@ impl DiffViewer {
                             cx,
                         ))
                         .child(self.render_git_metric_pill(
-                            format!("Behind {}", self.branch_behind_count),
-                            if self.branch_behind_count > 0 {
+                            format!("Behind {}", self.git_workspace.branch_behind_count),
+                            if self.git_workspace.branch_behind_count > 0 {
                                 HunkAccentTone::Warning
                             } else {
                                 HunkAccentTone::Neutral
@@ -226,8 +232,8 @@ impl DiffViewer {
                             cx,
                         ))
                         .child(self.render_git_metric_pill(
-                            format!("Changed {}", self.files.len()),
-                            if self.files.is_empty() {
+                            format!("Changed {}", self.git_workspace.files.len()),
+                            if self.git_workspace.files.is_empty() {
                                 HunkAccentTone::Neutral
                             } else {
                                 HunkAccentTone::Accent

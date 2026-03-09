@@ -9,7 +9,7 @@ impl DiffViewer {
         let recent_count = self.recent_commits.len();
         let branch_scope_label = self
             .checked_out_branch_name()
-            .unwrap_or(self.branch_name.as_str());
+            .unwrap_or(self.git_workspace.branch_name.as_str());
         let branch_scope_description = if branch_scope_label.is_empty() || branch_scope_label == "unknown" {
             "the current branch".to_string()
         } else if branch_scope_label == "detached" {

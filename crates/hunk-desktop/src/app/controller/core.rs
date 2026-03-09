@@ -379,6 +379,7 @@ impl DiffViewer {
             repo_root: None,
             workspace_targets: Vec::new(),
             active_workspace_target_id: None,
+            git_workspace: GitWorkspaceState::default(),
             review_compare_sources: Vec::new(),
             review_default_left_source_id: None,
             review_default_right_source_id: None,
@@ -461,16 +462,19 @@ impl DiffViewer {
             branch_input_state,
             branch_input_has_text: false,
             commit_input_state,
-            staged_commit_files: BTreeSet::new(),
-            last_commit_subject: None,
-            recent_commits: Vec::new(),
-            recent_commits_error: None,
             git_action_epoch: 0,
             git_action_task: Task::ready(()),
             git_action_loading: false,
             git_action_label: None,
             workspace_target_switch_loading: false,
             git_status_message: None,
+            git_workspace_refresh_epoch: 0,
+            git_workspace_refresh_task: Task::ready(()),
+            git_workspace_loading: false,
+            staged_commit_files: BTreeSet::new(),
+            last_commit_subject: None,
+            recent_commits: Vec::new(),
+            recent_commits_error: None,
             collapsed_files: BTreeSet::new(),
             selected_path: None,
             selected_status: None,
@@ -663,9 +667,9 @@ impl DiffViewer {
     }
 
     fn update_branch_picker_state(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let delegate = build_branch_picker_delegate(&self.branches);
+        let delegate = build_branch_picker_delegate(&self.git_workspace.branches);
         let selected_index =
-            branch_picker_selected_index(&self.branches, self.checked_out_branch_name());
+            branch_picker_selected_index(&self.git_workspace.branches, self.checked_out_branch_name());
         self.branch_picker_state.update(cx, |state, cx| {
             state.set_items(delegate, window, cx);
             state.set_selected_index(selected_index, window, cx);
@@ -697,9 +701,9 @@ impl DiffViewer {
         };
 
         let branch_picker_state = self.branch_picker_state.clone();
-        let delegate = build_branch_picker_delegate(&self.branches);
+        let delegate = build_branch_picker_delegate(&self.git_workspace.branches);
         let selected_index =
-            branch_picker_selected_index(&self.branches, self.checked_out_branch_name());
+            branch_picker_selected_index(&self.git_workspace.branches, self.checked_out_branch_name());
 
         if let Err(err) = cx.update_window(window_handle, move |_, window, cx| {
             branch_picker_state.update(cx, |state, cx| {
@@ -769,7 +773,59 @@ impl DiffViewer {
     }
 
     fn workspace_catalog_source_root(&self) -> Option<PathBuf> {
+        self.project_path.clone().or_else(|| self.repo_root.clone())
+    }
+
+    pub(crate) fn primary_repo_root(&self) -> Option<PathBuf> {
         self.repo_root.clone().or_else(|| self.project_path.clone())
+    }
+
+    fn primary_workspace_target_id_from_targets(
+        targets: &[WorkspaceTargetSummary],
+        repo_root: Option<&PathBuf>,
+    ) -> Option<String> {
+        targets
+            .iter()
+            .find(|target| target.kind == hunk_git::worktree::WorkspaceTargetKind::PrimaryCheckout)
+            .or_else(|| {
+                repo_root.and_then(|repo_root| {
+                    targets
+                        .iter()
+                        .find(|target| target.root == *repo_root)
+                })
+            })
+            .or_else(|| targets.first())
+            .map(|target| target.id.clone())
+    }
+
+    pub(crate) fn primary_workspace_target(&self) -> Option<&WorkspaceTargetSummary> {
+        let primary_target_id = Self::primary_workspace_target_id_from_targets(
+            &self.workspace_targets,
+            self.repo_root.as_ref(),
+        )?;
+        self.workspace_targets
+            .iter()
+            .find(|target| target.id == primary_target_id)
+    }
+
+    pub(crate) fn primary_workspace_target_id(&self) -> Option<String> {
+        self.primary_workspace_target().map(|target| target.id.clone())
+    }
+
+    pub(crate) fn selected_git_workspace_target(&self) -> Option<&WorkspaceTargetSummary> {
+        self.active_workspace_target_id
+            .as_deref()
+            .and_then(|target_id| {
+                self.workspace_targets
+                    .iter()
+                    .find(|target| target.id == target_id)
+            })
+            .or_else(|| self.primary_workspace_target())
+    }
+
+    pub(crate) fn selected_git_workspace_root(&self) -> Option<PathBuf> {
+        self.selected_git_workspace_target()
+            .map(|target| target.root.clone())
     }
 
     fn persisted_workspace_target_id(&self) -> Option<String> {
@@ -825,19 +881,16 @@ impl DiffViewer {
 
         match hunk_git::worktree::list_workspace_targets(source_root.as_path()) {
             Ok(targets) => {
-                let current_root_target_id = self.repo_root.as_ref().and_then(|repo_root| {
-                    targets
-                        .iter()
-                        .find(|target| target.root == *repo_root)
-                        .map(|target| target.id.clone())
-                });
+                let primary_target_id =
+                    Self::primary_workspace_target_id_from_targets(&targets, self.repo_root.as_ref());
                 let next_active_target_id = self
                     .active_workspace_target_id
                     .clone()
                     .filter(|active_target_id| {
-                        current_root_target_id.as_deref() == Some(active_target_id.as_str())
+                        targets
+                            .iter()
+                            .any(|target| target.id == *active_target_id)
                     })
-                    .or(current_root_target_id)
                     .or_else(|| {
                         self.persisted_workspace_target_id().filter(|persisted_target_id| {
                             targets
@@ -845,13 +898,7 @@ impl DiffViewer {
                                 .any(|target| target.id == *persisted_target_id)
                         })
                     })
-                    .or_else(|| {
-                        targets
-                            .iter()
-                            .find(|target| target.is_active)
-                            .map(|target| target.id.clone())
-                    })
-                    .or_else(|| targets.first().map(|target| target.id.clone()));
+                    .or(primary_target_id);
                 self.workspace_targets = targets;
                 self.active_workspace_target_id = next_active_target_id;
                 self.persist_active_workspace_target_id();
@@ -874,10 +921,6 @@ impl DiffViewer {
     }
 
     fn restore_active_workspace_target_root_from_state(&mut self, cx: &mut Context<Self>) {
-        if self.repo_root.is_some() {
-            self.refresh_workspace_targets_from_git_state(cx);
-            return;
-        }
         let Some(project_path) = self.project_path.clone() else {
             return;
         };
@@ -897,19 +940,7 @@ impl DiffViewer {
                     .iter()
                     .any(|target| target.id == *persisted_target_id)
             })
-            .or_else(|| {
-                targets
-                    .iter()
-                    .find(|target| target.kind == hunk_git::worktree::WorkspaceTargetKind::PrimaryCheckout)
-                    .map(|target| target.id.clone())
-            })
-            .or_else(|| targets.first().map(|target| target.id.clone()));
-        let target_root = target_id.as_deref().and_then(|target_id| {
-            targets
-                .iter()
-                .find(|target| target.id == target_id)
-                .map(|target| target.root.clone())
-        });
+            .or_else(|| Self::primary_workspace_target_id_from_targets(&targets, self.repo_root.as_ref()));
         let mut targets = targets;
         for workspace_target in &mut targets {
             workspace_target.is_active =
@@ -918,11 +949,11 @@ impl DiffViewer {
 
         self.workspace_targets = targets;
         self.active_workspace_target_id = target_id;
-        self.repo_root = target_root;
         self.persist_active_workspace_target_id();
         self.sync_workspace_target_picker_state(cx);
         self.sync_ai_workspace_target_from_catalog(cx);
         self.refresh_review_compare_sources_from_git_state(cx);
+        self.request_git_workspace_refresh(true, cx);
     }
 
     fn activate_workspace_target(&mut self, target_id: String, cx: &mut Context<Self>) {
@@ -934,16 +965,11 @@ impl DiffViewer {
         else {
             return;
         };
-        if self.repo_root.as_ref() == Some(&target.root) {
+        if self.active_workspace_target_id.as_deref() == Some(target.id.as_str()) {
             return;
         }
 
-        let previous_ai_workspace_key = self.ai_workspace_key();
-        let follow_active_target_for_ai =
-            !self.ai_new_thread_draft_active && self.ai_selected_thread_id.is_none();
-        self.sync_ai_visible_composer_prompt_to_draft(cx);
         self.workspace_target_switch_loading = true;
-        self.repo_root = Some(target.root);
         self.active_workspace_target_id = Some(target.id);
         for workspace_target in &mut self.workspace_targets {
             workspace_target.is_active =
@@ -951,15 +977,9 @@ impl DiffViewer {
         }
         self.persist_active_workspace_target_id();
         self.sync_workspace_target_picker_state(cx);
-        if follow_active_target_for_ai {
-            self.ai_draft_workspace_target_id = self.active_workspace_target_id.clone();
-        }
-        self.ai_handle_workspace_change(previous_ai_workspace_key, cx);
-        self.git_status_message = Some("Switching workspace target...".to_string());
-        self.reset_recent_commits_state();
-        self.start_repo_watch(cx);
-        self.request_snapshot_refresh_internal(SnapshotRefreshRequest::user(true), cx);
-        self.request_recent_commits_refresh(true, cx);
+        self.refresh_review_compare_sources_from_git_state(cx);
+        self.git_status_message = Some("Switching Git workspace target...".to_string());
+        self.request_git_workspace_refresh(true, cx);
         cx.notify();
     }
 
@@ -1244,6 +1264,128 @@ impl DiffViewer {
                 .iter()
                 .filter_map(|file| self.file_line_stats.get(file.path.as_str()).copied()),
         );
+    }
+
+    fn next_git_workspace_refresh_epoch(&mut self) -> usize {
+        self.git_workspace_refresh_epoch = self.git_workspace_refresh_epoch.saturating_add(1);
+        self.git_workspace_refresh_epoch
+    }
+
+    fn clear_git_workspace_state(&mut self) {
+        self.git_workspace = GitWorkspaceState::default();
+        self.staged_commit_files.clear();
+        self.last_commit_subject = None;
+        self.recent_commits.clear();
+        self.recent_commits_error = None;
+        self.last_recent_commits_fingerprint = None;
+        self.git_workspace_loading = false;
+        self.workspace_target_switch_loading = false;
+    }
+
+    fn apply_git_workspace_snapshot(
+        &mut self,
+        root: PathBuf,
+        snapshot: WorkflowSnapshot,
+        file_line_stats: BTreeMap<String, LineStats>,
+    ) {
+        let WorkflowSnapshot {
+            working_copy_commit_id,
+            branch_name,
+            branch_has_upstream,
+            branch_ahead_count,
+            branch_behind_count,
+            branches,
+            files,
+            last_commit_subject,
+            ..
+        } = snapshot;
+
+        self.git_workspace.root = Some(root);
+        self.git_workspace.working_copy_commit_id = Some(working_copy_commit_id);
+        self.git_workspace.branch_name = branch_name;
+        self.git_workspace.branch_has_upstream = branch_has_upstream;
+        self.git_workspace.branch_ahead_count = branch_ahead_count;
+        self.git_workspace.branch_behind_count = branch_behind_count;
+        self.git_workspace.branches = branches;
+        self.git_workspace.files = files;
+        self.git_workspace.file_status_by_path = self
+            .git_workspace
+            .files
+            .iter()
+            .map(|file| (file.path.clone(), file.status))
+            .collect();
+        self.git_workspace.file_line_stats = file_line_stats;
+        self.git_workspace.overall_line_stats = Self::sum_line_stats(
+            self.git_workspace
+                .files
+                .iter()
+                .filter_map(|file| {
+                    self.git_workspace
+                        .file_line_stats
+                        .get(file.path.as_str())
+                        .copied()
+                }),
+        );
+        self.staged_commit_files.retain(|path| {
+            self.git_workspace
+                .files
+                .iter()
+                .any(|file| file.path == *path)
+        });
+        self.last_commit_subject = last_commit_subject;
+    }
+
+    pub(super) fn request_git_workspace_refresh(&mut self, force_recent_commits: bool, cx: &mut Context<Self>) {
+        let Some(root) = self.selected_git_workspace_root() else {
+            self.clear_git_workspace_state();
+            cx.notify();
+            return;
+        };
+
+        let epoch = self.next_git_workspace_refresh_epoch();
+        self.git_workspace_loading = true;
+        self.workspace_target_switch_loading = true;
+        let refresh_root = root.clone();
+
+        self.git_workspace_refresh_task = cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move {
+                let (_, workflow_snapshot) =
+                    load_workflow_snapshot_with_fingerprint_without_refresh(refresh_root.as_path())?;
+                let file_line_stats =
+                    load_repo_file_line_stats_without_refresh(refresh_root.as_path())?;
+                Ok::<_, anyhow::Error>((workflow_snapshot, file_line_stats))
+            });
+            let result = result.await;
+
+            if let Some(this) = this.upgrade() {
+                this.update(cx, |this, cx| {
+                    if epoch != this.git_workspace_refresh_epoch {
+                        return;
+                    }
+
+                    this.git_workspace_loading = false;
+                    this.workspace_target_switch_loading = false;
+                    match result {
+                        Ok((workflow_snapshot, file_line_stats)) => {
+                            this.apply_git_workspace_snapshot(root.clone(), workflow_snapshot, file_line_stats);
+                            if force_recent_commits {
+                                this.request_recent_commits_refresh(true, cx);
+                            } else {
+                                this.request_recent_commits_refresh(false, cx);
+                            }
+                        }
+                        Err(err) => {
+                            this.git_status_message =
+                                Some(format!("Failed to load Git workspace: {err:#}"));
+                            if this.git_workspace.root.as_ref() != Some(&root) {
+                                this.clear_git_workspace_state();
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+        });
     }
 
     fn maybe_run_pending_snapshot_refresh(&mut self, cx: &mut Context<Self>) {
@@ -1749,23 +1891,23 @@ impl DiffViewer {
             branch_behind_count,
             branches,
             files,
-            last_commit_subject,
+            last_commit_subject: _last_commit_subject,
         } = snapshot;
 
         debug!("loaded workflow snapshot from {}", root.display());
-        let root_changed = self.repo_root.as_ref() != Some(&root);
+        let primary_root =
+            hunk_git::worktree::primary_repo_root(root.as_path()).unwrap_or_else(|_| root.clone());
+        let root_changed = self.repo_root.as_ref() != Some(&primary_root);
         let previous_selected_path = self.selected_path.clone();
         let previous_selected_status = self.selected_status;
         let previous_files = self.files.clone();
         let previous_working_copy_commit_id = self.working_copy_commit_id.clone();
-        let primary_root =
-            hunk_git::worktree::primary_repo_root(root.as_path()).unwrap_or_else(|_| root.clone());
 
         let previous_ai_workspace_key = self.ai_workspace_key();
         self.sync_ai_visible_composer_prompt_to_draft(cx);
-        self.project_path = Some(primary_root);
+        self.project_path = Some(primary_root.clone());
         self.set_last_project_path(self.project_path.clone());
-        self.repo_root = Some(root);
+        self.repo_root = Some(primary_root.clone());
         self.branches = branches;
         self.sync_ai_worktree_base_branch_from_repo();
         self.sync_branch_picker_state(cx);
@@ -1794,9 +1936,6 @@ impl DiffViewer {
         self.file_line_stats
             .retain(|path, _| self.files.iter().any(|file| file.path == *path));
         self.recompute_overall_line_stats_from_file_stats();
-        self.staged_commit_files
-            .retain(|path| self.files.iter().any(|file| file.path == *path));
-        self.last_commit_subject = last_commit_subject;
         self.repo_discovery_failed = false;
         self.error_message = None;
         if full_refresh {
@@ -1875,6 +2014,13 @@ impl DiffViewer {
         }
 
         self.persist_workflow_cache();
+        if self.git_workspace.root.is_none()
+            || self
+                .selected_git_workspace_root()
+                .is_some_and(|selected_root| self.git_workspace.root.as_ref() != Some(&selected_root))
+        {
+            self.request_git_workspace_refresh(true, cx);
+        }
         cx.notify();
         false
     }

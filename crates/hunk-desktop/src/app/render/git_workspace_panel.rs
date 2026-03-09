@@ -79,9 +79,7 @@ impl DiffViewer {
         let active_review_blocker = self.active_review_action_blocker();
         let review_url_disabled = active_review_blocker.is_some();
         let active_target_label = self
-            .workspace_targets
-            .iter()
-            .find(|target| self.active_workspace_target_id.as_deref() == Some(target.id.as_str()))
+            .selected_git_workspace_target()
             .map(|target| target.display_name.clone())
             .or_else(|| {
                 self.repo_root.as_ref().and_then(|root| {
@@ -96,11 +94,11 @@ impl DiffViewer {
             .map_or_else(|| "detached".to_string(), ToOwned::to_owned);
         let sync_state_label = if !branch_syncable {
             "Detached".to_string()
-        } else if self.branch_has_upstream {
-            if self.branch_ahead_count > 0 || self.branch_behind_count > 0 {
+        } else if self.git_workspace.branch_has_upstream {
+            if self.git_workspace.branch_ahead_count > 0 || self.git_workspace.branch_behind_count > 0 {
                 format!(
                     "{} ahead / {} behind",
-                    self.branch_ahead_count, self.branch_behind_count
+                    self.git_workspace.branch_ahead_count, self.git_workspace.branch_behind_count
                 )
             } else {
                 "Up to date".to_string()
@@ -110,18 +108,18 @@ impl DiffViewer {
         };
         let sync_tooltip = if !branch_syncable {
             "Activate a branch before syncing."
-        } else if !self.branch_has_upstream {
+        } else if !self.git_workspace.branch_has_upstream {
             "Publish this branch before syncing."
-        } else if !self.files.is_empty() {
+        } else if !self.git_workspace.files.is_empty() {
             "Commit or discard working tree changes before syncing."
         } else {
             "Fetch and fast-forward this branch from its upstream remote."
         };
-        let publish_state_tooltip = if self.branch_has_upstream {
+        let publish_state_tooltip = if self.git_workspace.branch_has_upstream {
             "This branch already tracks upstream. Use Push below."
         } else if !branch_syncable {
             "Activate a branch before publishing."
-        } else if !self.files.is_empty() {
+        } else if !self.git_workspace.files.is_empty() {
             "Commit or discard working tree changes before publishing."
         } else {
             "Publish this branch to upstream and start tracking it."
@@ -189,12 +187,12 @@ impl DiffViewer {
                     .gap_1p5()
                     .flex_wrap()
                     .child(self.render_git_metric_pill(
-                        if self.branch_has_upstream {
+                        if self.git_workspace.branch_has_upstream {
                             "Published"
                         } else {
                             "Local Only"
                         },
-                        if self.branch_has_upstream {
+                        if self.git_workspace.branch_has_upstream {
                             HunkAccentTone::Success
                         } else {
                             HunkAccentTone::Warning
@@ -202,8 +200,8 @@ impl DiffViewer {
                         cx,
                     ))
                     .child(self.render_git_metric_pill(
-                        format!("Ahead {}", self.branch_ahead_count),
-                        if self.branch_ahead_count > 0 {
+                        format!("Ahead {}", self.git_workspace.branch_ahead_count),
+                        if self.git_workspace.branch_ahead_count > 0 {
                             HunkAccentTone::Accent
                         } else {
                             HunkAccentTone::Neutral
@@ -211,8 +209,8 @@ impl DiffViewer {
                         cx,
                     ))
                     .child(self.render_git_metric_pill(
-                        format!("Behind {}", self.branch_behind_count),
-                        if self.branch_behind_count > 0 {
+                        format!("Behind {}", self.git_workspace.branch_behind_count),
+                        if self.git_workspace.branch_behind_count > 0 {
                             HunkAccentTone::Warning
                         } else {
                             HunkAccentTone::Neutral
@@ -314,19 +312,19 @@ impl DiffViewer {
                             .with_size(gpui_component::Size::Small)
                             .rounded(px(8.0))
                             .loading(publish_loading)
-                            .label(if self.branch_has_upstream {
+                            .label(if self.git_workspace.branch_has_upstream {
                                 "Published"
                             } else {
                                 "Publish"
                             })
                             .tooltip(publish_state_tooltip)
-                            .disabled(self.branch_has_upstream || publish_disabled)
+                            .disabled(self.git_workspace.branch_has_upstream || publish_disabled)
                             .on_click(move |_, _, cx| {
                                 view.update(cx, |this, cx| {
                                     this.publish_current_branch(cx);
                                 });
                             });
-                        if self.branch_has_upstream {
+                        if self.git_workspace.branch_has_upstream {
                             button = button.outline();
                         } else {
                             button = button.primary();

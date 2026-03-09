@@ -98,7 +98,7 @@ impl DiffViewer {
         }
 
         let is_dark = cx.theme().mode.is_dark();
-        let show_loading_overlay = self.workflow_loading && !self.git_workflow_ready_for_panel();
+        let show_loading_overlay = self.git_workspace_loading && !self.git_workflow_ready_for_panel();
 
         div()
             .size_full()
@@ -130,18 +130,21 @@ impl DiffViewer {
             "Review Workspace"
         };
         let active_branch = self
-            .checked_out_branch_name()
+            .primary_checked_out_branch_name()
             .map_or_else(|| "detached".to_string(), ToOwned::to_owned);
         let footer_summary = if git_selected {
-            if self.branch_has_upstream {
+            if self.git_workspace.branch_has_upstream {
                 format!(
                     "{} changed files • {} ahead • {} behind",
-                    self.files.len(),
-                    self.branch_ahead_count,
-                    self.branch_behind_count
+                    self.git_workspace.files.len(),
+                    self.git_workspace.branch_ahead_count,
+                    self.git_workspace.branch_behind_count
                 )
             } else {
-                format!("{} changed files • branch not published", self.files.len())
+                format!(
+                    "{} changed files • branch not published",
+                    self.git_workspace.files.len()
+                )
             }
         } else if self.workspace_view_mode == WorkspaceViewMode::Diff {
             format!(

@@ -67,8 +67,8 @@ impl DiffViewer {
                                     .gap_2()
                                     .flex_wrap()
                                     .child(self.render_git_metric_pill(
-                                        format!("Changed {}", self.files.len()),
-                                        if self.files.is_empty() {
+                                        format!("Changed {}", self.git_workspace.files.len()),
+                                        if self.git_workspace.files.is_empty() {
                                             HunkAccentTone::Neutral
                                         } else {
                                             HunkAccentTone::Accent
@@ -115,14 +115,14 @@ impl DiffViewer {
                     .text_xs()
                     .font_family(cx.theme().mono_font_family.clone())
                     .text_color(colors.added)
-                    .child(format!("+{}", self.overall_line_stats.added)),
+                    .child(format!("+{}", self.git_workspace.overall_line_stats.added)),
             )
             .child(
                 div()
                     .text_xs()
                     .font_family(cx.theme().mono_font_family.clone())
                     .text_color(colors.removed)
-                    .child(format!("-{}", self.overall_line_stats.removed)),
+                    .child(format!("-{}", self.git_workspace.overall_line_stats.removed)),
             )
             .into_any_element()
     }

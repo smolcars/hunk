@@ -50,7 +50,10 @@ impl DiffViewer {
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(format!("{} changed files", self.files.len())),
+                                    .child(format!(
+                                        "{} changed files",
+                                        self.git_workspace.files.len()
+                                    )),
                             ),
                     )
                     .child(
@@ -67,7 +70,7 @@ impl DiffViewer {
                                 },
                                 cx,
                             ))
-                            .when(!self.files.is_empty(), |this| {
+                            .when(!self.git_workspace.files.is_empty(), |this| {
                                 this.child({
                                     let view = view.clone();
                                     Button::new("git-stage-all")
@@ -79,7 +82,7 @@ impl DiffViewer {
                                         .tooltip("Stage every changed file for the next commit.")
                                         .disabled(
                                             self.git_action_loading
-                                                || staged_count == self.files.len(),
+                                                || staged_count == self.git_workspace.files.len(),
                                         )
                                         .on_click(move |_, _, cx| {
                                             view.update(cx, |this, cx| {
@@ -109,7 +112,7 @@ impl DiffViewer {
                     ),
             )
             .child({
-                let list_container = if self.files.is_empty() {
+                let list_container = if self.git_workspace.files.is_empty() {
                     v_flex()
                         .w_full()
                         .h_full()
@@ -128,7 +131,7 @@ impl DiffViewer {
                         .items_stretch()
                         .gap_1()
                         .pb_2()
-                        .children(self.files.iter().enumerate().map(|(row_ix, file)| {
+                        .children(self.git_workspace.files.iter().enumerate().map(|(row_ix, file)| {
                             self.render_workspace_change_row(row_ix, file, cx)
                         }))
                         .into_any_element()
@@ -185,17 +188,17 @@ impl DiffViewer {
         let push_disabled = !push_available || (git_controls_busy && !push_loading);
         let push_tooltip = if !self.can_run_active_branch_actions() {
             "Activate a branch before pushing."
-        } else if !self.branch_has_upstream {
+        } else if !self.git_workspace.branch_has_upstream {
             "Publish this branch before pushing."
-        } else if self.branch_ahead_count == 0 {
+        } else if self.git_workspace.branch_ahead_count == 0 {
             "No local commits to push."
-        } else if !self.files.is_empty() {
+        } else if !self.git_workspace.files.is_empty() {
             "Commit or discard working tree changes before pushing."
         } else {
             "Push all local commits on this branch."
         };
         let staged_count = self.staged_commit_file_count();
-        let total_count = self.files.len();
+        let total_count = self.git_workspace.files.len();
         let commit_disabled = staged_count == 0 || (git_controls_busy && !create_commit_loading);
         let commit_readiness_label = if staged_count == 0 {
             "Stage files".to_string()
@@ -258,8 +261,8 @@ impl DiffViewer {
                         cx,
                     ))
                     .child(self.render_git_metric_pill(
-                        format!("To Push {}", self.branch_ahead_count),
-                        if self.branch_ahead_count > 0 {
+                        format!("To Push {}", self.git_workspace.branch_ahead_count),
+                        if self.git_workspace.branch_ahead_count > 0 {
                             HunkAccentTone::Accent
                         } else {
                             HunkAccentTone::Neutral

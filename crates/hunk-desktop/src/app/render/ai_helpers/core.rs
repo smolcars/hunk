@@ -77,6 +77,7 @@ fn ai_thread_display_title(thread: &hunk_codex::state::ThreadSummary) -> String 
 
 fn render_ai_thread_sidebar_row(
     thread: hunk_codex::state::ThreadSummary,
+    workspace_label: String,
     selected_thread_id: Option<&str>,
     view: Entity<DiffViewer>,
     is_dark: bool,
@@ -164,15 +165,29 @@ fn render_ai_thread_sidebar_row(
                 .justify_between()
                 .gap_2()
                 .child(
-                    div()
+                    v_flex()
                         .flex_1()
                         .min_w_0()
-                        .text_sm()
-                        .font_medium()
-                        .text_color(title_color)
-                        .whitespace_nowrap()
-                        .truncate()
-                        .child(title),
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .w_full()
+                                .text_sm()
+                                .font_medium()
+                                .text_color(title_color)
+                                .whitespace_nowrap()
+                                .truncate()
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .text_xs()
+                                .text_color(metadata_color)
+                                .whitespace_nowrap()
+                                .truncate()
+                                .child(workspace_label),
+                        ),
                 )
                 .when_some(activity_label, |this, label| {
                     this.child(

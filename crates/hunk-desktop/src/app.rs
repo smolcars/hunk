@@ -299,6 +299,21 @@ struct AiHiddenRuntimeHandle {
     generation: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+struct GitWorkspaceState {
+    root: Option<PathBuf>,
+    branch_name: String,
+    branch_has_upstream: bool,
+    branch_ahead_count: usize,
+    branch_behind_count: usize,
+    working_copy_commit_id: Option<String>,
+    branches: Vec<LocalBranch>,
+    files: Vec<ChangedFile>,
+    file_status_by_path: BTreeMap<String, FileStatus>,
+    file_line_stats: BTreeMap<String, LineStats>,
+    overall_line_stats: LineStats,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiThreadTitleRefreshState {
     key: String,
@@ -1183,6 +1198,7 @@ struct DiffViewer {
     repo_root: Option<PathBuf>,
     workspace_targets: Vec<WorkspaceTargetSummary>,
     active_workspace_target_id: Option<String>,
+    git_workspace: GitWorkspaceState,
     review_compare_sources: Vec<ReviewCompareSourceOption>,
     review_default_left_source_id: Option<String>,
     review_default_right_source_id: Option<String>,
@@ -1265,16 +1281,19 @@ struct DiffViewer {
     branch_input_state: Entity<InputState>,
     branch_input_has_text: bool,
     commit_input_state: Entity<InputState>,
-    staged_commit_files: BTreeSet<String>,
-    last_commit_subject: Option<String>,
-    recent_commits: Vec<RecentCommitSummary>,
-    recent_commits_error: Option<String>,
     git_action_epoch: usize,
     git_action_task: Task<()>,
     git_action_loading: bool,
     git_action_label: Option<String>,
     workspace_target_switch_loading: bool,
     git_status_message: Option<String>,
+    git_workspace_refresh_epoch: usize,
+    git_workspace_refresh_task: Task<()>,
+    git_workspace_loading: bool,
+    staged_commit_files: BTreeSet<String>,
+    last_commit_subject: Option<String>,
+    recent_commits: Vec<RecentCommitSummary>,
+    recent_commits_error: Option<String>,
     collapsed_files: BTreeSet<String>,
     selected_path: Option<String>,
     selected_status: Option<FileStatus>,

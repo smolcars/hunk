@@ -30,6 +30,7 @@ impl DiffViewer {
             }
         };
         let line_stats = self
+            .git_workspace
             .file_line_stats
             .get(file.path.as_str())
             .copied()

@@ -106,7 +106,10 @@ impl DiffViewer {
     }
 
     fn refresh_after_git_action(&mut self, action_name: &'static str, cx: &mut Context<Self>) {
-        self.request_snapshot_refresh_workflow_only(true, cx);
+        if self.selected_git_workspace_root() == self.repo_root {
+            self.request_snapshot_refresh_workflow_only(true, cx);
+        }
+        self.request_git_workspace_refresh(true, cx);
         if matches!(action_name, "Activate branch" | "Sync branch") {
             self.request_recent_commits_refresh(true, cx);
         }
@@ -124,30 +127,36 @@ impl DiffViewer {
 
         self.staged_commit_files.clear();
         self.last_commit_subject = Some(subject.to_string());
-        self.files
+        self.git_workspace
+            .files
             .retain(|file| !committed_paths.contains(file.path.as_str()));
-        self.file_status_by_path = self
+        self.git_workspace.file_status_by_path = self
+            .git_workspace
             .files
             .iter()
             .map(|file| (file.path.clone(), file.status))
             .collect();
-        self.file_line_stats
-            .retain(|path, _| self.files.iter().any(|file| file.path == *path));
-        self.recompute_overall_line_stats_from_file_stats();
-        self.collapsed_files
-            .retain(|path| self.files.iter().any(|file| file.path == *path));
-        self.selected_path = self
-            .selected_path
-            .clone()
-            .filter(|selected| self.files.iter().any(|file| &file.path == selected))
-            .or_else(|| self.files.first().map(|file| file.path.clone()));
-        self.selected_status = self
-            .selected_path
-            .as_deref()
-            .and_then(|selected| self.status_for_path(selected));
+        self.git_workspace.file_line_stats.retain(|path, _| {
+            self.git_workspace
+                .files
+                .iter()
+                .any(|file| file.path == *path)
+        });
+        self.git_workspace.overall_line_stats = Self::sum_line_stats(
+            self.git_workspace
+                .files
+                .iter()
+                .filter_map(|file| {
+                    self.git_workspace
+                        .file_line_stats
+                        .get(file.path.as_str())
+                        .copied()
+                }),
+        );
 
-        if self.branch_has_upstream {
-            self.branch_ahead_count = self.branch_ahead_count.saturating_add(1);
+        if self.git_workspace.branch_has_upstream {
+            self.git_workspace.branch_ahead_count =
+                self.git_workspace.branch_ahead_count.saturating_add(1);
         }
     }
 
@@ -176,7 +185,7 @@ impl DiffViewer {
             return false;
         }
 
-        let Some(repo_root) = self.repo_root.clone() else {
+        let Some(repo_root) = self.selected_git_workspace_root() else {
             self.git_status_message = Some("No Git repository available.".to_string());
             cx.notify();
             return false;
@@ -294,10 +303,15 @@ impl DiffViewer {
     }
 
     pub(super) fn stage_all_files_for_commit(&mut self, cx: &mut Context<Self>) {
-        if self.staged_commit_files.len() == self.files.len() {
+        if self.staged_commit_files.len() == self.git_workspace.files.len() {
             return;
         }
-        self.staged_commit_files = self.files.iter().map(|file| file.path.clone()).collect();
+        self.staged_commit_files = self
+            .git_workspace
+            .files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect();
         cx.notify();
     }
 
@@ -314,12 +328,29 @@ impl DiffViewer {
     }
 
     pub(super) fn branch_syncable(&self) -> bool {
-        !self.branch_name.is_empty()
-            && self.branch_name != "unknown"
-            && self.branch_name != "detached"
+        !self.git_workspace.branch_name.is_empty()
+            && self.git_workspace.branch_name != "unknown"
+            && self.git_workspace.branch_name != "detached"
     }
 
     pub(super) fn checked_out_branch_name(&self) -> Option<&str> {
+        if self
+            .git_workspace
+            .branches
+            .iter()
+            .any(|branch| branch.is_current && branch.name == self.git_workspace.branch_name)
+        {
+            return Some(self.git_workspace.branch_name.as_str());
+        }
+
+        self.git_workspace
+            .branches
+            .iter()
+            .find(|branch| branch.is_current)
+            .map(|branch| branch.name.as_str())
+    }
+
+    pub(super) fn primary_checked_out_branch_name(&self) -> Option<&str> {
         if self
             .branches
             .iter()
@@ -335,9 +366,10 @@ impl DiffViewer {
     }
 
     pub(super) fn active_branch_is_checked_out(&self) -> bool {
-        self.branches
+        self.git_workspace
+            .branches
             .iter()
-            .any(|branch| branch.is_current && branch.name == self.branch_name)
+            .any(|branch| branch.is_current && branch.name == self.git_workspace.branch_name)
     }
 
     pub(super) fn can_run_active_branch_actions(&self) -> bool {
@@ -345,33 +377,34 @@ impl DiffViewer {
     }
 
     fn tracking_area_clean(&self) -> bool {
-        self.files.is_empty()
+        self.git_workspace.files.is_empty()
     }
 
     pub(super) fn can_sync_current_branch(&self) -> bool {
         self.can_run_active_branch_actions()
-            && self.branch_has_upstream
+            && self.git_workspace.branch_has_upstream
             && self.tracking_area_clean()
             && !self.git_controls_busy()
     }
 
     pub(super) fn can_publish_current_branch(&self) -> bool {
         self.can_run_active_branch_actions()
-            && !self.branch_has_upstream
+            && !self.git_workspace.branch_has_upstream
             && self.tracking_area_clean()
             && !self.git_controls_busy()
     }
 
     pub(super) fn can_push_current_branch(&self) -> bool {
         self.can_run_active_branch_actions()
-            && self.branch_has_upstream
-            && self.branch_ahead_count > 0
+            && self.git_workspace.branch_has_upstream
+            && self.git_workspace.branch_ahead_count > 0
             && self.tracking_area_clean()
             && !self.git_controls_busy()
     }
 
     fn staged_commit_paths(&self) -> Vec<String> {
-        self.files
+        self.git_workspace
+            .files
             .iter()
             .filter(|file| self.staged_commit_files.contains(file.path.as_str()))
             .map(|file| file.path.clone())
@@ -418,7 +451,7 @@ impl DiffViewer {
             return;
         }
 
-        let current_branch = self.branch_name.clone();
+        let current_branch = self.git_workspace.branch_name.clone();
         let sanitized = sanitize_branch_name(&raw_name);
         self.branch_input_state.update(cx, |state, cx| {
             state.set_value(sanitized.clone(), window, cx);
@@ -451,7 +484,7 @@ impl DiffViewer {
             cx.notify();
             return;
         }
-        if self.branch_has_upstream {
+        if self.git_workspace.branch_has_upstream {
             let message = "Branch is already published.".to_string();
             self.git_status_message = Some(message.clone());
             Self::push_warning_notification(message, None, cx);
@@ -462,7 +495,7 @@ impl DiffViewer {
             return;
         }
 
-        let branch_name = self.branch_name.clone();
+        let branch_name = self.git_workspace.branch_name.clone();
         self.run_git_action("Publish branch", cx, move |repo_root| {
             push_current_branch(&repo_root, &branch_name, false)?;
             Ok(format!("Published branch {}", branch_name))
@@ -477,7 +510,7 @@ impl DiffViewer {
             cx.notify();
             return;
         }
-        if !self.branch_has_upstream {
+        if !self.git_workspace.branch_has_upstream {
             let message = "Publish this branch before pushing.".to_string();
             self.git_status_message = Some(message.clone());
             Self::push_warning_notification(message, None, cx);
@@ -491,7 +524,7 @@ impl DiffViewer {
             cx.notify();
             return;
         }
-        if self.branch_ahead_count == 0 {
+        if self.git_workspace.branch_ahead_count == 0 {
             let message = "No commits to push.".to_string();
             self.git_status_message = Some(message.clone());
             Self::push_warning_notification(message, None, cx);
@@ -502,7 +535,7 @@ impl DiffViewer {
             return;
         }
 
-        let branch_name = self.branch_name.clone();
+        let branch_name = self.git_workspace.branch_name.clone();
         self.run_git_action("Push branch", cx, move |repo_root| {
             push_current_branch(&repo_root, &branch_name, true)?;
             Ok(format!("Pushed branch {}", branch_name))
@@ -517,7 +550,7 @@ impl DiffViewer {
             cx.notify();
             return;
         }
-        if !self.branch_has_upstream {
+        if !self.git_workspace.branch_has_upstream {
             let message = "No upstream branch to sync from.".to_string();
             self.git_status_message = Some(message.clone());
             Self::push_warning_notification(message, None, cx);
@@ -535,7 +568,7 @@ impl DiffViewer {
             return;
         }
 
-        let branch_name = self.branch_name.clone();
+        let branch_name = self.git_workspace.branch_name.clone();
 
         self.run_git_action("Sync branch", cx, move |repo_root| {
             sync_current_branch(&repo_root, &branch_name)?;
@@ -552,7 +585,7 @@ impl DiffViewer {
             return;
         }
         self.run_review_url_action_for_branch(
-            self.branch_name.clone(),
+            self.git_workspace.branch_name.clone(),
             ReviewUrlAction::Open,
             cx,
         );
@@ -567,7 +600,7 @@ impl DiffViewer {
             return;
         }
         self.run_review_url_action_for_branch(
-            self.branch_name.clone(),
+            self.git_workspace.branch_name.clone(),
             ReviewUrlAction::Copy,
             cx,
         );
@@ -580,16 +613,8 @@ impl DiffViewer {
         if self.current_ai_thread_id().is_none() {
             return Some("Select a thread before opening PR.".to_string());
         }
-        let Some(thread_workspace) = self.ai_workspace_cwd() else {
+        if self.ai_workspace_cwd().is_none() {
             return Some("Open a workspace before opening PR.".to_string());
-        };
-        if self.repo_root.as_ref() != Some(&thread_workspace) {
-            return Some(
-                "Switch to the thread workspace target before opening PR.".to_string(),
-            );
-        }
-        if !self.can_run_active_branch_actions() {
-            return Some("Activate a branch before opening PR.".to_string());
         }
         None
     }
@@ -603,7 +628,7 @@ impl DiffViewer {
             return;
         }
 
-        let Some(repo_root) = self.repo_root.clone() else {
+        let Some(repo_root) = self.ai_workspace_cwd() else {
             self.git_status_message = Some("No Git repository available.".to_string());
             cx.notify();
             return;
@@ -614,10 +639,15 @@ impl DiffViewer {
             return;
         };
         let branch_name = self
-            .checked_out_branch_name()
-            .unwrap_or(self.branch_name.as_str())
-            .to_string();
-        let branch_has_upstream = self.branch_has_upstream;
+            .workspace_targets
+            .iter()
+            .find(|target| target.root == repo_root)
+            .map(|target| target.branch_name.clone())
+            .unwrap_or_else(|| {
+                self.primary_checked_out_branch_name()
+                    .unwrap_or(self.branch_name.as_str())
+                    .to_string()
+            });
         let preferred_commit_subject = ai_commit_subject_for_thread(
             &self.ai_state_snapshot,
             thread_id.as_str(),
@@ -643,28 +673,23 @@ impl DiffViewer {
                             Err(err) => return Err(err),
                         };
 
-                        let push_result = if branch_has_upstream {
-                            match push_current_branch(repo_root.as_path(), branch_name.as_str(), true)
+                        let push_result = match push_current_branch(
+                            repo_root.as_path(),
+                            branch_name.as_str(),
+                            true,
+                        ) {
+                            Ok(()) => Ok(()),
+                            Err(err)
+                                if err
+                                    .to_string()
+                                    .contains("publish this branch before pushing") =>
                             {
-                                Ok(()) => Ok(()),
-                                Err(err)
-                                    if err
-                                        .to_string()
-                                        .contains("publish this branch before pushing") =>
-                                {
-                                    push_current_branch(repo_root.as_path(), branch_name.as_str(), false)
-                                }
-                                Err(err) => Err(err),
+                                push_current_branch(repo_root.as_path(), branch_name.as_str(), false)
                             }
-                        } else {
-                            match push_current_branch(repo_root.as_path(), branch_name.as_str(), false)
-                            {
-                                Ok(()) => Ok(()),
-                                Err(err) if err.to_string().contains("already published") => {
-                                    push_current_branch(repo_root.as_path(), branch_name.as_str(), true)
-                                }
-                                Err(err) => Err(err),
+                            Err(err) if err.to_string().contains("already published") => {
+                                push_current_branch(repo_root.as_path(), branch_name.as_str(), true)
                             }
+                            Err(err) => Err(err),
                         };
                         push_result?;
 
@@ -755,7 +780,7 @@ impl DiffViewer {
             return;
         }
 
-        let Some(repo_root) = self.repo_root.clone() else {
+        let Some(repo_root) = self.selected_git_workspace_root() else {
             self.git_status_message = Some("No Git repository available.".to_string());
             cx.notify();
             return;
@@ -877,7 +902,7 @@ impl DiffViewer {
     }
 
     fn preferred_review_title_for_branch(&self, branch_name: &str) -> String {
-        if self.branch_name == branch_name
+        if self.git_workspace.branch_name == branch_name
             && let Some(subject) = self
                 .last_commit_subject
                 .as_deref()
@@ -901,7 +926,7 @@ impl DiffViewer {
             return;
         }
 
-        let Some(repo_root) = self.repo_root.clone() else {
+        let Some(repo_root) = self.selected_git_workspace_root() else {
             self.git_status_message = Some("No Git repository available.".to_string());
             cx.notify();
             return;
@@ -913,7 +938,7 @@ impl DiffViewer {
             cx.notify();
             return;
         }
-        let partial_commit = staged_paths.len() != self.files.len();
+        let partial_commit = staged_paths.len() != self.git_workspace.files.len();
         let staged_paths_for_ui = staged_paths.clone();
 
         let epoch = self.begin_git_action("Create commit", cx);

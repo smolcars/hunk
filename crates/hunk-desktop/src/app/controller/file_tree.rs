@@ -1,6 +1,16 @@
 use std::path::{Component, Path, PathBuf};
 
 impl DiffViewer {
+    fn path_exists_in_primary_checkout(&self, path: &str) -> bool {
+        if repo_tree_contains_path(&self.repo_tree.nodes, path) {
+            return true;
+        }
+
+        self.repo_root
+            .as_ref()
+            .is_some_and(|repo_root| repo_root.join(path).exists())
+    }
+
     pub(super) fn toggle_sidebar_tree_action(
         &mut self,
         _: &ToggleSidebarTree,
@@ -99,6 +109,17 @@ impl DiffViewer {
                     .find(|file| file.status != FileStatus::Deleted)
                     .map(|file| file.path.clone())
             });
+            let target_path = target_path
+                .filter(|path| self.path_exists_in_primary_checkout(path.as_str()))
+                .or_else(|| {
+                    self.files
+                        .iter()
+                        .find(|file| {
+                            file.status != FileStatus::Deleted
+                                && self.path_exists_in_primary_checkout(file.path.as_str())
+                        })
+                        .map(|file| file.path.clone())
+                });
             if let Some(path) = target_path {
                 let editor_already_open = self.editor_path.as_deref() == Some(path.as_str())
                     && !self.editor_loading

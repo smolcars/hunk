@@ -55,7 +55,7 @@ impl DiffViewer {
     }
 
     fn persist_recent_commits_cache(&mut self) {
-        let Some(root) = self.repo_root.clone() else {
+        let Some(root) = self.selected_git_workspace_root() else {
             return;
         };
 
@@ -196,9 +196,7 @@ impl DiffViewer {
         }
 
         let source_dir_result = self
-            .repo_root
-            .clone()
-            .or_else(|| self.project_path.clone())
+            .selected_git_workspace_root()
             .map(Ok)
             .unwrap_or_else(|| std::env::current_dir().context("failed to resolve current directory"));
         let previous_fingerprint = if request.force {
@@ -211,9 +209,7 @@ impl DiffViewer {
         self.recent_commits_active_request = Some(request);
         let show_loading_state = self.recent_commits.is_empty();
         let refresh_root = self
-            .repo_root
-            .clone()
-            .or_else(|| self.project_path.clone())
+            .selected_git_workspace_root()
             .unwrap_or_else(|| PathBuf::from("."));
         debug!(
             "recent commits refresh start: epoch={} force={} priority={} root={}",

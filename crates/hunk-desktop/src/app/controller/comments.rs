@@ -110,13 +110,24 @@ impl DiffViewer {
     }
 
     fn comment_scope_repo_root(&self) -> Option<String> {
-        self.repo_root
+        self.primary_repo_root()
             .as_ref()
             .map(|path| path.to_string_lossy().to_string())
     }
 
     fn comment_scope_branch_name(&self) -> String {
-        let name = self.branch_name.trim();
+        let name = self
+            .review_right_source_id
+            .as_deref()
+            .and_then(|source_id| self.review_compare_source_option(source_id))
+            .and_then(|source| source.branch_name.as_deref())
+            .or_else(|| {
+                self.selected_git_workspace_target()
+                    .map(|target| target.branch_name.as_str())
+            })
+            .or_else(|| self.primary_checked_out_branch_name())
+            .unwrap_or(self.branch_name.as_str())
+            .trim();
         if name.is_empty() || name == "unknown" {
             "detached".to_string()
         } else {
