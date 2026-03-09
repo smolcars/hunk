@@ -31,6 +31,7 @@ mod ai_tests {
     use super::preferred_ai_worktree_base_branch_name;
     use super::resolve_bundled_codex_executable_from_exe;
     use super::resolved_ai_workspace_cwd;
+    use super::seed_ai_workspace_preferences;
     #[cfg(target_os = "windows")]
     use super::resolve_windows_command_path;
     #[cfg(target_os = "windows")]
@@ -394,6 +395,101 @@ mod ai_tests {
         assert!(!workspace_state.new_thread_draft_active);
         assert!(!workspace_state.pending_new_thread_selection);
         assert!(workspace_state.error_message.is_none());
+    }
+
+    #[test]
+    fn seeded_ai_workspace_state_for_new_thread_workspace_preserves_pending_draft_state() {
+        let mut current_snapshot = AiState::default();
+        current_snapshot.threads.insert(
+            "thread-1".to_string(),
+            ThreadSummary {
+                id: "thread-1".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Existing".to_string()),
+                status: ThreadLifecycleStatus::Active,
+                created_at: 1,
+                updated_at: 1,
+                last_sequence: 1,
+            },
+        );
+
+        let current_state = AiWorkspaceState {
+            connection_state: AiConnectionState::Ready,
+            state_snapshot: current_snapshot,
+            selected_thread_id: Some("thread-1".to_string()),
+            new_thread_draft_active: true,
+            new_thread_start_mode: AiNewThreadStartMode::Worktree,
+            worktree_base_branch_name: Some("main".to_string()),
+            pending_thread_start: Some(AiPendingThreadStart {
+                workspace_key: "/repo".to_string(),
+                prompt: "Follow up on the failing startup flow".to_string(),
+                local_images: Vec::new(),
+                started_at: Instant::now(),
+                start_mode: AiNewThreadStartMode::Worktree,
+                thread_id: None,
+            }),
+            timeline_follow_output: false,
+            thread_title_refresh_state_by_thread: [(
+                "thread-1".to_string(),
+                AiThreadTitleRefreshState {
+                    key: "refresh-thread-1".to_string(),
+                    attempts: 1,
+                    in_flight: true,
+                    last_attempt_at: Instant::now(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+            expanded_timeline_row_ids: ["row-1".to_string()].into_iter().collect(),
+            models: vec![ai_model(
+                "gpt-5",
+                "GPT-5",
+                true,
+                &[ReasoningEffort::High],
+                ReasoningEffort::High,
+            )],
+            selected_model: Some("gpt-5".to_string()),
+            selected_effort: Some("high".to_string()),
+            selected_collaboration_mode: AiCollaborationModeSelection::Plan,
+            selected_service_tier: AiServiceTierSelection::Fast,
+            mad_max_mode: true,
+            ..AiWorkspaceState::default()
+        };
+
+        let seeded =
+            DiffViewer::seeded_ai_workspace_state_for_new_thread_workspace(&current_state);
+
+        assert_eq!(seeded.connection_state, AiConnectionState::Disconnected);
+        assert!(!seeded.bootstrap_loading);
+        assert!(seeded.status_message.is_none());
+        assert!(seeded.error_message.is_none());
+        assert!(seeded.state_snapshot.threads.is_empty());
+        assert_eq!(seeded.selected_thread_id, None);
+        assert!(seeded.new_thread_draft_active);
+        assert_eq!(seeded.new_thread_start_mode, AiNewThreadStartMode::Worktree);
+        assert_eq!(
+            seeded.worktree_base_branch_name.as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            seeded
+                .pending_thread_start
+                .as_ref()
+                .map(|pending| pending.prompt.as_str()),
+            Some("Follow up on the failing startup flow")
+        );
+        assert!(!seeded.timeline_follow_output);
+        assert!(seeded.thread_title_refresh_state_by_thread.is_empty());
+        assert!(seeded.expanded_timeline_row_ids.is_empty());
+        assert_eq!(seeded.models.len(), 1);
+        assert_eq!(seeded.selected_model.as_deref(), Some("gpt-5"));
+        assert_eq!(seeded.selected_effort.as_deref(), Some("high"));
+        assert_eq!(
+            seeded.selected_collaboration_mode,
+            AiCollaborationModeSelection::Plan
+        );
+        assert_eq!(seeded.selected_service_tier, AiServiceTierSelection::Fast);
+        assert!(seeded.mad_max_mode);
     }
 
     #[test]
@@ -2130,10 +2226,10 @@ mod ai_tests {
     }
 
     #[test]
-    fn workspace_mad_max_mode_defaults_to_false_when_missing() {
+    fn workspace_mad_max_mode_defaults_to_true_when_missing() {
         let state = AppState::default();
-        assert!(!workspace_mad_max_mode(&state, Some("/repo")));
-        assert!(!workspace_mad_max_mode(&state, None));
+        assert!(workspace_mad_max_mode(&state, Some("/repo")));
+        assert!(workspace_mad_max_mode(&state, None));
     }
 
     #[test]
@@ -2143,7 +2239,7 @@ mod ai_tests {
             last_workspace_target_by_repo: Default::default(),
             review_compare_selection_by_repo: Default::default(),
             ai_workspace_mad_max: [
-                ("/repo-a".to_string(), true),
+                ("/repo-a".to_string(), false),
                 ("/repo-b".to_string(), false),
             ]
             .into_iter()
@@ -2153,9 +2249,21 @@ mod ai_tests {
             git_workflow_cache: None,
             git_recent_commits_cache: None,
         };
-        assert!(workspace_mad_max_mode(&state, Some("/repo-a")));
+        assert!(!workspace_mad_max_mode(&state, Some("/repo-a")));
         assert!(!workspace_mad_max_mode(&state, Some("/repo-b")));
-        assert!(!workspace_mad_max_mode(&state, Some("/repo-c")));
+        assert!(workspace_mad_max_mode(&state, Some("/repo-c")));
+    }
+
+    #[test]
+    fn seed_ai_workspace_preferences_keeps_mad_max_enabled_by_default() {
+        let mut state = AppState::default();
+        seed_ai_workspace_preferences(&mut state, "/repo-b", true, true);
+
+        assert!(workspace_mad_max_mode(&state, Some("/repo-b")));
+        assert!(
+            !state.ai_workspace_mad_max.contains_key("/repo-b"),
+            "default-on Mad Max should not require a stored override"
+        );
     }
 
     #[test]
@@ -2304,6 +2412,21 @@ mod ai_tests {
         assert_eq!(
             normalized_ai_session_selection(models.as_slice(), None, None),
             (None, None),
+        );
+    }
+
+    #[test]
+    fn normalized_ai_session_selection_preserves_selection_while_models_load() {
+        assert_eq!(
+            normalized_ai_session_selection(
+                &[],
+                Some("gpt-5.3-codex".to_string()),
+                Some("high".to_string()),
+            ),
+            (
+                Some("gpt-5.3-codex".to_string()),
+                Some("high".to_string()),
+            ),
         );
     }
 

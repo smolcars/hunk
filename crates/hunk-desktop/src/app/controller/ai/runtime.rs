@@ -792,6 +792,9 @@ impl DiffViewer {
                                 this.sync_ai_visible_composer_prompt_to_draft(cx);
                                 this.refresh_workspace_targets_from_git_state(cx);
                                 this.ai_draft_workspace_target_id = Some(target_id.clone());
+                                if let Some(workspace_key) = this.ai_workspace_key_for_draft() {
+                                    this.seed_ai_workspace_state_for(workspace_key.as_str());
+                                }
                                 this.ai_handle_workspace_change(previous_workspace_key, cx);
                             } else {
                                 this.request_snapshot_refresh_workflow_only(true, cx);
@@ -866,11 +869,47 @@ impl DiffViewer {
         self.ai_selected_service_tier = persisted.service_tier.unwrap_or_default();
     }
 
-    fn persist_current_ai_workspace_session(&mut self) {
-        let Some(workspace) = self.ai_workspace_key() else {
-            return;
-        };
+    fn seeded_ai_workspace_state_for_new_thread_workspace(
+        current_state: &AiWorkspaceState,
+    ) -> AiWorkspaceState {
+        AiWorkspaceState {
+            connection_state: AiConnectionState::Disconnected,
+            bootstrap_loading: false,
+            status_message: None,
+            error_message: None,
+            state_snapshot: hunk_codex::state::AiState::default(),
+            selected_thread_id: None,
+            new_thread_draft_active: current_state.new_thread_draft_active,
+            new_thread_start_mode: current_state.new_thread_start_mode,
+            worktree_base_branch_name: current_state.worktree_base_branch_name.clone(),
+            pending_new_thread_selection: current_state.pending_new_thread_selection,
+            pending_thread_start: current_state.pending_thread_start.clone(),
+            timeline_follow_output: current_state.timeline_follow_output,
+            thread_title_refresh_state_by_thread: std::collections::BTreeMap::new(),
+            timeline_visible_turn_limit_by_thread: std::collections::BTreeMap::new(),
+            in_progress_turn_started_at: std::collections::BTreeMap::new(),
+            expanded_timeline_row_ids: std::collections::BTreeSet::new(),
+            pending_approvals: Vec::new(),
+            pending_user_inputs: Vec::new(),
+            pending_user_input_answers: std::collections::BTreeMap::new(),
+            account: current_state.account.clone(),
+            requires_openai_auth: current_state.requires_openai_auth,
+            pending_chatgpt_login_id: current_state.pending_chatgpt_login_id.clone(),
+            pending_chatgpt_auth_url: current_state.pending_chatgpt_auth_url.clone(),
+            rate_limits: current_state.rate_limits.clone(),
+            models: current_state.models.clone(),
+            experimental_features: current_state.experimental_features.clone(),
+            collaboration_modes: current_state.collaboration_modes.clone(),
+            include_hidden_models: current_state.include_hidden_models,
+            selected_model: current_state.selected_model.clone(),
+            selected_effort: current_state.selected_effort.clone(),
+            selected_collaboration_mode: current_state.selected_collaboration_mode,
+            selected_service_tier: current_state.selected_service_tier,
+            mad_max_mode: current_state.mad_max_mode,
+        }
+    }
 
+    fn persist_ai_workspace_session_for(&mut self, workspace: &str) {
         let session = AiThreadSessionState {
             model: self.ai_selected_model.clone(),
             effort: self.ai_selected_effort.clone(),
@@ -881,13 +920,42 @@ impl DiffViewer {
         if let Some(session) = normalized_thread_session_state(session) {
             self.state
                 .ai_workspace_session_overrides
-                .insert(workspace, session);
+                .insert(workspace.to_string(), session);
         } else {
-            self.state
-                .ai_workspace_session_overrides
-                .remove(workspace.as_str());
+            self.state.ai_workspace_session_overrides.remove(workspace);
         }
         self.persist_state();
+    }
+
+    fn seed_ai_workspace_state_for(&mut self, workspace: &str) {
+        self.persist_ai_workspace_session_for(workspace);
+        seed_ai_workspace_preferences(
+            &mut self.state,
+            workspace,
+            self.ai_mad_max_mode,
+            self.ai_include_hidden_models,
+        );
+        self.persist_state();
+
+        if self.ai_workspace_states.contains_key(workspace)
+            || self.ai_hidden_runtimes.contains_key(workspace)
+            || self.ai_worker_workspace_key.as_deref() == Some(workspace)
+        {
+            return;
+        }
+
+        let current_state = self.capture_current_ai_workspace_state();
+        let seeded_state =
+            Self::seeded_ai_workspace_state_for_new_thread_workspace(&current_state);
+        self.ai_workspace_states
+            .insert(workspace.to_string(), seeded_state);
+    }
+
+    fn persist_current_ai_workspace_session(&mut self) {
+        let Some(workspace) = self.ai_workspace_key() else {
+            return;
+        };
+        self.persist_ai_workspace_session_for(workspace.as_str());
     }
 
     fn clear_ai_composer_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {

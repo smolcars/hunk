@@ -23,7 +23,17 @@ fn workspace_mad_max_mode(state: &AppState, workspace_key: Option<&str>) -> bool
     workspace_key
         .and_then(|workspace| state.ai_workspace_mad_max.get(workspace))
         .copied()
-        .unwrap_or(false)
+        .unwrap_or(true)
+}
+
+fn set_workspace_mad_max_mode(state: &mut AppState, workspace_key: &str, enabled: bool) {
+    if enabled {
+        state.ai_workspace_mad_max.remove(workspace_key);
+    } else {
+        state
+            .ai_workspace_mad_max
+            .insert(workspace_key.to_string(), false);
+    }
 }
 
 fn workspace_include_hidden_models(state: &AppState, workspace_key: Option<&str>) -> bool {
@@ -31,6 +41,26 @@ fn workspace_include_hidden_models(state: &AppState, workspace_key: Option<&str>
         .and_then(|workspace| state.ai_workspace_include_hidden_models.get(workspace))
         .copied()
         .unwrap_or(true)
+}
+
+fn set_workspace_include_hidden_models(state: &mut AppState, workspace_key: &str, enabled: bool) {
+    if enabled {
+        state.ai_workspace_include_hidden_models.remove(workspace_key);
+    } else {
+        state
+            .ai_workspace_include_hidden_models
+            .insert(workspace_key.to_string(), false);
+    }
+}
+
+fn seed_ai_workspace_preferences(
+    state: &mut AppState,
+    workspace_key: &str,
+    mad_max_mode: bool,
+    include_hidden_models: bool,
+) {
+    set_workspace_mad_max_mode(state, workspace_key, mad_max_mode);
+    set_workspace_include_hidden_models(state, workspace_key, include_hidden_models);
 }
 
 #[cfg(test)]
@@ -186,6 +216,11 @@ fn normalized_ai_session_selection(
     selected_model: Option<String>,
     selected_effort: Option<String>,
 ) -> (Option<String>, Option<String>) {
+    if models.is_empty() {
+        let selected_effort = selected_model.as_ref().and(selected_effort);
+        return (selected_model, selected_effort);
+    }
+
     let selected_model =
         selected_model.filter(|model_id| models.iter().any(|model| model.id == *model_id));
     let selected_effort = selected_model.as_ref().and_then(|model_id| {

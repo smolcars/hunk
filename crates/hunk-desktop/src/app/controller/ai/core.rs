@@ -399,11 +399,7 @@ impl DiffViewer {
             return;
         };
 
-        if enabled {
-            self.state.ai_workspace_mad_max.insert(workspace_key, true);
-        } else {
-            self.state.ai_workspace_mad_max.remove(workspace_key.as_str());
-        }
+        set_workspace_mad_max_mode(&mut self.state, workspace_key.as_str(), enabled);
         self.persist_state();
         self.ai_mad_max_mode = enabled;
         self.send_ai_worker_command_if_running(AiWorkerCommand::SetMadMaxMode { enabled }, cx);
