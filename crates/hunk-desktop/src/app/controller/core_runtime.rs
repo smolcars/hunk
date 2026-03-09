@@ -151,6 +151,17 @@ impl DiffViewer {
             .any(|component| component.as_os_str() == ".git")
     }
 
+    fn repo_watch_metadata_changed(
+        event_paths: &[std::path::PathBuf],
+        repo_root: Option<&std::path::Path>,
+    ) -> bool {
+        repo_root.is_some_and(|root| {
+            event_paths
+                .iter()
+                .any(|path| Self::is_repo_watch_metadata_path(path, root))
+        })
+    }
+
     fn repo_watch_dirty_path(
         path: &std::path::Path,
         repo_root: &std::path::Path,
@@ -265,12 +276,17 @@ impl DiffViewer {
                     continue;
                 }
 
-                let metadata_changed = primary_root.as_ref().is_some_and(|root| {
-                    event
-                        .paths
-                        .iter()
-                        .any(|path| Self::is_repo_watch_metadata_path(path, root))
-                });
+                let metadata_changed =
+                    Self::repo_watch_metadata_changed(event.paths.as_slice(), primary_root.as_deref());
+                let git_workspace_metadata_changed = git_workspace_root
+                    .as_deref()
+                    .filter(|git_workspace_root| primary_root.as_deref() != Some(*git_workspace_root))
+                    .is_some_and(|git_workspace_root| {
+                        Self::repo_watch_metadata_changed(
+                            event.paths.as_slice(),
+                            Some(git_workspace_root),
+                        )
+                    });
                 let dirty_paths = primary_root
                     .as_ref()
                     .map(|root| {
@@ -298,11 +314,19 @@ impl DiffViewer {
 
                 if let Some(this) = this.upgrade() {
                     let primary_root = primary_root.clone();
+                    let git_workspace_root = git_workspace_root.clone();
                     this.update(cx, move |this, cx| {
                         if metadata_changed
                             && let Some(primary_root) = primary_root.as_ref()
                         {
                             invalidate_repo_metadata_caches(primary_root.as_path());
+                        }
+                        if git_workspace_metadata_changed
+                            && let Some(git_workspace_root) = git_workspace_root.as_ref()
+                        {
+                            invalidate_repo_metadata_caches(git_workspace_root.as_path());
+                        }
+                        if metadata_changed || git_workspace_metadata_changed {
                             this.repo_watch_pending_recent_commits_refresh = true;
                         }
                         if !dirty_paths.is_empty() {
@@ -592,6 +616,17 @@ mod tests {
             event_paths.as_slice(),
             repo_root.as_path(),
             worktree_root.as_path()
+        ));
+    }
+
+    #[test]
+    fn repo_watch_detects_metadata_changes_for_selected_worktree_root() {
+        let worktree_root = std::env::temp_dir().join("hunk-watch-path-tests-worktree");
+        let event_paths = vec![worktree_root.join(".git/HEAD")];
+
+        assert!(DiffViewer::repo_watch_metadata_changed(
+            event_paths.as_slice(),
+            Some(worktree_root.as_path())
         ));
     }
 
