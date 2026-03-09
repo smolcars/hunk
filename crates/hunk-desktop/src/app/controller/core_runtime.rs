@@ -100,6 +100,28 @@ impl DiffViewer {
         Duration::from_millis(interval_ms)
     }
 
+    fn repo_watch_roots(
+        primary_root: Option<&std::path::Path>,
+        git_workspace_root: Option<&std::path::Path>,
+    ) -> Vec<std::path::PathBuf> {
+        let mut roots = Vec::new();
+
+        if let Some(primary_root) = primary_root {
+            roots.push(primary_root.to_path_buf());
+        }
+
+        if let Some(git_workspace_root) = git_workspace_root
+            && roots.iter().all(|root| {
+                root.as_path() != git_workspace_root
+                    && !git_workspace_root.starts_with(root.as_path())
+            })
+        {
+            roots.push(git_workspace_root.to_path_buf());
+        }
+
+        roots
+    }
+
     fn should_ignore_repo_watch_path(path: &std::path::Path, repo_root: &std::path::Path) -> bool {
         let Ok(relative_path) = path.strip_prefix(repo_root) else {
             return false;
@@ -155,6 +177,22 @@ impl DiffViewer {
         self.pending_dirty_paths.extend(paths);
     }
 
+    fn should_refresh_git_workspace_from_repo_watch(
+        event_paths: &[std::path::PathBuf],
+        primary_root: &std::path::Path,
+        git_workspace_root: &std::path::Path,
+    ) -> bool {
+        if primary_root == git_workspace_root {
+            return false;
+        }
+
+        event_paths.iter().any(|path| {
+            Self::is_repo_watch_metadata_path(path, primary_root)
+                || Self::is_repo_watch_metadata_path(path, git_workspace_root)
+                || Self::repo_watch_dirty_path(path, git_workspace_root).is_some()
+        })
+    }
+
     fn is_hunk_temp_save_component(name: &str) -> bool {
         let Some((_, suffix)) = name.rsplit_once(".hunk-tmp.") else {
             return false;
@@ -181,14 +219,23 @@ impl DiffViewer {
         self.repo_watch_refresh_task = Task::ready(());
         self.repo_watch_refresh_epoch = 0;
         self.repo_watch_pending_refresh = None;
+        self.repo_watch_pending_git_workspace_refresh = false;
         self.repo_watch_pending_recent_commits_refresh = false;
 
-        let Some(repo_root) = self.repo_root.clone().or_else(|| self.project_path.clone()) else {
+        let primary_root = self.repo_root.clone().or_else(|| self.project_path.clone());
+        let git_workspace_root = self.selected_git_workspace_root();
+        let watch_roots =
+            Self::repo_watch_roots(primary_root.as_deref(), git_workspace_root.as_deref());
+        if watch_roots.is_empty() {
             return;
-        };
+        }
+
         let (event_tx, mut event_rx) = mpsc::unbounded::<notify::Result<notify::Event>>();
-        let repo_root_path = repo_root.clone();
-        let repo_root_for_cb = repo_root.to_string_lossy().to_string();
+        let watch_roots_for_cb = watch_roots
+            .iter()
+            .map(|root| root.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         let watcher = notify::recommended_watcher(move |result| {
             event_tx.unbounded_send(result).ok();
         });
@@ -196,14 +243,16 @@ impl DiffViewer {
         let mut watcher = match watcher {
             Ok(watcher) => watcher,
             Err(err) => {
-                error!("failed to start file watch for {}: {err}", repo_root_for_cb);
+                error!("failed to start file watch for {}: {err}", watch_roots_for_cb);
                 return;
             }
         };
 
-        if let Err(err) = watcher.watch(&repo_root, notify::RecursiveMode::Recursive) {
-            error!("failed to watch repository at {}: {err}", repo_root_for_cb);
-            return;
+        for watch_root in &watch_roots {
+            if let Err(err) = watcher.watch(watch_root, notify::RecursiveMode::Recursive) {
+                error!("failed to watch repository at {}: {err}", watch_root.display());
+                return;
+            }
         }
 
         self.repo_watch_task = cx.spawn(async move |this, cx| {
@@ -212,39 +261,54 @@ impl DiffViewer {
                     continue;
                 };
 
-                if event.paths.iter().all(|path| {
-                    Self::should_ignore_repo_watch_path(path, &repo_root_path)
-                }) {
+                if event.paths.is_empty() {
                     continue;
                 }
 
-                let metadata_changed = event
-                    .paths
-                    .iter()
-                    .any(|path| Self::is_repo_watch_metadata_path(path, &repo_root_path));
-                let dirty_paths = event
-                    .paths
-                    .iter()
-                    .filter_map(|path| Self::repo_watch_dirty_path(path, &repo_root_path))
-                    .collect::<BTreeSet<_>>();
-                let has_dirty_paths = !dirty_paths.is_empty();
-                let Some(request) =
-                    repo_watch_refresh_request(metadata_changed, has_dirty_paths)
-                else {
+                let metadata_changed = primary_root.as_ref().is_some_and(|root| {
+                    event
+                        .paths
+                        .iter()
+                        .any(|path| Self::is_repo_watch_metadata_path(path, root))
+                });
+                let dirty_paths = primary_root
+                    .as_ref()
+                    .map(|root| {
+                        event
+                            .paths
+                            .iter()
+                            .filter_map(|path| Self::repo_watch_dirty_path(path, root))
+                            .collect::<BTreeSet<_>>()
+                    })
+                    .unwrap_or_default();
+                let request = repo_watch_refresh_request(metadata_changed, !dirty_paths.is_empty());
+                let refresh_git_workspace = primary_root
+                    .as_ref()
+                    .zip(git_workspace_root.as_ref())
+                    .is_some_and(|(primary_root, git_workspace_root)| {
+                        Self::should_refresh_git_workspace_from_repo_watch(
+                            event.paths.as_slice(),
+                            primary_root,
+                            git_workspace_root,
+                        )
+                    });
+                if request.is_none() && !refresh_git_workspace {
                     continue;
-                };
+                }
 
                 if let Some(this) = this.upgrade() {
-                    let repo_root = repo_root_path.clone();
+                    let primary_root = primary_root.clone();
                     this.update(cx, move |this, cx| {
-                        if metadata_changed {
-                            invalidate_repo_metadata_caches(repo_root.as_path());
+                        if metadata_changed
+                            && let Some(primary_root) = primary_root.as_ref()
+                        {
+                            invalidate_repo_metadata_caches(primary_root.as_path());
                             this.repo_watch_pending_recent_commits_refresh = true;
                         }
                         if !dirty_paths.is_empty() {
                             this.queue_dirty_paths(dirty_paths);
                         }
-                        this.schedule_repo_watch_refresh(request, cx);
+                        this.schedule_repo_watch_refresh(request, refresh_git_workspace, cx);
                     });
                 }
             }
@@ -259,13 +323,17 @@ impl DiffViewer {
 
     fn schedule_repo_watch_refresh(
         &mut self,
-        request: SnapshotRefreshRequest,
+        request: Option<SnapshotRefreshRequest>,
+        refresh_git_workspace: bool,
         cx: &mut Context<Self>,
     ) {
-        self.repo_watch_pending_refresh = Some(
-            self.repo_watch_pending_refresh
-                .map_or(request, |pending| pending.merge(request)),
-        );
+        if let Some(request) = request {
+            self.repo_watch_pending_refresh = Some(
+                self.repo_watch_pending_refresh
+                    .map_or(request, |pending| pending.merge(request)),
+            );
+        }
+        self.repo_watch_pending_git_workspace_refresh |= refresh_git_workspace;
         let epoch = self.next_repo_watch_refresh_epoch();
         self.repo_watch_refresh_task = cx.spawn(async move |this, cx| {
             cx.background_executor()
@@ -276,13 +344,17 @@ impl DiffViewer {
                     if epoch != this.repo_watch_refresh_epoch {
                         return;
                     }
-                    let request = this
-                        .repo_watch_pending_refresh
-                        .take()
-                        .unwrap_or_else(SnapshotRefreshRequest::background);
+                    let request = this.repo_watch_pending_refresh.take();
+                    let refresh_git_workspace =
+                        std::mem::take(&mut this.repo_watch_pending_git_workspace_refresh);
                     let refresh_recent_commits =
                         std::mem::take(&mut this.repo_watch_pending_recent_commits_refresh);
-                    this.request_snapshot_refresh_internal(request, cx);
+                    if let Some(request) = request {
+                        this.request_snapshot_refresh_internal(request, cx);
+                    }
+                    if refresh_git_workspace {
+                        this.request_git_workspace_refresh(false, cx);
+                    }
                     if refresh_recent_commits {
                         this.request_recent_commits_refresh(false, cx);
                     }
@@ -462,6 +534,64 @@ mod tests {
         assert!(!DiffViewer::should_ignore_repo_watch_path(
             repo_root.join("src/notes.hunk-tmp.md").as_path(),
             repo_root.as_path()
+        ));
+    }
+
+    #[test]
+    fn repo_watch_roots_include_selected_worktree_root() {
+        let repo_root = fixture_repo_root();
+        let worktree_root = std::env::temp_dir().join("hunk-watch-path-tests-worktree");
+
+        assert_eq!(
+            DiffViewer::repo_watch_roots(Some(repo_root.as_path()), Some(worktree_root.as_path())),
+            vec![repo_root, worktree_root]
+        );
+    }
+
+    #[test]
+    fn repo_watch_roots_deduplicate_primary_checkout() {
+        let repo_root = fixture_repo_root();
+
+        assert_eq!(
+            DiffViewer::repo_watch_roots(Some(repo_root.as_path()), Some(repo_root.as_path())),
+            vec![repo_root]
+        );
+    }
+
+    #[test]
+    fn repo_watch_roots_skip_nested_worktree_under_primary_root() {
+        let repo_root = fixture_repo_root();
+        let worktree_root = repo_root.join("linked-worktree");
+
+        assert_eq!(
+            DiffViewer::repo_watch_roots(Some(repo_root.as_path()), Some(worktree_root.as_path())),
+            vec![repo_root]
+        );
+    }
+
+    #[test]
+    fn worktree_watch_refreshes_git_workspace_for_selected_root_dirty_paths() {
+        let repo_root = fixture_repo_root();
+        let worktree_root = std::env::temp_dir().join("hunk-watch-path-tests-worktree");
+        let event_paths = vec![worktree_root.join("src/lib.rs")];
+
+        assert!(DiffViewer::should_refresh_git_workspace_from_repo_watch(
+            event_paths.as_slice(),
+            repo_root.as_path(),
+            worktree_root.as_path()
+        ));
+    }
+
+    #[test]
+    fn worktree_watch_refreshes_git_workspace_for_primary_metadata_changes() {
+        let repo_root = fixture_repo_root();
+        let worktree_root = std::env::temp_dir().join("hunk-watch-path-tests-worktree");
+        let event_paths = vec![repo_root.join(".git/worktrees/worktree-1/index")];
+
+        assert!(DiffViewer::should_refresh_git_workspace_from_repo_watch(
+            event_paths.as_slice(),
+            repo_root.as_path(),
+            worktree_root.as_path()
         ));
     }
 

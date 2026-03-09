@@ -504,6 +504,7 @@ impl DiffViewer {
             repo_watch_task: Task::ready(()),
             repo_watch_refresh_epoch: 0,
             repo_watch_pending_refresh: None,
+            repo_watch_pending_git_workspace_refresh: false,
             repo_watch_pending_recent_commits_refresh: false,
             repo_watch_refresh_task: Task::ready(()),
             snapshot_epoch: 0,
@@ -971,6 +972,7 @@ impl DiffViewer {
         self.sync_workspace_target_picker_state(cx);
         self.refresh_review_compare_sources_from_git_state(cx);
         self.git_status_message = Some("Switching Git workspace target...".to_string());
+        self.start_repo_watch(cx);
         self.request_git_workspace_refresh(true, cx);
         cx.notify();
     }
@@ -1190,6 +1192,7 @@ impl DiffViewer {
                             }
                         }
                         this.recompute_overall_line_stats_from_file_stats();
+                        this.sync_git_workspace_with_primary_state();
                     }
                     cx.notify();
                     this.maybe_run_pending_line_stats_refresh(cx);
@@ -1256,6 +1259,27 @@ impl DiffViewer {
                 .iter()
                 .filter_map(|file| self.file_line_stats.get(file.path.as_str()).copied()),
         );
+    }
+
+    fn sync_git_workspace_with_primary_state(&mut self) {
+        let Some(repo_root) = self.repo_root.clone() else {
+            return;
+        };
+        if self.selected_git_workspace_root().as_ref() != Some(&repo_root) {
+            return;
+        }
+
+        self.git_workspace.root = Some(repo_root);
+        self.git_workspace.working_copy_commit_id = self.working_copy_commit_id.clone();
+        self.git_workspace.branch_name = self.branch_name.clone();
+        self.git_workspace.branch_has_upstream = self.branch_has_upstream;
+        self.git_workspace.branch_ahead_count = self.branch_ahead_count;
+        self.git_workspace.branch_behind_count = self.branch_behind_count;
+        self.git_workspace.branches = self.branches.clone();
+        self.git_workspace.files = self.files.clone();
+        self.git_workspace.file_status_by_path = self.file_status_by_path.clone();
+        self.git_workspace.file_line_stats = self.file_line_stats.clone();
+        self.git_workspace.overall_line_stats = self.overall_line_stats;
     }
 
     fn next_git_workspace_refresh_epoch(&mut self) -> usize {
@@ -1883,7 +1907,7 @@ impl DiffViewer {
             branch_behind_count,
             branches,
             files,
-            last_commit_subject: _last_commit_subject,
+            last_commit_subject,
         } = snapshot;
 
         debug!("loaded workflow snapshot from {}", root.display());
@@ -1928,6 +1952,8 @@ impl DiffViewer {
         self.file_line_stats
             .retain(|path, _| self.files.iter().any(|file| file.path == *path));
         self.recompute_overall_line_stats_from_file_stats();
+        self.last_commit_subject = last_commit_subject;
+        self.sync_git_workspace_with_primary_state();
         self.repo_discovery_failed = false;
         self.error_message = None;
         if full_refresh {

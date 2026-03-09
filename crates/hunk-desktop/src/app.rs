@@ -1335,6 +1335,7 @@ struct DiffViewer {
     repo_watch_task: Task<()>,
     repo_watch_refresh_epoch: usize,
     repo_watch_pending_refresh: Option<SnapshotRefreshRequest>,
+    repo_watch_pending_git_workspace_refresh: bool,
     repo_watch_pending_recent_commits_refresh: bool,
     repo_watch_refresh_task: Task<()>,
     snapshot_epoch: usize,
