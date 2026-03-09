@@ -80,6 +80,21 @@ fn ai_thread_start_mode_for_workspace(
     })
 }
 
+fn resolved_ai_thread_mode_picker_state(
+    selected_thread_start_mode: Option<AiNewThreadStartMode>,
+    draft_start_mode: AiNewThreadStartMode,
+    new_thread_draft_active: bool,
+    pending_new_thread_selection: bool,
+) -> (AiNewThreadStartMode, bool) {
+    let editable = new_thread_draft_active && !pending_new_thread_selection;
+    let selected = if new_thread_draft_active || pending_new_thread_selection {
+        draft_start_mode
+    } else {
+        selected_thread_start_mode.unwrap_or(draft_start_mode)
+    };
+    (selected, editable)
+}
+
 fn preferred_ai_worktree_base_branch_name(
     branches: &[LocalBranch],
     preferred_branch_name: Option<&str>,

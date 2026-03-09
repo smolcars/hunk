@@ -12,6 +12,7 @@ mod ai_tests {
     use super::ai_composer_draft_key;
     use super::ai_composer_prompt_for_target;
     use super::ai_prompt_send_waiting_on_connection;
+    use super::resolved_ai_thread_mode_picker_state;
     use super::ai_attachment_status_message;
     use super::ai_thread_start_mode_for_workspace;
     use super::bundled_codex_executable_candidates;
@@ -408,6 +409,50 @@ mod ai_tests {
                 std::path::Path::new("/repo-worktree"),
             ),
             Some(AiNewThreadStartMode::Worktree),
+        );
+    }
+
+    #[test]
+    fn thread_mode_picker_state_is_editable_only_for_pre_send_draft() {
+        assert_eq!(
+            resolved_ai_thread_mode_picker_state(
+                Some(AiNewThreadStartMode::Worktree),
+                AiNewThreadStartMode::Local,
+                true,
+                false,
+            ),
+            (AiNewThreadStartMode::Local, true),
+        );
+        assert_eq!(
+            resolved_ai_thread_mode_picker_state(
+                Some(AiNewThreadStartMode::Local),
+                AiNewThreadStartMode::Worktree,
+                true,
+                true,
+            ),
+            (AiNewThreadStartMode::Worktree, false),
+        );
+    }
+
+    #[test]
+    fn thread_mode_picker_state_follows_selected_thread_when_not_drafting() {
+        assert_eq!(
+            resolved_ai_thread_mode_picker_state(
+                Some(AiNewThreadStartMode::Worktree),
+                AiNewThreadStartMode::Local,
+                false,
+                false,
+            ),
+            (AiNewThreadStartMode::Worktree, false),
+        );
+        assert_eq!(
+            resolved_ai_thread_mode_picker_state(
+                None,
+                AiNewThreadStartMode::Local,
+                false,
+                false,
+            ),
+            (AiNewThreadStartMode::Local, false),
         );
     }
 

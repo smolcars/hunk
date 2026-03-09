@@ -40,6 +40,8 @@ impl DiffViewer {
         let selected_thread_start_mode = selected_thread_id
             .as_deref()
             .and_then(|thread_id| self.ai_thread_start_mode(thread_id));
+        let (selected_thread_mode_for_picker, thread_mode_picker_editable) = self
+            .ai_thread_mode_picker_state(selected_thread_start_mode);
         let show_worktree_base_branch_picker =
             self.ai_new_thread_draft_active
                 && self.ai_new_thread_start_mode == AiNewThreadStartMode::Worktree;
@@ -271,6 +273,8 @@ impl DiffViewer {
                                             .child(render_ai_session_controls_panel_for_view(
                                                 self,
                                                 view.clone(),
+                                                selected_thread_mode_for_picker,
+                                                thread_mode_picker_editable,
                                                 cx,
                                             )),
                                     )

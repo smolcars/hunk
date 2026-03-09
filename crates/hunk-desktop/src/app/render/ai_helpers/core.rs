@@ -488,6 +488,8 @@ struct AiSessionControlsPanelView<'a> {
     experimental_features: &'a [codex_app_server_protocol::ExperimentalFeature],
     selected_model: Option<&'a str>,
     selected_effort: Option<&'a str>,
+    selected_thread_mode: AiNewThreadStartMode,
+    thread_mode_editable: bool,
     selected_collaboration_mode: hunk_domain::state::AiCollaborationModeSelection,
     selected_service_tier: AiServiceTierSelection,
 }
@@ -495,6 +497,8 @@ struct AiSessionControlsPanelView<'a> {
 fn render_ai_session_controls_panel_for_view(
     this: &DiffViewer,
     view: Entity<DiffViewer>,
+    selected_thread_mode: AiNewThreadStartMode,
+    thread_mode_editable: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     render_ai_session_controls_panel(
@@ -503,6 +507,8 @@ fn render_ai_session_controls_panel_for_view(
             experimental_features: this.ai_experimental_features.as_slice(),
             selected_model: this.ai_selected_model.as_deref(),
             selected_effort: this.ai_selected_effort.as_deref(),
+            selected_thread_mode,
+            thread_mode_editable,
             selected_collaboration_mode: this.ai_selected_collaboration_mode,
             selected_service_tier: this.ai_selected_service_tier,
         },
@@ -540,6 +546,7 @@ fn render_ai_session_controls_panel(
     let collaboration_enabled =
         ai_experimental_feature_enabled(panel.experimental_features, "collaboration_modes");
     let service_tier_label = ai_service_tier_picker_label(panel.selected_service_tier);
+    let thread_mode_label = panel.selected_thread_mode.label().to_string();
     let collaboration_label = ai_collaboration_picker_label(panel.selected_collaboration_mode);
     let (visible_models, hidden_models): (Vec<_>, Vec<_>) = panel
         .models
@@ -714,6 +721,51 @@ fn render_ai_session_controls_panel(
                                     view.update(cx, |this, cx| {
                                         this.ai_select_service_tier_action(
                                             AiServiceTierSelection::Fast,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }),
+                    )
+                })
+        })
+        .child({
+            let view = view.clone();
+            let selected_mode = panel.selected_thread_mode;
+            Button::new("ai-session-thread-mode-dropdown")
+                .compact()
+                .ghost()
+                .rounded(px(999.0))
+                .with_size(gpui_component::Size::Small)
+                .dropdown_caret(true)
+                .label(thread_mode_label)
+                .disabled(!panel.thread_mode_editable)
+                .tooltip("Thread mode can only be changed before the first prompt is sent.")
+                .dropdown_menu(move |menu, _, _| {
+                    menu.item(
+                        PopupMenuItem::new("Local")
+                            .checked(matches!(selected_mode, AiNewThreadStartMode::Local))
+                            .on_click({
+                                let view = view.clone();
+                                move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_select_new_thread_start_mode_action(
+                                            AiNewThreadStartMode::Local,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new("Worktree")
+                            .checked(matches!(selected_mode, AiNewThreadStartMode::Worktree))
+                            .on_click({
+                                let view = view.clone();
+                                move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_select_new_thread_start_mode_action(
+                                            AiNewThreadStartMode::Worktree,
                                             cx,
                                         );
                                     });

@@ -154,6 +154,23 @@ impl DiffViewer {
         self.ai_start_thread_draft(AiNewThreadStartMode::Worktree, window, cx);
     }
 
+    pub(super) fn ai_select_new_thread_start_mode_action(
+        &mut self,
+        start_mode: AiNewThreadStartMode,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection {
+            return;
+        }
+        if self.ai_new_thread_start_mode == start_mode {
+            return;
+        }
+        self.ai_new_thread_start_mode = start_mode;
+        self.sync_ai_worktree_base_branch_from_repo();
+        self.sync_ai_worktree_base_branch_picker_state(cx);
+        cx.notify();
+    }
+
     fn ai_start_thread_draft(
         &mut self,
         start_mode: AiNewThreadStartMode,
@@ -1092,6 +1109,18 @@ impl DiffViewer {
             self.repo_root.as_deref(),
             &self.workspace_targets,
             std::path::Path::new(thread.cwd.as_str()),
+        )
+    }
+
+    pub(crate) fn ai_thread_mode_picker_state(
+        &self,
+        selected_thread_start_mode: Option<AiNewThreadStartMode>,
+    ) -> (AiNewThreadStartMode, bool) {
+        resolved_ai_thread_mode_picker_state(
+            selected_thread_start_mode,
+            self.ai_new_thread_start_mode,
+            self.ai_new_thread_draft_active,
+            self.ai_pending_new_thread_selection,
         )
     }
 
