@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use anyhow::{Context as _, Result};
 use git2::{IndexAddOption, Repository, RepositoryInitOptions, Signature};
-use hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR;
+use hunk_domain::paths::{HUNK_HOME_DIR_ENV_VAR, hunk_home_dir};
 use hunk_git::compare::{CompareSource, load_compare_snapshot};
 use hunk_git::worktree::{
     CreateWorktreeRequest, PRIMARY_WORKSPACE_TARGET_ID, WorkspaceTargetKind,
@@ -21,10 +21,10 @@ fn managed_worktree_helpers_keep_paths_under_global_hunkdiff_root() -> Result<()
     fs::create_dir_all(managed_path.join("src"))?;
     fs::write(managed_path.join("src/lib.rs"), "fn main() {}\n")?;
 
-    let test_hunk_home = test_hunk_home_dir();
+    let _ = test_hunk_home_dir();
     assert_eq!(
         managed_root.parent(),
-        Some(test_hunk_home.join("worktrees").as_path())
+        Some(hunk_home_dir()?.join("worktrees").as_path())
     );
     assert_eq!(managed_path, managed_root.join("worktree-1"));
     assert!(path_is_within_managed_worktrees(
