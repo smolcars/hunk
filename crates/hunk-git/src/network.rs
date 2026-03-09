@@ -102,9 +102,12 @@ pub fn push_current_branch(
 }
 
 pub fn sync_current_branch(repo_root: &Path, branch_name: &str) -> Result<()> {
+    sync_branch_from_remote(repo_root, branch_name)
+}
+
+pub fn sync_branch_from_remote(repo_root: &Path, branch_name: &str) -> Result<()> {
     let branch_name = normalized_branch_name(branch_name)?;
     let repo = open_repo(repo_root)?;
-    ensure_sync_worktree_is_clean(&repo)?;
     let upstream = resolve_upstream_target(&repo, branch_name)?
         .ok_or_else(|| anyhow!("no upstream branch to sync from"))?;
 
@@ -113,6 +116,10 @@ pub fn sync_current_branch(repo_root: &Path, branch_name: &str) -> Result<()> {
     let local_branch = repo
         .find_branch(branch_name, BranchType::Local)
         .with_context(|| format!("branch '{branch_name}' does not exist"))?;
+    let branch_is_head = local_branch.is_head();
+    if branch_is_head {
+        ensure_sync_worktree_is_clean(&repo)?;
+    }
     let tracking_reference = repo
         .find_reference(upstream.tracking_ref_name.as_str())
         .with_context(|| {
@@ -137,7 +144,7 @@ pub fn sync_current_branch(repo_root: &Path, branch_name: &str) -> Result<()> {
             branch_name,
             upstream.tracking_ref_name.as_str(),
             remote_commit.id(),
-            local_branch.is_head(),
+            branch_is_head,
         )?;
         return Ok(());
     }

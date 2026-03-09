@@ -127,28 +127,34 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         self.focus_handle.focus(window, cx);
-        if let Some(target_id) = self.preferred_ai_draft_workspace_target_id(false) {
-            self.set_ai_draft_workspace_target(target_id, cx);
-        } else {
-            self.sync_ai_workspace_target_from_catalog(cx);
-        }
         self.set_workspace_view_mode(WorkspaceSwitchAction::Ai.target_mode(), cx);
-        self.ai_create_thread_action(window, cx);
+        self.ai_start_thread_draft(AiNewThreadStartMode::Local, window, cx);
+    }
+
+    pub(super) fn ai_new_local_thread_action(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai_start_thread_draft(AiNewThreadStartMode::Local, window, cx);
     }
 
     pub(super) fn ai_new_worktree_thread_action(
         &mut self,
-        _: &AiNewWorktreeThread,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.focus_handle.focus(window, cx);
-        if let Some(target_id) = self.preferred_ai_draft_workspace_target_id(true) {
-            self.set_ai_draft_workspace_target(target_id, cx);
-        } else {
-            self.sync_ai_workspace_target_from_catalog(cx);
-        }
-        self.set_workspace_view_mode(WorkspaceSwitchAction::Ai.target_mode(), cx);
+        self.ai_start_thread_draft(AiNewThreadStartMode::Worktree, window, cx);
+    }
+
+    fn ai_start_thread_draft(
+        &mut self,
+        start_mode: AiNewThreadStartMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ai_new_thread_start_mode = start_mode;
+        self.sync_ai_workspace_target_from_catalog(cx);
         self.ai_create_thread_action(window, cx);
     }
 
@@ -976,60 +982,7 @@ impl DiffViewer {
             .map(|cwd| cwd.to_string_lossy().to_string())
     }
 
-    fn preferred_ai_draft_workspace_target_id(&self, prefer_worktree: bool) -> Option<String> {
-        if !prefer_worktree {
-            return self
-                .workspace_targets
-                .iter()
-                .find(|target| target.kind == hunk_git::worktree::WorkspaceTargetKind::PrimaryCheckout)
-                .or_else(|| self.workspace_targets.first())
-                .map(|target| target.id.clone());
-        }
-
-        self.workspace_targets
-            .iter()
-            .find(|target| {
-                target.kind == hunk_git::worktree::WorkspaceTargetKind::LinkedWorktree
-                    && target.is_active
-            })
-            .or_else(|| {
-                self.workspace_targets.iter().find(|target| {
-                    target.kind == hunk_git::worktree::WorkspaceTargetKind::LinkedWorktree
-                })
-            })
-            .or_else(|| self.workspace_targets.first())
-            .map(|target| target.id.clone())
-    }
-
-    fn set_ai_draft_workspace_target(
-        &mut self,
-        target_id: String,
-        cx: &mut Context<Self>,
-    ) {
-        if self.ai_draft_workspace_target_id.as_deref() == Some(target_id.as_str()) {
-            self.sync_ai_workspace_target_picker_state(cx);
-            return;
-        }
-
-        let previous_workspace_key = self.ai_workspace_key();
-        self.sync_ai_visible_composer_prompt_to_draft(cx);
-        self.ai_draft_workspace_target_id = Some(target_id);
-        self.sync_ai_workspace_target_picker_state(cx);
-        self.ai_handle_workspace_change(previous_workspace_key, cx);
-    }
-
-    fn update_ai_draft_workspace_target(
-        &mut self,
-        target_id: String,
-        cx: &mut Context<Self>,
-    ) {
-        if self.current_ai_thread_id().is_some() && !self.ai_new_thread_draft_active {
-            return;
-        }
-        self.set_ai_draft_workspace_target(target_id, cx);
-    }
-
-    fn sync_ai_workspace_target_from_catalog(&mut self, cx: &mut Context<Self>) {
+    fn sync_ai_workspace_target_from_catalog(&mut self, _: &mut Context<Self>) {
         let next_target_id = self
             .ai_draft_workspace_target_id
             .clone()
@@ -1043,57 +996,6 @@ impl DiffViewer {
         if self.ai_draft_workspace_target_id != next_target_id {
             self.ai_draft_workspace_target_id = next_target_id;
         }
-        self.sync_ai_workspace_target_picker_state(cx);
-    }
-
-    fn update_ai_workspace_target_picker_state(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let delegate = build_workspace_target_picker_delegate(&self.workspace_targets);
-        let selected_index = workspace_target_picker_selected_index(
-            &self.workspace_targets,
-            self.ai_draft_workspace_target_id.as_deref(),
-        );
-        self.ai_workspace_target_picker_state.update(cx, |state, cx| {
-            state.set_items(delegate, window, cx);
-            state.set_selected_index(selected_index, window, cx);
-        });
-        cx.notify();
-    }
-
-    fn sync_ai_workspace_target_picker_state(&mut self, cx: &mut Context<Self>) {
-        let Some(window_handle) = cx.windows().into_iter().next() else {
-            return;
-        };
-
-        let picker_state = self.ai_workspace_target_picker_state.clone();
-        let delegate = build_workspace_target_picker_delegate(&self.workspace_targets);
-        let selected_index = workspace_target_picker_selected_index(
-            &self.workspace_targets,
-            self.ai_draft_workspace_target_id.as_deref(),
-        );
-        if let Err(err) = cx.update_window(window_handle, move |_, window, cx| {
-            picker_state.update(cx, |state, cx| {
-                state.set_items(delegate, window, cx);
-                state.set_selected_index(selected_index, window, cx);
-            });
-        }) {
-            error!("failed to sync AI workspace target picker state: {err:#}");
-        }
-    }
-
-    pub(crate) fn ai_draft_workspace_target_label(&self) -> String {
-        self.ai_draft_workspace_target_id
-            .as_deref()
-            .and_then(|target_id| {
-                self.workspace_targets
-                    .iter()
-                    .find(|target| target.id == target_id)
-            })
-            .map(|target| target.display_name.clone())
-            .unwrap_or_else(|| "Primary Checkout".to_string())
     }
 
     pub(crate) fn ai_active_workspace_label(&self) -> String {

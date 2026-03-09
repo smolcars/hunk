@@ -464,6 +464,7 @@ impl DiffViewer {
 
         let request = hunk_git::worktree::CreateWorktreeRequest {
             branch_name: branch_name.clone(),
+            base_branch_name: None,
         };
         let started = self.run_git_action("Create worktree", cx, move |repo_root| {
             let created =
@@ -617,6 +618,178 @@ impl DiffViewer {
             ReviewUrlAction::Copy,
             cx,
         );
+    }
+
+    pub(super) fn ai_open_pr_blocker(&self) -> Option<String> {
+        if self.git_controls_busy() {
+            return Some("Another workspace action is in progress.".to_string());
+        }
+        if self.current_ai_thread_id().is_none() {
+            return Some("Select a thread before opening PR.".to_string());
+        }
+        let Some(thread_workspace) = self.ai_workspace_cwd() else {
+            return Some("Open a workspace before opening PR.".to_string());
+        };
+        if self.repo_root.as_ref() != Some(&thread_workspace) {
+            return Some(
+                "Switch to the thread workspace target before opening PR.".to_string(),
+            );
+        }
+        if !self.can_run_active_branch_actions() {
+            return Some("Activate a branch before opening PR.".to_string());
+        }
+        None
+    }
+
+    pub(super) fn ai_open_pr_for_current_thread(&mut self, cx: &mut Context<Self>) {
+        if let Some(reason) = self.ai_open_pr_blocker().filter(|reason| !reason.is_empty()) {
+            let message = format!("Open PR unavailable: {reason}");
+            self.git_status_message = Some(message.clone());
+            Self::push_warning_notification(message, None, cx);
+            cx.notify();
+            return;
+        }
+
+        let Some(repo_root) = self.repo_root.clone() else {
+            self.git_status_message = Some("No Git repository available.".to_string());
+            cx.notify();
+            return;
+        };
+        let Some(thread_id) = self.current_ai_thread_id() else {
+            self.git_status_message = Some("Select a thread before opening PR.".to_string());
+            cx.notify();
+            return;
+        };
+        let branch_name = self
+            .checked_out_branch_name()
+            .unwrap_or(self.branch_name.as_str())
+            .to_string();
+        let branch_has_upstream = self.branch_has_upstream;
+        let preferred_commit_subject = ai_commit_subject_for_thread(
+            &self.ai_state_snapshot,
+            thread_id.as_str(),
+            branch_name.as_str(),
+        );
+        let review_title = preferred_commit_subject.clone();
+        let provider_mappings = self.config.review_provider_mappings.clone();
+        let epoch = self.begin_git_action("Open PR", cx);
+        let started_at = Instant::now();
+
+        self.git_action_task = cx.spawn(async move |this, cx| {
+            let (execution_elapsed, result) = cx
+                .background_executor()
+                .spawn(async move {
+                    let execution_started_at = Instant::now();
+                    let result = (|| -> anyhow::Result<(Option<String>, String, String)> {
+                        let committed_subject = match commit_staged_with_details(
+                            repo_root.as_path(),
+                            preferred_commit_subject.as_str(),
+                        ) {
+                            Ok(created) => Some(created.subject),
+                            Err(err) if err.to_string().contains("no changes to commit") => None,
+                            Err(err) => return Err(err),
+                        };
+
+                        let push_result = if branch_has_upstream {
+                            match push_current_branch(repo_root.as_path(), branch_name.as_str(), true)
+                            {
+                                Ok(()) => Ok(()),
+                                Err(err)
+                                    if err
+                                        .to_string()
+                                        .contains("publish this branch before pushing") =>
+                                {
+                                    push_current_branch(repo_root.as_path(), branch_name.as_str(), false)
+                                }
+                                Err(err) => Err(err),
+                            }
+                        } else {
+                            match push_current_branch(repo_root.as_path(), branch_name.as_str(), false)
+                            {
+                                Ok(()) => Ok(()),
+                                Err(err) if err.to_string().contains("already published") => {
+                                    push_current_branch(repo_root.as_path(), branch_name.as_str(), true)
+                                }
+                                Err(err) => Err(err),
+                            }
+                        };
+                        push_result?;
+
+                        let review_url = review_url_for_branch_with_provider_map(
+                            repo_root.as_path(),
+                            branch_name.as_str(),
+                            &provider_mappings,
+                        )?
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "no review URL found for {branch_name}; configure review_provider_mappings for self-hosted remotes"
+                            )
+                        })?;
+                        let review_url = with_review_title_prefill(review_url, review_title.as_str());
+
+                        Ok((committed_subject, review_url, branch_name))
+                    })();
+
+                    (execution_started_at.elapsed(), result)
+                })
+                .await;
+
+            if let Some(this) = this.upgrade() {
+                this.update(cx, |this, cx| {
+                    if epoch != this.git_action_epoch {
+                        return;
+                    }
+
+                    let total_elapsed = started_at.elapsed();
+                    this.finish_git_action();
+                    match result {
+                        Ok((committed_subject, review_url, branch_name)) => {
+                            debug!(
+                                "git action complete: epoch={} action=Open PR exec_elapsed_ms={} total_elapsed_ms={} branch={}",
+                                epoch,
+                                execution_elapsed.as_millis(),
+                                total_elapsed.as_millis(),
+                                branch_name
+                            );
+                            if let Some(subject) = committed_subject {
+                                this.last_commit_subject = Some(subject);
+                            }
+                            this.request_snapshot_refresh_workflow_only(true, cx);
+                            this.request_recent_commits_refresh(true, cx);
+                            match open_url_in_browser(review_url.as_str()) {
+                                Ok(()) => {
+                                    let message = format!("Opened PR/MR in browser for {}", branch_name);
+                                    this.git_status_message = Some(message.clone());
+                                    Self::push_success_notification(message, cx);
+                                }
+                                Err(err) => {
+                                    error!("Open review URL failed: {err:#}");
+                                    let summary = err.to_string();
+                                    this.git_status_message = Some(format!("Open URL failed: {summary}"));
+                                    Self::push_error_notification(
+                                        format!("Open review URL failed: {summary}"),
+                                        cx,
+                                    );
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            error!(
+                                "git action failed: epoch={} action=Open PR exec_elapsed_ms={} total_elapsed_ms={} err={err:#}",
+                                epoch,
+                                execution_elapsed.as_millis(),
+                                total_elapsed.as_millis()
+                            );
+                            let summary = err.to_string();
+                            this.git_status_message = Some(format!("Git error: {err:#}"));
+                            Self::push_error_notification(format!("Open PR failed: {summary}"), cx);
+                        }
+                    }
+
+                    cx.notify();
+                });
+            }
+        });
     }
 
     fn run_review_url_action_for_branch(

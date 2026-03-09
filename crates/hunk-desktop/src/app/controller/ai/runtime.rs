@@ -1,3 +1,10 @@
+#[derive(Debug)]
+struct AiPreparedThreadWorkspace {
+    branch_name: String,
+    workspace_target_id: Option<String>,
+    status_message: String,
+}
+
 impl DiffViewer {
     fn start_ai_event_listener(
         &mut self,
@@ -606,19 +613,128 @@ impl DiffViewer {
             return sent;
         }
 
-        let sent = self.send_ai_worker_command(
-            AiWorkerCommand::StartThread {
-                prompt,
-                local_image_paths,
-                session_overrides,
-            },
+        self.prepare_workspace_and_start_ai_thread(
+            prompt,
+            local_image_paths,
+            session_overrides,
             cx,
-        );
-        if sent {
-            self.clear_current_ai_composer_status();
-            self.ai_pending_new_thread_selection = true;
+        )
+    }
+
+    fn prepare_workspace_and_start_ai_thread(
+        &mut self,
+        prompt: Option<String>,
+        local_image_paths: Vec<PathBuf>,
+        session_overrides: AiTurnSessionOverrides,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.git_controls_busy() {
+            self.set_current_ai_composer_status("Wait for the active workspace action to finish.");
+            cx.notify();
+            return false;
         }
-        sent
+
+        let Some(repo_root) = self.ai_draft_workspace_root() else {
+            self.set_current_ai_composer_status("Open a workspace before starting an AI thread.");
+            cx.notify();
+            return false;
+        };
+
+        let start_mode = self.ai_new_thread_start_mode;
+        let prompt_seed = prompt.clone().unwrap_or_default();
+        let requested_branch_name = ai_branch_name_for_prompt(
+            prompt_seed.as_str(),
+            start_mode == AiNewThreadStartMode::Worktree,
+        );
+        let epoch = self.begin_git_action("Prepare AI thread", cx);
+        let started_at = Instant::now();
+
+        self.git_action_task = cx.spawn(async move |this, cx| {
+            let prompt_for_start = prompt.clone();
+            let image_paths_for_start = local_image_paths.clone();
+            let session_overrides_for_start = session_overrides.clone();
+            let (execution_elapsed, result) = cx
+                .background_executor()
+                .spawn(async move {
+                    let execution_started_at = Instant::now();
+                    let prepared = prepare_ai_thread_workspace(
+                        repo_root.as_path(),
+                        requested_branch_name.as_str(),
+                        start_mode,
+                    );
+                    (execution_started_at.elapsed(), prepared)
+                })
+                .await;
+
+            if let Some(this) = this.upgrade() {
+                this.update(cx, |this, cx| {
+                    if epoch != this.git_action_epoch {
+                        return;
+                    }
+
+                    let total_elapsed = started_at.elapsed();
+                    this.finish_git_action();
+                    match result {
+                        Ok(prepared) => {
+                            debug!(
+                                "git action complete: epoch={} action=Prepare AI thread exec_elapsed_ms={} total_elapsed_ms={} mode={:?} branch={}",
+                                epoch,
+                                execution_elapsed.as_millis(),
+                                total_elapsed.as_millis(),
+                                start_mode,
+                                prepared.branch_name
+                            );
+                            this.git_status_message = Some(prepared.status_message.clone());
+                            if let Some(target_id) = prepared.workspace_target_id.clone() {
+                                this.sync_ai_visible_composer_prompt_to_draft(cx);
+                                this.refresh_workspace_targets_from_git_state(cx);
+                                this.ai_draft_workspace_target_id = Some(target_id.clone());
+                                this.activate_workspace_target(target_id, cx);
+                            } else {
+                                this.request_snapshot_refresh_workflow_only(true, cx);
+                                this.request_recent_commits_refresh(true, cx);
+                            }
+
+                            if this.send_ai_worker_command(
+                                AiWorkerCommand::StartThread {
+                                    prompt: prompt_for_start.clone(),
+                                    local_image_paths: image_paths_for_start.clone(),
+                                    session_overrides: session_overrides_for_start.clone(),
+                                },
+                                cx,
+                            ) {
+                                this.clear_current_ai_composer_status();
+                                this.ai_pending_new_thread_selection = true;
+                            } else {
+                                let fallback_message =
+                                    "Workspace prepared, but failed to start thread.".to_string();
+                                this.set_current_ai_composer_status(fallback_message);
+                            }
+                        }
+                        Err(err) => {
+                            error!(
+                                "git action failed: epoch={} action=Prepare AI thread exec_elapsed_ms={} total_elapsed_ms={} mode={:?} err={err:#}",
+                                epoch,
+                                execution_elapsed.as_millis(),
+                                total_elapsed.as_millis(),
+                                start_mode
+                            );
+                            let summary = err.to_string();
+                            this.git_status_message = Some(format!("Git error: {err:#}"));
+                            Self::push_error_notification(
+                                format!("Prepare AI thread failed: {summary}"),
+                                cx,
+                            );
+                            this.set_current_ai_composer_status(
+                                format!("Failed to prepare workspace: {summary}"),
+                            );
+                        }
+                    }
+                    cx.notify();
+                });
+            }
+        });
+        true
     }
 
     fn sync_ai_session_selection_from_state(&mut self) {
@@ -733,6 +849,66 @@ impl DiffViewer {
             .and_then(|model_id| self.ai_model_by_id(model_id))
             .or_else(|| self.ai_models.iter().find(|model| model.is_default))
             .or_else(|| self.ai_models.first())
+    }
+}
+
+fn prepare_ai_thread_workspace(
+    repo_root: &std::path::Path,
+    requested_branch_name: &str,
+    start_mode: AiNewThreadStartMode,
+) -> anyhow::Result<AiPreparedThreadWorkspace> {
+    match start_mode {
+        AiNewThreadStartMode::Local => {
+            checkout_or_create_branch_with_change_transfer(repo_root, requested_branch_name, false)?;
+            Ok(AiPreparedThreadWorkspace {
+                branch_name: requested_branch_name.to_string(),
+                workspace_target_id: None,
+                status_message: format!("Prepared local thread on branch {requested_branch_name}"),
+            })
+        }
+        AiNewThreadStartMode::Worktree => {
+            let Some(base_branch_name) = resolve_default_base_branch_name(repo_root)? else {
+                return Err(anyhow::anyhow!(
+                    "unable to resolve a default base branch (main/master/remote default)"
+                ));
+            };
+            hunk_git::network::sync_branch_from_remote(repo_root, base_branch_name.as_str())
+                .with_context(|| format!("failed to sync base branch '{}'", base_branch_name))?;
+
+            let mut attempt = 0usize;
+            loop {
+                attempt = attempt.saturating_add(1);
+                let candidate_branch_name = if attempt == 1 {
+                    requested_branch_name.to_string()
+                } else {
+                    format!("{requested_branch_name}-{attempt}")
+                };
+                let request = hunk_git::worktree::CreateWorktreeRequest {
+                    branch_name: candidate_branch_name.clone(),
+                    base_branch_name: Some(base_branch_name.clone()),
+                };
+                match hunk_git::worktree::create_managed_worktree(repo_root, &request) {
+                    Ok(created) => {
+                        return Ok(AiPreparedThreadWorkspace {
+                            branch_name: candidate_branch_name,
+                            workspace_target_id: Some(created.id),
+                            status_message: format!(
+                                "Prepared worktree {} from synced {}",
+                                created.name, base_branch_name
+                            ),
+                        });
+                    }
+                    Err(err) => {
+                        let summary = err.to_string();
+                        let branch_exists = summary.contains("already exists");
+                        if branch_exists && attempt < 20 {
+                            continue;
+                        }
+                        return Err(err);
+                    }
+                }
+            }
+        }
     }
 }
 

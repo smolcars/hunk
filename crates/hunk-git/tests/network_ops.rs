@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use git2::{BranchType, IndexAddOption, Repository, Signature, build::CheckoutBuilder};
 use hunk_git::git::load_workflow_snapshot;
-use hunk_git::network::{push_current_branch, sync_current_branch};
+use hunk_git::network::{push_current_branch, sync_branch_from_remote, sync_current_branch};
 use tempfile::TempDir;
 
 #[test]
@@ -144,6 +144,43 @@ fn sync_branch_rejects_hidden_index_changes() -> Result<()> {
     let err = sync_current_branch(fixture.root(), "feature/index")
         .expect_err("hidden index changes should block sync");
     assert!(err.to_string().contains("unstage"));
+    Ok(())
+}
+
+#[test]
+fn sync_non_checked_out_branch_fast_forwards_from_upstream() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.configure_signature()?;
+    fixture.write_file("tracked.txt", "base\n")?;
+    fixture.commit_all("initial")?;
+    let remote_root = fixture.create_bare_remote("origin")?;
+    fixture.checkout_branch("feature/base")?;
+    push_current_branch(fixture.root(), "feature/base", false)?;
+    fixture.checkout_branch("feature/current")?;
+    fixture.write_file("local-only.txt", "dirty\n")?;
+
+    let peer = TempGitRepo::clone_from(fixture.root(), "peer")?;
+    peer.configure_signature()?;
+    peer.set_remote_url("origin", remote_root.to_string_lossy().as_ref())?;
+    peer.checkout_branch("feature/base")?;
+    peer.write_file("tracked.txt", "base\nremote\n")?;
+    let remote_commit_id = peer.commit_all("remote update")?;
+    peer.push_to_remote("origin", "feature/base", "feature/base")?;
+
+    sync_branch_from_remote(fixture.root(), "feature/base")?;
+
+    let repo = fixture.repository()?;
+    let local_commit = repo
+        .find_branch("feature/base", BranchType::Local)?
+        .into_reference()
+        .peel_to_commit()?
+        .id();
+    assert_eq!(local_commit, remote_commit_id);
+    assert_eq!(repo.head()?.shorthand(), Some("feature/current"));
+    assert_eq!(
+        fs::read_to_string(fixture.root().join("local-only.txt"))?,
+        "dirty\n"
+    );
     Ok(())
 }
 

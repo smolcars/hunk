@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use anyhow::{Context as _, Result};
-use git2::{IndexAddOption, Repository, RepositoryInitOptions, Signature};
+use git2::{
+    BranchType, IndexAddOption, Repository, RepositoryInitOptions, Signature,
+    build::CheckoutBuilder,
+};
 use hunk_domain::paths::{HUNK_HOME_DIR_ENV_VAR, hunk_home_dir};
 use hunk_git::compare::{CompareSource, load_compare_snapshot};
 use hunk_git::worktree::{
@@ -54,6 +57,7 @@ fn listing_workspace_targets_includes_primary_checkout_and_created_worktree() ->
         fixture.root(),
         &CreateWorktreeRequest {
             branch_name: "feature/worktree-one".to_string(),
+            base_branch_name: None,
         },
     )?;
 
@@ -90,6 +94,7 @@ fn creating_managed_worktree_rejects_existing_branch_name() -> Result<()> {
         fixture.root(),
         &CreateWorktreeRequest {
             branch_name: "feature/existing".to_string(),
+            base_branch_name: None,
         },
     )
     .expect_err("existing branch should block worktree creation");
@@ -108,17 +113,57 @@ fn creating_managed_worktree_auto_increments_generated_names() -> Result<()> {
         fixture.root(),
         &CreateWorktreeRequest {
             branch_name: "feature/one".to_string(),
+            base_branch_name: None,
         },
     )?;
     let second = create_managed_worktree(
         fixture.root(),
         &CreateWorktreeRequest {
             branch_name: "feature/two".to_string(),
+            base_branch_name: None,
         },
     )?;
 
     assert_eq!(first.name, "worktree-1");
     assert_eq!(second.name, "worktree-2");
+    Ok(())
+}
+
+#[test]
+fn creating_managed_worktree_can_start_from_explicit_base_branch() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "base\n")?;
+    fixture.commit_all("initial")?;
+    fixture.create_branch("feature/base")?;
+    fixture.create_branch("feature/active")?;
+    fixture.checkout_branch("feature/active")?;
+    fixture.write_file("tracked.txt", "base\nactive\n")?;
+    fixture.commit_all("active change")?;
+
+    let created = create_managed_worktree(
+        fixture.root(),
+        &CreateWorktreeRequest {
+            branch_name: "feature/worktree-from-base".to_string(),
+            base_branch_name: Some("feature/base".to_string()),
+        },
+    )?;
+
+    let repo = fixture.repository()?;
+    let base_commit = repo
+        .find_branch("feature/base", BranchType::Local)?
+        .into_reference()
+        .peel_to_commit()?
+        .id();
+    let created_commit = repo
+        .find_branch("feature/worktree-from-base", BranchType::Local)?
+        .into_reference()
+        .peel_to_commit()?
+        .id();
+    assert_eq!(created_commit, base_commit);
+    assert_eq!(
+        fs::read_to_string(created.root.join("tracked.txt"))?,
+        "base\n"
+    );
     Ok(())
 }
 
@@ -131,6 +176,7 @@ fn compare_snapshot_supports_branch_to_worktree_diffs() -> Result<()> {
         fixture.root(),
         &CreateWorktreeRequest {
             branch_name: "feature/compare".to_string(),
+            base_branch_name: None,
         },
     )?;
     fs::write(worktree.root.join("tracked.txt"), "base\nworktree change\n")?;
@@ -167,6 +213,7 @@ fn compare_snapshot_marks_binary_branch_to_worktree_diffs() -> Result<()> {
         fixture.root(),
         &CreateWorktreeRequest {
             branch_name: "feature/binary".to_string(),
+            base_branch_name: None,
         },
     )?;
     fs::write(worktree.root.join("asset.bin"), b"\0base\0changed")?;
@@ -205,6 +252,7 @@ fn compare_snapshot_keeps_mode_only_worktree_diffs() -> Result<()> {
         fixture.root(),
         &CreateWorktreeRequest {
             branch_name: "feature/mode".to_string(),
+            base_branch_name: None,
         },
     )?;
     fixture.make_executable(worktree.root.join("script.sh").as_path())?;
@@ -323,6 +371,15 @@ impl TempGitRepo {
         let repo = self.repository()?;
         let head_commit = repo.head()?.peel_to_commit()?;
         repo.branch(branch_name, &head_commit, false)?;
+        Ok(())
+    }
+
+    fn checkout_branch(&self, branch_name: &str) -> Result<()> {
+        let repo = self.repository()?;
+        repo.set_head(format!("refs/heads/{branch_name}").as_str())?;
+        let mut checkout = CheckoutBuilder::new();
+        checkout.force();
+        repo.checkout_head(Some(&mut checkout))?;
         Ok(())
     }
 

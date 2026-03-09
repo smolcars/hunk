@@ -4,6 +4,8 @@ use futures::channel::{mpsc, oneshot};
 use notify::Watcher;
 use tracing::{debug, error, warn};
 
+use crate::app::ai_thread_flow::{ai_branch_name_for_prompt, ai_commit_subject_for_thread};
+
 use super::data::{
     DiffSegmentQuality, DiffStream, DiffStreamRowKind, RepoTreeNodeKind,
     base_segment_quality_for_file, build_changed_files_tree,

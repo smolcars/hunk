@@ -309,10 +309,6 @@ impl DiffViewer {
             SelectState::new(WorkspaceTargetPickerDelegate::default(), None, window, cx)
                 .searchable(true)
         });
-        let ai_workspace_target_picker_state = cx.new(|cx| {
-            SelectState::new(WorkspaceTargetPickerDelegate::default(), None, window, cx)
-                .searchable(true)
-        });
         let review_left_picker_state = cx.new(|cx| {
             SelectState::new(ReviewComparePickerDelegate::default(), None, window, cx)
                 .searchable(true)
@@ -393,6 +389,7 @@ impl DiffViewer {
             ai_state_snapshot: hunk_codex::state::AiState::default(),
             ai_selected_thread_id: None,
             ai_new_thread_draft_active: false,
+            ai_new_thread_start_mode: AiNewThreadStartMode::Local,
             ai_pending_new_thread_selection: false,
             ai_scroll_timeline_to_bottom: false,
             ai_timeline_follow_output: true,
@@ -437,7 +434,6 @@ impl DiffViewer {
             ai_command_tx: None,
             ai_worker_workspace_key: None,
             ai_draft_workspace_target_id: None,
-            ai_workspace_target_picker_state,
             ai_composer_input_state,
             ai_composer_drafts: BTreeMap::new(),
             ai_composer_status_by_draft: BTreeMap::new(),
@@ -631,22 +627,8 @@ impl DiffViewer {
 
         view.subscribe_review_compare_picker_states(cx);
 
-        let ai_workspace_target_picker_state = view.ai_workspace_target_picker_state.clone();
-        cx.subscribe(
-            &ai_workspace_target_picker_state,
-            |this, _, event: &SelectEvent<WorkspaceTargetPickerDelegate>, cx| {
-                let SelectEvent::Confirm(target_id) = event;
-                let Some(target_id) = target_id.clone() else {
-                    return;
-                };
-                this.update_ai_draft_workspace_target(target_id, cx);
-            },
-        )
-        .detach();
-
         view.update_branch_picker_state(window, cx);
         view.update_workspace_target_picker_state(window, cx);
-        view.update_ai_workspace_target_picker_state(window, cx);
         view.update_review_compare_picker_states(window, cx);
         view.apply_theme_preference(window, cx);
         cx.observe_window_appearance(window, |this, window, cx| {
@@ -918,7 +900,6 @@ impl DiffViewer {
         self.sync_workspace_target_picker_state(cx);
         if follow_active_target_for_ai {
             self.ai_draft_workspace_target_id = self.active_workspace_target_id.clone();
-            self.sync_ai_workspace_target_picker_state(cx);
         }
         self.ai_handle_workspace_change(previous_ai_workspace_key, cx);
         self.git_status_message = Some("Switching workspace target...".to_string());
@@ -1869,7 +1850,6 @@ impl DiffViewer {
         self.ai_draft_workspace_target_id = None;
         self.persist_active_workspace_target_id();
         self.sync_workspace_target_picker_state(cx);
-        self.sync_ai_workspace_target_picker_state(cx);
         self.review_compare_sources.clear();
         self.review_default_left_source_id = None;
         self.review_default_right_source_id = None;

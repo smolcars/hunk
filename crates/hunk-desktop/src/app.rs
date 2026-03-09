@@ -109,6 +109,7 @@ const AI_THREAD_TITLE_REFRESH_MAX_ATTEMPTS: u8 = 20;
 const AI_THREAD_TITLE_REFRESH_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 mod ai_paths;
+mod ai_thread_flow;
 mod branch_activation;
 mod branch_picker;
 mod refresh_policy;
@@ -192,6 +193,12 @@ struct RepoTreeContextMenuState {
 enum AiComposerDraftKey {
     Thread(String),
     Workspace(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiNewThreadStartMode {
+    Local,
+    Worktree,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -443,7 +450,6 @@ actions!(
         SwitchToGitView,
         SwitchToAiView,
         AiNewThread,
-        AiNewWorktreeThread,
         AiInterruptSelectedTurn,
         OpenProject,
         SaveCurrentFile,
@@ -657,16 +663,6 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
     );
     bindings.push(KeyBinding::new("cmd-n", AiNewThread, Some("DiffViewer")));
     bindings.push(KeyBinding::new("ctrl-n", AiNewThread, Some("DiffViewer")));
-    bindings.push(KeyBinding::new(
-        "cmd-shift-n",
-        AiNewWorktreeThread,
-        Some("DiffViewer"),
-    ));
-    bindings.push(KeyBinding::new(
-        "ctrl-shift-n",
-        AiNewWorktreeThread,
-        Some("DiffViewer"),
-    ));
     bindings.extend(
         shortcuts
             .open_project
@@ -1105,6 +1101,7 @@ struct DiffViewer {
     ai_state_snapshot: hunk_codex::state::AiState,
     ai_selected_thread_id: Option<String>,
     ai_new_thread_draft_active: bool,
+    ai_new_thread_start_mode: AiNewThreadStartMode,
     ai_pending_new_thread_selection: bool,
     ai_scroll_timeline_to_bottom: bool,
     ai_timeline_follow_output: bool,
@@ -1149,7 +1146,6 @@ struct DiffViewer {
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_worker_workspace_key: Option<String>,
     ai_draft_workspace_target_id: Option<String>,
-    ai_workspace_target_picker_state: Entity<SelectState<WorkspaceTargetPickerDelegate>>,
     ai_composer_input_state: Entity<InputState>,
     ai_composer_drafts: BTreeMap<AiComposerDraftKey, AiComposerDraft>,
     ai_composer_status_by_draft: BTreeMap<AiComposerDraftKey, String>,

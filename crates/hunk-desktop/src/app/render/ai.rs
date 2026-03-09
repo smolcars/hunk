@@ -81,18 +81,15 @@ impl DiffViewer {
                 self.ai_connection_state,
                 self.ai_bootstrap_loading,
             );
-        let ai_target_editable = self.current_ai_thread_id().is_none();
-        let ai_target_label = if ai_target_editable {
-            self.ai_draft_workspace_target_label()
-        } else {
-            self.ai_active_workspace_label()
-        };
         let composer_interrupt_available = selected_thread_id
             .as_deref()
             .and_then(|thread_id| self.current_ai_in_progress_turn_id(thread_id))
             .is_some();
         let model_supports_image_inputs = self.current_ai_model_supports_image_inputs();
         let review_action_enabled = selected_thread_id.is_some();
+        let ai_open_pr_blocker = self.ai_open_pr_blocker();
+        let ai_open_pr_disabled = ai_open_pr_blocker.is_some();
+        let ai_open_pr_loading = self.git_action_loading_named("Open PR");
         let composer_drop_border_color = if model_supports_image_inputs {
             hunk_opacity(cx.theme().accent, is_dark, 0.78, 0.62)
         } else {
@@ -217,71 +214,6 @@ impl DiffViewer {
                                             ),
                                     )
                                 },
-                            )
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap_2()
-                                    .flex_wrap()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .font_semibold()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(if ai_target_editable {
-                                                "Draft Target"
-                                            } else {
-                                                "Thread Target"
-                                            }),
-                                    )
-                                    .child(
-                                        div()
-                                            .min_w(px(280.0))
-                                            .flex_1()
-                                            .child(if ai_target_editable {
-                                                Select::new(&self.ai_workspace_target_picker_state)
-                                                    .with_size(gpui_component::Size::Medium)
-                                                    .placeholder(ai_target_label)
-                                                    .search_placeholder("Find a worktree or project")
-                                                    .rounded(px(8.0))
-                                                    .w_full()
-                                                    .disabled(self.workspace_targets.is_empty())
-                                                    .empty(
-                                                        h_flex()
-                                                            .h(px(72.0))
-                                                            .justify_center()
-                                                            .text_sm()
-                                                            .text_color(cx.theme().muted_foreground)
-                                                            .child("No workspace targets available."),
-                                                    )
-                                                    .into_any_element()
-                                            } else {
-                                                div()
-                                                    .w_full()
-                                                    .min_h(px(36.0))
-                                                    .px_2p5()
-                                                    .py_1p5()
-                                                    .rounded(px(8.0))
-                                                    .border_1()
-                                                    .border_color(cx.theme().border)
-                                                    .bg(hunk_blend(
-                                                        cx.theme().background,
-                                                        cx.theme().muted,
-                                                        is_dark,
-                                                        0.18,
-                                                        0.12,
-                                                    ))
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .text_color(cx.theme().foreground)
-                                                            .child(ai_target_label),
-                                                    )
-                                                    .into_any_element()
-                                            }),
-                                    ),
                             )
                             .child(
                                 Input::new(&self.ai_composer_input_state)
@@ -556,12 +488,38 @@ impl DiffViewer {
                                                                     .primary()
                                                                     .rounded(px(999.0))
                                                                     .with_size(gpui_component::Size::Small)
+                                                                    .dropdown_caret(true)
                                                                     .label("New")
                                                                     .min_w(px(52.0))
-                                                                    .on_click(move |_, window, cx| {
-                                                                        view.update(cx, |this, cx| {
-                                                                            this.ai_create_thread_action(window, cx);
-                                                                        });
+                                                                    .dropdown_menu(move |menu, _, _| {
+                                                                        menu.item(
+                                                                            PopupMenuItem::new("Local thread")
+                                                                                .on_click({
+                                                                                    let view = view.clone();
+                                                                                    move |_, window, cx| {
+                                                                                        view.update(cx, |this, cx| {
+                                                                                            this.ai_new_local_thread_action(
+                                                                                                window,
+                                                                                                cx,
+                                                                                            );
+                                                                                        });
+                                                                                    }
+                                                                                }),
+                                                                        )
+                                                                        .item(
+                                                                            PopupMenuItem::new("Worktree thread")
+                                                                                .on_click({
+                                                                                    let view = view.clone();
+                                                                                    move |_, window, cx| {
+                                                                                        view.update(cx, |this, cx| {
+                                                                                            this.ai_new_worktree_thread_action(
+                                                                                                window,
+                                                                                                cx,
+                                                                                            );
+                                                                                        });
+                                                                                    }
+                                                                                }),
+                                                                        )
                                                                     })
                                                             }),
                                                     ),
@@ -735,15 +693,64 @@ impl DiffViewer {
                                                                     },
                                                                 ),
                                                         )
-                                                        .when(self.ai_mad_max_mode, |this| {
-                                                            this.child(
-                                                                div()
-                                                                    .flex_none()
-                                                                    .text_xs()
-                                                                    .text_color(cx.theme().danger)
-                                                                    .child("Mad Max auto-approvals enabled"),
-                                                            )
-                                                        }),
+                                                        .child(
+                                                            h_flex()
+                                                                .flex_none()
+                                                                .items_center()
+                                                                .gap_2()
+                                                                .child(
+                                                                    div()
+                                                                        .text_xs()
+                                                                        .font_family(
+                                                                            cx.theme()
+                                                                                .mono_font_family
+                                                                                .clone(),
+                                                                        )
+                                                                        .text_color(
+                                                                            cx.theme().muted_foreground,
+                                                                        )
+                                                                        .child(format!(
+                                                                            "Branch: {active_branch}"
+                                                                        )),
+                                                                )
+                                                                .child({
+                                                                    let view = view.clone();
+                                                                    Button::new("ai-open-pr")
+                                                                        .compact()
+                                                                        .outline()
+                                                                        .with_size(
+                                                                            gpui_component::Size::Small,
+                                                                        )
+                                                                        .rounded(px(8.0))
+                                                                        .loading(ai_open_pr_loading)
+                                                                        .label("Open PR")
+                                                                        .tooltip(
+                                                                            ai_open_pr_blocker
+                                                                                .clone()
+                                                                                .unwrap_or_else(
+                                                                                    || "Commit, push, and open PR/MR for the current AI thread.".to_string(),
+                                                                                ),
+                                                                        )
+                                                                        .disabled(ai_open_pr_disabled)
+                                                                        .on_click(move |_, _, cx| {
+                                                                            view.update(cx, |this, cx| {
+                                                                                this.ai_open_pr_for_current_thread(cx);
+                                                                            });
+                                                                        })
+                                                                })
+                                                                .when(self.ai_mad_max_mode, |this| {
+                                                                    this.child(
+                                                                        div()
+                                                                            .text_xs()
+                                                                            .text_color(
+                                                                                cx.theme().danger,
+                                                                            )
+                                                                            .child(
+                                                                                "Mad Max auto-approvals enabled",
+                                                                            ),
+                                                                    )
+                                                                }),
+                                                        ),
                                                 )
                                                 .when_some(self.ai_error_message.clone(), |this, error| {
                                                     this.child(

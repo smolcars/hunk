@@ -32,6 +32,7 @@ pub struct WorkspaceTargetSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateWorktreeRequest {
     pub branch_name: String,
+    pub base_branch_name: Option<String>,
 }
 
 pub fn workspace_target_id_for_worktree(name: &str) -> String {
@@ -128,6 +129,16 @@ pub fn create_managed_worktree(
     if !is_valid_branch_name(branch_name) {
         return Err(anyhow!("invalid branch name: {branch_name}"));
     }
+    let base_branch_name = request
+        .base_branch_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    if let Some(base_branch_name) = base_branch_name
+        && !is_valid_branch_name(base_branch_name)
+    {
+        return Err(anyhow!("invalid base branch name: {base_branch_name}"));
+    }
 
     let active_repo = open_repository(path)?;
     let primary_root = primary_repo_root(path)?;
@@ -166,16 +177,26 @@ pub fn create_managed_worktree(
         })?;
     }
 
-    let head_commit = active_repo
-        .head()
-        .context("failed to resolve HEAD for worktree creation")?
-        .peel_to_commit()
-        .context("failed to resolve HEAD commit for worktree creation")?;
-    let head_commit = primary_repo
-        .find_commit(head_commit.id())
-        .context("failed to resolve shared HEAD commit in primary repository")?;
+    let base_commit = if let Some(base_branch_name) = base_branch_name {
+        let base_branch = primary_repo
+            .find_branch(base_branch_name, BranchType::Local)
+            .with_context(|| format!("base branch '{base_branch_name}' does not exist"))?;
+        base_branch
+            .into_reference()
+            .peel_to_commit()
+            .with_context(|| format!("failed to resolve base branch '{base_branch_name}' commit"))?
+    } else {
+        let head_commit = active_repo
+            .head()
+            .context("failed to resolve HEAD for worktree creation")?
+            .peel_to_commit()
+            .context("failed to resolve HEAD commit for worktree creation")?;
+        primary_repo
+            .find_commit(head_commit.id())
+            .context("failed to resolve shared HEAD commit in primary repository")?
+    };
     let branch = primary_repo
-        .branch(branch_name, &head_commit, false)
+        .branch(branch_name, &base_commit, false)
         .with_context(|| format!("failed to create branch '{branch_name}'"))?;
     let mut options = WorktreeAddOptions::new();
     options.reference(Some(branch.get()));

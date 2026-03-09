@@ -351,7 +351,6 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::switch_to_git_view_action))
             .on_action(cx.listener(Self::switch_to_ai_view_action))
             .on_action(cx.listener(Self::ai_new_thread_action))
-            .on_action(cx.listener(Self::ai_new_worktree_thread_action))
             .on_action(cx.listener(Self::open_project_action))
             .on_action(cx.listener(Self::save_current_file_action))
             .on_action(cx.listener(Self::open_settings_action))
