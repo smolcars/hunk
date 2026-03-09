@@ -13,6 +13,7 @@ mod ai_tests {
     use super::ai_composer_prompt_for_target;
     use super::ai_prompt_send_waiting_on_connection;
     use super::ai_attachment_status_message;
+    use super::ai_thread_start_mode_for_workspace;
     use super::bundled_codex_executable_candidates;
     use super::codex_runtime_binary_name;
     use super::codex_runtime_platform_dir;
@@ -46,6 +47,7 @@ mod ai_tests {
     use super::workspace_mad_max_mode;
     use crate::app::AiComposerDraft;
     use crate::app::AiComposerDraftKey;
+    use crate::app::AiNewThreadStartMode;
     use crate::app::AiThreadTitleRefreshState;
     use crate::app::AiTextSelection;
     use crate::app::AiTextSelectionSurfaceSpec;
@@ -64,6 +66,8 @@ mod ai_tests {
     use hunk_domain::state::AiServiceTierSelection;
     use hunk_domain::state::AiThreadSessionState;
     use hunk_domain::state::AppState;
+    use hunk_git::worktree::WorkspaceTargetKind;
+    use hunk_git::worktree::WorkspaceTargetSummary;
     use std::collections::{BTreeMap, BTreeSet};
     use std::env;
     #[cfg(target_os = "windows")]
@@ -131,6 +135,24 @@ mod ai_tests {
                     .with_separator_before(separator_before)
             })
             .collect()
+    }
+
+    fn workspace_target(
+        id: &str,
+        kind: WorkspaceTargetKind,
+        root: &str,
+        display_name: &str,
+    ) -> WorkspaceTargetSummary {
+        WorkspaceTargetSummary {
+            id: id.to_string(),
+            kind,
+            root: PathBuf::from(root),
+            name: display_name.to_string(),
+            display_name: display_name.to_string(),
+            branch_name: "main".to_string(),
+            managed: matches!(kind, WorkspaceTargetKind::LinkedWorktree),
+            is_active: false,
+        }
     }
 
     #[test]
@@ -253,6 +275,61 @@ mod ai_tests {
         assert_eq!(
             ai_composer_prompt_for_target(&drafts, Some(&workspace)),
             "workspace-draft"
+        );
+    }
+
+    #[test]
+    fn thread_start_mode_for_workspace_uses_matching_target_kind() {
+        let workspace_targets = vec![
+            workspace_target(
+                "primary",
+                WorkspaceTargetKind::PrimaryCheckout,
+                "/repo",
+                "Primary Checkout",
+            ),
+            workspace_target(
+                "worktree:worktree-3",
+                WorkspaceTargetKind::LinkedWorktree,
+                "/tmp/hunk/worktrees/repo/worktree-3",
+                "worktree-3",
+            ),
+        ];
+
+        assert_eq!(
+            ai_thread_start_mode_for_workspace(
+                Some(std::path::Path::new("/repo")),
+                workspace_targets.as_slice(),
+                std::path::Path::new("/repo"),
+            ),
+            Some(AiNewThreadStartMode::Local),
+        );
+        assert_eq!(
+            ai_thread_start_mode_for_workspace(
+                Some(std::path::Path::new("/repo")),
+                workspace_targets.as_slice(),
+                std::path::Path::new("/tmp/hunk/worktrees/repo/worktree-3"),
+            ),
+            Some(AiNewThreadStartMode::Worktree),
+        );
+    }
+
+    #[test]
+    fn thread_start_mode_for_workspace_falls_back_to_repo_root_when_catalog_is_missing() {
+        assert_eq!(
+            ai_thread_start_mode_for_workspace(
+                Some(std::path::Path::new("/repo")),
+                &[],
+                std::path::Path::new("/repo"),
+            ),
+            Some(AiNewThreadStartMode::Local),
+        );
+        assert_eq!(
+            ai_thread_start_mode_for_workspace(
+                Some(std::path::Path::new("/repo")),
+                &[],
+                std::path::Path::new("/repo-worktree"),
+            ),
+            Some(AiNewThreadStartMode::Worktree),
         );
     }
 

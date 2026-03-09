@@ -51,6 +51,34 @@ fn resolved_ai_workspace_cwd(
     }
 }
 
+fn ai_thread_start_mode_for_workspace(
+    repo_root: Option<&std::path::Path>,
+    workspace_targets: &[hunk_git::worktree::WorkspaceTargetSummary],
+    thread_cwd: &std::path::Path,
+) -> Option<AiNewThreadStartMode> {
+    if let Some(target) = workspace_targets
+        .iter()
+        .find(|target| target.root.as_path() == thread_cwd)
+    {
+        return Some(match target.kind {
+            hunk_git::worktree::WorkspaceTargetKind::PrimaryCheckout => {
+                AiNewThreadStartMode::Local
+            }
+            hunk_git::worktree::WorkspaceTargetKind::LinkedWorktree => {
+                AiNewThreadStartMode::Worktree
+            }
+        });
+    }
+
+    repo_root.map(|repo_root| {
+        if repo_root == thread_cwd {
+            AiNewThreadStartMode::Local
+        } else {
+            AiNewThreadStartMode::Worktree
+        }
+    })
+}
+
 fn ai_collaboration_mode_matches_kind(mask: &CollaborationModeMask, kind: ModeKind) -> bool {
     mask.mode == Some(kind) || mask.name.eq_ignore_ascii_case(kind.display_name())
 }

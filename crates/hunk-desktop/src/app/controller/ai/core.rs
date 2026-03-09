@@ -131,19 +131,14 @@ impl DiffViewer {
         self.ai_start_thread_draft(AiNewThreadStartMode::Local, window, cx);
     }
 
-    pub(super) fn ai_new_local_thread_action(
+    pub(super) fn ai_new_worktree_thread_shortcut_action(
         &mut self,
+        _: &AiNewWorktreeThread,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.ai_start_thread_draft(AiNewThreadStartMode::Local, window, cx);
-    }
-
-    pub(super) fn ai_new_worktree_thread_action(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+        self.focus_handle.focus(window, cx);
+        self.set_workspace_view_mode(WorkspaceSwitchAction::Ai.target_mode(), cx);
         self.ai_start_thread_draft(AiNewThreadStartMode::Worktree, window, cx);
     }
 
@@ -1014,6 +1009,18 @@ impl DiffViewer {
             })
             .filter(|label| !label.is_empty())
             .unwrap_or_else(|| workspace_root.display().to_string())
+    }
+
+    pub(crate) fn ai_thread_start_mode(
+        &self,
+        thread_id: &str,
+    ) -> Option<AiNewThreadStartMode> {
+        let thread = self.ai_state_snapshot.threads.get(thread_id)?;
+        ai_thread_start_mode_for_workspace(
+            self.repo_root.as_deref(),
+            &self.workspace_targets,
+            std::path::Path::new(thread.cwd.as_str()),
+        )
     }
 
     pub(crate) fn ai_active_workspace_branch_name(&self) -> String {
