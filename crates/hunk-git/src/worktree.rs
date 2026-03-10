@@ -7,6 +7,7 @@ use hunk_domain::paths::hunk_home_dir;
 
 use crate::branch::is_valid_branch_name;
 use crate::git::discover_repo_root;
+use crate::git2_helpers::{load_statuses, open_git2_repo};
 
 pub const PRIMARY_WORKSPACE_TARGET_ID: &str = "primary";
 pub const MANAGED_WORKTREES_DIR_NAME: &str = "worktrees";
@@ -298,16 +299,7 @@ fn checked_out_branch_name(path: &Path) -> Result<String> {
 
 fn ensure_worktree_is_clean(path: &Path) -> Result<()> {
     let repo = open_repository(path)?;
-    let mut status_options = git2::StatusOptions::new();
-    status_options
-        .include_untracked(true)
-        .recurse_untracked_dirs(true)
-        .include_ignored(false)
-        .include_unmodified(false)
-        .renames_head_to_index(false)
-        .renames_index_to_workdir(false);
-
-    let statuses = repo.statuses(Some(&mut status_options)).with_context(|| {
+    let statuses = load_statuses(&repo, || {
         format!(
             "failed to inspect worktree changes before removing {}",
             path.display()
@@ -351,8 +343,7 @@ fn ensure_managed_worktree_is_removable(path: &Path) -> Result<PathBuf> {
 }
 
 fn open_repository(path: &Path) -> Result<Repository> {
-    Repository::open(path)
-        .with_context(|| format!("failed to open Git repository at {}", path.display()))
+    open_git2_repo(path)
 }
 
 fn canonicalize_existing_path(path: &Path) -> Result<PathBuf> {

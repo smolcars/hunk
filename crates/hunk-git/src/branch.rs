@@ -4,6 +4,7 @@ use anyhow::{Context as _, Result, anyhow};
 
 use crate::config::{ReviewProviderKind, ReviewProviderMapping};
 use crate::git::open_repo_at_root;
+use crate::git2_helpers::open_git2_repo;
 
 const RESERVED_BRANCH_NAMES: &[&str] = &["detached", "unknown"];
 
@@ -178,8 +179,7 @@ pub fn rename_branch(repo_root: &Path, old_branch_name: &str, new_branch_name: &
         return Err(anyhow!("invalid branch name: {new_branch_name}"));
     }
 
-    let repo = git2::Repository::open(repo_root)
-        .with_context(|| format!("failed to open Git repository at {}", repo_root.display()))?;
+    let repo = open_git2_repo(repo_root)?;
     if repo
         .find_branch(new_branch_name, git2::BranchType::Local)
         .is_ok()

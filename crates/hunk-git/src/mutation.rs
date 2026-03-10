@@ -5,6 +5,7 @@ use std::process::Command;
 use anyhow::{Context as _, Result, anyhow};
 
 use crate::branch::is_valid_branch_name;
+use crate::git2_helpers::{load_statuses, open_git2_repo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorktreeChange {
@@ -286,8 +287,7 @@ fn commit_paths_internal(
 }
 
 fn open_repo(repo_root: &Path) -> Result<git2::Repository> {
-    git2::Repository::open(repo_root)
-        .with_context(|| format!("failed to open Git repository at {}", repo_root.display()))
+    open_git2_repo(repo_root)
 }
 
 fn has_any_worktree_changes(repo: &git2::Repository) -> Result<bool> {
@@ -393,16 +393,7 @@ fn worktree_change_status_code(change: WorktreeChange) -> &'static str {
 }
 
 fn ensure_no_hidden_index_changes(repo: &git2::Repository, action_message: &str) -> Result<()> {
-    let mut status_options = git2::StatusOptions::new();
-    status_options
-        .include_untracked(true)
-        .recurse_untracked_dirs(true)
-        .include_ignored(false)
-        .include_unmodified(false)
-        .renames_head_to_index(false)
-        .renames_index_to_workdir(false);
-
-    let statuses = repo.statuses(Some(&mut status_options))?;
+    let statuses = load_statuses(repo, || "failed to inspect worktree status".to_string())?;
     for entry in statuses.iter() {
         let status = entry.status();
         if status.is_conflicted() {

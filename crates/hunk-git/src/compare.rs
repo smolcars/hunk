@@ -7,6 +7,7 @@ use anyhow::{Context as _, Result, anyhow};
 use git2::{DiffOptions, ObjectType, Oid, Patch, Repository, Tree};
 
 use crate::git::{ChangedFile, FileStatus, LineStats};
+use crate::git2_helpers::open_git2_repo;
 use crate::worktree::repo_relative_path_is_within_managed_worktrees;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -331,8 +332,7 @@ fn compare_file_status(old_state: &ComparePathState, new_state: &ComparePathStat
 }
 
 fn open_repository(path: &Path) -> Result<Repository> {
-    Repository::open(path)
-        .with_context(|| format!("failed to open Git repository at {}", path.display()))
+    open_git2_repo(path)
 }
 
 fn head_tree_oid(repo: &Repository) -> Result<Option<Oid>> {

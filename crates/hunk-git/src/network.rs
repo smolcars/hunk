@@ -7,6 +7,7 @@ use git2::{
 };
 
 use crate::branch::is_valid_branch_name;
+use crate::git2_helpers::{load_statuses, open_git2_repo};
 
 #[derive(Debug, Clone)]
 struct UpstreamTarget {
@@ -182,16 +183,9 @@ fn sync_branch_with_upstream(
 }
 
 fn ensure_sync_worktree_is_clean(repo: &Repository) -> Result<()> {
-    let mut status_options = git2::StatusOptions::new();
-    status_options
-        .include_untracked(true)
-        .recurse_untracked_dirs(true)
-        .include_ignored(false)
-        .include_unmodified(false)
-        .renames_head_to_index(false)
-        .renames_index_to_workdir(false);
-
-    let statuses = repo.statuses(Some(&mut status_options))?;
+    let statuses = load_statuses(repo, || {
+        "failed to inspect sync worktree status".to_string()
+    })?;
     if statuses.is_empty() {
         return Ok(());
     }
@@ -213,8 +207,7 @@ fn normalized_branch_name(branch_name: &str) -> Result<&str> {
 }
 
 fn open_repo(repo_root: &Path) -> Result<Repository> {
-    Repository::open(repo_root)
-        .with_context(|| format!("failed to open Git repository at {}", repo_root.display()))
+    open_git2_repo(repo_root)
 }
 
 fn local_branch_ref_name(branch_name: &str) -> String {
