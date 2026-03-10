@@ -6,12 +6,18 @@ fn run_ai_worker(
     command_rx: Receiver<AiWorkerCommand>,
     event_tx: &Sender<AiWorkerEvent>,
 ) -> Result<(), CodexIntegrationError> {
+    let worker_started_at = Instant::now();
     let mut runtime = AiWorkerRuntime::bootstrap(config.clone())?;
     runtime.sync_after_connect(
         event_tx,
         "Codex App Server connected over WebSocket",
         true,
     )?;
+    tracing::info!(
+        workspace_key = runtime.workspace_key.as_str(),
+        elapsed_ms = worker_started_at.elapsed().as_millis() as u64,
+        "ai instrumentation: worker entered steady-state command loop"
+    );
 
     loop {
         match command_rx.recv_timeout(COMMAND_POLL_INTERVAL) {
@@ -76,6 +82,7 @@ impl AiWorkerRuntime {
         connected_message: &str,
         emit_bootstrap_completed: bool,
     ) -> Result<(), CodexIntegrationError> {
+        let started_at = Instant::now();
         self.send_event(
             event_tx,
             AiWorkerEventPayload::Status(connected_message.to_string()),
@@ -87,15 +94,6 @@ impl AiWorkerRuntime {
             self.send_event(
                 event_tx,
                 AiWorkerEventPayload::Status(format!("Unable to read account state: {error}")),
-            );
-        }
-        self.emit_snapshot(event_tx);
-        if let Err(error) = self.refresh_account_rate_limits() {
-            self.send_event(
-                event_tx,
-                AiWorkerEventPayload::Status(format!(
-                    "Unable to read account rate limits: {error}"
-                )),
             );
         }
         self.emit_snapshot(event_tx);
@@ -121,6 +119,23 @@ impl AiWorkerRuntime {
             self.send_event(event_tx, AiWorkerEventPayload::BootstrapCompleted);
             self.emit_snapshot(event_tx);
         }
+        if let Err(error) = self.refresh_account_rate_limits() {
+            self.send_event(
+                event_tx,
+                AiWorkerEventPayload::Status(format!(
+                    "Unable to read account rate limits: {error}"
+                )),
+            );
+        }
+        self.emit_snapshot(event_tx);
+        tracing::info!(
+            workspace_key = self.workspace_key.as_str(),
+            connected_message,
+            emitted_bootstrap_completed = emit_bootstrap_completed,
+            active_thread_id = ?self.service.active_thread_for_workspace(),
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: sync_after_connect completed"
+        );
         Ok(())
     }
 

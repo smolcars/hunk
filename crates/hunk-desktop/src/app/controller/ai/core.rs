@@ -13,11 +13,29 @@ use hunk_domain::state::AppState;
 impl DiffViewer {
     const AI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(33);
 
+    pub(super) fn preload_ai_runtime_on_startup(&mut self, cx: &mut Context<Self>) {
+        let Some(workspace_key) = self.ai_workspace_key() else {
+            tracing::debug!(
+                "ai instrumentation: startup AI preload skipped because no workspace could be resolved"
+            );
+            return;
+        };
+        tracing::info!(
+            workspace_key = workspace_key.as_str(),
+            workspace_view_mode = ?self.workspace_view_mode,
+            "ai instrumentation: startup AI preload scheduled"
+        );
+        self.refresh_ai_repo_thread_catalog(cx);
+        self.ensure_ai_runtime_started(cx);
+        self.ai_view_activation_started_at = None;
+    }
+
     pub(super) fn ensure_ai_runtime_started(&mut self, cx: &mut Context<Self>) {
         let Some(cwd) = self.ai_workspace_cwd() else {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("Open a workspace before using AI.".to_string());
+            tracing::warn!("ai instrumentation: AI runtime start skipped because no workspace is open");
             cx.notify();
             return;
         };
@@ -25,10 +43,21 @@ impl DiffViewer {
         if self.ai_command_tx.is_some()
             && self.ai_worker_workspace_key.as_deref() == Some(worker_workspace_key.as_str())
         {
+            tracing::debug!(
+                workspace_key = worker_workspace_key.as_str(),
+                connection_state = ?self.ai_connection_state,
+                bootstrap_loading = self.ai_bootstrap_loading,
+                "ai instrumentation: AI runtime start skipped because visible runtime is already active"
+            );
             return;
         }
         if self.ai_command_tx.is_some() {
             let visible_workspace_key = self.ai_worker_workspace_key.clone();
+            tracing::info!(
+                from_workspace_key = visible_workspace_key.as_deref().unwrap_or("<none>"),
+                to_workspace_key = worker_workspace_key.as_str(),
+                "ai instrumentation: parking visible AI runtime before switching workspaces"
+            );
             self.store_current_ai_workspace_state(visible_workspace_key.as_deref());
             self.park_visible_ai_runtime();
         }
@@ -37,6 +66,12 @@ impl DiffViewer {
         self.sync_ai_workspace_preferences_from_state();
 
         if self.promote_hidden_ai_runtime(worker_workspace_key.as_str()) {
+            tracing::info!(
+                workspace_key = worker_workspace_key.as_str(),
+                connection_state = ?self.ai_connection_state,
+                bootstrap_loading = self.ai_bootstrap_loading,
+                "ai instrumentation: promoted hidden AI runtime for active workspace"
+            );
             cx.notify();
             return;
         }
@@ -45,6 +80,10 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("Unable to resolve the Codex home directory.".to_string());
+            tracing::warn!(
+                workspace_key = worker_workspace_key.as_str(),
+                "ai instrumentation: AI runtime start failed because Codex home could not be resolved"
+            );
             cx.notify();
             return;
         };
@@ -54,6 +93,12 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some(error);
+            tracing::warn!(
+                workspace_key = worker_workspace_key.as_str(),
+                codex_executable = %codex_executable.display(),
+                message = self.ai_error_message.as_deref().unwrap_or(""),
+                "ai instrumentation: AI runtime start failed because Codex executable validation failed"
+            );
             cx.notify();
             return;
         }
@@ -62,6 +107,17 @@ impl DiffViewer {
         let mut start_config = AiWorkerStartConfig::new(cwd, codex_executable, codex_home);
         start_config.mad_max_mode = self.ai_mad_max_mode;
         start_config.include_hidden_models = self.ai_include_hidden_models;
+
+        tracing::info!(
+            workspace_key = worker_workspace_key.as_str(),
+            cwd = %start_config.cwd.display(),
+            host_working_directory = %start_config.host_working_directory.display(),
+            codex_home = %start_config.codex_home.display(),
+            codex_executable = %start_config.codex_executable.display(),
+            mad_max_mode = start_config.mad_max_mode,
+            include_hidden_models = start_config.include_hidden_models,
+            "ai instrumentation: spawning AI worker runtime"
+        );
 
         let worker = spawn_ai_worker(start_config, command_rx, event_tx);
 

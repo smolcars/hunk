@@ -8,6 +8,7 @@ impl AiWorkerRuntime {
         &mut self,
         thread_id: Option<&str>,
     ) -> Result<bool, CodexIntegrationError> {
+        let started_at = Instant::now();
         let response =
             self.service
                 .list_threads(&mut self.session, None, Some(200), self.request_timeout)?;
@@ -19,9 +20,18 @@ impl AiWorkerRuntime {
                 .state_mut()
                 .set_active_thread_for_cwd(self.workspace_key.clone(), first_thread.id.clone());
         }
-        Ok(thread_id.is_some_and(|thread_id| {
+        let contains_thread = thread_id.is_some_and(|thread_id| {
             response.data.iter().any(|thread| thread.id == thread_id)
-        }))
+        });
+        tracing::info!(
+            workspace_key = self.workspace_key.as_str(),
+            requested_thread_id = ?thread_id,
+            thread_count = response.data.len(),
+            contains_thread,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: thread list refreshed"
+        );
+        Ok(contains_thread)
     }
 
     fn update_active_thread_after_archive(&mut self, archived_thread_id: &str) {
@@ -85,6 +95,7 @@ impl AiWorkerRuntime {
     }
 
     fn hydrate_initial_timeline(&mut self) -> Result<(), CodexIntegrationError> {
+        let started_at = Instant::now();
         let thread_id = self
             .service
             .active_thread_for_workspace()
@@ -117,20 +128,57 @@ impl AiWorkerRuntime {
                     .map(|thread| thread.id.clone())
         });
         let Some(thread_id) = thread_id else {
+            tracing::info!(
+                workspace_key = self.workspace_key.as_str(),
+                elapsed_ms = started_at.elapsed().as_millis() as u64,
+                "ai instrumentation: initial timeline hydration skipped because no thread is active"
+            );
             return Ok(());
         };
-
-        self.load_thread_snapshot(thread_id)
+        self.load_thread_snapshot(thread_id.clone())?;
+        let turn_count = self
+            .service
+            .state()
+            .turns
+            .values()
+            .filter(|turn| turn.thread_id == thread_id)
+            .count();
+        let item_count = self
+            .service
+            .state()
+            .items
+            .values()
+            .filter(|item| item.thread_id == thread_id)
+            .count();
+        tracing::info!(
+            workspace_key = self.workspace_key.as_str(),
+            thread_id = thread_id.as_str(),
+            turn_count,
+            item_count,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: initial timeline hydrated"
+        );
+        Ok(())
     }
 
     fn refresh_session_metadata(&mut self) -> Result<(), CodexIntegrationError> {
+        let started_at = Instant::now();
         self.refresh_models()?;
         self.refresh_experimental_features()?;
         self.refresh_collaboration_modes()?;
+        tracing::info!(
+            workspace_key = self.workspace_key.as_str(),
+            model_count = self.models.len(),
+            experimental_feature_count = self.experimental_features.len(),
+            collaboration_mode_count = self.collaboration_modes.len(),
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: session metadata refreshed"
+        );
         Ok(())
     }
 
     fn refresh_models(&mut self) -> Result<(), CodexIntegrationError> {
+        let started_at = Instant::now();
         let mut cursor: Option<String> = None;
         let mut models = Vec::new();
         let mut pages = 0_u8;
@@ -150,10 +198,19 @@ impl AiWorkerRuntime {
             }
         }
         self.models = models;
+        tracing::debug!(
+            workspace_key = self.workspace_key.as_str(),
+            model_count = self.models.len(),
+            page_count = pages,
+            include_hidden_models = self.include_hidden_models,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: model list refreshed"
+        );
         Ok(())
     }
 
     fn refresh_experimental_features(&mut self) -> Result<(), CodexIntegrationError> {
+        let started_at = Instant::now();
         let mut cursor: Option<String> = None;
         let mut features = Vec::new();
         let mut pages = 0_u8;
@@ -172,20 +229,39 @@ impl AiWorkerRuntime {
             }
         }
         self.experimental_features = features;
+        tracing::debug!(
+            workspace_key = self.workspace_key.as_str(),
+            feature_count = self.experimental_features.len(),
+            page_count = pages,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: experimental feature list refreshed"
+        );
         Ok(())
     }
 
     fn refresh_collaboration_modes(&mut self) -> Result<(), CodexIntegrationError> {
+        let started_at = Instant::now();
         match self
             .service
             .list_collaboration_modes(&mut self.session, self.request_timeout)
         {
             Ok(response) => {
                 self.collaboration_modes = response.data;
+                tracing::debug!(
+                    workspace_key = self.workspace_key.as_str(),
+                    collaboration_mode_count = self.collaboration_modes.len(),
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "ai instrumentation: collaboration modes refreshed"
+                );
                 Ok(())
             }
             Err(CodexIntegrationError::JsonRpcServerError { .. }) => {
                 self.collaboration_modes.clear();
+                tracing::debug!(
+                    workspace_key = self.workspace_key.as_str(),
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "ai instrumentation: collaboration mode list unavailable on server"
+                );
                 Ok(())
             }
             Err(error) => Err(error),
@@ -193,26 +269,52 @@ impl AiWorkerRuntime {
     }
 
     fn refresh_account_state(&mut self) -> Result<(), CodexIntegrationError> {
+        let started_at = Instant::now();
         let response = self
             .service
             .read_account(&mut self.session, false, self.request_timeout)?;
         self.account = response.account;
         self.requires_openai_auth = response.requires_openai_auth;
+        let account_kind = match self.account.as_ref() {
+            Some(Account::ApiKey { .. }) => "api_key",
+            Some(Account::Chatgpt { .. }) => "chatgpt",
+            None => "none",
+        };
+        tracing::info!(
+            workspace_key = self.workspace_key.as_str(),
+            account_kind,
+            requires_openai_auth = self.requires_openai_auth,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: account state refreshed"
+        );
         Ok(())
     }
 
     fn refresh_account_rate_limits(&mut self) -> Result<(), CodexIntegrationError> {
+        let started_at = Instant::now();
         match self
             .service
             .read_account_rate_limits(&mut self.session, self.request_timeout)
         {
             Ok(response) => {
                 self.apply_rate_limits_response(response);
+                tracing::info!(
+                    workspace_key = self.workspace_key.as_str(),
+                    has_rate_limits = self.rate_limits.is_some(),
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "ai instrumentation: account rate limits refreshed"
+                );
                 Ok(())
             }
             Err(CodexIntegrationError::JsonRpcServerError { .. }) => {
                 self.rate_limits = None;
                 self.rate_limits_by_limit_id.clear();
+                tracing::info!(
+                    workspace_key = self.workspace_key.as_str(),
+                    has_rate_limits = false,
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "ai instrumentation: account rate limits unavailable on server"
+                );
                 Ok(())
             }
             Err(error) => Err(error),

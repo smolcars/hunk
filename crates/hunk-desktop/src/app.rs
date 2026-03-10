@@ -1238,6 +1238,7 @@ struct DiffViewer {
     workspace_view_mode: WorkspaceViewMode,
     ai_connection_state: AiConnectionState,
     ai_bootstrap_loading: bool,
+    ai_view_activation_started_at: Option<Instant>,
     ai_status_message: Option<String>,
     ai_error_message: Option<String>,
     ai_state_snapshot: hunk_codex::state::AiState,

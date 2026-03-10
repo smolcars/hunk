@@ -23,6 +23,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use tracing::debug;
+use tracing::info;
 use tracing::warn;
 
 use crate::errors::CodexIntegrationError;
@@ -87,18 +88,36 @@ pub struct SharedHostLease {
 
 impl SharedHostLease {
     pub fn acquire(config: HostConfig, timeout: Duration) -> Result<Self> {
+        let acquire_started_at = Instant::now();
         let key = SharedHostKey::from_config(&config);
         let mut guard = shared_hosts()
             .lock()
             .expect("shared host registry mutex poisoned");
 
         if let Some(entry) = guard.get_mut(&key) {
+            let requested_port = config.port;
+            let mut restarted = false;
             if entry.runtime.ensure_running(timeout).is_err() {
                 let mut replacement = HostRuntime::new(config);
                 replacement.start(timeout)?;
                 entry.runtime = replacement;
+                restarted = true;
             }
             entry.lease_count = entry.lease_count.saturating_add(1);
+            let pid = entry.runtime.pid();
+            let active_port = entry.runtime.config().port;
+            info!(
+                executable_path = %entry.runtime.config().executable_path.display(),
+                codex_home = %entry.runtime.config().codex_home.display(),
+                requested_port,
+                active_port,
+                pid = ?pid,
+                reused = true,
+                restarted,
+                lease_count = entry.lease_count,
+                elapsed_ms = acquire_started_at.elapsed().as_millis() as u64,
+                "ai instrumentation: shared codex host lease acquired"
+            );
             return Ok(Self {
                 key,
                 fallback_port: entry.runtime.config().port,
@@ -108,12 +127,25 @@ impl SharedHostLease {
         let mut runtime = HostRuntime::new(config);
         runtime.start(timeout)?;
         let port = runtime.config().port;
+        let pid = runtime.pid();
         guard.insert(
             key.clone(),
             SharedHostEntry {
                 lease_count: 1,
                 runtime,
             },
+        );
+        info!(
+            executable_path = %key.executable_path.display(),
+            codex_home = %key.codex_home.display(),
+            requested_port = port,
+            active_port = port,
+            pid = ?pid,
+            reused = false,
+            restarted = false,
+            lease_count = 1,
+            elapsed_ms = acquire_started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: shared codex host lease acquired"
         );
         Ok(Self {
             key,
@@ -233,6 +265,7 @@ impl HostRuntime {
     }
 
     pub fn start(&mut self, timeout: Duration) -> Result<()> {
+        let started_at = Instant::now();
         self.refresh_state();
         if self.child.is_some() {
             return Err(CodexIntegrationError::HostAlreadyRunning);
@@ -257,8 +290,34 @@ impl HostRuntime {
         register_tracked_host_process(child.id());
         self.spawn_stderr_reader(&mut child);
         self.child = Some(child);
-
-        self.wait_until_ready(timeout)
+        let pid = self.child.as_ref().map(Child::id);
+        let result = self.wait_until_ready(timeout);
+        match &result {
+            Ok(()) => {
+                info!(
+                    executable_path = %self.config.executable_path.display(),
+                    working_directory = %self.config.working_directory.display(),
+                    codex_home = %self.config.codex_home.display(),
+                    port = self.config.port,
+                    pid = ?pid,
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "ai instrumentation: codex host process ready"
+                );
+            }
+            Err(error) => {
+                warn!(
+                    executable_path = %self.config.executable_path.display(),
+                    working_directory = %self.config.working_directory.display(),
+                    codex_home = %self.config.codex_home.display(),
+                    port = self.config.port,
+                    pid = ?pid,
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    error = %error,
+                    "ai instrumentation: codex host process failed to start"
+                );
+            }
+        }
+        result
     }
 
     pub fn ensure_running(&mut self, timeout: Duration) -> Result<()> {

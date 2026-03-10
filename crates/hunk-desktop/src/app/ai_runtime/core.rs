@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use codex_app_server_protocol::Account;
 use codex_app_server_protocol::AskForApproval;
@@ -381,44 +381,106 @@ struct PendingUserInput {
 
 impl AiWorkerRuntime {
     fn bootstrap(config: AiWorkerStartConfig) -> Result<Self, CodexIntegrationError> {
+        let bootstrap_started_at = Instant::now();
+        tracing::info!(
+            workspace_key = config.workspace_key.as_str(),
+            cwd = %config.cwd.display(),
+            host_working_directory = %config.host_working_directory.display(),
+            "ai instrumentation: worker bootstrap starting"
+        );
         std::fs::create_dir_all(&config.codex_home)
             .map_err(CodexIntegrationError::HostProcessIo)?;
 
         let mut last_retryable_error = None;
-        for _attempt in 0..HOST_BOOTSTRAP_MAX_ATTEMPTS {
+        for attempt in 0..HOST_BOOTSTRAP_MAX_ATTEMPTS {
             let port = allocate_loopback_port();
             match Self::bootstrap_on_port(&config, port) {
-                Ok(runtime) => return Ok(runtime),
+                Ok(runtime) => {
+                    tracing::info!(
+                        workspace_key = config.workspace_key.as_str(),
+                        attempt = attempt + 1,
+                        port,
+                        elapsed_ms = bootstrap_started_at.elapsed().as_millis() as u64,
+                        "ai instrumentation: worker bootstrap completed"
+                    );
+                    return Ok(runtime);
+                }
                 Err(error) if should_retry_bootstrap_with_new_port(&error) => {
+                    tracing::warn!(
+                        workspace_key = config.workspace_key.as_str(),
+                        attempt = attempt + 1,
+                        port,
+                        elapsed_ms = bootstrap_started_at.elapsed().as_millis() as u64,
+                        error = %error,
+                        "ai instrumentation: worker bootstrap retrying on a new port"
+                    );
                     last_retryable_error = Some(error);
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    tracing::warn!(
+                        workspace_key = config.workspace_key.as_str(),
+                        attempt = attempt + 1,
+                        port,
+                        elapsed_ms = bootstrap_started_at.elapsed().as_millis() as u64,
+                        error = %error,
+                        "ai instrumentation: worker bootstrap failed"
+                    );
+                    return Err(error);
+                }
             }
         }
 
-        Err(last_retryable_error.unwrap_or(CodexIntegrationError::HostStartupTimedOut {
+        let error = last_retryable_error.unwrap_or(CodexIntegrationError::HostStartupTimedOut {
             port: 0,
             timeout_ms: HOST_START_TIMEOUT
                 .as_millis()
                 .min(u128::from(u64::MAX)) as u64,
-        }))
+        });
+        tracing::warn!(
+            workspace_key = config.workspace_key.as_str(),
+            elapsed_ms = bootstrap_started_at.elapsed().as_millis() as u64,
+            error = %error,
+            "ai instrumentation: worker bootstrap exhausted all attempts"
+        );
+        Err(error)
     }
 
     fn bootstrap_on_port(
         config: &AiWorkerStartConfig,
         port: u16,
     ) -> Result<Self, CodexIntegrationError> {
+        let transport_started_at = Instant::now();
         let host_config = HostConfig::codex_app_server(
             config.codex_executable.clone(),
             config.host_working_directory.clone(),
             config.codex_home.clone(),
             port,
         );
+        let host_started_at = Instant::now();
         let host = SharedHostLease::acquire(host_config, HOST_START_TIMEOUT)?;
+        let host_acquire_elapsed_ms = host_started_at.elapsed().as_millis() as u64;
+        let host_pid = host.pid();
+        let host_port = host.port();
 
         let endpoint = WebSocketEndpoint::loopback(host.port());
+        let connect_started_at = Instant::now();
         let mut session = JsonRpcSession::connect(&endpoint)?;
+        let websocket_connect_elapsed_ms = connect_started_at.elapsed().as_millis() as u64;
+        let initialize_started_at = Instant::now();
         session.initialize(InitializeOptions::default(), config.request_timeout)?;
+        let websocket_initialize_elapsed_ms =
+            initialize_started_at.elapsed().as_millis() as u64;
+        tracing::info!(
+            workspace_key = config.workspace_key.as_str(),
+            requested_port = port,
+            host_port,
+            host_pid = ?host_pid,
+            host_acquire_elapsed_ms,
+            websocket_connect_elapsed_ms,
+            websocket_initialize_elapsed_ms,
+            total_elapsed_ms = transport_started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: worker transport ready"
+        );
 
         Ok(Self {
             host,
@@ -765,6 +827,7 @@ impl AiWorkerRuntime {
         &mut self,
         thread_id: String,
     ) -> Result<(), CodexIntegrationError> {
+        let started_at = Instant::now();
         let read_thread_id = thread_id.clone();
         match retry_transient_rollout_load(
             TRANSIENT_ROLLOUT_LOAD_MAX_RETRIES,
@@ -799,9 +862,40 @@ impl AiWorkerRuntime {
             Err(error)
                 if is_missing_thread_rollout_error(&error)
                     && self.reconcile_missing_rollout_thread_error(read_thread_id.as_str())? => {}
-            Err(error) => return Err(error),
+            Err(error) => {
+                tracing::warn!(
+                    workspace_key = self.workspace_key.as_str(),
+                    thread_id = read_thread_id.as_str(),
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    error = %error,
+                    "ai instrumentation: thread snapshot load failed"
+                );
+                return Err(error);
+            }
         }
         self.hydrate_thread_from_rollout_fallback_if_needed(read_thread_id.as_str());
+        let turn_count = self
+            .service
+            .state()
+            .turns
+            .values()
+            .filter(|turn| turn.thread_id == read_thread_id)
+            .count();
+        let item_count = self
+            .service
+            .state()
+            .items
+            .values()
+            .filter(|item| item.thread_id == read_thread_id)
+            .count();
+        tracing::info!(
+            workspace_key = self.workspace_key.as_str(),
+            thread_id = read_thread_id.as_str(),
+            turn_count,
+            item_count,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            "ai instrumentation: thread snapshot loaded"
+        );
         Ok(())
     }
 

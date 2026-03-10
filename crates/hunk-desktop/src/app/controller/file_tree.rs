@@ -89,6 +89,9 @@ impl DiffViewer {
         }
 
         self.workspace_view_mode = mode;
+        if mode != WorkspaceViewMode::Ai {
+            self.ai_view_activation_started_at = None;
+        }
         if mode != WorkspaceViewMode::Files {
             self.repo_tree_inline_edit = None;
             self.repo_tree_context_menu = None;
@@ -158,8 +161,19 @@ impl DiffViewer {
             self.scroll_selected_after_reload = true;
             self.request_selected_diff_reload(cx);
         } else if mode == WorkspaceViewMode::Ai {
+            self.begin_ai_view_activation_trace();
             self.refresh_ai_repo_thread_catalog(cx);
             self.ensure_ai_runtime_started(cx);
+            if self.ai_connection_state == AiConnectionState::Failed {
+                let error_message = self.ai_error_message.clone();
+                self.fail_ai_view_activation_trace("start_failed", error_message.as_deref());
+            } else if ai_prompt_send_waiting_on_connection(
+                self.ai_connection_state,
+                self.ai_bootstrap_loading,
+            ) {
+            } else {
+                self.complete_ai_view_activation_trace("already_ready");
+            }
         }
         cx.notify();
     }

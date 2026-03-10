@@ -6,6 +6,66 @@ struct AiPreparedThreadWorkspace {
 }
 
 impl DiffViewer {
+    fn begin_ai_view_activation_trace(&mut self) {
+        self.ai_view_activation_started_at = Some(Instant::now());
+        let workspace_key = self
+            .ai_workspace_key()
+            .unwrap_or_else(|| "<none>".to_string());
+        let hidden_runtime_available = self
+            .ai_hidden_runtimes
+            .contains_key(workspace_key.as_str());
+        tracing::info!(
+            workspace_key = workspace_key.as_str(),
+            connection_state = ?self.ai_connection_state,
+            bootstrap_loading = self.ai_bootstrap_loading,
+            hidden_runtime_available,
+            selected_thread_id = ?self.current_ai_thread_id(),
+            "ai instrumentation: AI view activation started"
+        );
+    }
+
+    fn complete_ai_view_activation_trace(&mut self, outcome: &'static str) {
+        let Some(started_at) = self.ai_view_activation_started_at.take() else {
+            return;
+        };
+        let workspace_key = self
+            .ai_workspace_key()
+            .unwrap_or_else(|| "<none>".to_string());
+        let thread_count = self.ai_visible_threads().len();
+        tracing::info!(
+            workspace_key = workspace_key.as_str(),
+            outcome,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            connection_state = ?self.ai_connection_state,
+            bootstrap_loading = self.ai_bootstrap_loading,
+            thread_count,
+            selected_thread_id = ?self.current_ai_thread_id(),
+            "ai instrumentation: AI view activation ready"
+        );
+    }
+
+    fn fail_ai_view_activation_trace(
+        &mut self,
+        outcome: &'static str,
+        message: Option<&str>,
+    ) {
+        let Some(started_at) = self.ai_view_activation_started_at.take() else {
+            return;
+        };
+        let workspace_key = self
+            .ai_workspace_key()
+            .unwrap_or_else(|| "<none>".to_string());
+        tracing::warn!(
+            workspace_key = workspace_key.as_str(),
+            outcome,
+            elapsed_ms = started_at.elapsed().as_millis() as u64,
+            connection_state = ?self.ai_connection_state,
+            bootstrap_loading = self.ai_bootstrap_loading,
+            message = message.unwrap_or(""),
+            "ai instrumentation: AI view activation failed"
+        );
+    }
+
     fn start_ai_event_listener(
         &mut self,
         event_rx: std::sync::mpsc::Receiver<AiWorkerEvent>,
@@ -142,6 +202,8 @@ impl DiffViewer {
             self.ai_status_message = Some("Codex integration failed".to_string());
             Self::push_error_notification(format!("Codex AI failed: {message}"), cx);
         }
+        let error_message = self.ai_error_message.clone();
+        self.fail_ai_view_activation_trace("event_stream_disconnect", error_message.as_deref());
     }
 
     fn apply_ai_worker_event(&mut self, event: AiWorkerEventPayload, cx: &mut Context<Self>) {
@@ -153,6 +215,7 @@ impl DiffViewer {
             }
             AiWorkerEventPayload::BootstrapCompleted => {
                 self.ai_bootstrap_loading = false;
+                self.complete_ai_view_activation_trace("bootstrap_completed");
             }
             AiWorkerEventPayload::ThreadStarted { thread_id } => {
                 set_pending_thread_start_thread_id(&mut self.ai_pending_thread_start, thread_id);
@@ -170,6 +233,8 @@ impl DiffViewer {
                 self.restore_ai_new_thread_draft_after_failure(cx);
                 self.ai_error_message = Some(message.clone());
                 self.ai_status_message = Some(message);
+                let error_message = self.ai_error_message.clone();
+                self.fail_ai_view_activation_trace("worker_error", error_message.as_deref());
             }
             AiWorkerEventPayload::Fatal(message) => {
                 self.ai_connection_state = AiConnectionState::Failed;
@@ -194,6 +259,7 @@ impl DiffViewer {
                 self.ai_experimental_features.clear();
                 self.ai_collaboration_modes.clear();
                 self.ai_bootstrap_loading = false;
+                self.fail_ai_view_activation_trace("worker_fatal", Some(message.as_str()));
                 Self::push_error_notification(format!("Codex AI failed: {message}"), cx);
             }
         }

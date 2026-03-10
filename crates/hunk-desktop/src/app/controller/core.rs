@@ -396,6 +396,7 @@ impl DiffViewer {
             workspace_view_mode: WorkspaceViewMode::GitWorkspace,
             ai_connection_state: AiConnectionState::Disconnected,
             ai_bootstrap_loading: false,
+            ai_view_activation_started_at: None,
             ai_status_message: None,
             ai_error_message: None,
             ai_state_snapshot: hunk_codex::state::AiState::default(),
@@ -663,6 +664,7 @@ impl DiffViewer {
         view.restore_active_workspace_target_root_from_state(cx);
         view.request_snapshot_refresh(cx);
         view.request_recent_commits_refresh(false, cx);
+        view.preload_ai_runtime_on_startup(cx);
         view.start_auto_refresh(cx);
         view.start_repo_watch(cx);
         view.start_fps_monitor(cx);
