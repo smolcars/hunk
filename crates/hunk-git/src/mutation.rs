@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path};
+use std::process::Command;
 
 use anyhow::{Context as _, Result, anyhow};
 
@@ -277,7 +278,11 @@ fn commit_paths_internal(
 
     stage_changes(&repo, &changes)?;
     let commit_id = create_commit_from_index(&repo, message)?;
-    Ok((changes.len(), created_commit(&repo, commit_id, message)?))
+    let refreshed_repo = open_repo(repo_root)?;
+    Ok((
+        changes.len(),
+        created_commit(&refreshed_repo, commit_id, message)?,
+    ))
 }
 
 fn open_repo(repo_root: &Path) -> Result<git2::Repository> {
@@ -422,23 +427,58 @@ fn has_index_changes(status: git2::Status) -> bool {
 }
 
 fn create_commit_from_index(repo: &git2::Repository, message: &str) -> Result<git2::Oid> {
-    let mut index = repo.index()?;
-    let tree_id = index.write_tree()?;
-    let tree = repo.find_tree(tree_id)?;
-    let signature = repo
-        .signature()
-        .context("Git user.name and user.email must be configured before committing")?;
-    let parents = current_head_commit(repo)?.into_iter().collect::<Vec<_>>();
-    let parent_refs = parents.iter().collect::<Vec<_>>();
+    run_git_commit(repo, message)?;
+    let refreshed_repo = reopen_existing_repo(repo)?;
+    current_head_commit(&refreshed_repo)?
+        .map(|commit| commit.id())
+        .ok_or_else(|| anyhow!("git commit completed without creating a HEAD commit"))
+}
 
-    Ok(repo.commit(
-        Some("HEAD"),
-        &signature,
-        &signature,
-        message,
-        &tree,
-        parent_refs.as_slice(),
-    )?)
+fn run_git_commit(repo: &git2::Repository, message: &str) -> Result<()> {
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| anyhow!("committing without a worktree is not supported"))?;
+    let output = Command::new("git")
+        .current_dir(workdir)
+        .args([
+            "commit",
+            "--quiet",
+            "--cleanup=verbatim",
+            "-m",
+        ])
+        .arg(message)
+        .output()
+        .context("failed to launch git commit")?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(output.stderr.as_slice())
+        .trim()
+        .to_string();
+    let stdout = String::from_utf8_lossy(output.stdout.as_slice())
+        .trim()
+        .to_string();
+    let details = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("git commit exited with status {}", output.status)
+    };
+    Err(anyhow!("git commit failed: {details}"))
+}
+
+fn reopen_existing_repo(repo: &git2::Repository) -> Result<git2::Repository> {
+    if let Some(workdir) = repo.workdir() {
+        return git2::Repository::open(workdir)
+            .with_context(|| format!("failed to reopen Git repository at {}", workdir.display()));
+    }
+
+    let git_dir = repo.path();
+    git2::Repository::open(git_dir)
+        .with_context(|| format!("failed to reopen Git repository at {}", git_dir.display()))
 }
 
 fn created_commit(

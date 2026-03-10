@@ -125,6 +125,40 @@ fn commit_all_records_all_worktree_changes() -> Result<()> {
 }
 
 #[test]
+fn commit_all_respects_repo_override_when_commit_signing_is_disabled() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.configure_signature()?;
+    fixture.set_config_str("gpg.program", "does-not-exist-hunk-signer")?;
+    fixture.set_config_bool("commit.gpgSign", false)?;
+    fixture.write_file("tracked.txt", "base\n")?;
+    fixture.commit_all_git2("initial")?;
+    fixture.write_file("tracked.txt", "base\nupdated\n")?;
+
+    commit_all(fixture.root(), "record all")?;
+
+    assert_eq!(fixture.head_subject()?.as_deref(), Some("record all"));
+    Ok(())
+}
+
+#[test]
+fn commit_all_respects_commit_gpg_sign_config() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.configure_signature()?;
+    fixture.set_config_str("gpg.program", "does-not-exist-hunk-signer")?;
+    fixture.set_config_bool("commit.gpgSign", true)?;
+    fixture.write_file("tracked.txt", "base\n")?;
+    fixture.commit_all_git2("initial")?;
+    fixture.write_file("tracked.txt", "base\nupdated\n")?;
+
+    let err = commit_all(fixture.root(), "record all")
+        .expect_err("commit signing should be delegated to git");
+
+    assert!(err.to_string().contains("git commit failed"));
+    assert_eq!(fixture.head_subject()?.as_deref(), Some("initial"));
+    Ok(())
+}
+
+#[test]
 fn commit_selected_paths_leaves_excluded_changes_dirty() -> Result<()> {
     let fixture = TempGitRepo::new()?;
     fixture.configure_signature()?;
@@ -379,6 +413,20 @@ impl TempGitRepo {
         Ok(())
     }
 
+    fn set_config_bool(&self, key: &str, value: bool) -> Result<()> {
+        let repo = self.repository()?;
+        let mut config = repo.config()?;
+        config.set_bool(key, value)?;
+        Ok(())
+    }
+
+    fn set_config_str(&self, key: &str, value: &str) -> Result<()> {
+        let repo = self.repository()?;
+        let mut config = repo.config()?;
+        config.set_str(key, value)?;
+        Ok(())
+    }
+
     fn write_file(&self, relative: &str, contents: &str) -> Result<()> {
         let path = self.root.join(relative);
         if let Some(parent) = path.parent() {
@@ -433,6 +481,16 @@ impl TempGitRepo {
         index.add_path(Path::new(relative))?;
         index.write()?;
         Ok(())
+    }
+
+    fn head_subject(&self) -> Result<Option<String>> {
+        let repo = self.repository()?;
+        let head = match repo.head() {
+            Ok(head) => head,
+            Err(_) => return Ok(None),
+        };
+        let commit = head.peel_to_commit()?;
+        Ok(commit.summary().map(ToOwned::to_owned))
     }
 
     fn head_commits<'repo>(&self, repo: &'repo Repository) -> Result<Vec<git2::Commit<'repo>>> {
