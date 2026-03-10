@@ -6,6 +6,7 @@ mod ai_helper_tests {
     use super::ai_command_execution_display_details;
     use super::ai_composer_status_tone;
     use super::ai_collaboration_picker_label;
+    use super::ai_should_show_no_turns_empty_state;
     use super::ai_tool_compact_summary;
     use super::ai_thread_display_title;
     use super::ai_thread_status_text;
@@ -115,6 +116,13 @@ mod ai_helper_tests {
         assert_eq!(ai_item_display_label("userMessage"), "User");
         assert_eq!(ai_item_display_label("agentMessage"), "Agent");
         assert_eq!(ai_item_display_label("unknownKind"), "unknownKind");
+    }
+
+    #[test]
+    fn no_turns_empty_state_is_hidden_while_first_prompt_is_pending() {
+        assert!(ai_should_show_no_turns_empty_state(0, false));
+        assert!(!ai_should_show_no_turns_empty_state(0, true));
+        assert!(!ai_should_show_no_turns_empty_state(1, false));
     }
 
     #[test]
