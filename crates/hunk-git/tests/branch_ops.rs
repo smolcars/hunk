@@ -2,11 +2,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use git2::{BranchType, IndexAddOption, Repository, Signature, build::CheckoutBuilder};
+use git2::{
+    BranchType, IndexAddOption, Repository, Signature, WorktreeAddOptions, build::CheckoutBuilder,
+};
 use hunk_domain::config::{ReviewProviderKind, ReviewProviderMapping};
 use hunk_git::branch::{
-    rename_branch, review_url_for_branch, review_url_for_branch_with_provider_map,
-    sanitize_branch_name,
+    RenameBranchIfSafeOutcome, RenameBranchSkipReason, rename_branch,
+    rename_branch_if_current_unpublished, review_url_for_branch,
+    review_url_for_branch_with_provider_map, sanitize_branch_name,
 };
 use hunk_git::git::load_workflow_snapshot;
 use tempfile::TempDir;
@@ -63,6 +66,112 @@ fn rename_branch_rejects_existing_target() -> Result<()> {
     let err = rename_branch(fixture.root(), "feature-old", "feature-existing")
         .expect_err("existing destination should fail");
     assert!(err.to_string().contains("already exists"));
+    Ok(())
+}
+
+#[test]
+fn rename_branch_if_current_unpublished_renames_linked_worktree_branch() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "line one\n")?;
+    fixture.commit_all("initial")?;
+    fixture.checkout_branch("main")?;
+    let worktree_root = fixture.add_worktree("worktree-task", "feature-old")?;
+
+    let outcome = rename_branch_if_current_unpublished(
+        worktree_root.as_path(),
+        "feature-old",
+        "feature-new",
+    )?;
+
+    assert_eq!(outcome, RenameBranchIfSafeOutcome::Renamed);
+    let snapshot = load_workflow_snapshot(worktree_root.as_path())?;
+    assert_eq!(snapshot.branch_name, "feature-new");
+    assert!(
+        snapshot
+            .branches
+            .iter()
+            .any(|branch| { branch.name == "feature-new" && branch.is_current })
+    );
+    assert!(
+        snapshot
+            .branches
+            .iter()
+            .all(|branch| branch.name != "feature-old")
+    );
+    Ok(())
+}
+
+#[test]
+fn rename_branch_if_current_unpublished_skips_when_current_branch_changed() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "line one\n")?;
+    fixture.commit_all("initial")?;
+    fixture.checkout_branch("main")?;
+    let worktree_root = fixture.add_worktree("worktree-task", "feature-old")?;
+    let worktree_repo = Repository::open(worktree_root.as_path())?;
+    let worktree_head = worktree_repo.head()?.peel_to_commit()?;
+    worktree_repo.branch("feature-other", &worktree_head, false)?;
+    worktree_repo.set_head("refs/heads/feature-other")?;
+    let mut checkout = CheckoutBuilder::new();
+    checkout.force();
+    worktree_repo.checkout_head(Some(&mut checkout))?;
+
+    let outcome = rename_branch_if_current_unpublished(
+        worktree_root.as_path(),
+        "feature-old",
+        "feature-new",
+    )?;
+
+    assert_eq!(
+        outcome,
+        RenameBranchIfSafeOutcome::Skipped(RenameBranchSkipReason::CurrentBranchChanged)
+    );
+    let snapshot = load_workflow_snapshot(worktree_root.as_path())?;
+    assert_eq!(snapshot.branch_name, "feature-other");
+    Ok(())
+}
+
+#[test]
+fn rename_branch_if_current_unpublished_skips_published_branch() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "line one\n")?;
+    fixture.commit_all("initial")?;
+    fixture.checkout_branch("feature-old")?;
+    fixture.create_bare_remote("origin")?;
+    fixture.push_current_branch("origin", "feature-old")?;
+    fixture.set_upstream("feature-old", "origin/feature-old")?;
+
+    let outcome =
+        rename_branch_if_current_unpublished(fixture.root(), "feature-old", "feature-new")?;
+
+    assert_eq!(
+        outcome,
+        RenameBranchIfSafeOutcome::Skipped(RenameBranchSkipReason::CurrentBranchPublished)
+    );
+    let snapshot = load_workflow_snapshot(fixture.root())?;
+    assert_eq!(snapshot.branch_name, "feature-old");
+    assert!(snapshot.branch_has_upstream);
+    Ok(())
+}
+
+#[test]
+fn rename_branch_if_current_unpublished_skips_existing_target() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "line one\n")?;
+    fixture.commit_all("initial")?;
+    fixture.checkout_branch("feature-old")?;
+    fixture.checkout_branch("feature-existing")?;
+    fixture.checkout_branch("feature-old")?;
+
+    let outcome =
+        rename_branch_if_current_unpublished(fixture.root(), "feature-old", "feature-existing")?;
+
+    assert_eq!(
+        outcome,
+        RenameBranchIfSafeOutcome::Skipped(RenameBranchSkipReason::TargetAlreadyExists)
+    );
+    let snapshot = load_workflow_snapshot(fixture.root())?;
+    assert_eq!(snapshot.branch_name, "feature-old");
     Ok(())
 }
 
@@ -336,6 +445,20 @@ impl TempGitRepo {
             None,
         )?;
         Ok(())
+    }
+
+    fn add_worktree(&self, registration_name: &str, branch_name: &str) -> Result<PathBuf> {
+        let repo = self.repository()?;
+        let head_commit = repo.head()?.peel_to_commit()?;
+        if repo.find_branch(branch_name, BranchType::Local).is_err() {
+            repo.branch(branch_name, &head_commit, false)?;
+        }
+        let branch = repo.find_branch(branch_name, BranchType::Local)?;
+        let path = self.tempdir.path().join(registration_name);
+        let mut options = WorktreeAddOptions::new();
+        options.reference(Some(branch.get()));
+        repo.worktree(registration_name, path.as_path(), Some(&options))?;
+        Ok(fs::canonicalize(path)?)
     }
 
     fn set_upstream(&self, branch_name: &str, upstream: &str) -> Result<()> {

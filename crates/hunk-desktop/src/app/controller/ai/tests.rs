@@ -15,6 +15,7 @@ mod ai_tests {
     use super::resolved_ai_thread_mode_picker_state;
     use super::ai_attachment_status_message;
     use super::ai_branch_name_for_thread;
+    use super::background_branch_name_for_new_thread;
     use super::ai_thread_catalog_workspace_roots;
     use super::ai_thread_start_mode_for_workspace;
     use super::apply_ai_thread_catalog_to_workspace_state;
@@ -981,7 +982,7 @@ mod ai_tests {
     }
 
     #[test]
-    fn thread_catalog_workspace_roots_keep_visible_primary_checkout_first() {
+    fn thread_catalog_workspace_roots_skip_visible_primary_checkout() {
         let workspace_targets = vec![
             workspace_target(
                 "primary",
@@ -1013,7 +1014,6 @@ mod ai_tests {
         assert_eq!(
             roots,
             vec![
-                PathBuf::from("/repo"),
                 PathBuf::from("/repo/worktrees/task-1"),
                 PathBuf::from("/repo/worktrees/task-2"),
             ]
@@ -2520,14 +2520,15 @@ mod ai_tests {
     }
 
     #[test]
-    fn requested_branch_name_for_worktree_uses_generated_branch_when_available() {
+    fn requested_branch_name_for_worktree_skips_generation() {
+        let fallback = "ai/worktree/fallback".to_string();
         let requested = requested_branch_name_for_new_thread(
             AiNewThreadStartMode::Worktree,
-            "ai/worktree/fallback".to_string(),
-            || Some("ai/worktree/generated".to_string()),
+            fallback.clone(),
+            || panic!("worktree startup should not block on branch generation"),
         );
 
-        assert_eq!(requested, "ai/worktree/generated");
+        assert_eq!(requested, fallback);
     }
 
     #[test]
@@ -2540,6 +2541,50 @@ mod ai_tests {
         );
 
         assert_eq!(requested, fallback);
+    }
+
+    #[test]
+    fn background_branch_name_for_local_thread_skips_generation() {
+        let generated = background_branch_name_for_new_thread(
+            AiNewThreadStartMode::Local,
+            "ai/local/current",
+            || panic!("local thread starts should not generate background branch names"),
+        );
+
+        assert_eq!(generated, None);
+    }
+
+    #[test]
+    fn background_branch_name_for_worktree_uses_generated_branch_when_available() {
+        let generated = background_branch_name_for_new_thread(
+            AiNewThreadStartMode::Worktree,
+            "ai/worktree/current",
+            || Some("ai/worktree/generated".to_string()),
+        );
+
+        assert_eq!(generated.as_deref(), Some("ai/worktree/generated"));
+    }
+
+    #[test]
+    fn background_branch_name_for_worktree_skips_matching_generation() {
+        let generated = background_branch_name_for_new_thread(
+            AiNewThreadStartMode::Worktree,
+            "ai/worktree/current",
+            || Some("ai/worktree/current".to_string()),
+        );
+
+        assert_eq!(generated, None);
+    }
+
+    #[test]
+    fn background_branch_name_for_worktree_skips_missing_generation() {
+        let generated = background_branch_name_for_new_thread(
+            AiNewThreadStartMode::Worktree,
+            "ai/worktree/current",
+            || None,
+        );
+
+        assert_eq!(generated, None);
     }
 
     #[test]
