@@ -21,3 +21,9 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - GPUI text https://gpui-ce.github.io/examples/text/
 - GPUI shadow https://gpui-ce.github.io/examples/shadow/
 - GPUI paths bench https://gpui-ce.github.io/examples/paths-bench/
+
+Important paths:
+- `crates/hunk-codex`: Codex host/process integration, thread service, and AI reducer/state logic.
+- `crates/hunk-git`: shared Git read/write behavior; keep production Git logic here instead of app crates.
+- `crates/hunk-domain`: shared config/state types, markdown preview, and SQLite comment storage/migrations.
+- `crates/hunk-desktop/src/app`: GPUI app entry/types; `controller/` owns behavior, `render/` owns UI, `theme.rs` owns app colors.
