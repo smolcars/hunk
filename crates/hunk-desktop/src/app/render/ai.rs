@@ -109,6 +109,11 @@ impl DiffViewer {
         let ai_open_pr_blocker = self.ai_open_pr_blocker();
         let ai_open_pr_disabled = ai_open_pr_blocker.is_some();
         let ai_open_pr_loading = self.git_action_loading_named("Open PR");
+        let ai_managed_worktree_target = self.ai_current_managed_worktree_target();
+        let ai_delete_worktree_blocker = ai_managed_worktree_target
+            .as_ref()
+            .and_then(|_| self.ai_delete_worktree_blocker());
+        let ai_delete_worktree_loading = self.git_action_loading_named("Delete Worktree");
         let composer_drop_border_color = if model_supports_image_inputs {
             hunk_opacity(cx.theme().accent, is_dark, 0.78, 0.62)
         } else {
@@ -851,6 +856,58 @@ impl DiffViewer {
                                                                         )
                                                                         .into_any_element()
                                                                 })
+                                                                .when_some(
+                                                                    ai_managed_worktree_target
+                                                                        .clone(),
+                                                                    |this, target| {
+                                                                        let view = view.clone();
+                                                                        let tooltip = ai_delete_worktree_blocker
+                                                                            .clone()
+                                                                            .unwrap_or_else(|| {
+                                                                                format!(
+                                                                                    "Delete managed worktree '{}' after the thread is done.",
+                                                                                    target.name
+                                                                                )
+                                                                            });
+                                                                        this.child(
+                                                                            Button::new("ai-delete-worktree")
+                                                                                .compact()
+                                                                                .danger()
+                                                                                .with_size(
+                                                                                    gpui_component::Size::Small,
+                                                                                )
+                                                                                .rounded(px(8.0))
+                                                                                .icon(
+                                                                                    Icon::new(
+                                                                                        IconName::Delete,
+                                                                                    )
+                                                                                    .size(px(14.0)),
+                                                                                )
+                                                                                .label("Delete Worktree")
+                                                                                .tooltip(tooltip)
+                                                                                .loading(
+                                                                                    ai_delete_worktree_loading,
+                                                                                )
+                                                                                .disabled(
+                                                                                    ai_delete_worktree_blocker
+                                                                                        .is_some(),
+                                                                                )
+                                                                                .on_click(
+                                                                                    move |_, window, cx| {
+                                                                                        view.update(
+                                                                                            cx,
+                                                                                            |this, cx| {
+                                                                                                this.ai_confirm_delete_current_worktree_action(
+                                                                                                    window,
+                                                                                                    cx,
+                                                                                                );
+                                                                                            },
+                                                                                        );
+                                                                                    },
+                                                                                ),
+                                                                        )
+                                                                    },
+                                                                )
                                                                 .when(self.ai_mad_max_mode, |this| {
                                                                     this.child(
                                                                         div()

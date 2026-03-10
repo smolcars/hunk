@@ -1912,6 +1912,28 @@ impl DiffViewer {
         }
     }
 
+    pub(super) fn shutdown_ai_runtime_for_workspace_blocking(&mut self, workspace_key: &str) {
+        if self.ai_worker_workspace_key.as_deref() == Some(workspace_key) {
+            if let Some(command_tx) = self.ai_command_tx.take() {
+                let _ = command_tx.send(AiWorkerCommand::Shutdown);
+            }
+            self.ai_worker_workspace_key = None;
+            self.ai_connection_state = AiConnectionState::Disconnected;
+            self.ai_bootstrap_loading = false;
+            self.ai_event_task = Task::ready(());
+            self.join_ai_worker_thread("deleting managed AI worktree");
+        }
+
+        if let Some(hidden) = self.ai_hidden_runtimes.remove(workspace_key) {
+            let _ = hidden.command_tx.send(AiWorkerCommand::Shutdown);
+            if let Err(error) = hidden.worker_thread.join() {
+                error!(
+                    "failed to join hidden AI worker thread during managed worktree deletion for {workspace_key}: {error:?}"
+                );
+            }
+        }
+    }
+
     fn join_ai_worker_thread_if_finished(&mut self, reason: &str) {
         let Some(worker) = self.ai_worker_thread.take() else {
             return;

@@ -224,6 +224,37 @@ pub fn create_managed_worktree(
     )
 }
 
+pub fn remove_managed_worktree(path: &Path) -> Result<()> {
+    let target_root = canonicalize_existing_path(discover_repo_root(path)?.as_path())?;
+    let primary_root = primary_repo_root(path)?;
+    if target_root == primary_root {
+        return Err(anyhow!("primary checkout cannot be removed as a worktree"));
+    }
+    if !path_is_within_managed_worktrees(primary_root.as_path(), target_root.as_path())? {
+        return Err(anyhow!("only Hunk-managed linked worktrees can be removed"));
+    }
+
+    ensure_worktree_is_clean(target_root.as_path())?;
+
+    let repo = open_repository(target_root.as_path())?;
+    let worktree = git2::Worktree::open_from_repository(&repo)
+        .context("failed to resolve linked worktree metadata for removal")?;
+    if let git2::WorktreeLockStatus::Locked(reason) = worktree.is_locked()? {
+        let detail = reason.unwrap_or_else(|| "worktree is locked".to_string());
+        return Err(anyhow!("cannot remove locked worktree: {detail}"));
+    }
+
+    let mut prune_options = git2::WorktreePruneOptions::new();
+    prune_options.valid(true).working_tree(true);
+    worktree.prune(Some(&mut prune_options)).with_context(|| {
+        format!(
+            "failed to remove managed worktree at {}",
+            target_root.display()
+        )
+    })?;
+    Ok(())
+}
+
 fn primary_workspace_target_summary(
     primary_root: &Path,
     active_root: &Path,
@@ -272,6 +303,37 @@ fn checked_out_branch_name(path: &Path) -> Result<String> {
         Err(err) if err.code() == git2::ErrorCode::UnbornBranch => "unborn".to_string(),
         Err(_) => "detached".to_string(),
     })
+}
+
+fn ensure_worktree_is_clean(path: &Path) -> Result<()> {
+    let repo = open_repository(path)?;
+    let mut status_options = git2::StatusOptions::new();
+    status_options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_ignored(false)
+        .include_unmodified(false)
+        .renames_head_to_index(false)
+        .renames_index_to_workdir(false);
+
+    let statuses = repo.statuses(Some(&mut status_options)).with_context(|| {
+        format!(
+            "failed to inspect worktree changes before removing {}",
+            path.display()
+        )
+    })?;
+    if statuses.iter().any(|entry| entry.status().is_conflicted()) {
+        return Err(anyhow!(
+            "cannot remove worktree with conflicted changes; resolve or discard them first"
+        ));
+    }
+    if !statuses.is_empty() {
+        return Err(anyhow!(
+            "cannot remove worktree with uncommitted changes; commit, stash, or discard them first"
+        ));
+    }
+
+    Ok(())
 }
 
 fn open_repository(path: &Path) -> Result<Repository> {
