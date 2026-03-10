@@ -440,12 +440,7 @@ fn run_git_commit(repo: &git2::Repository, message: &str) -> Result<()> {
         .ok_or_else(|| anyhow!("committing without a worktree is not supported"))?;
     let output = Command::new("git")
         .current_dir(workdir)
-        .args([
-            "commit",
-            "--quiet",
-            "--cleanup=verbatim",
-            "-m",
-        ])
+        .args(["commit", "--quiet", "--cleanup=verbatim", "-m"])
         .arg(message)
         .output()
         .context("failed to launch git commit")?;

@@ -520,6 +520,21 @@ fn should_sync_selected_thread_from_active_thread(
     selected_thread_id.is_none_or(|selected| !state.threads.contains_key(selected))
 }
 
+fn current_visible_thread_fallback_workspace_key(
+    visible_workspace_key: Option<&str>,
+    selected_thread_workspace_root: Option<&std::path::Path>,
+    draft_workspace_key: Option<&str>,
+) -> Option<String> {
+    visible_workspace_key
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            selected_thread_workspace_root.map(|workspace_root| {
+                workspace_root.to_string_lossy().to_string()
+            })
+        })
+        .or_else(|| draft_workspace_key.map(ToOwned::to_owned))
+}
+
 fn current_visible_thread_id_from_snapshot(
     state: &hunk_codex::state::AiState,
     selected_thread_id: Option<&str>,
