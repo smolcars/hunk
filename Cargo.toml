@@ -7,3 +7,7 @@ members = [
 ]
 default-members = ["crates/hunk-desktop"]
 resolver = "2"
+
+[profile.ci]
+inherits = "dev"
+debug = 0
