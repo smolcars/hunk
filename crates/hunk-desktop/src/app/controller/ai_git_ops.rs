@@ -207,6 +207,7 @@ impl DiffViewer {
             self.ai_handle_workspace_change_to(previous_workspace_key, next_workspace_key, cx);
         }
 
+        self.invalidate_ai_thread_catalog_refresh();
         self.shutdown_ai_runtime_for_workspace_blocking(context.workspace_key.as_str());
 
         let epoch = self.begin_git_action("Delete Worktree", cx);

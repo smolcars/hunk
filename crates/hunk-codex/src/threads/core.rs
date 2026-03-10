@@ -157,6 +157,7 @@ impl ThreadService {
         limit: Option<u32>,
         timeout: Duration,
     ) -> Result<ThreadListResponse> {
+        let workspace_cwd = self.cwd_key();
         let params = ThreadListParams {
             cursor,
             limit,
@@ -164,15 +165,44 @@ impl ThreadService {
             model_providers: None,
             source_kinds: None,
             archived: Some(false),
-            cwd: Some(self.cwd_key()),
+            cwd: Some(workspace_cwd.clone()),
             search_term: None,
         };
 
         let mut response: ThreadListResponse =
             session.request_typed(api::method::THREAD_LIST, Some(&params), timeout)?;
+        let raw_count = response.data.len();
+        let raw_threads = response
+            .data
+            .iter()
+            .take(20)
+            .map(|thread| format!("{}@{}", thread.id, thread.cwd.display()))
+            .collect::<Vec<_>>();
+        let dropped_threads = response
+            .data
+            .iter()
+            .filter(|thread| !self.thread_matches_workspace(thread))
+            .take(20)
+            .map(|thread| format!("{}@{}", thread.id, thread.cwd.display()))
+            .collect::<Vec<_>>();
         response
             .data
             .retain(|thread| self.thread_matches_workspace(thread));
+        let filtered_threads = response
+            .data
+            .iter()
+            .take(20)
+            .map(|thread| format!("{}@{}", thread.id, thread.cwd.display()))
+            .collect::<Vec<_>>();
+        tracing::debug!(
+            cwd = workspace_cwd.as_str(),
+            raw_count,
+            filtered_count = response.data.len(),
+            raw_threads = ?raw_threads,
+            dropped_threads = ?dropped_threads,
+            filtered_threads = ?filtered_threads,
+            "thread/list workspace reconciliation"
+        );
         for thread in &response.data {
             self.ingest_thread_snapshot(thread);
         }

@@ -19,13 +19,85 @@ fn sorted_threads(state: &hunk_codex::state::AiState) -> Vec<ThreadSummary> {
     threads
 }
 
-fn ai_thread_workspace_is_visible_or_known(
-    thread: &ThreadSummary,
-    visible_workspace_key: Option<&str>,
-    known_workspace_keys: &BTreeSet<String>,
-) -> bool {
-    visible_workspace_key == Some(thread.cwd.as_str())
-        || known_workspace_keys.contains(thread.cwd.as_str())
+fn state_snapshot_workspace_key(
+    state_snapshot: &hunk_codex::state::AiState,
+    selected_thread_id: Option<&str>,
+    worker_workspace_key: Option<&str>,
+    draft_workspace_key: Option<&str>,
+    new_thread_draft_active: bool,
+    pending_new_thread_selection: bool,
+) -> Option<String> {
+    if let Some(selected_thread_id) = selected_thread_id
+        && let Some(thread) = state_snapshot.threads.get(selected_thread_id)
+        && thread.status != ThreadLifecycleStatus::Archived
+    {
+        return Some(thread.cwd.clone());
+    }
+
+    let mut thread_workspace_keys = state_snapshot
+        .threads
+        .values()
+        .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
+        .map(|thread| thread.cwd.as_str())
+        .collect::<BTreeSet<_>>();
+    if thread_workspace_keys.len() == 1 {
+        return thread_workspace_keys
+            .pop_first()
+            .map(std::string::ToString::to_string);
+    }
+
+    if new_thread_draft_active || pending_new_thread_selection {
+        return draft_workspace_key.map(std::string::ToString::to_string);
+    }
+
+    worker_workspace_key.map(std::string::ToString::to_string)
+}
+
+fn merged_ai_visible_threads(
+    state_snapshot: &hunk_codex::state::AiState,
+    state_snapshot_workspace_key: Option<&str>,
+    workspace_states: &std::collections::BTreeMap<String, AiWorkspaceState>,
+) -> Vec<ThreadSummary> {
+    let mut threads_by_id = BTreeMap::<String, ThreadSummary>::new();
+
+    for thread in state_snapshot
+        .threads
+        .values()
+        .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
+    {
+        threads_by_id.insert(thread.id.clone(), thread.clone());
+    }
+
+    for (workspace_key, state) in workspace_states {
+        if state_snapshot_workspace_key == Some(workspace_key.as_str()) {
+            continue;
+        }
+        for thread in state
+            .state_snapshot
+            .threads
+            .values()
+            .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
+        {
+            let replace_existing = threads_by_id
+                .get(thread.id.as_str())
+                .is_none_or(|existing| {
+                    (thread.updated_at, thread.created_at, thread.id.as_str())
+                        > (existing.updated_at, existing.created_at, existing.id.as_str())
+                });
+            if replace_existing {
+                threads_by_id.insert(thread.id.clone(), thread.clone());
+            }
+        }
+    }
+
+    let mut threads = threads_by_id.into_values().collect::<Vec<_>>();
+    threads.sort_by(|left, right| {
+        right
+            .created_at
+            .cmp(&left.created_at)
+            .then_with(|| right.id.cmp(&left.id))
+    });
+    threads
 }
 
 fn workspace_mad_max_mode(state: &AppState, workspace_key: Option<&str>) -> bool {

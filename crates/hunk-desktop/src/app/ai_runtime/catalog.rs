@@ -51,6 +51,16 @@ fn load_ai_workspace_thread_catalogs_on_port(
         .first()
         .cloned()
         .expect("workspace roots should be present");
+    tracing::debug!(
+        port,
+        host_working_directory = %host_working_directory.display(),
+        shared_host_working_directory = %shared_ai_host_working_directory(host_working_directory.as_path()).display(),
+        workspace_roots = ?workspace_roots
+            .iter()
+            .map(|root| root.display().to_string())
+            .collect::<Vec<_>>(),
+        "loading AI workspace thread catalogs on shared host"
+    );
     let host_config = HostConfig::codex_app_server(
         codex_executable.to_path_buf(),
         shared_ai_host_working_directory(host_working_directory.as_path()),
@@ -61,11 +71,21 @@ fn load_ai_workspace_thread_catalogs_on_port(
 
     (|| {
         let endpoint = WebSocketEndpoint::loopback(host.port());
-        let mut session = JsonRpcSession::connect(&endpoint)?;
-        session.initialize(InitializeOptions::default(), DEFAULT_REQUEST_TIMEOUT)?;
-
         let mut catalogs = Vec::with_capacity(workspace_roots.len());
         for workspace_root in workspace_roots {
+            if !workspace_root_exists_for_catalog(workspace_root.as_path()) {
+                tracing::debug!(
+                    workspace_root = %workspace_root.display(),
+                    "skipping AI thread catalog refresh for missing workspace root"
+                );
+                continue;
+            }
+            tracing::debug!(
+                workspace_root = %workspace_root.display(),
+                "refreshing AI thread catalog for workspace root"
+            );
+            let mut session = JsonRpcSession::connect(&endpoint)?;
+            session.initialize(InitializeOptions::default(), DEFAULT_REQUEST_TIMEOUT)?;
             let mut service = ThreadService::new(workspace_root.clone());
             let response = match service.list_threads(
                 &mut session,
@@ -83,6 +103,26 @@ fn load_ai_workspace_thread_catalogs_on_port(
                 }
             };
             let workspace_key = workspace_root.to_string_lossy().to_string();
+            let thread_summaries = response
+                .data
+                .iter()
+                .take(20)
+                .map(|thread| {
+                    format!(
+                        "{}@{} updated_at={}",
+                        thread.id,
+                        thread.cwd.display(),
+                        thread.updated_at
+                    )
+                })
+                .collect::<Vec<_>>();
+            tracing::debug!(
+                workspace_key = workspace_key.as_str(),
+                thread_count = response.data.len(),
+                active_thread_id = ?service.active_thread_for_workspace(),
+                threads = ?thread_summaries,
+                "AI thread catalog workspace refresh result"
+            );
 
             if service.active_thread_for_workspace().is_none()
                 && let Some(first_thread) = response.data.first()
@@ -99,6 +139,49 @@ fn load_ai_workspace_thread_catalogs_on_port(
             });
         }
 
+        tracing::debug!(
+            catalog_count = catalogs.len(),
+            catalogs = ?catalogs
+                .iter()
+                .map(|catalog| format!(
+                    "{} threads={} active={:?}",
+                    catalog.workspace_key,
+                    catalog.state_snapshot.threads.len(),
+                    catalog.active_thread_id
+                ))
+                .collect::<Vec<_>>(),
+            "completed AI workspace thread catalog load"
+        );
+
         Ok(catalogs)
     })()
+}
+
+fn workspace_root_exists_for_catalog(workspace_root: &std::path::Path) -> bool {
+    workspace_root.exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workspace_root_exists_for_catalog;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn missing_workspace_root_is_skipped_from_catalog_refresh() {
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "hunk-ai-runtime-catalog-test-{unique_suffix}"
+        ));
+        let existing = temp_dir.join("workspace");
+        std::fs::create_dir_all(&existing).expect("workspace dir should exist");
+        let missing = temp_dir.join("missing-workspace");
+
+        assert!(workspace_root_exists_for_catalog(existing.as_path()));
+        assert!(!workspace_root_exists_for_catalog(missing.as_path()));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

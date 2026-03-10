@@ -895,6 +895,23 @@ impl DiffViewer {
                         })
                     })
                     .or(primary_target_id);
+                tracing::debug!(
+                    source_root = %source_root.display(),
+                    target_count = targets.len(),
+                    next_active_target_id = ?next_active_target_id,
+                    targets = ?targets
+                        .iter()
+                        .map(|target| format!(
+                            "{} kind={:?} root={} branch={} active={}",
+                            target.id,
+                            target.kind,
+                            target.root.display(),
+                            target.branch_name,
+                            next_active_target_id.as_deref() == Some(target.id.as_str())
+                        ))
+                        .collect::<Vec<_>>(),
+                    "refreshed workspace targets from git state"
+                );
                 self.workspace_targets = targets;
                 self.active_workspace_target_id = next_active_target_id;
                 self.persist_active_workspace_target_id();
