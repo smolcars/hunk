@@ -580,29 +580,6 @@ impl DiffViewer {
                                                             }),
                                                     ),
                                             )
-                                            .when_some(
-                                                self.ai_thread_inline_toast.clone(),
-                                                |this, message| {
-                                                    this.child(
-                                                        div()
-                                                            .w_full()
-                                                            .px_2()
-                                                            .pt_2()
-                                                            .child(
-                                                                div()
-                                                                .rounded_md()
-                                                                .border_1()
-                                                                    .border_color(hunk_opacity(cx.theme().success, is_dark, 0.82, 0.62))
-                                                                    .bg(hunk_opacity(cx.theme().success, is_dark, 0.18, 0.10))
-                                                                    .px_2()
-                                                                    .py_1()
-                                                                    .text_xs()
-                                                                    .text_color(cx.theme().success)
-                                                                    .child(message),
-                                                            ),
-                                                    )
-                                                },
-                                            )
                                             .child(
                                                 div()
                                                     .flex_1()

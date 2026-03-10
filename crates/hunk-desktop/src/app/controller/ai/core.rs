@@ -1557,7 +1557,6 @@ impl DiffViewer {
         self.ai_pending_thread_start = state.pending_thread_start;
         self.ai_scroll_timeline_to_bottom = false;
         self.ai_timeline_follow_output = state.timeline_follow_output;
-        self.ai_thread_inline_toast = None;
         self.ai_thread_title_refresh_state_by_thread = state.thread_title_refresh_state_by_thread;
         self.ai_timeline_visible_turn_limit_by_thread = state.timeline_visible_turn_limit_by_thread;
         self.ai_in_progress_turn_started_at = state.in_progress_turn_started_at;

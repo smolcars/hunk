@@ -148,11 +148,14 @@ impl DiffViewer {
         let worktree_path = context.worktree_root.display().to_string();
         let view = cx.entity();
 
-        gpui_component::WindowExt::open_dialog(window, cx, move |dialog, _, cx| {
-            dialog
-                .title(div().text_lg().font_semibold().child("Delete Worktree?"))
-                .close_button(false)
-                .overlay_closable(false)
+        gpui_component::WindowExt::open_alert_dialog(window, cx, move |alert, _, cx| {
+            alert
+                .width(px(460.0))
+                .title("Delete Worktree?")
+                .description(format!(
+                    "Remove worktree '{}' for branch '{}'? This deletes the checkout at {}.",
+                    worktree_name, branch_name, worktree_path
+                ))
                 .button_props(
                     gpui_component::dialog::DialogButtonProps::default()
                         .ok_text("Delete Worktree")
@@ -161,26 +164,12 @@ impl DiffViewer {
                         .show_cancel(true),
                 )
                 .child(
-                    v_flex()
-                        .gap_3()
-                        .w(px(440.0))
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().danger)
+                        .whitespace_normal()
                         .child(
-                            div()
-                                .text_sm()
-                                .whitespace_normal()
-                                .child(format!(
-                                    "Remove worktree '{}' for branch '{}'? This deletes the checkout at {}.",
-                                    worktree_name, branch_name, worktree_path
-                                )),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().danger)
-                                .whitespace_normal()
-                                .child(
-                                    "The branch is kept, but any uncommitted changes in the worktree must be cleared before deletion.",
-                                ),
+                            "The branch is kept, but any uncommitted changes in the worktree must be cleared before deletion.",
                         ),
                 )
                 .on_ok({
@@ -221,11 +210,24 @@ impl DiffViewer {
         self.shutdown_ai_runtime_for_workspace_blocking(context.workspace_key.as_str());
 
         let epoch = self.begin_git_action("Delete Worktree", cx);
+        self.begin_ai_git_progress(
+            epoch,
+            AiGitProgressAction::DeleteWorktree,
+            ai_delete_worktree_progress_steps(),
+            AiGitProgressStep::RemovingWorktree,
+            Some(format!(
+                "Removing {} at {}",
+                context.worktree_name,
+                context.worktree_root.display()
+            )),
+            cx,
+        );
         let started_at = Instant::now();
         let workspace_key = context.workspace_key.clone();
         let worktree_root = context.worktree_root.clone();
         let worktree_name = context.worktree_name.clone();
         let thread_id = context.thread_id.clone();
+        self.git_status_message = Some(format!("Deleting worktree {}...", worktree_name));
         self.git_action_task = cx.spawn(async move |this, cx| {
             let result = cx.background_executor().spawn(async move {
                 hunk_git::worktree::remove_managed_worktree(worktree_root.as_path())
@@ -253,7 +255,6 @@ impl DiffViewer {
                             this.refresh_workspace_targets_from_git_state(cx);
                             this.refresh_after_git_action("Delete Worktree", cx);
                             let message = format!("Deleted worktree {}", worktree_name);
-                            this.ai_thread_inline_toast = Some(message.clone());
                             this.git_status_message = Some(message.clone());
                             Self::push_success_notification(message, cx);
                             cx.notify();

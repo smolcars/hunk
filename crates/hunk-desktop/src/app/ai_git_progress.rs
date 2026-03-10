@@ -2,6 +2,7 @@
 pub(crate) enum AiGitProgressAction {
     CommitAndPush,
     OpenPr,
+    DeleteWorktree,
 }
 
 impl AiGitProgressAction {
@@ -9,6 +10,7 @@ impl AiGitProgressAction {
         match self {
             Self::CommitAndPush => "Commit and Push",
             Self::OpenPr => "Open PR",
+            Self::DeleteWorktree => "Delete Worktree",
         }
     }
 
@@ -16,6 +18,9 @@ impl AiGitProgressAction {
         match self {
             Self::CommitAndPush => "Publishing the current AI thread to the active branch.",
             Self::OpenPr => "Publishing changes and opening the review in your browser.",
+            Self::DeleteWorktree => {
+                "Removing the managed worktree checkout and cleaning up its AI state."
+            }
         }
     }
 }
@@ -29,6 +34,7 @@ pub(crate) enum AiGitProgressStep {
     PushingBranch,
     PreparingReviewUrl,
     OpeningBrowser,
+    RemovingWorktree,
 }
 
 impl AiGitProgressStep {
@@ -41,6 +47,7 @@ impl AiGitProgressStep {
             Self::PushingBranch => "Pushing branch...",
             Self::PreparingReviewUrl => "Preparing review URL...",
             Self::OpeningBrowser => "Opening review in browser...",
+            Self::RemovingWorktree => "Deleting worktree checkout...",
         }
     }
 }
@@ -99,4 +106,8 @@ pub(crate) fn ai_open_pr_progress_steps(create_review_branch: bool) -> Vec<AiGit
         AiGitProgressStep::OpeningBrowser,
     ]);
     steps
+}
+
+pub(crate) fn ai_delete_worktree_progress_steps() -> Vec<AiGitProgressStep> {
+    vec![AiGitProgressStep::RemovingWorktree]
 }
