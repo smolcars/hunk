@@ -4,7 +4,7 @@ mod ai_git_progress;
 
 use ai_git_progress::{
     AiGitProgressAction, AiGitProgressState, AiGitProgressStep, ai_commit_and_push_progress_steps,
-    ai_open_pr_progress_steps,
+    ai_delete_worktree_progress_steps, ai_open_pr_progress_steps,
 };
 
 #[test]
@@ -51,6 +51,19 @@ fn open_pr_progress_steps_skip_branch_creation_for_worktree_threads() {
             AiGitProgressStep::PushingBranch,
             AiGitProgressStep::PreparingReviewUrl,
             AiGitProgressStep::OpeningBrowser,
+        ]
+    );
+}
+
+#[test]
+fn delete_worktree_progress_steps_archive_before_removal() {
+    let steps = ai_delete_worktree_progress_steps();
+
+    assert_eq!(
+        steps,
+        vec![
+            AiGitProgressStep::ArchivingThread,
+            AiGitProgressStep::RemovingWorktree,
         ]
     );
 }

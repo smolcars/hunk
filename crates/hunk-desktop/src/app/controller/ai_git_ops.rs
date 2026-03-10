@@ -190,6 +190,24 @@ impl DiffViewer {
         context: AiManagedWorktreeDeleteContext,
         cx: &mut Context<Self>,
     ) {
+        let Some(codex_home) = resolve_codex_home_path() else {
+            let message =
+                "Delete worktree unavailable: unable to resolve Codex home for thread archive."
+                    .to_string();
+            self.git_status_message = Some(message.clone());
+            Self::push_warning_notification(message, None, cx);
+            cx.notify();
+            return;
+        };
+        let codex_executable = Self::resolve_codex_executable_path();
+        if let Err(error) = Self::validate_codex_executable_path(codex_executable.as_path()) {
+            let message = format!("Delete worktree unavailable: {error}");
+            self.git_status_message = Some(message.clone());
+            Self::push_warning_notification(message, None, cx);
+            cx.notify();
+            return;
+        }
+
         let previous_workspace_key = self.ai_workspace_key();
         let restore_selection_after_failure =
             previous_workspace_key.as_deref() == Some(context.workspace_key.as_str());
@@ -208,18 +226,16 @@ impl DiffViewer {
         }
 
         self.invalidate_ai_thread_catalog_refresh();
-        self.shutdown_ai_runtime_for_workspace_blocking(context.workspace_key.as_str());
 
         let epoch = self.begin_git_action("Delete Worktree", cx);
         self.begin_ai_git_progress(
             epoch,
             AiGitProgressAction::DeleteWorktree,
             ai_delete_worktree_progress_steps(),
-            AiGitProgressStep::RemovingWorktree,
-            Some(format!(
-                "Removing {} at {}",
-                context.worktree_name,
-                context.worktree_root.display()
+            AiGitProgressStep::ArchivingThread,
+            Some(ai_thread_progress_detail(
+                "Thread",
+                context.thread_id.as_str(),
             )),
             cx,
         );
@@ -228,12 +244,52 @@ impl DiffViewer {
         let worktree_root = context.worktree_root.clone();
         let worktree_name = context.worktree_name.clone();
         let thread_id = context.thread_id.clone();
-        self.git_status_message = Some(format!("Deleting worktree {}...", worktree_name));
+        let worktree_progress_detail = format!(
+            "Removing {} at {}",
+            worktree_name,
+            worktree_root.display()
+        );
+        self.git_status_message =
+            Some(format!("Archiving thread and deleting worktree {}...", worktree_name));
         self.git_action_task = cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move {
-                hunk_git::worktree::remove_managed_worktree(worktree_root.as_path())
+            let (progress_tx, mut progress_rx) = mpsc::unbounded::<AiGitProgressEvent>();
+            let background_thread_id = thread_id.clone();
+            let git_task = cx.background_executor().spawn(async move {
+                let execution_started_at = Instant::now();
+                let mut archived_thread = false;
+                let result = (|| -> anyhow::Result<()> {
+                    crate::app::ai_runtime::archive_ai_thread_for_workspace(
+                        worktree_root.as_path(),
+                        background_thread_id.as_str(),
+                        codex_executable.as_path(),
+                        codex_home.as_path(),
+                    )
+                    .with_context(|| {
+                        format!("failed to archive thread {}", background_thread_id)
+                    })?;
+                    archived_thread = true;
+
+                    send_ai_git_progress(
+                        &progress_tx,
+                        AiGitProgressStep::RemovingWorktree,
+                        Some(worktree_progress_detail),
+                    );
+                    hunk_git::worktree::remove_managed_worktree(worktree_root.as_path())?;
+                    Ok(())
+                })();
+
+                (execution_started_at.elapsed(), archived_thread, result)
             });
-            let result = result.await;
+
+            while let Some(update) = progress_rx.next().await {
+                let Some(this) = this.upgrade() else {
+                    break;
+                };
+                this.update(cx, move |this, cx| {
+                    this.apply_ai_git_progress(epoch, update, cx);
+                });
+            }
+            let (execution_elapsed, archived_thread, result) = git_task.await;
 
             if let Some(this) = this.upgrade() {
                 this.update(cx, |this, cx| {
@@ -246,16 +302,19 @@ impl DiffViewer {
                     match result {
                         Ok(()) => {
                             debug!(
-                                "git action complete: epoch={} action=Delete Worktree total_elapsed_ms={} worktree={} workspace_key={}",
+                                "git action complete: epoch={} action=Delete Worktree exec_elapsed_ms={} total_elapsed_ms={} worktree={} workspace_key={} archived_thread=true",
                                 epoch,
+                                execution_elapsed.as_millis(),
                                 total_elapsed.as_millis(),
                                 worktree_name,
                                 workspace_key
                             );
+                            this.shutdown_ai_runtime_for_workspace_blocking(workspace_key.as_str());
                             this.ai_forget_deleted_workspace_state(workspace_key.as_str());
                             this.refresh_workspace_targets_from_git_state(cx);
                             this.refresh_after_git_action("Delete Worktree", cx);
-                            let message = format!("Deleted worktree {}", worktree_name);
+                            let message =
+                                format!("Archived thread and deleted worktree {}", worktree_name);
                             this.git_status_message = Some(message.clone());
                             Self::push_success_notification(message, cx);
                             cx.notify();
@@ -263,18 +322,22 @@ impl DiffViewer {
                         Err(err) => {
                             let summary = err.to_string();
                             debug!(
-                                "git action failed: epoch={} action=Delete Worktree total_elapsed_ms={} worktree={} workspace_key={} err={err:#}",
+                                "git action failed: epoch={} action=Delete Worktree exec_elapsed_ms={} total_elapsed_ms={} worktree={} workspace_key={} archived_thread={} err={err:#}",
                                 epoch,
+                                execution_elapsed.as_millis(),
                                 total_elapsed.as_millis(),
                                 worktree_name,
-                                workspace_key
+                                workspace_key,
+                                archived_thread
                             );
-                            if restore_selection_after_failure {
-                                this.ai_restore_workspace_after_failed_delete(
+                            if archived_thread {
+                                this.ai_mark_thread_archived_for_workspace(
                                     workspace_key.as_str(),
                                     thread_id.as_str(),
-                                    cx,
                                 );
+                            }
+                            if restore_selection_after_failure {
+                                this.ai_restore_workspace_after_failed_delete(workspace_key.as_str(), cx);
                             }
                             let message = format!("Delete worktree failed: {summary}");
                             this.git_status_message = Some(message.clone());
@@ -290,16 +353,47 @@ impl DiffViewer {
     fn ai_restore_workspace_after_failed_delete(
         &mut self,
         workspace_key: &str,
-        thread_id: &str,
         cx: &mut Context<Self>,
     ) {
         let current_workspace_key = self.ai_workspace_key();
-        self.ai_selected_thread_id = Some(thread_id.to_string());
-        self.ai_handle_workspace_change_to(
-            current_workspace_key,
-            Some(workspace_key.to_string()),
-            cx,
-        );
+        self.ai_handle_workspace_change_to(current_workspace_key, Some(workspace_key.to_string()), cx);
+    }
+
+    fn ai_mark_thread_archived_for_workspace(&mut self, workspace_key: &str, thread_id: &str) {
+        let Some(state) = self.ai_workspace_states.get_mut(workspace_key) else {
+            return;
+        };
+        let Some(thread) = state.state_snapshot.threads.get_mut(thread_id) else {
+            return;
+        };
+        thread.status = ThreadLifecycleStatus::Archived;
+
+        if state.state_snapshot.active_thread_for_cwd(workspace_key) == Some(thread_id) {
+            state.state_snapshot.active_thread_by_cwd.remove(workspace_key);
+            if let Some(next_thread_id) = state
+                .state_snapshot
+                .threads
+                .values()
+                .filter(|thread| {
+                    thread.cwd == workspace_key
+                        && thread.status != ThreadLifecycleStatus::Archived
+                        && thread.id != thread_id
+                })
+                .max_by(|left, right| {
+                    left.created_at
+                        .cmp(&right.created_at)
+                        .then_with(|| left.id.cmp(&right.id))
+                })
+                .map(|thread| thread.id.clone())
+            {
+                state
+                    .state_snapshot
+                    .set_active_thread_for_cwd(workspace_key.to_string(), next_thread_id);
+            }
+        }
+        if state.selected_thread_id.as_deref() == Some(thread_id) {
+            state.selected_thread_id = None;
+        }
     }
 
     fn ai_forget_deleted_workspace_state(&mut self, workspace_key: &str) {
@@ -819,6 +913,10 @@ fn send_ai_git_progress(
 
 fn ai_branch_progress_detail(label: &str, branch_name: &str) -> String {
     format!("{label}: {branch_name}")
+}
+
+fn ai_thread_progress_detail(label: &str, thread_id: &str) -> String {
+    format!("{label}: {thread_id}")
 }
 
 fn ai_commit_progress_detail(subject: &str) -> String {
