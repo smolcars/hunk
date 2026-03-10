@@ -13,6 +13,14 @@ use hunk_domain::state::AppState;
 impl DiffViewer {
     const AI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(33);
 
+    pub(super) fn preload_ai_runtime_on_startup(&mut self, cx: &mut Context<Self>) {
+        if self.ai_workspace_key().is_none() {
+            return;
+        }
+        self.refresh_ai_repo_thread_catalog(cx);
+        self.ensure_ai_runtime_started(cx);
+    }
+
     pub(super) fn ensure_ai_runtime_started(&mut self, cx: &mut Context<Self>) {
         let Some(cwd) = self.ai_workspace_cwd() else {
             self.ai_connection_state = AiConnectionState::Failed;

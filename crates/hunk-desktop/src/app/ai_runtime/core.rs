@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use codex_app_server_protocol::Account;
 use codex_app_server_protocol::AskForApproval;

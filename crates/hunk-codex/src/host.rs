@@ -257,7 +257,6 @@ impl HostRuntime {
         register_tracked_host_process(child.id());
         self.spawn_stderr_reader(&mut child);
         self.child = Some(child);
-
         self.wait_until_ready(timeout)
     }
 

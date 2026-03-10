@@ -151,12 +151,7 @@ fn ai_thread_catalog_workspace_roots(
         .iter()
         .filter_map(|target| {
             let workspace_key = target.root.to_string_lossy().to_string();
-            let visible_primary_checkout = visible_workspace_key == Some(workspace_key.as_str())
-                && matches!(
-                    target.kind,
-                    hunk_git::worktree::WorkspaceTargetKind::PrimaryCheckout
-                );
-            if visible_workspace_key == Some(workspace_key.as_str()) && !visible_primary_checkout {
+            if visible_workspace_key == Some(workspace_key.as_str()) {
                 return None;
             }
             if !seen_workspace_keys.insert(workspace_key) {

@@ -19,9 +19,10 @@ impl AiWorkerRuntime {
                 .state_mut()
                 .set_active_thread_for_cwd(self.workspace_key.clone(), first_thread.id.clone());
         }
-        Ok(thread_id.is_some_and(|thread_id| {
+        let contains_thread = thread_id.is_some_and(|thread_id| {
             response.data.iter().any(|thread| thread.id == thread_id)
-        }))
+        });
+        Ok(contains_thread)
     }
 
     fn update_active_thread_after_archive(&mut self, archived_thread_id: &str) {
@@ -119,8 +120,8 @@ impl AiWorkerRuntime {
         let Some(thread_id) = thread_id else {
             return Ok(());
         };
-
-        self.load_thread_snapshot(thread_id)
+        self.load_thread_snapshot(thread_id.clone())?;
+        Ok(())
     }
 
     fn refresh_session_metadata(&mut self) -> Result<(), CodexIntegrationError> {

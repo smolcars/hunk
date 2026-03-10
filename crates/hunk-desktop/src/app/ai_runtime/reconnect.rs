@@ -1,5 +1,6 @@
 const WORKER_RECONNECT_MAX_ATTEMPTS: usize = 4;
 const WORKER_RECONNECT_INITIAL_BACKOFF: Duration = Duration::from_millis(250);
+const INITIAL_RATE_LIMIT_REFRESH_DELAY: Duration = Duration::from_millis(500);
 
 fn run_ai_worker(
     config: AiWorkerStartConfig,
@@ -7,11 +8,8 @@ fn run_ai_worker(
     event_tx: &Sender<AiWorkerEvent>,
 ) -> Result<(), CodexIntegrationError> {
     let mut runtime = AiWorkerRuntime::bootstrap(config.clone())?;
-    runtime.sync_after_connect(
-        event_tx,
-        "Codex App Server connected over WebSocket",
-        true,
-    )?;
+    runtime.sync_after_connect(event_tx, "Codex App Server connected over WebSocket", true)?;
+    let mut rate_limit_refresh_deadline = Some(Instant::now() + INITIAL_RATE_LIMIT_REFRESH_DELAY);
 
     loop {
         match command_rx.recv_timeout(COMMAND_POLL_INTERVAL) {
@@ -25,6 +23,8 @@ fn run_ai_worker(
                             command_context_message(&retry_command),
                             event_tx,
                         )?;
+                        rate_limit_refresh_deadline =
+                            Some(Instant::now() + INITIAL_RATE_LIMIT_REFRESH_DELAY);
                         if command_can_retry_after_reconnect(&retry_command) {
                             if let Err(error) = runtime.handle_command(retry_command, event_tx) {
                                 runtime.send_event(
@@ -50,6 +50,20 @@ fn run_ai_worker(
                 }
             }
             Err(RecvTimeoutError::Timeout) => {
+                if rate_limit_refresh_deadline
+                    .is_some_and(|deadline| Instant::now() >= deadline)
+                {
+                    if let Err(error) = runtime.refresh_account_rate_limits() {
+                        runtime.send_event(
+                            event_tx,
+                            AiWorkerEventPayload::Status(format!(
+                                "Unable to read account rate limits: {error}"
+                            )),
+                        );
+                    }
+                    runtime.emit_snapshot(event_tx);
+                    rate_limit_refresh_deadline = None;
+                }
                 if let Err(error) = runtime.poll_notifications(event_tx) {
                     if should_attempt_runtime_reconnect(&error) {
                         runtime.reconnect_after_transport_failure(
@@ -57,6 +71,8 @@ fn run_ai_worker(
                             "streaming AI updates",
                             event_tx,
                         )?;
+                        rate_limit_refresh_deadline =
+                            Some(Instant::now() + INITIAL_RATE_LIMIT_REFRESH_DELAY);
                     } else {
                         return Err(error);
                     }
@@ -87,15 +103,6 @@ impl AiWorkerRuntime {
             self.send_event(
                 event_tx,
                 AiWorkerEventPayload::Status(format!("Unable to read account state: {error}")),
-            );
-        }
-        self.emit_snapshot(event_tx);
-        if let Err(error) = self.refresh_account_rate_limits() {
-            self.send_event(
-                event_tx,
-                AiWorkerEventPayload::Status(format!(
-                    "Unable to read account rate limits: {error}"
-                )),
             );
         }
         self.emit_snapshot(event_tx);

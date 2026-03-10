@@ -174,13 +174,7 @@ fn load_ai_workspace_thread_catalogs_on_port(
                 DEFAULT_REQUEST_TIMEOUT,
             ) {
                 Ok(response) => response,
-                Err(error) => {
-                    tracing::debug!(
-                        "skipping AI thread catalog refresh for {}: {error:#}",
-                        workspace_root.display()
-                    );
-                    continue;
-                }
+                Err(_) => continue,
             };
             let workspace_key = workspace_root.to_string_lossy().to_string();
 
