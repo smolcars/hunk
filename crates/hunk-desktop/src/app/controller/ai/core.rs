@@ -1120,10 +1120,19 @@ impl DiffViewer {
     }
 
     pub(super) fn current_ai_thread_id(&self) -> Option<String> {
+        let selected_thread_workspace_root = self
+            .ai_selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.ai_thread_workspace_root(thread_id));
+        let fallback_workspace_key = current_visible_thread_fallback_workspace_key(
+            self.ai_worker_workspace_key.as_deref(),
+            selected_thread_workspace_root.as_deref(),
+            self.ai_workspace_key_for_draft().as_deref(),
+        );
         current_visible_thread_id_from_snapshot(
             &self.ai_state_snapshot,
             self.ai_selected_thread_id.as_deref(),
-            self.ai_workspace_key_for_draft().as_deref(),
+            fallback_workspace_key.as_deref(),
             self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection,
         )
     }

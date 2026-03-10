@@ -22,6 +22,7 @@ mod ai_tests {
     use super::codex_runtime_binary_name;
     use super::codex_runtime_platform_dir;
     use super::current_visible_thread_id_from_snapshot;
+    use super::current_visible_thread_fallback_workspace_key;
     use super::drain_ai_worker_events;
     use super::group_ai_timeline_rows_for_thread;
     use super::item_status_chip;
@@ -524,6 +525,85 @@ mod ai_tests {
             )
             .as_deref(),
             Some("thread-active")
+        );
+    }
+
+    #[test]
+    fn current_visible_thread_fallback_workspace_key_prefers_visible_workspace_over_stale_draft() {
+        assert_eq!(
+            current_visible_thread_fallback_workspace_key(
+                Some("/repo"),
+                None,
+                Some("/repo/worktrees/task-1"),
+            )
+            .as_deref(),
+            Some("/repo")
+        );
+    }
+
+    #[test]
+    fn current_visible_thread_fallback_workspace_key_prefers_selected_thread_workspace_over_stale_draft() {
+        assert_eq!(
+            current_visible_thread_fallback_workspace_key(
+                None,
+                Some(std::path::Path::new("/repo")),
+                Some("/repo/worktrees/task-1"),
+            )
+            .as_deref(),
+            Some("/repo")
+        );
+    }
+
+    #[test]
+    fn current_visible_thread_id_from_snapshot_uses_visible_workspace_before_stale_draft_workspace() {
+        let mut state = AiState::default();
+        state.threads.insert(
+            "thread-local".to_string(),
+            ThreadSummary {
+                id: "thread-local".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Local".to_string()),
+                status: ThreadLifecycleStatus::Idle,
+                created_at: 10,
+                updated_at: 10,
+                last_sequence: 1,
+            },
+        );
+        state.threads.insert(
+            "thread-worktree".to_string(),
+            ThreadSummary {
+                id: "thread-worktree".to_string(),
+                cwd: "/repo/worktrees/task-1".to_string(),
+                title: Some("Worktree".to_string()),
+                status: ThreadLifecycleStatus::Idle,
+                created_at: 20,
+                updated_at: 20,
+                last_sequence: 2,
+            },
+        );
+        state
+            .active_thread_by_cwd
+            .insert("/repo".to_string(), "thread-local".to_string());
+        state.active_thread_by_cwd.insert(
+            "/repo/worktrees/task-1".to_string(),
+            "thread-worktree".to_string(),
+        );
+
+        let workspace_key = current_visible_thread_fallback_workspace_key(
+            Some("/repo"),
+            None,
+            Some("/repo/worktrees/task-1"),
+        );
+
+        assert_eq!(
+            current_visible_thread_id_from_snapshot(
+                &state,
+                Some("missing-thread"),
+                workspace_key.as_deref(),
+                false,
+            )
+            .as_deref(),
+            Some("thread-local")
         );
     }
 
