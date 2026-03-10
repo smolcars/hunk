@@ -31,18 +31,94 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+        shell: bash
+
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs:
+      - fmt
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Resolve shared cargo target dir
+        run: echo "CARGO_TARGET_DIR=$(./scripts/resolve_cargo_target_dir.sh "$GITHUB_WORKSPACE")" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Cache cargo registry and Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pr-build-${{ runner.os }}-desktop
+          workspaces: |
+            . -> target-shared
+          cache-on-failure: "true"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            cmake \
+            libasound2-dev \
+            libfontconfig-dev \
+            libgit2-dev \
+            libglib2.0-dev \
+            libssl-dev \
+            libvulkan1 \
+            libwayland-dev \
+            libx11-xcb-dev \
+            libxkbcommon-x11-dev \
+            libzstd-dev \
+            pkg-config
+        shell: bash
+
+      - name: Run clippy
+        run: cargo clippy -p hunk-desktop --locked --profile ci --no-deps -- -D warnings
+        shell: bash
+
+      - name: Build hunk-desktop
+        run: cargo build -p hunk-desktop --locked --profile ci
+        shell: bash
+
   build:
     name: ${{ matrix.name }}
+    needs:
+      - fmt
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Linux
-            os: ubuntu-latest
-            resolve_target_dir: |
-              echo "CARGO_TARGET_DIR=$(./scripts/resolve_cargo_target_dir.sh "$GITHUB_WORKSPACE")" >> "$GITHUB_ENV"
           - name: macOS
             os: macos-latest
             resolve_target_dir: |
@@ -79,27 +155,6 @@ jobs:
           workspaces: |
             . -> target-shared
           cache-on-failure: "true"
-
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            clang \
-            cmake \
-            libasound2-dev \
-            libfontconfig-dev \
-            libgit2-dev \
-            libglib2.0-dev \
-            libssl-dev \
-            libvulkan1 \
-            libwayland-dev \
-            libx11-xcb-dev \
-            libxkbcommon-x11-dev \
-            libzstd-dev \
-            pkg-config
-        shell: bash
 
       - name: Build hunk-desktop
         if: runner.os != 'Windows'
