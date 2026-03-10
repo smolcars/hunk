@@ -40,3 +40,6 @@ hunk-git = { path = "../hunk-git" }
 hunk-codex = { path = "../hunk-codex" }
 codex-app-server-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.113.0-alpha.2" }
 codex-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.113.0-alpha.2" }
+
+[dev-dependencies]
+git2 = { version = "0.20", features = ["https", "ssh"] }

@@ -1,9 +1,12 @@
 #[cfg(test)]
 mod ai_tests {
+    use std::fs;
     use std::cell::Cell;
     use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
     use std::sync::mpsc;
     use std::time::Duration;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use codex_app_server_protocol::AccountLoginCompletedNotification;
     use codex_app_server_protocol::AskForApproval;
@@ -15,6 +18,10 @@ mod ai_tests {
     use codex_app_server_protocol::ThreadStartParams;
     use codex_app_server_protocol::TurnStartParams;
     use codex_protocol::config_types::ServiceTier;
+    use git2::IndexAddOption;
+    use git2::Repository;
+    use git2::RepositoryInitOptions;
+    use git2::Signature;
     use hunk_codex::errors::CodexIntegrationError;
     use hunk_codex::state::AiState;
     use hunk_codex::state::ReducerEvent;
@@ -62,6 +69,22 @@ mod ai_tests {
             std::path::PathBuf::from("/tmp/codex-home"),
         );
         assert_eq!(config.workspace_key, "/repo/worktrees/task-a");
+    }
+
+    #[test]
+    fn worker_start_config_anchors_shared_host_to_primary_repo_root() {
+        let temp_dir = TestTempDir::new();
+        let repo_root = init_test_repo(temp_dir.path());
+        let worktree_root = create_linked_worktree(repo_root.as_path(), "task-a");
+
+        let config = AiWorkerStartConfig::new(
+            worktree_root.clone(),
+            PathBuf::from("/bin/codex"),
+            PathBuf::from("/tmp/codex-home"),
+        );
+
+        assert_eq!(config.workspace_key, worktree_root.display().to_string());
+        assert_eq!(config.host_working_directory, repo_root);
     }
 
     #[test]
@@ -213,6 +236,71 @@ mod ai_tests {
             selected.primary.as_ref().map(|window| window.used_percent),
             Some(22)
         );
+    }
+
+    struct TestTempDir {
+        path: PathBuf,
+    }
+
+    impl TestTempDir {
+        fn new() -> Self {
+            let unique_suffix = format!(
+                "{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("time")
+                    .as_nanos()
+            );
+            let path =
+                std::env::temp_dir().join(format!("hunk-ai-runtime-tests-{unique_suffix}"));
+            fs::create_dir_all(path.as_path()).expect("create temp dir");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            self.path.as_path()
+        }
+    }
+
+    impl Drop for TestTempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(self.path.as_path());
+        }
+    }
+
+    fn init_test_repo(root: &Path) -> PathBuf {
+        let repo_root = root.join("repo");
+        fs::create_dir_all(repo_root.as_path()).expect("repo dir");
+        let mut options = RepositoryInitOptions::new();
+        options.initial_head("main");
+        let repo =
+            Repository::init_opts(repo_root.as_path(), &options).expect("initialize git repo");
+
+        fs::write(repo_root.join("README.md"), "hello\n").expect("write repo file");
+        let mut index = repo.index().expect("repo index");
+        index
+            .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
+            .expect("stage repo files");
+        index.write().expect("write index");
+        let tree_id = index.write_tree().expect("write tree");
+        let tree = repo.find_tree(tree_id).expect("find tree");
+        let signature = Signature::now("Hunk Test", "hunk@example.com").expect("signature");
+        repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
+            .expect("initial commit");
+
+        fs::canonicalize(repo_root.as_path()).expect("canonical repo root")
+    }
+
+    fn create_linked_worktree(repo_root: &Path, worktree_name: &str) -> PathBuf {
+        let repo = Repository::open(repo_root).expect("open repo");
+        let worktree_root = repo_root
+            .parent()
+            .expect("repo parent")
+            .join(format!("{worktree_name}-worktree"));
+        repo.worktree(worktree_name, worktree_root.as_path(), None)
+            .expect("create linked worktree");
+        fs::canonicalize(worktree_root.as_path()).expect("canonical worktree root")
     }
 
     #[test]

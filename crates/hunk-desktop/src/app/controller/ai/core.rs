@@ -643,6 +643,18 @@ impl DiffViewer {
             .collect()
     }
 
+    fn ai_state_snapshot_workspace_key(&self) -> Option<String> {
+        let draft_workspace_key = self.ai_workspace_key_for_draft();
+        state_snapshot_workspace_key(
+            &self.ai_state_snapshot,
+            self.ai_selected_thread_id.as_deref(),
+            self.ai_worker_workspace_key.as_deref(),
+            draft_workspace_key.as_deref(),
+            self.ai_new_thread_draft_active,
+            self.ai_pending_new_thread_selection,
+        )
+    }
+
     fn ai_thread_summary(&self, thread_id: &str) -> Option<ThreadSummary> {
         self.ai_state_snapshot
             .threads
@@ -714,48 +726,12 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_visible_threads(&self) -> Vec<ThreadSummary> {
-        let visible_workspace_key = self.ai_workspace_key();
-        let mut threads_by_id = BTreeMap::<String, ThreadSummary>::new();
-
-        for thread in self
-            .ai_state_snapshot
-            .threads
-            .values()
-            .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
-        {
-            threads_by_id.insert(thread.id.clone(), thread.clone());
-        }
-
-        for (workspace_key, state) in &self.ai_workspace_states {
-            if visible_workspace_key.as_deref() == Some(workspace_key.as_str()) {
-                continue;
-            }
-            for thread in state
-                .state_snapshot
-                .threads
-                .values()
-                .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
-            {
-                let replace_existing = threads_by_id
-                    .get(thread.id.as_str())
-                    .is_none_or(|existing| {
-                        (thread.updated_at, thread.created_at, thread.id.as_str())
-                            > (existing.updated_at, existing.created_at, existing.id.as_str())
-                    });
-                if replace_existing {
-                    threads_by_id.insert(thread.id.clone(), thread.clone());
-                }
-            }
-        }
-
-        let mut threads = threads_by_id.into_values().collect::<Vec<_>>();
-        threads.sort_by(|left, right| {
-            right
-                .created_at
-                .cmp(&left.created_at)
-                .then_with(|| right.id.cmp(&left.id))
-        });
-        threads
+        let state_snapshot_workspace_key = self.ai_state_snapshot_workspace_key();
+        merged_ai_visible_threads(
+            &self.ai_state_snapshot,
+            state_snapshot_workspace_key.as_deref(),
+            &self.ai_workspace_states,
+        )
     }
 
     pub(super) fn ai_timeline_turn_ids(&self, thread_id: &str) -> &[String] {

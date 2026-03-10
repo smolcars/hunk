@@ -5,4 +5,5 @@ include!("ai/catalog.rs");
 include!("ai/helpers.rs");
 include!("ai/timeline_groups.rs");
 include!("ai/selection.rs");
+include!("ai/visible_threads_tests.rs");
 include!("ai/tests.rs");

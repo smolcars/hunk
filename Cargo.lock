@@ -4250,6 +4250,7 @@ dependencies = [
  "ctrlc",
  "dirs 6.0.0",
  "futures",
+ "git2",
  "gpui",
  "gpui-component",
  "gpui-component-assets",

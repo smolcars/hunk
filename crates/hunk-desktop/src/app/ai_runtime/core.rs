@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicU16;
 use std::sync::atomic::Ordering;
@@ -250,6 +250,7 @@ pub enum AiWorkerCommand {
 #[derive(Debug, Clone)]
 pub struct AiWorkerStartConfig {
     pub cwd: PathBuf,
+    pub host_working_directory: PathBuf,
     pub workspace_key: String,
     pub codex_executable: PathBuf,
     pub codex_home: PathBuf,
@@ -261,8 +262,10 @@ pub struct AiWorkerStartConfig {
 impl AiWorkerStartConfig {
     pub fn new(cwd: PathBuf, codex_executable: PathBuf, codex_home: PathBuf) -> Self {
         let workspace_key = cwd.to_string_lossy().to_string();
+        let host_working_directory = shared_ai_host_working_directory(cwd.as_path());
         Self {
             cwd,
+            host_working_directory,
             workspace_key,
             codex_executable,
             codex_home,
@@ -271,6 +274,11 @@ impl AiWorkerStartConfig {
             include_hidden_models: true,
         }
     }
+}
+
+fn shared_ai_host_working_directory(workspace_root: &Path) -> PathBuf {
+    hunk_git::worktree::primary_repo_root(workspace_root)
+        .unwrap_or_else(|_| workspace_root.to_path_buf())
 }
 
 pub fn spawn_ai_worker(
@@ -402,7 +410,7 @@ impl AiWorkerRuntime {
     ) -> Result<Self, CodexIntegrationError> {
         let host_config = HostConfig::codex_app_server(
             config.codex_executable.clone(),
-            config.cwd.clone(),
+            config.host_working_directory.clone(),
             config.codex_home.clone(),
             port,
         );

@@ -72,6 +72,12 @@ impl DiffViewer {
         self.ai_thread_catalog_refresh_epoch
     }
 
+    pub(super) fn invalidate_ai_thread_catalog_refresh(&mut self) {
+        self.ai_thread_catalog_refresh_epoch =
+            self.ai_thread_catalog_refresh_epoch.saturating_add(1);
+        self.ai_thread_catalog_task = Task::ready(());
+    }
+
     fn apply_ai_repo_thread_catalogs(
         &mut self,
         catalogs: Vec<AiWorkspaceThreadCatalog>,
@@ -110,11 +116,20 @@ impl DiffViewer {
             .keys()
             .cloned()
             .collect::<std::collections::BTreeSet<_>>();
-        self.ai_workspace_states.retain(|workspace_key, _| {
-            known_workspace_keys.contains(workspace_key)
-                || visible_workspace_key == Some(workspace_key.as_str())
-                || hidden_workspace_keys.contains(workspace_key)
-        });
+        let removable_workspace_keys = self
+            .ai_workspace_states
+            .keys()
+            .filter(|workspace_key| {
+                !known_workspace_keys.contains(workspace_key.as_str())
+                    && visible_workspace_key != Some(workspace_key.as_str())
+                    && !hidden_workspace_keys.contains(workspace_key.as_str())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for workspace_key in removable_workspace_keys {
+            self.ai_forget_deleted_workspace_state(workspace_key.as_str());
+        }
     }
 }
 
@@ -136,7 +151,12 @@ fn ai_thread_catalog_workspace_roots(
         .iter()
         .filter_map(|target| {
             let workspace_key = target.root.to_string_lossy().to_string();
-            if visible_workspace_key == Some(workspace_key.as_str()) {
+            let visible_primary_checkout = visible_workspace_key == Some(workspace_key.as_str())
+                && matches!(
+                    target.kind,
+                    hunk_git::worktree::WorkspaceTargetKind::PrimaryCheckout
+                );
+            if visible_workspace_key == Some(workspace_key.as_str()) && !visible_primary_checkout {
                 return None;
             }
             if !seen_workspace_keys.insert(workspace_key) {

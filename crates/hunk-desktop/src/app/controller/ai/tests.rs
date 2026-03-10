@@ -981,7 +981,7 @@ mod ai_tests {
     }
 
     #[test]
-    fn thread_catalog_workspace_roots_skip_visible_workspace_and_dedupe() {
+    fn thread_catalog_workspace_roots_keep_visible_primary_checkout_first() {
         let workspace_targets = vec![
             workspace_target(
                 "primary",
@@ -1013,7 +1013,44 @@ mod ai_tests {
         assert_eq!(
             roots,
             vec![
+                PathBuf::from("/repo"),
                 PathBuf::from("/repo/worktrees/task-1"),
+                PathBuf::from("/repo/worktrees/task-2"),
+            ]
+        );
+    }
+
+    #[test]
+    fn thread_catalog_workspace_roots_still_skip_visible_worktree() {
+        let workspace_targets = vec![
+            workspace_target(
+                "primary",
+                WorkspaceTargetKind::PrimaryCheckout,
+                "/repo",
+                "Primary Checkout",
+            ),
+            workspace_target(
+                "worktree:task-1",
+                WorkspaceTargetKind::LinkedWorktree,
+                "/repo/worktrees/task-1",
+                "task-1",
+            ),
+            workspace_target(
+                "worktree:task-2",
+                WorkspaceTargetKind::LinkedWorktree,
+                "/repo/worktrees/task-2",
+                "task-2",
+            ),
+        ];
+
+        let roots = ai_thread_catalog_workspace_roots(
+            workspace_targets.as_slice(),
+            Some("/repo/worktrees/task-1"),
+        );
+        assert_eq!(
+            roots,
+            vec![
+                PathBuf::from("/repo"),
                 PathBuf::from("/repo/worktrees/task-2"),
             ]
         );

@@ -53,7 +53,7 @@ fn load_ai_workspace_thread_catalogs_on_port(
         .expect("workspace roots should be present");
     let host_config = HostConfig::codex_app_server(
         codex_executable.to_path_buf(),
-        host_working_directory,
+        shared_ai_host_working_directory(host_working_directory.as_path()),
         codex_home.to_path_buf(),
         port,
     );
@@ -63,9 +63,11 @@ fn load_ai_workspace_thread_catalogs_on_port(
         let endpoint = WebSocketEndpoint::loopback(host.port());
         let mut session = JsonRpcSession::connect(&endpoint)?;
         session.initialize(InitializeOptions::default(), DEFAULT_REQUEST_TIMEOUT)?;
-
         let mut catalogs = Vec::with_capacity(workspace_roots.len());
         for workspace_root in workspace_roots {
+            if !workspace_root_exists_for_catalog(workspace_root.as_path()) {
+                continue;
+            }
             let mut service = ThreadService::new(workspace_root.clone());
             let response = match service.list_threads(
                 &mut session,
@@ -101,4 +103,33 @@ fn load_ai_workspace_thread_catalogs_on_port(
 
         Ok(catalogs)
     })()
+}
+
+fn workspace_root_exists_for_catalog(workspace_root: &std::path::Path) -> bool {
+    workspace_root.exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workspace_root_exists_for_catalog;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn missing_workspace_root_is_skipped_from_catalog_refresh() {
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "hunk-ai-runtime-catalog-test-{unique_suffix}"
+        ));
+        let existing = temp_dir.join("workspace");
+        std::fs::create_dir_all(&existing).expect("workspace dir should exist");
+        let missing = temp_dir.join("missing-workspace");
+
+        assert!(workspace_root_exists_for_catalog(existing.as_path()));
+        assert!(!workspace_root_exists_for_catalog(missing.as_path()));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
