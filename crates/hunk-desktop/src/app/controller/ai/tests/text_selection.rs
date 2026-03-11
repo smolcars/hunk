@@ -73,3 +73,18 @@
         assert_eq!(selection.range_for_surface("surface-a"), Some(1..4));
         assert_eq!(selection.range_for_surface("surface-b"), None);
     }
+
+    #[test]
+    fn ai_text_selection_clamps_multibyte_indices_to_utf8_boundaries() {
+        let mut selection = AiTextSelection::new(
+            "row".to_string(),
+            ai_selection_surfaces([("surface", "a🙂b", "")]).as_slice(),
+            "surface",
+            2,
+        );
+        selection.set_head_for_surface("surface", 5);
+
+        assert_eq!(selection.range(), 1..5);
+        assert_eq!(selection.selected_text().as_deref(), Some("🙂"));
+        assert_eq!(selection.range_for_surface("surface"), Some(1..5));
+    }
