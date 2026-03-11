@@ -89,7 +89,7 @@ echo "Building hunk-desktop for Linux target '$TARGET_TRIPLE' ($PROFILE profile)
   cargo "${build_args[@]}"
 )
 
-BINARY_PATH="$TARGET_DIR/$TARGET_TRIPLE/$PROFILE/hunk-desktop"
+BINARY_PATH="$TARGET_DIR/$TARGET_TRIPLE/$PROFILE/hunk_desktop"
 if [[ ! -f "$BINARY_PATH" ]]; then
   echo "error: expected Linux binary was not produced at $BINARY_PATH" >&2
   exit 1

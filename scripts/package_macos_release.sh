@@ -14,17 +14,22 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
+echo "Downloading bundled Codex runtime for macOS..." >&2
 "$ROOT_DIR/scripts/download_codex_runtime_unix.sh" macos >/dev/null
+echo "Validating bundled Codex runtime for macOS..." >&2
 "$ROOT_DIR/scripts/validate_codex_runtime_bundle.sh" --strict --platform macos >/dev/null
+echo "Building macOS app bundle..." >&2
 
 (
   cd "$ROOT_DIR"
   cargo bundle -p hunk-desktop --release --format osx
 )
 
+echo "Injecting bundled Codex runtime into Hunk.app..." >&2
 "$ROOT_DIR/scripts/inject_codex_runtime_into_macos_bundle.sh" "$APP_PATH" >/dev/null
 
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  echo "Signing macOS app bundle with Developer ID..." >&2
   codesign --force --deep --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
   codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 fi
@@ -47,15 +52,19 @@ if [[ -n "${APPLE_NOTARY_KEY_ID:-}" || -n "${APPLE_NOTARY_ISSUER:-}" || -n "${AP
   : "${APPLE_NOTARY_ISSUER:?APPLE_NOTARY_ISSUER is required for notarization}"
   : "${APPLE_NOTARY_API_KEY_PATH:?APPLE_NOTARY_API_KEY_PATH is required for notarization}"
 
+  echo "Submitting DMG for notarization..." >&2
   xcrun notarytool submit \
     "$DMG_PATH" \
     --key "$APPLE_NOTARY_API_KEY_PATH" \
     --key-id "$APPLE_NOTARY_KEY_ID" \
     --issuer "$APPLE_NOTARY_ISSUER" \
     --wait
+  echo "Stapling notarization tickets..." >&2
   xcrun stapler staple "$APP_PATH"
   xcrun stapler staple "$DMG_PATH"
   xcrun stapler validate "$DMG_PATH"
 fi
+
+echo "Created macOS release artifact at $DMG_PATH" >&2
 
 printf '%s\n' "$DMG_PATH"

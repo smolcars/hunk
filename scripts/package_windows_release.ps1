@@ -17,8 +17,11 @@ $versionLabel = if ($env:HUNK_RELEASE_VERSION) {
 Push-Location $rootDir
 try {
     $targetDir = (bash ./scripts/resolve_cargo_target_dir.sh $rootDir).Trim()
+    Write-Host "Downloading bundled Codex runtime for Windows..."
     & ./scripts/download_codex_runtime_windows.ps1 | Out-Null
+    Write-Host "Validating bundled Codex runtime for Windows..."
     bash ./scripts/validate_codex_runtime_bundle.sh --strict --platform windows | Out-Null
+    Write-Host "Building Windows MSI bundle..."
     cargo bundle -p hunk-desktop --format msi --release --target x86_64-pc-windows-msvc
 } finally {
     Pop-Location
@@ -34,5 +37,7 @@ if (-not (Test-Path $bundleMsiPath)) {
 
 New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 Copy-Item -Path $bundleMsiPath -Destination $releaseMsiPath -Force
+
+Write-Host "Created Windows release artifact at $releaseMsiPath"
 
 Write-Output $releaseMsiPath

@@ -30,6 +30,7 @@ New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
 try {
     Write-Host "Downloading Codex runtime from $downloadUrl"
     Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath
+    Write-Host "Extracting Codex runtime archive $archivePath"
     Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
 
     $sourceBinary = Get-ChildItem -Path $extractDir -File -Filter "*.exe" -Recurse | Select-Object -First 1
@@ -39,6 +40,7 @@ try {
 
     New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
     Copy-Item -Path $sourceBinary.FullName -Destination $destination -Force
+    Write-Host "Prepared bundled Codex runtime at $destination"
     Write-Output $destination
 } finally {
     if (Test-Path $tempDir) {

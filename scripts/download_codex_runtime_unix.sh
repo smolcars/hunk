@@ -36,7 +36,7 @@ esac
 archive_path="$TMP_DIR/$asset_name"
 download_url="https://github.com/openai/codex/releases/download/$CODEX_TAG/$asset_name"
 
-echo "Downloading Codex runtime from $download_url"
+echo "Downloading Codex runtime from $download_url" >&2
 curl --fail --location --silent --show-error "$download_url" --output "$archive_path"
 
 tar -xzf "$archive_path" -C "$TMP_DIR"
@@ -50,5 +50,7 @@ fi
 mkdir -p "$(dirname "$destination")"
 cp "$source_binary" "$destination"
 chmod +x "$destination"
+
+echo "Prepared bundled Codex runtime at $destination" >&2
 
 printf '%s\n' "$destination"

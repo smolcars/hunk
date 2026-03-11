@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Prodata"]
 
+[[bin]]
+name = "hunk_desktop"
+path = "src/main.rs"
+
 [package.metadata.bundle]
 name = "Hunk"
 identifier = "com.prodata.hunk"

@@ -89,7 +89,7 @@ echo "Building hunk-desktop for Windows target '$TARGET_TRIPLE' ($PROFILE profil
   cargo "${build_args[@]}"
 )
 
-BINARY_PATH="$TARGET_DIR/$TARGET_TRIPLE/$PROFILE/hunk-desktop.exe"
+BINARY_PATH="$TARGET_DIR/$TARGET_TRIPLE/$PROFILE/hunk_desktop.exe"
 if [[ ! -f "$BINARY_PATH" ]]; then
   echo "error: expected Windows binary was not produced at $BINARY_PATH" >&2
   exit 1
