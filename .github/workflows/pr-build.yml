@@ -29,7 +29,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
-  # Keep PR CI behavior unchanged while allowing cache reuse checks on follow-up pushes.
 
 jobs:
   fmt:
