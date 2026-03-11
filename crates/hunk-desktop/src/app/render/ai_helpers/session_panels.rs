@@ -221,6 +221,10 @@ fn render_ai_session_controls_panel(
     _cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let model_label = ai_model_picker_label(panel.models, panel.selected_model);
+    let experimental_features_label =
+        ai_experimental_features_dropdown_label(panel.experimental_features);
+    let experimental_feature_items =
+        ai_sorted_experimental_feature_items(panel.experimental_features);
     let selected_model = panel
         .selected_model
         .and_then(|selected| panel.models.iter().find(|model| model.id == selected));
@@ -410,6 +414,37 @@ fn render_ai_session_controls_panel(
                 })
         })
         .child({
+            let experimental_feature_items = experimental_feature_items.clone();
+            Button::new("ai-session-experimental-features-dropdown")
+                .compact()
+                .ghost()
+                .rounded(px(999.0))
+                .with_size(gpui_component::Size::Small)
+                .dropdown_caret(true)
+                .disabled(panel.read_only)
+                .label(experimental_features_label)
+                .tooltip(if panel.read_only {
+                    controls_locked_tooltip
+                } else {
+                    "Server-reported experimental features."
+                })
+                .dropdown_menu(move |menu, _, _| {
+                    if experimental_feature_items.is_empty() {
+                        return menu.item(PopupMenuItem::label(
+                            "No experimental features reported",
+                        ));
+                    }
+
+                    let mut menu = menu;
+                    for (feature_name, enabled) in &experimental_feature_items {
+                        menu = menu.item(
+                            PopupMenuItem::new(feature_name.clone()).checked(*enabled),
+                        );
+                    }
+                    menu
+                })
+        })
+        .child({
             let view = view.clone();
             let selected_mode = panel.selected_thread_mode;
             Button::new("ai-session-thread-mode-dropdown")
@@ -535,6 +570,28 @@ fn ai_account_summary(
         }
         None => "No account connected.".to_string(),
     }
+}
+
+fn ai_experimental_features_dropdown_label(
+    features: &[codex_app_server_protocol::ExperimentalFeature],
+) -> String {
+    if features.is_empty() {
+        return "Experiments 0".to_string();
+    }
+
+    let enabled_count = features.iter().filter(|feature| feature.enabled).count();
+    format!("Experiments {enabled_count}/{}", features.len())
+}
+
+fn ai_sorted_experimental_feature_items(
+    features: &[codex_app_server_protocol::ExperimentalFeature],
+) -> Vec<(String, bool)> {
+    let mut items = features
+        .iter()
+        .map(|feature| (feature.name.clone(), feature.enabled))
+        .collect::<Vec<_>>();
+    items.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
+    items
 }
 
 fn ai_rate_limit_summary(
