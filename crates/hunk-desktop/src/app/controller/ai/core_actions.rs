@@ -10,7 +10,19 @@ impl DiffViewer {
     }
 
     pub(super) fn ensure_ai_runtime_started(&mut self, cx: &mut Context<Self>) {
-        let Some(cwd) = self.ai_workspace_cwd() else {
+        let workspace_key = self.ai_workspace_key();
+        self.ensure_ai_runtime_started_for_workspace_key(workspace_key.as_deref(), cx);
+    }
+
+    pub(super) fn ensure_ai_runtime_started_for_workspace_key(
+        &mut self,
+        workspace_key: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let cwd = workspace_key
+            .map(std::path::PathBuf::from)
+            .or_else(|| self.ai_workspace_cwd());
+        let Some(cwd) = cwd else {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("Open a workspace before using AI.".to_string());

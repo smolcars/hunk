@@ -365,7 +365,7 @@ impl AiTextSelection {
             }
         }
 
-        let clamped_index = anchor.unwrap_or(0).min(full_text.len());
+        let clamped_index = clamp_utf8_boundary(&full_text, anchor.unwrap_or(0));
         Self {
             row_id,
             surface_ranges,
@@ -377,16 +377,21 @@ impl AiTextSelection {
     }
 
     fn range(&self) -> Range<usize> {
-        if self.head >= self.anchor {
-            self.anchor..self.head
+        let anchor = clamp_utf8_boundary(&self.full_text, self.anchor);
+        let head = clamp_utf8_boundary(&self.full_text, self.head);
+        if head >= anchor {
+            anchor..head
         } else {
-            self.head..self.anchor
+            head..anchor
         }
     }
 
     fn selected_text(&self) -> Option<String> {
         let range = self.range();
-        (!range.is_empty()).then(|| self.full_text[range].to_string())
+        if range.is_empty() {
+            return None;
+        }
+        self.full_text.get(range).map(ToOwned::to_owned)
     }
 
     fn range_for_surface(&self, surface_id: &str) -> Option<Range<usize>> {
@@ -411,7 +416,8 @@ impl AiTextSelection {
         else {
             return;
         };
-        self.head = surface.range.start + index.min(surface.range.len());
+        let next_head = surface.range.start + index.min(surface.range.len());
+        self.head = clamp_utf8_boundary(&self.full_text, next_head);
     }
 
     fn select_all(&mut self) {
@@ -419,4 +425,12 @@ impl AiTextSelection {
         self.head = self.full_text.len();
         self.dragging = false;
     }
+}
+
+fn clamp_utf8_boundary(text: &str, index: usize) -> usize {
+    let mut clamped = index.min(text.len());
+    while clamped > 0 && !text.is_char_boundary(clamped) {
+        clamped -= 1;
+    }
+    clamped
 }

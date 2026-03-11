@@ -84,7 +84,7 @@ impl DiffViewer {
             self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection,
             &self.ai_state_snapshot,
         ) {
-            self.ai_selected_thread_id = active_thread_id;
+            self.ai_selected_thread_id = active_thread_id.clone();
         }
 
         if self.ai_selected_thread_id.as_ref().is_some_and(|selected| {

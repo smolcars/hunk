@@ -687,13 +687,22 @@ impl DiffViewer {
         });
 
         self.ai_timeline_list_state.set_scroll_handler({
+            let weak_view = weak_view.clone();
             move |_, _, cx| {
-                let _ = weak_view.update(cx, |this, cx| {
-                    let previous_follow_output = this.ai_timeline_follow_output;
-                    this.refresh_ai_timeline_follow_output_from_scroll();
-                    if this.ai_timeline_follow_output != previous_follow_output {
-                        cx.notify();
-                    }
+                let weak_view = weak_view.clone();
+                // GPUI invokes the scroll handler while the list state is mutably borrowed.
+                // Defer follow-output recomputation until that borrow is released.
+                cx.defer(move |cx| {
+                    let Some(view) = weak_view.upgrade() else {
+                        return;
+                    };
+                    view.update(cx, |this, cx| {
+                        let previous_follow_output = this.ai_timeline_follow_output;
+                        this.refresh_ai_timeline_follow_output_from_scroll();
+                        if this.ai_timeline_follow_output != previous_follow_output {
+                            cx.notify();
+                        }
+                    });
                 });
             }
         });
