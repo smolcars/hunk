@@ -113,6 +113,7 @@ impl DiffViewer {
         join_reason: &'static str,
         cx: &mut Context<Self>,
     ) {
+        let restored_pending_steer_drafts = self.restore_all_visible_ai_pending_steers_to_drafts();
         self.ai_command_tx = None;
         self.ai_worker_workspace_key = None;
         self.join_ai_worker_thread(join_reason);
@@ -133,6 +134,13 @@ impl DiffViewer {
         self.ai_collaboration_modes.clear();
         self.ai_bootstrap_loading = false;
         self.ai_connection_state = AiConnectionState::Failed;
+        if self
+            .current_ai_composer_draft_key()
+            .as_ref()
+            .is_some_and(|key| restored_pending_steer_drafts.contains(key))
+        {
+            self.restore_ai_visible_composer_from_current_draft(cx);
+        }
     }
 
     fn handle_ai_worker_event_stream_disconnect(&mut self, cx: &mut Context<Self>) {
@@ -157,6 +165,17 @@ impl DiffViewer {
             }
             AiWorkerEventPayload::ThreadStarted { thread_id } => {
                 set_pending_thread_start_thread_id(&mut self.ai_pending_thread_start, thread_id);
+            }
+            AiWorkerEventPayload::SteerAccepted(pending) => {
+                let pending_thread_id = pending.thread_id.clone();
+                self.ai_pending_steers.push(pending);
+                if self.current_ai_thread_id().as_deref() == Some(pending_thread_id.as_str()) {
+                    let visible_row_ids =
+                        current_ai_renderable_visible_row_ids(self, pending_thread_id.as_str());
+                    reset_ai_timeline_list_measurements(self, visible_row_ids.len());
+                    self.ai_timeline_follow_output = true;
+                    self.ai_scroll_timeline_to_bottom = true;
+                }
             }
             AiWorkerEventPayload::Reconnecting(message) => {
                 self.ai_connection_state = AiConnectionState::Reconnecting;

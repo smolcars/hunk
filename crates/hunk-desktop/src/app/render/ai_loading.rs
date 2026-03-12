@@ -428,3 +428,92 @@ fn render_ai_pending_thread_start(
         )
         .into_any_element()
 }
+
+fn render_ai_pending_steer(
+    pending: &AiPendingSteer,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let pending_colors = hunk_pending_message(cx.theme(), is_dark);
+    let elapsed_seconds = pending.started_at.elapsed().as_secs();
+    let attachment_status = match pending.local_images.len() {
+        0 => "No attachments".to_string(),
+        1 => "1 attachment".to_string(),
+        count => format!("{count} attachments"),
+    };
+    let message_text = if pending.prompt.trim().is_empty() {
+        attachment_status.clone()
+    } else {
+        pending.prompt.clone()
+    };
+
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .justify_end()
+        .child(
+            v_flex()
+                .max_w(px(680.0))
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_none()
+                                .whitespace_nowrap()
+                                .text_xs()
+                                .font_semibold()
+                                .child("You"),
+                        ),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .min_w_0()
+                        .text_sm()
+                        .text_color(pending_colors.text)
+                        .whitespace_normal()
+                        .child(message_text),
+                )
+                .child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_0p5()
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .min_w_0()
+                                .items_center()
+                                .gap_1p5()
+                                .child(
+                                    gpui_component::spinner::Spinner::new()
+                                        .with_size(gpui_component::Size::Small)
+                                        .color(pending_colors.meta),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(pending_colors.meta)
+                                        .child("Waiting to steer running turn..."),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .text_xs()
+                                .text_color(pending_colors.meta)
+                                .child(format!("{} | {}s", attachment_status, elapsed_seconds)),
+                        ),
+                ),
+        )
+        .into_any_element()
+}

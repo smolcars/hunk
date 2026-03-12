@@ -45,6 +45,11 @@ impl DiffViewer {
             .unwrap_or_default();
 
         self.ai_state_snapshot = state;
+        reconcile_ai_pending_steers(&mut self.ai_pending_steers, &self.ai_state_snapshot);
+        let restorable_pending_steers =
+            take_restorable_ai_pending_steers(&mut self.ai_pending_steers, &self.ai_state_snapshot);
+        let restored_pending_steer_drafts =
+            self.restore_ai_pending_steers_to_drafts(restorable_pending_steers);
         self.rebuild_ai_timeline_indexes();
         self.sync_ai_in_progress_turn_started_at();
         self.ai_composer_activity_elapsed_second = self.current_ai_composer_activity_elapsed_second();
@@ -171,7 +176,12 @@ impl DiffViewer {
         self.flush_ai_timeline_scroll_request();
 
         self.prune_ai_composer_drafts();
-        if previous_draft_key != self.current_ai_composer_draft_key() {
+        let next_draft_key = self.current_ai_composer_draft_key();
+        if previous_draft_key != next_draft_key
+            || next_draft_key
+                .as_ref()
+                .is_some_and(|key| restored_pending_steer_drafts.contains(key))
+        {
             self.restore_ai_visible_composer_from_current_draft(cx);
         }
         self.maybe_refresh_selected_thread_metadata(cx);
@@ -678,6 +688,7 @@ impl DiffViewer {
             worktree_base_branch_name: current_state.worktree_base_branch_name.clone(),
             pending_new_thread_selection: current_state.pending_new_thread_selection,
             pending_thread_start: current_state.pending_thread_start.clone(),
+            pending_steers: Vec::new(),
             timeline_follow_output: current_state.timeline_follow_output,
             thread_title_refresh_state_by_thread: std::collections::BTreeMap::new(),
             timeline_visible_turn_limit_by_thread: std::collections::BTreeMap::new(),

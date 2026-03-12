@@ -108,6 +108,16 @@ struct AiPendingThreadStart {
     thread_id: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AiPendingSteer {
+    thread_id: String,
+    turn_id: String,
+    prompt: String,
+    local_images: Vec<PathBuf>,
+    accepted_after_sequence: u64,
+    started_at: Instant,
+}
+
 #[derive(Debug, Clone)]
 struct AiWorkspaceState {
     connection_state: AiConnectionState,
@@ -121,6 +131,7 @@ struct AiWorkspaceState {
     worktree_base_branch_name: Option<String>,
     pending_new_thread_selection: bool,
     pending_thread_start: Option<AiPendingThreadStart>,
+    pending_steers: Vec<AiPendingSteer>,
     timeline_follow_output: bool,
     thread_title_refresh_state_by_thread: BTreeMap<String, AiThreadTitleRefreshState>,
     timeline_visible_turn_limit_by_thread: BTreeMap<String, usize>,
@@ -159,6 +170,7 @@ impl Default for AiWorkspaceState {
             worktree_base_branch_name: None,
             pending_new_thread_selection: false,
             pending_thread_start: None,
+            pending_steers: Vec::new(),
             timeline_follow_output: true,
             thread_title_refresh_state_by_thread: BTreeMap::new(),
             timeline_visible_turn_limit_by_thread: BTreeMap::new(),

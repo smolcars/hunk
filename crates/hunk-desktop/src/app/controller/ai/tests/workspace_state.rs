@@ -976,3 +976,221 @@
             Some("release".to_string())
         );
     }
+
+    #[test]
+    fn ai_pending_steer_seed_content_formats_text_and_images() {
+        assert_eq!(
+            ai_pending_steer_seed_content("Continue from the last failure", &[]).as_deref(),
+            Some("Continue from the last failure")
+        );
+        assert_eq!(
+            ai_pending_steer_seed_content("", &[PathBuf::from("/tmp/screenshot.png")]).as_deref(),
+            Some("[image] screenshot.png")
+        );
+        assert_eq!(
+            ai_pending_steer_seed_content(
+                "Check the attached regression",
+                &[
+                    PathBuf::from("/tmp/first.png"),
+                    PathBuf::from("/tmp/second.png"),
+                ],
+            )
+            .as_deref(),
+            Some("Check the attached regression\n[images] first.png, second.png")
+        );
+    }
+
+    #[test]
+    fn reconcile_ai_pending_steers_matches_committed_user_messages_in_order() {
+        let mut pending_steers = vec![
+            AiPendingSteer {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                prompt: "First follow-up".to_string(),
+                local_images: Vec::new(),
+                accepted_after_sequence: 5,
+                started_at: Instant::now(),
+            },
+            AiPendingSteer {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                prompt: "Second follow-up".to_string(),
+                local_images: Vec::new(),
+                accepted_after_sequence: 5,
+                started_at: Instant::now(),
+            },
+        ];
+        let mut state = AiState::default();
+        state.items.insert(
+            "thread-1::turn-1::item-1".to_string(),
+            hunk_codex::state::ItemSummary {
+                id: "item-1".to_string(),
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                kind: "userMessage".to_string(),
+                status: ItemStatus::Completed,
+                content: "First follow-up".to_string(),
+                display_metadata: None,
+                last_sequence: 6,
+            },
+        );
+        state.items.insert(
+            "thread-1::turn-1::item-2".to_string(),
+            hunk_codex::state::ItemSummary {
+                id: "item-2".to_string(),
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                kind: "userMessage".to_string(),
+                status: ItemStatus::Completed,
+                content: "Second follow-up".to_string(),
+                display_metadata: None,
+                last_sequence: 7,
+            },
+        );
+
+        reconcile_ai_pending_steers(&mut pending_steers, &state);
+
+        assert!(pending_steers.is_empty());
+    }
+
+    #[test]
+    fn reconcile_ai_pending_steers_blocks_later_match_until_earlier_message_commits() {
+        let mut pending_steers = vec![
+            AiPendingSteer {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                prompt: "First follow-up".to_string(),
+                local_images: Vec::new(),
+                accepted_after_sequence: 5,
+                started_at: Instant::now(),
+            },
+            AiPendingSteer {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                prompt: "Second follow-up".to_string(),
+                local_images: Vec::new(),
+                accepted_after_sequence: 5,
+                started_at: Instant::now(),
+            },
+        ];
+        let mut state = AiState::default();
+        state.items.insert(
+            "thread-1::turn-1::item-2".to_string(),
+            hunk_codex::state::ItemSummary {
+                id: "item-2".to_string(),
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                kind: "userMessage".to_string(),
+                status: ItemStatus::Completed,
+                content: "Second follow-up".to_string(),
+                display_metadata: None,
+                last_sequence: 7,
+            },
+        );
+
+        reconcile_ai_pending_steers(&mut pending_steers, &state);
+
+        assert_eq!(pending_steers.len(), 2);
+        assert_eq!(pending_steers[0].prompt, "First follow-up");
+        assert_eq!(pending_steers[1].prompt, "Second follow-up");
+    }
+
+    #[test]
+    fn apply_ai_snapshot_to_workspace_state_restores_pending_steer_after_turn_completes() {
+        let mut workspace_state = AiWorkspaceState {
+            pending_steers: vec![AiPendingSteer {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                prompt: "Continue after the interrupt".to_string(),
+                local_images: Vec::new(),
+                accepted_after_sequence: 3,
+                started_at: Instant::now(),
+            }],
+            ..AiWorkspaceState::default()
+        };
+        let mut snapshot_state = AiState::default();
+        snapshot_state.threads.insert(
+            "thread-1".to_string(),
+            ThreadSummary {
+                id: "thread-1".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Thread".to_string()),
+                status: ThreadLifecycleStatus::Active,
+                created_at: 1,
+                updated_at: 1,
+                last_sequence: 4,
+            },
+        );
+        snapshot_state.turns.insert(
+            hunk_codex::state::turn_storage_key("thread-1", "turn-1"),
+            hunk_codex::state::TurnSummary {
+                id: "turn-1".to_string(),
+                thread_id: "thread-1".to_string(),
+                status: hunk_codex::state::TurnStatus::Completed,
+                last_sequence: 4,
+            },
+        );
+
+        let restored = DiffViewer::apply_ai_snapshot_to_workspace_state(
+            &mut workspace_state,
+            AiSnapshot {
+                state: snapshot_state,
+                active_thread_id: Some("thread-1".to_string()),
+                pending_approvals: Vec::new(),
+                pending_user_inputs: Vec::new(),
+                account: None,
+                requires_openai_auth: false,
+                pending_chatgpt_login_id: None,
+                pending_chatgpt_auth_url: None,
+                rate_limits: None,
+                models: Vec::new(),
+                experimental_features: Vec::new(),
+                collaboration_modes: Vec::new(),
+                include_hidden_models: true,
+                mad_max_mode: false,
+            },
+        );
+
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].prompt, "Continue after the interrupt");
+        assert!(workspace_state.pending_steers.is_empty());
+    }
+
+    #[test]
+    fn take_restorable_ai_pending_steers_keeps_in_progress_turns() {
+        let mut pending_steers = vec![
+            AiPendingSteer {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-active".to_string(),
+                prompt: "Keep waiting".to_string(),
+                local_images: Vec::new(),
+                accepted_after_sequence: 1,
+                started_at: Instant::now(),
+            },
+            AiPendingSteer {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-finished".to_string(),
+                prompt: "Restore me".to_string(),
+                local_images: Vec::new(),
+                accepted_after_sequence: 1,
+                started_at: Instant::now(),
+            },
+        ];
+        let mut state = AiState::default();
+        state.turns.insert(
+            hunk_codex::state::turn_storage_key("thread-1", "turn-active"),
+            hunk_codex::state::TurnSummary {
+                id: "turn-active".to_string(),
+                thread_id: "thread-1".to_string(),
+                status: hunk_codex::state::TurnStatus::InProgress,
+                last_sequence: 2,
+            },
+        );
+
+        let restored = take_restorable_ai_pending_steers(&mut pending_steers, &state);
+
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].prompt, "Restore me");
+        assert_eq!(pending_steers.len(), 1);
+        assert_eq!(pending_steers[0].prompt, "Keep waiting");
+    }

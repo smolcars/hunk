@@ -188,7 +188,7 @@ impl DiffViewer {
         let (total_turn_count, visible_turn_count, hidden_turn_count, visible_turn_ids) =
             timeline_visible_turn_ids(turn_ids, configured_limit);
         let row_ids = self.ai_timeline_row_ids(thread_id);
-        let visible_row_ids = timeline_visible_row_ids_for_turns(
+        let mut visible_row_ids = timeline_visible_row_ids_for_turns(
             row_ids,
             &self.ai_timeline_rows_by_id,
             visible_turn_ids.as_slice(),
@@ -199,6 +199,7 @@ impl DiffViewer {
                 .is_some_and(|row| ai_timeline_row_is_renderable_for_controller(self, row))
         })
         .collect::<Vec<_>>();
+        visible_row_ids.extend(self.ai_pending_steer_row_ids_for_thread(thread_id));
         (
             total_turn_count,
             visible_turn_count,

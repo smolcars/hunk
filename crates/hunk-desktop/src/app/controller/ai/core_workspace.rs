@@ -398,6 +398,7 @@ impl DiffViewer {
             worktree_base_branch_name: self.ai_worktree_base_branch_name.clone(),
             pending_new_thread_selection: self.ai_pending_new_thread_selection,
             pending_thread_start: self.ai_pending_thread_start.clone(),
+            pending_steers: self.ai_pending_steers.clone(),
             timeline_follow_output: self.ai_timeline_follow_output,
             thread_title_refresh_state_by_thread: self.ai_thread_title_refresh_state_by_thread.clone(),
             timeline_visible_turn_limit_by_thread: self.ai_timeline_visible_turn_limit_by_thread.clone(),
@@ -423,7 +424,10 @@ impl DiffViewer {
         }
     }
 
-    fn apply_ai_workspace_state(&mut self, state: AiWorkspaceState) {
+    fn apply_ai_workspace_state(&mut self, mut state: AiWorkspaceState) {
+        reconcile_ai_pending_steers(&mut state.pending_steers, &state.state_snapshot);
+        let restored_pending_steers =
+            take_restorable_ai_pending_steers(&mut state.pending_steers, &state.state_snapshot);
         self.ai_connection_state = state.connection_state;
         self.ai_bootstrap_loading = state.bootstrap_loading;
         self.ai_status_message = state.status_message;
@@ -435,6 +439,7 @@ impl DiffViewer {
         self.ai_worktree_base_branch_name = state.worktree_base_branch_name;
         self.ai_pending_new_thread_selection = state.pending_new_thread_selection;
         self.ai_pending_thread_start = state.pending_thread_start;
+        self.ai_pending_steers = state.pending_steers;
         self.ai_scroll_timeline_to_bottom = false;
         self.ai_timeline_follow_output = state.timeline_follow_output;
         self.ai_thread_title_refresh_state_by_thread = state.thread_title_refresh_state_by_thread;
@@ -497,6 +502,7 @@ impl DiffViewer {
         {
             self.ai_selected_thread_id = Some(first_thread.id.clone());
         }
+        let _ = self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
         self.prune_ai_composer_drafts();
         self.prune_ai_composer_statuses();
         reset_ai_timeline_list_measurements(self, 0);
@@ -589,7 +595,10 @@ impl DiffViewer {
         update(state);
     }
 
-    fn apply_ai_snapshot_to_workspace_state(state: &mut AiWorkspaceState, snapshot: AiSnapshot) {
+    fn apply_ai_snapshot_to_workspace_state(
+        state: &mut AiWorkspaceState,
+        snapshot: AiSnapshot,
+    ) -> Vec<AiPendingSteer> {
         let AiSnapshot {
             state: next_snapshot,
             active_thread_id,
@@ -608,6 +617,9 @@ impl DiffViewer {
         } = snapshot;
 
         state.state_snapshot = next_snapshot;
+        reconcile_ai_pending_steers(&mut state.pending_steers, &state.state_snapshot);
+        let restored_pending_steers =
+            take_restorable_ai_pending_steers(&mut state.pending_steers, &state.state_snapshot);
         state.pending_approvals = pending_approvals;
         state.pending_user_inputs = pending_user_inputs;
         state.account = account;
@@ -673,6 +685,7 @@ impl DiffViewer {
         state
             .timeline_visible_turn_limit_by_thread
             .retain(|thread_id, _| state.state_snapshot.threads.contains_key(thread_id));
+        restored_pending_steers
     }
 
     fn restore_ai_workspace_state_after_failure_for_state(state: &mut AiWorkspaceState) {
@@ -699,6 +712,7 @@ impl DiffViewer {
         state.pending_approvals.clear();
         state.pending_user_inputs.clear();
         state.pending_user_input_answers.clear();
+        state.pending_steers.clear();
         Self::restore_ai_workspace_state_after_failure_for_state(state);
     }
 
@@ -725,15 +739,19 @@ impl DiffViewer {
         workspace_key: &str,
         event: AiWorkerEventPayload,
     ) {
+        let mut restored_pending_steers = Vec::new();
         self.update_background_ai_workspace_state(workspace_key, |state| match event {
             AiWorkerEventPayload::Snapshot(snapshot) => {
-                Self::apply_ai_snapshot_to_workspace_state(state, *snapshot);
+                restored_pending_steers = Self::apply_ai_snapshot_to_workspace_state(state, *snapshot);
             }
             AiWorkerEventPayload::BootstrapCompleted => {
                 state.bootstrap_loading = false;
             }
             AiWorkerEventPayload::ThreadStarted { thread_id } => {
                 set_pending_thread_start_thread_id(&mut state.pending_thread_start, thread_id);
+            }
+            AiWorkerEventPayload::SteerAccepted(pending) => {
+                state.pending_steers.push(pending);
             }
             AiWorkerEventPayload::Reconnecting(message) => {
                 state.connection_state = AiConnectionState::Reconnecting;
@@ -750,9 +768,11 @@ impl DiffViewer {
                 state.status_message = Some(message);
             }
             AiWorkerEventPayload::Fatal(message) => {
+                restored_pending_steers = take_all_ai_pending_steers(&mut state.pending_steers);
                 Self::apply_background_ai_workspace_fatal(state, message);
             }
         });
+        let _ = self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
     }
 
     fn handle_background_ai_worker_disconnect(&mut self, workspace_key: &str) {
@@ -767,9 +787,12 @@ impl DiffViewer {
                 }
             });
         }
+        let mut restored_pending_steers = Vec::new();
         self.update_background_ai_workspace_state(workspace_key, |state| {
+            restored_pending_steers = take_all_ai_pending_steers(&mut state.pending_steers);
             Self::apply_background_ai_workspace_disconnect(state);
         });
+        let _ = self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
     }
 
     pub(super) fn shutdown_ai_worker_blocking(&mut self) {

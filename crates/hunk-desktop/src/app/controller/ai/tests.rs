@@ -12,6 +12,7 @@ mod ai_tests {
     use super::ai_composer_draft_key;
     use super::ai_composer_prompt_for_target;
     use super::ai_prompt_send_waiting_on_connection;
+    use super::ai_pending_steer_seed_content;
     use super::resolved_ai_thread_mode_picker_state;
     use super::ai_attachment_status_message;
     use super::ai_branch_name_for_thread;
@@ -57,9 +58,12 @@ mod ai_tests {
     use super::thread_latest_timeline_sequence;
     use super::workspace_include_hidden_models;
     use super::workspace_mad_max_mode;
+    use super::reconcile_ai_pending_steers;
+    use super::take_restorable_ai_pending_steers;
     use crate::app::AiComposerDraft;
     use crate::app::AiComposerDraftKey;
     use crate::app::AiNewThreadStartMode;
+    use crate::app::AiPendingSteer;
     use crate::app::AiPendingThreadStart;
     use crate::app::AiThreadTitleRefreshState;
     use crate::app::AiTextSelection;

@@ -407,6 +407,7 @@ impl DiffViewer {
             ai_worktree_base_branch_name: None,
             ai_pending_new_thread_selection: false,
             ai_pending_thread_start: None,
+            ai_pending_steers: Vec::new(),
             ai_scroll_timeline_to_bottom: false,
             ai_timeline_follow_output: true,
             ai_thread_list_scroll_handle: ScrollHandle::default(),

@@ -172,6 +172,7 @@ pub enum AiWorkerEventPayload {
     Snapshot(Box<AiSnapshot>),
     BootstrapCompleted,
     ThreadStarted { thread_id: String },
+    SteerAccepted(AiPendingSteer),
     Reconnecting(String),
     Status(String),
     Error(String),
@@ -511,12 +512,17 @@ impl AiWorkerRuntime {
                 if prompt.as_ref().is_some_and(|value| !value.trim().is_empty())
                     || !local_image_paths.is_empty()
                 {
-                    self.send_prompt(
+                    if let Some(pending_steer) = self.send_prompt(
                         response.thread.id,
                         prompt,
                         local_image_paths,
                         session_overrides,
-                    )?;
+                    )? {
+                        self.send_event(
+                            event_tx,
+                            AiWorkerEventPayload::SteerAccepted(pending_steer),
+                        );
+                    }
                     self.emit_snapshot_after_sync(event_tx)?;
                 }
             }
@@ -547,7 +553,11 @@ impl AiWorkerRuntime {
                 local_image_paths,
                 session_overrides,
             } => {
-                self.send_prompt(thread_id, prompt, local_image_paths, session_overrides)?;
+                if let Some(pending_steer) =
+                    self.send_prompt(thread_id, prompt, local_image_paths, session_overrides)?
+                {
+                    self.send_event(event_tx, AiWorkerEventPayload::SteerAccepted(pending_steer));
+                }
                 self.emit_snapshot_after_sync(event_tx)?;
             }
             AiWorkerCommand::InterruptTurn { thread_id, turn_id } => {
@@ -681,7 +691,6 @@ impl AiWorkerRuntime {
             }
             AiWorkerCommand::Shutdown => {}
         }
-
         Ok(())
     }
 
@@ -691,18 +700,18 @@ impl AiWorkerRuntime {
         prompt: Option<String>,
         local_image_paths: Vec<PathBuf>,
         session_overrides: AiTurnSessionOverrides,
-    ) -> Result<(), CodexIntegrationError> {
+    ) -> Result<Option<AiPendingSteer>, CodexIntegrationError> {
         let trimmed = prompt.as_deref().map(str::trim).filter(|text| !text.is_empty());
         if trimmed.is_none() && local_image_paths.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
-
         self.service
             .state_mut()
             .set_active_thread_for_cwd(self.workspace_key.clone(), thread_id.clone());
 
         let mut input = local_image_paths
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|path| UserInput::LocalImage { path })
             .collect::<Vec<_>>();
         if let Some(text) = trimmed {
@@ -711,20 +720,32 @@ impl AiWorkerRuntime {
                 text_elements: Vec::new(),
             });
         }
-
         if let Some(in_progress_turn_id) = self.in_progress_turn_id(thread_id.as_str()) {
+            let accepted_after_sequence = accepted_after_sequence_for_pending_steer(
+                self.service.state(),
+                thread_id.as_str(),
+                in_progress_turn_id.as_str(),
+            );
             let steer_result = self.service.steer_turn(
                 &mut self.session,
                 TurnSteerParams {
                     thread_id: thread_id.clone(),
                     input: input.clone(),
-                    expected_turn_id: in_progress_turn_id,
+                    expected_turn_id: in_progress_turn_id.clone(),
                 },
                 self.request_timeout,
             );
 
             match steer_result {
-                Ok(_) => return Ok(()),
+                Ok(_) => {
+                    return Ok(Some(pending_steer_from_send_prompt(
+                        thread_id,
+                        in_progress_turn_id,
+                        trimmed,
+                        &local_image_paths,
+                        accepted_after_sequence,
+                    )));
+                }
                 Err(error) if should_retry_stale_turn_after_steer_error(&error) => {
                     self.service.read_thread(
                         &mut self.session,
@@ -738,11 +759,17 @@ impl AiWorkerRuntime {
                             TurnSteerParams {
                                 thread_id: thread_id.clone(),
                                 input: input.clone(),
-                                expected_turn_id: refreshed_turn_id,
+                                expected_turn_id: refreshed_turn_id.clone(),
                             },
                             self.request_timeout,
                         )?;
-                        return Ok(());
+                        return Ok(Some(pending_steer_from_send_prompt(
+                            thread_id,
+                            refreshed_turn_id,
+                            trimmed,
+                            &local_image_paths,
+                            accepted_after_sequence,
+                        )));
                     }
                 }
                 Err(error) => return Err(error),
@@ -758,7 +785,7 @@ impl AiWorkerRuntime {
         self.apply_turn_session_overrides(&mut params, &session_overrides);
         self.service
             .start_turn(&mut self.session, params, self.request_timeout)?;
-        Ok(())
+        Ok(None)
     }
 
     fn load_thread_snapshot(
