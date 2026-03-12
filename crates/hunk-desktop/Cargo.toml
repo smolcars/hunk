@@ -2,7 +2,7 @@
 name = "hunk-desktop"
 version = "0.1.0"
 edition = "2024"
-authors = ["Prodata"]
+authors = ["Nitesh Balusu"]
 
 [[bin]]
 name = "hunk_desktop"
@@ -10,11 +10,10 @@ path = "src/main.rs"
 
 [package.metadata.packager]
 product-name = "Hunk"
-identifier = "com.prodata.hunk"
-publisher = "Prodata"
+publisher = "Nitesh Balusu"
 description = "Very fast git diff viewer and codex orchestrator."
 long-description = "A super fast, simple Git diff viewer and codex orchestrator built with GPUI."
-authors = ["Prodata"]
+authors = ["Nitesh Balusu"]
 category = "DeveloperTool"
 icons = [
   "../../assets/icons/Hunk.icns",
