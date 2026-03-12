@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use super::sql;
 
 const DB_FILE_NAME: &str = "hunk.db";
-const DB_SCHEMA_VERSION: i64 = 2;
+const DB_SCHEMA_VERSION: i64 = 3;
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -18,6 +18,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 2,
         name: "0002_branch_scope_reset.sql",
         sql: include_str!("migrations/0002_branch_scope_reset.sql"),
+    },
+    Migration {
+        version: 3,
+        name: "0003_row_stable_id_cleanup.sql",
+        sql: include_str!("migrations/0003_row_stable_id_cleanup.sql"),
     },
 ];
 

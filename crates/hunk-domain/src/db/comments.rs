@@ -206,7 +206,7 @@ impl DatabaseStore {
     pub fn create_comment(&self, input: &NewComment) -> Result<CommentRecord> {
         let id = next_comment_id();
         let now = now_unix_ms();
-        let row_stable_id = input.row_stable_id.map(sql_u64_to_i64).transpose()?;
+        let row_stable_id = encode_row_stable_id_for_sql(input.row_stable_id);
 
         let conn = self.open_connection()?;
         conn.execute(
@@ -460,7 +460,7 @@ fn map_comment_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CommentRecord> {
 
     let old_line = old_line_db.map(sql_i64_to_u32).transpose()?;
     let new_line = new_line_db.map(sql_i64_to_u32).transpose()?;
-    let row_stable_id = row_stable_id_db.map(sql_i64_to_u64).transpose()?;
+    let row_stable_id = decode_row_stable_id_from_sql(row_stable_id_db);
 
     Ok(CommentRecord {
         id: row.get("id")?,
@@ -500,22 +500,12 @@ fn sql_i64_to_u32(value: i64) -> rusqlite::Result<u32> {
     })
 }
 
-fn sql_i64_to_u64(value: i64) -> rusqlite::Result<u64> {
-    u64::try_from(value).map_err(|_| {
-        rusqlite::Error::FromSqlConversionFailure(
-            0,
-            rusqlite::types::Type::Integer,
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("cannot convert sqlite integer {value} to u64"),
-            )),
-        )
-    })
+fn decode_row_stable_id_from_sql(value: Option<i64>) -> Option<u64> {
+    value.and_then(|value| u64::try_from(value).ok())
 }
 
-fn sql_u64_to_i64(value: u64) -> Result<i64> {
-    i64::try_from(value)
-        .map_err(|_| anyhow!("cannot convert row_stable_id {value} to sqlite integer"))
+fn encode_row_stable_id_for_sql(value: Option<u64>) -> Option<i64> {
+    value.and_then(|value| i64::try_from(value).ok())
 }
 
 fn invalid_text_value(column: &str, value: &str) -> rusqlite::Error {

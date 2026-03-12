@@ -70,7 +70,7 @@ fn sqlite_store_bootstraps_schema() {
     let user_version: i64 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("read sqlite user_version");
-    assert_eq!(user_version, 2);
+    assert_eq!(user_version, 3);
 }
 
 #[test]
@@ -298,17 +298,17 @@ fn create_comment_ids_are_unique_within_process() {
 }
 
 #[test]
-fn create_comment_rejects_row_stable_id_larger_than_i64_max() {
+fn create_comment_drops_row_stable_id_larger_than_i64_max() {
     let fixture = TempDb::new("comments-row-stable-id-overflow");
     let mut comment = new_comment("/repo", "main", "src/lib.rs", "overflow");
     comment.row_stable_id = Some(i64::MAX as u64 + 1);
 
-    let err = fixture
+    let created = fixture
         .store
         .create_comment(&comment)
-        .expect_err("oversized row_stable_id should be rejected");
+        .expect("oversized row_stable_id should not block comment creation");
 
-    assert!(err.to_string().contains("cannot convert row_stable_id"));
+    assert_eq!(created.row_stable_id, None);
 }
 
 #[test]
@@ -372,6 +372,113 @@ fn sqlite_schema_rejects_negative_row_stable_id() {
         .expect_err("negative row_stable_id should violate the schema constraint");
 
     assert!(err.to_string().contains("row_stable_id"));
+}
+
+#[test]
+fn migration_sanitizes_legacy_negative_row_stable_ids() {
+    let fixture = TempDb::new("comments-row-stable-id-legacy-negative");
+    let conn = Connection::open(&fixture.path).expect("open sqlite db");
+    conn.execute_batch(
+        "CREATE TABLE comments (
+            id TEXT PRIMARY KEY,
+            repo_root TEXT NOT NULL,
+            branch_name TEXT NOT NULL,
+            created_head_commit TEXT,
+            status TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            line_side TEXT NOT NULL,
+            old_line INTEGER,
+            new_line INTEGER,
+            row_stable_id INTEGER,
+            hunk_header TEXT,
+            line_text TEXT NOT NULL,
+            context_before TEXT NOT NULL,
+            context_after TEXT NOT NULL,
+            anchor_hash TEXT NOT NULL,
+            comment_text TEXT NOT NULL,
+            stale_reason TEXT,
+            created_at_unix_ms INTEGER NOT NULL,
+            updated_at_unix_ms INTEGER NOT NULL,
+            last_seen_at_unix_ms INTEGER,
+            resolved_at_unix_ms INTEGER
+        );
+        CREATE INDEX comments_repo_branch_status_idx
+          ON comments (repo_root, branch_name, status);",
+    )
+    .expect("create legacy comments table without row_stable_id check");
+    conn.pragma_update(None, "user_version", 2_i64)
+        .expect("set sqlite user_version to 2");
+    conn.execute(
+        "INSERT INTO comments (
+            id,
+            repo_root,
+            branch_name,
+            created_head_commit,
+            status,
+            file_path,
+            line_side,
+            old_line,
+            new_line,
+            row_stable_id,
+            hunk_header,
+            line_text,
+            context_before,
+            context_after,
+            anchor_hash,
+            comment_text,
+            stale_reason,
+            created_at_unix_ms,
+            updated_at_unix_ms,
+            last_seen_at_unix_ms,
+            resolved_at_unix_ms
+        ) VALUES (
+            'comment-legacy-negative-row-stable-id',
+            '/repo',
+            'main',
+            'abc123',
+            'open',
+            'src/lib.rs',
+            'right',
+            10,
+            11,
+            -1040741354035379776,
+            '@@ -10,3 +11,4 @@',
+            'let value = 1;',
+            ' let other = 0;',
+            '+let value = 1;',
+            'anchor-hash-legacy-negative',
+            'legacy negative row stable id',
+            NULL,
+            1,
+            1,
+            1,
+            NULL
+        )",
+        [],
+    )
+    .expect("insert legacy negative row_stable_id comment");
+    drop(conn);
+
+    let comments = fixture
+        .store
+        .list_comments("/repo", "main", true)
+        .expect("load and sanitize legacy negative row_stable_id");
+    assert_eq!(comments.len(), 1);
+    assert_eq!(comments[0].row_stable_id, None);
+
+    let conn = Connection::open(&fixture.path).expect("reopen migrated sqlite db");
+    let stored_row_stable_id: Option<i64> = conn
+        .query_row(
+            "SELECT row_stable_id FROM comments WHERE id = 'comment-legacy-negative-row-stable-id'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read sanitized row_stable_id");
+    assert_eq!(stored_row_stable_id, None);
+    let user_version: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("read sanitized sqlite user_version");
+    assert_eq!(user_version, 3);
 }
 
 #[test]
@@ -444,5 +551,5 @@ fn upgrading_a_version_1_database_runs_ordered_migrations() {
     let user_version: i64 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("read upgraded sqlite user_version");
-    assert_eq!(user_version, 2);
+    assert_eq!(user_version, 3);
 }
