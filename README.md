@@ -72,9 +72,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 ### For Production builds
 
 ```bash
-cargo install cargo-bundle
-cargo bundle -p hunk-desktop --release
-open target/release/bundle/osx/Hunk.app
+cargo install cargo-packager
+just bundle
+open "$(./scripts/resolve_cargo_target_dir.sh)/packager/Hunk.app"
 ```
 
 Cross-platform binary build helpers:
@@ -104,7 +104,7 @@ These produce:
 - Linux x86_64: `Hunk-<version>-linux-x86_64.AppImage` plus fallback `Hunk-<version>-linux-x86_64.tar.gz`
 - Windows x86_64: `Hunk-<version>-windows-x86_64.msi`
 
-Linux AppImage packaging requires `mksquashfs` from `squashfs-tools` and `patchelf`.
+Linux release packaging requires `patchelf` for the tarball fallback bundle.
 
 ## Build Codex App-Server Binaries For Embedding
 
@@ -242,7 +242,7 @@ Generate git-diff icon variants and rebuild the bundle:
 ```bash
 ./scripts/generate_diff_icons.py
 ./scripts/build_macos_icon.sh
-cargo bundle -p hunk-desktop --release
+just bundle
 ```
 
 Generated assets:
@@ -251,7 +251,7 @@ Generated assets:
 - `assets/icons/hunk-icon-dark.png` (dark appearance variant)
 - `assets/icons/hunk-icon-mono.png` (monochrome/tint-friendly variant)
 
-Current bundling uses `hunk-icon-default.png` -> `Hunk.icns`.
+Current packaging uses `Hunk.icns`, `Hunk.ico`, and `hunk-icon-default.png` through `cargo-packager`.
 
 ## Hot Reload (Bacon)
 

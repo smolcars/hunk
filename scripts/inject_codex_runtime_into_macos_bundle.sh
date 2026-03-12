@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="$("$ROOT_DIR/scripts/resolve_cargo_target_dir.sh" "$ROOT_DIR")"
-APP_PATH="${1:-$TARGET_DIR/release/bundle/osx/Hunk.app}"
+APP_PATH="${1:-$TARGET_DIR/packager/Hunk.app}"
 SOURCE_DIR="$ROOT_DIR/assets/codex-runtime"
 RUNTIME_DEST_DIR="$APP_PATH/Contents/Resources/codex-runtime"
 

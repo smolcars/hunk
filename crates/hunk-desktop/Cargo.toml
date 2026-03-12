@@ -8,14 +8,24 @@ authors = ["Prodata"]
 name = "hunk_desktop"
 path = "src/main.rs"
 
-[package.metadata.bundle]
-name = "Hunk"
+[package.metadata.packager]
+product-name = "Hunk"
 identifier = "com.prodata.hunk"
-short_description = "Very fast git diff viewer and codex orchestrator."
-long_description = "A super fast, simple Git diff viewer and codex orchestrator built with GPUI."
-category = "public.app-category.developer-tools"
-icon = ["assets/icons/Hunk.icns"]
+publisher = "Prodata"
+description = "Very fast git diff viewer and codex orchestrator."
+long-description = "A super fast, simple Git diff viewer and codex orchestrator built with GPUI."
+authors = ["Prodata"]
+category = "DeveloperTool"
+icons = [
+  "../../assets/icons/Hunk.icns",
+  "../../assets/icons/hunk-icon-default.png",
+  "../../assets/icons/Hunk.ico",
+]
 resources = ["../../assets/codex-runtime"]
+
+[[package.metadata.packager.binaries]]
+path = "hunk_desktop"
+main = true
 
 [dependencies]
 anyhow = "1.0"

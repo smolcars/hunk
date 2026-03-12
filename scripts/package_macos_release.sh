@@ -3,13 +3,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="$("$ROOT_DIR/scripts/resolve_cargo_target_dir.sh" "$ROOT_DIR")"
+TARGET_TRIPLE="aarch64-apple-darwin"
 VERSION_LABEL="${HUNK_RELEASE_VERSION:-$("$ROOT_DIR/scripts/resolve_hunk_version.sh")}"
 DIST_DIR="$TARGET_DIR/dist"
-APP_PATH="$TARGET_DIR/release/bundle/osx/Hunk.app"
+PACKAGER_OUT_DIR="$TARGET_DIR/packager/macos"
+APP_PATH="$PACKAGER_OUT_DIR/Hunk.app"
 APP_EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/hunk_desktop"
 APP_FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
 DMG_PATH="$DIST_DIR/Hunk-$VERSION_LABEL-macos-arm64.dmg"
-DMG_STAGE_DIR="$TARGET_DIR/release/dmg-stage"
+DMG_STAGE_DIR="$TARGET_DIR/dmg-stage"
 MACOS_SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 MACOS_LINKER="/usr/bin/clang"
 MACOS_CC="/usr/bin/clang"
@@ -115,18 +117,23 @@ echo "Building macOS app bundle..." >&2
 
 (
   cd "$ROOT_DIR"
-  env \
-    SDKROOT="$MACOS_SDKROOT" \
-    CC="$MACOS_CC" \
-    CXX="$MACOS_CXX" \
-    AR="$MACOS_AR" \
-    RANLIB="$MACOS_RANLIB" \
-    CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$MACOS_LINKER" \
-    cargo bundle -p hunk-desktop --release --format osx
+  export CARGO_TARGET_DIR="$TARGET_DIR"
+  export SDKROOT="$MACOS_SDKROOT"
+  export CC="$MACOS_CC"
+  export CXX="$MACOS_CXX"
+  export AR="$MACOS_AR"
+  export RANLIB="$MACOS_RANLIB"
+  export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$MACOS_LINKER"
+
+  cargo build -p hunk-desktop --release --target "$TARGET_TRIPLE" --locked
+  cargo packager -p hunk-desktop --release -f app --target "$TARGET_TRIPLE" --out-dir "$PACKAGER_OUT_DIR"
 )
 
-echo "Injecting bundled Codex runtime into Hunk.app..." >&2
-"$ROOT_DIR/scripts/inject_codex_runtime_into_macos_bundle.sh" "$APP_PATH" >/dev/null
+if [[ ! -d "$APP_PATH" ]]; then
+  echo "error: expected macOS app bundle at $APP_PATH" >&2
+  exit 1
+fi
+
 bundle_macos_non_system_dylibs "$APP_EXECUTABLE_PATH"
 echo "Validating macOS app binary dependencies..." >&2
 validate_macos_binary_dependencies "$APP_EXECUTABLE_PATH"

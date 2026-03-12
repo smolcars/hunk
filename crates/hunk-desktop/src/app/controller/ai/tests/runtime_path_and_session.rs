@@ -506,6 +506,55 @@
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn bundled_codex_resolution_falls_back_to_packager_linux_resource_candidate() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be monotonic")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("hunk-codex-runtime-lib-{unique}"));
+        let exe_path = root.join("usr").join("bin").join("hunk_desktop");
+        std::fs::create_dir_all(
+            exe_path
+                .parent()
+                .expect("exe parent directory should exist"),
+        )
+        .expect("exe dir should be created");
+        std::fs::write(&exe_path, "").expect("fake exe should be written");
+
+        let runtime_path = root
+            .join("usr")
+            .join("lib")
+            .join("hunk_desktop")
+            .join("codex-runtime")
+            .join(codex_runtime_platform_dir())
+            .join(codex_runtime_binary_name());
+        std::fs::create_dir_all(
+            runtime_path
+                .parent()
+                .expect("runtime parent should exist"),
+        )
+        .expect("runtime dir should be created");
+        std::fs::write(&runtime_path, "").expect("runtime binary should be written");
+
+        let resolved = resolve_bundled_codex_executable_from_exe(exe_path.as_path());
+        assert_eq!(resolved, Some(runtime_path.clone()));
+
+        let candidates = bundled_codex_executable_candidates(exe_path.as_path());
+        assert!(candidates.iter().any(|candidate| {
+            candidate.ends_with(
+                PathBuf::from("lib")
+                    .join("hunk_desktop")
+                    .join("codex-runtime")
+                    .join(codex_runtime_platform_dir())
+                    .join(codex_runtime_binary_name()),
+            )
+        }));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn normalized_user_input_answers_defaults_to_first_option_or_blank() {
         let request = AiPendingUserInputRequest {

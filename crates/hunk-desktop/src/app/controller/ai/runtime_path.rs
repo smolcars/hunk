@@ -159,6 +159,20 @@ fn bundled_codex_executable_candidates(current_exe: &std::path::Path) -> Vec<std
         );
     }
 
+    #[cfg(target_os = "linux")]
+    if let Some(binary_file_name) = current_exe.file_name()
+        && let Some(usr_dir) = exe_dir.parent()
+    {
+        candidates.push(
+            usr_dir
+                .join("lib")
+                .join(binary_file_name)
+                .join("codex-runtime")
+                .join(platform_dir)
+                .join(binary_name),
+        );
+    }
+
     candidates.push(exe_dir.join(binary_name));
 
     candidates

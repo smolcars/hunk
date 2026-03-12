@@ -50,8 +50,8 @@ jobs:
             . -> target-shared
           cache-on-failure: "true"
 
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle --locked --version 0.9.0
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked --version 0.11.8
         shell: bash
 
       - name: Resolve release version
@@ -133,6 +133,10 @@ jobs:
         run: echo "HUNK_RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
         shell: bash
 
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        shell: bash
+
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
@@ -151,8 +155,7 @@ jobs:
             libxkbcommon-x11-dev \
             libzstd-dev \
             patchelf \
-            pkg-config \
-            squashfs-tools
+            pkg-config
         shell: bash
 
       - name: Package Linux release artifact
@@ -189,7 +192,7 @@ jobs:
 
       - name: Resolve shared cargo target dir
         run: |
-          $targetDir = bash ./scripts/resolve_cargo_target_dir.sh $env:GITHUB_WORKSPACE
+          $targetDir = (pwsh ./scripts/resolve_cargo_target_dir.ps1).Trim()
           "CARGO_TARGET_DIR=$targetDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         shell: pwsh
 
@@ -201,8 +204,8 @@ jobs:
             . -> target-shared
           cache-on-failure: "true"
 
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle --locked --version 0.9.0
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked --version 0.11.8
         shell: pwsh
 
       - name: Resolve release version

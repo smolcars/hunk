@@ -24,8 +24,8 @@ dev:
     bacon
 
 bundle:
-    cargo bundle -p hunk-desktop --release
-    ./scripts/inject_codex_runtime_into_macos_bundle.sh
+    cargo build -p hunk-desktop --release --locked
+    cargo packager -p hunk-desktop --release -f app --out-dir "{{CARGO_TARGET_DIR}}/packager"
 
 package-macos-release:
     ./scripts/package_macos_release.sh
@@ -39,7 +39,7 @@ package-windows-release:
 prod:
     osascript -e 'tell application "Hunk" to quit' || true
     just bundle
-    open "{{CARGO_TARGET_DIR}}/release/bundle/osx/Hunk.app"
+    open "{{CARGO_TARGET_DIR}}/packager/Hunk.app"
 
 validate-codex-runtime:
     ./scripts/validate_codex_runtime_bundle.sh
