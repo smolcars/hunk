@@ -200,6 +200,7 @@ impl DiffViewer {
         })
         .collect::<Vec<_>>();
         visible_row_ids.extend(self.ai_pending_steer_row_ids_for_thread(thread_id));
+        visible_row_ids.extend(self.ai_queued_message_row_ids_for_thread(thread_id));
         (
             total_turn_count,
             visible_turn_count,

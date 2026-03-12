@@ -80,6 +80,10 @@ impl DiffViewer {
             .as_deref()
             .and_then(|thread_id| self.current_ai_in_progress_turn_id(thread_id))
             .is_some();
+        let queued_message_count = selected_thread_id
+            .as_deref()
+            .map(|thread_id| self.ai_queued_message_row_ids_for_thread(thread_id).len())
+            .unwrap_or(0);
         let model_supports_image_inputs = self.current_ai_model_supports_image_inputs();
         let review_action_enabled = selected_thread_id.is_some();
         let ai_publish_blocker = self.ai_publish_blocker();
@@ -154,6 +158,7 @@ impl DiffViewer {
             session_controls_read_only: composer_interrupt_available,
             composer_send_waiting_on_connection,
             composer_interrupt_available,
+            queued_message_count,
             review_action_enabled,
             composer_drop_border_color,
             composer_drop_bg,

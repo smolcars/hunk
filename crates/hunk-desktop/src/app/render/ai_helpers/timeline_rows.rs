@@ -483,6 +483,9 @@ fn render_ai_chat_timeline_row_for_view(
     if let Some(pending) = this.ai_pending_steer_for_row_id(row_id) {
         return render_ai_pending_steer(&pending, is_dark, cx);
     }
+    if let Some(queued) = this.ai_queued_message_for_row_id(row_id) {
+        return render_ai_queued_message(&queued, is_dark, cx);
+    }
 
     let Some(row) = this.ai_timeline_row(row_id) else {
         return div().w_full().h(px(0.0)).into_any_element();

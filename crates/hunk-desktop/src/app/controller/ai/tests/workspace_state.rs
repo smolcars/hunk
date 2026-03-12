@@ -190,6 +190,15 @@
                 start_mode: AiNewThreadStartMode::Worktree,
                 thread_id: None,
             }),
+            queued_messages: vec![AiQueuedUserMessage {
+                thread_id: "thread-1".to_string(),
+                prompt: "queue this follow-up".to_string(),
+                local_images: Vec::new(),
+                queued_at: Instant::now(),
+            }],
+            interrupt_restore_queued_thread_ids: ["thread-1".to_string()]
+                .into_iter()
+                .collect(),
             timeline_follow_output: false,
             thread_title_refresh_state_by_thread: [(
                 "thread-1".to_string(),
@@ -240,6 +249,8 @@
                 .map(|pending| pending.prompt.as_str()),
             Some("Follow up on the failing startup flow")
         );
+        assert!(seeded.queued_messages.is_empty());
+        assert!(seeded.interrupt_restore_queued_thread_ids.is_empty());
         assert!(!seeded.timeline_follow_output);
         assert!(seeded.thread_title_refresh_state_by_thread.is_empty());
         assert!(seeded.expanded_timeline_row_ids.is_empty());

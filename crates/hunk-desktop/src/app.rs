@@ -155,6 +155,8 @@ actions!(
         SwitchToAiView,
         AiNewThread,
         AiNewWorktreeThread,
+        AiQueuePrompt,
+        AiEditLastQueuedPrompt,
         AiInterruptSelectedTurn,
         OpenProject,
         SaveCurrentFile,
@@ -433,6 +435,12 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
         AiInterruptSelectedTurn,
         Some("AiWorkspace"),
     ));
+    bindings.push(KeyBinding::new("tab", AiQueuePrompt, Some("AiComposer")));
+    bindings.push(KeyBinding::new(
+        "ctrl-up",
+        AiEditLastQueuedPrompt,
+        Some("AiComposer"),
+    ));
     bindings.push(KeyBinding::new(
         "shift-enter",
         InputEnter { secondary: true },
@@ -598,6 +606,8 @@ struct DiffViewer {
     ai_pending_new_thread_selection: bool,
     ai_pending_thread_start: Option<AiPendingThreadStart>,
     ai_pending_steers: Vec<AiPendingSteer>,
+    ai_queued_messages: Vec<AiQueuedUserMessage>,
+    ai_interrupt_restore_queued_thread_ids: BTreeSet<String>,
     ai_scroll_timeline_to_bottom: bool,
     ai_timeline_follow_output: bool,
     ai_thread_list_scroll_handle: ScrollHandle,

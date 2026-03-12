@@ -7,6 +7,7 @@ struct AiComposerPanelState {
     session_controls_read_only: bool,
     composer_send_waiting_on_connection: bool,
     composer_interrupt_available: bool,
+    queued_message_count: usize,
     review_action_enabled: bool,
     composer_drop_border_color: Hsla,
     composer_drop_bg: Hsla,
@@ -139,12 +140,18 @@ impl DiffViewer {
                                 },
                             )
                             .child(
-                                Input::new(&self.ai_composer_input_state)
-                                    .appearance(false)
-                                    .bordered(false)
-                                    .focus_bordered(false)
-                                    .w_full()
-                                    .h(px(100.0)),
+                                div()
+                                    .key_context("AiComposer")
+                                    .on_action(cx.listener(Self::ai_queue_prompt_action))
+                                    .on_action(cx.listener(Self::ai_edit_last_queued_prompt_action))
+                                    .child(
+                                        Input::new(&self.ai_composer_input_state)
+                                            .appearance(false)
+                                            .bordered(false)
+                                            .focus_bordered(false)
+                                            .w_full()
+                                            .h(px(100.0)),
+                                    ),
                             )
                             .child(
                                 h_flex()
@@ -251,6 +258,32 @@ impl DiffViewer {
                                                 }
                                             }),
                                     ),
+                            )
+                            .when(
+                                state.composer_interrupt_available
+                                    || state.queued_message_count > 0,
+                                |this| {
+                                    let queue_hint = if state.queued_message_count > 0 {
+                                        let noun =
+                                            if state.queued_message_count == 1 { "message" } else { "messages" };
+                                        format!(
+                                            "{} queued {}. Tab queues another follow-up. Ctrl+Up edits the newest queued message.",
+                                            state.queued_message_count, noun
+                                        )
+                                    } else {
+                                        "Tab queues a follow-up for after this turn finishes."
+                                            .to_string()
+                                    };
+                                    this.child(
+                                        div()
+                                            .w_full()
+                                            .min_w_0()
+                                            .px_1()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(queue_hint),
+                                    )
+                                },
                             ),
                     ),
             )

@@ -5,6 +5,7 @@ include!("ai/catalog.rs");
 include!("ai/runtime_path.rs");
 include!("ai/helpers.rs");
 include!("ai/pending_steers.rs");
+include!("ai/queued_messages.rs");
 include!("ai/timeline_groups.rs");
 include!("ai/selection.rs");
 include!("ai/visible_threads_tests.rs");

@@ -50,6 +50,10 @@ impl DiffViewer {
             take_restorable_ai_pending_steers(&mut self.ai_pending_steers, &self.ai_state_snapshot);
         let restored_pending_steer_drafts =
             self.restore_ai_pending_steers_to_drafts(restorable_pending_steers);
+        let restored_queued_message_drafts =
+            self.maybe_restore_interrupted_ai_queued_messages_to_drafts();
+        let worker_workspace_key = self.ai_worker_workspace_key.clone();
+        self.maybe_submit_ready_ai_queued_messages(worker_workspace_key.as_deref(), cx);
         self.rebuild_ai_timeline_indexes();
         self.sync_ai_in_progress_turn_started_at();
         self.ai_composer_activity_elapsed_second = self.current_ai_composer_activity_elapsed_second();
@@ -180,7 +184,10 @@ impl DiffViewer {
         if previous_draft_key != next_draft_key
             || next_draft_key
                 .as_ref()
-                .is_some_and(|key| restored_pending_steer_drafts.contains(key))
+                .is_some_and(|key| {
+                    restored_pending_steer_drafts.contains(key)
+                        || restored_queued_message_drafts.contains(key)
+                })
         {
             self.restore_ai_visible_composer_from_current_draft(cx);
         }
@@ -283,21 +290,31 @@ impl DiffViewer {
         }
     }
 
-    fn send_current_ai_prompt(&mut self, cx: &mut Context<Self>) -> bool {
+    fn validated_current_ai_prompt(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<(String, Vec<PathBuf>)> {
         let prompt = self.ai_composer_input_state.read(cx).value().trim().to_string();
         let local_image_paths = self.current_ai_composer_local_images();
         if prompt.is_empty() && local_image_paths.is_empty() {
             self.set_current_ai_composer_status("Prompt cannot be empty.");
             cx.notify();
-            return false;
+            return None;
         }
         if !local_image_paths.is_empty() && !self.current_ai_model_supports_image_inputs() {
             self.set_current_ai_composer_status(
                 "Selected model does not support image attachments. Remove attachments or switch models.",
             );
             cx.notify();
-            return false;
+            return None;
         }
+        Some((prompt, local_image_paths))
+    }
+
+    fn send_current_ai_prompt(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some((prompt, local_image_paths)) = self.validated_current_ai_prompt(cx) else {
+            return false;
+        };
         if self.ai_command_tx.is_none() {
             self.ensure_ai_runtime_started(cx);
         }
@@ -689,6 +706,8 @@ impl DiffViewer {
             pending_new_thread_selection: current_state.pending_new_thread_selection,
             pending_thread_start: current_state.pending_thread_start.clone(),
             pending_steers: Vec::new(),
+            queued_messages: Vec::new(),
+            interrupt_restore_queued_thread_ids: std::collections::BTreeSet::new(),
             timeline_follow_output: current_state.timeline_follow_output,
             thread_title_refresh_state_by_thread: std::collections::BTreeMap::new(),
             timeline_visible_turn_limit_by_thread: std::collections::BTreeMap::new(),
