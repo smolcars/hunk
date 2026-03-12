@@ -567,20 +567,6 @@ impl DiffViewer {
         self.git_workspace.files.is_empty()
     }
 
-    pub(super) fn can_sync_current_branch(&self) -> bool {
-        self.can_run_active_branch_actions()
-            && self.git_workspace.branch_has_upstream
-            && self.tracking_area_clean()
-            && !self.git_controls_busy()
-    }
-
-    pub(super) fn can_publish_current_branch(&self) -> bool {
-        self.can_run_active_branch_actions()
-            && !self.git_workspace.branch_has_upstream
-            && self.tracking_area_clean()
-            && !self.git_controls_busy()
-    }
-
     pub(super) fn can_sync_current_branch_for_ui(&self) -> bool {
         self.can_run_active_branch_actions_for_ui()
             && self.git_workspace.branch_has_upstream
@@ -593,14 +579,6 @@ impl DiffViewer {
             && !self.git_workspace.branch_has_upstream
             && self.tracking_area_clean()
             && !self.git_rail_controls_busy()
-    }
-
-    pub(super) fn can_push_current_branch(&self) -> bool {
-        self.can_run_active_branch_actions()
-            && self.git_workspace.branch_has_upstream
-            && self.git_workspace.branch_ahead_count > 0
-            && self.tracking_area_clean()
-            && !self.git_controls_busy()
     }
 
     pub(super) fn can_push_current_branch_for_ui(&self) -> bool {
