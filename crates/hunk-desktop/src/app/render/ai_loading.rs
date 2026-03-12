@@ -517,3 +517,71 @@ fn render_ai_pending_steer(
         )
         .into_any_element()
 }
+
+fn render_ai_queued_message(
+    queued: &AiQueuedUserMessage,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let pending_colors = hunk_pending_message(cx.theme(), is_dark);
+    let elapsed_seconds = queued.queued_at.elapsed().as_secs();
+    let attachment_status = match queued.local_images.len() {
+        0 => "No attachments".to_string(),
+        1 => "1 attachment".to_string(),
+        count => format!("{count} attachments"),
+    };
+    let message_text = if queued.prompt.trim().is_empty() {
+        attachment_status.clone()
+    } else {
+        queued.prompt.clone()
+    };
+
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .justify_end()
+        .child(
+            v_flex()
+                .max_w(px(680.0))
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .child(
+                    div()
+                        .whitespace_nowrap()
+                        .text_xs()
+                        .font_semibold()
+                        .child("You"),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .min_w_0()
+                        .text_sm()
+                        .text_color(pending_colors.text)
+                        .whitespace_normal()
+                        .child(message_text),
+                )
+                .child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().accent)
+                                .child("queued, waiting for current turn to finish."),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .text_xs()
+                                .text_color(pending_colors.meta)
+                                .child(format!("{} | {}s", attachment_status, elapsed_seconds)),
+                        ),
+                ),
+        )
+        .into_any_element()
+}

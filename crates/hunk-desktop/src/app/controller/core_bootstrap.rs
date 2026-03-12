@@ -408,6 +408,8 @@ impl DiffViewer {
             ai_pending_new_thread_selection: false,
             ai_pending_thread_start: None,
             ai_pending_steers: Vec::new(),
+            ai_queued_messages: Vec::new(),
+            ai_interrupt_restore_queued_thread_ids: BTreeSet::new(),
             ai_scroll_timeline_to_bottom: false,
             ai_timeline_follow_output: true,
             ai_thread_list_scroll_handle: ScrollHandle::default(),
@@ -600,6 +602,22 @@ impl DiffViewer {
             if should_send_ai_prompt_from_input_event(event) {
                 this.ai_send_prompt_action_from_keyboard(cx);
             }
+        })
+        .detach();
+
+        let weak_view = cx.entity().downgrade();
+        // The multiline input consumes Tab for indentation before view-level keybindings run.
+        // Intercept the keystroke at the app layer so the AI composer can queue prompts reliably.
+        cx.intercept_keystrokes(move |event, window, cx| {
+            let Some(shortcut) = ai_composer_shortcut_for_keystroke(&event.keystroke) else {
+                return;
+            };
+            let Some(view) = weak_view.upgrade() else {
+                return;
+            };
+            view.update(cx, |this, cx| {
+                this.ai_handle_composer_shortcut_keystroke(shortcut, window, cx);
+            });
         })
         .detach();
 

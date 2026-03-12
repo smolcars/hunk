@@ -235,6 +235,97 @@ impl DiffViewer {
         }
     }
 
+    pub(super) fn ai_handle_composer_shortcut_keystroke(
+        &mut self,
+        shortcut: AiComposerShortcut,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Ai {
+            return;
+        }
+
+        let composer_focus_handle =
+            gpui::Focusable::focus_handle(self.ai_composer_input_state.read(cx), cx);
+        if !composer_focus_handle.is_focused(window) {
+            return;
+        }
+
+        window.prevent_default();
+        cx.stop_propagation();
+        match shortcut {
+            AiComposerShortcut::QueuePrompt => self.ai_queue_prompt_action(&AiQueuePrompt, window, cx),
+            AiComposerShortcut::EditLastQueuedPrompt => {
+                self.ai_edit_last_queued_prompt_action(&AiEditLastQueuedPrompt, window, cx)
+            }
+        }
+    }
+
+    pub(super) fn ai_queue_prompt_action(
+        &mut self,
+        _: &AiQueuePrompt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Ai {
+            return;
+        }
+
+        let Some(thread_id) = self.current_ai_thread_id() else {
+            self.ai_send_prompt_action(window, cx);
+            return;
+        };
+
+        if self.current_ai_in_progress_turn_id(thread_id.as_str()).is_none() {
+            self.ai_send_prompt_action(window, cx);
+            return;
+        }
+
+        let Some((prompt, local_images)) = self.validated_current_ai_prompt(cx) else {
+            return;
+        };
+
+        self.queue_current_ai_prompt_for_thread(thread_id.clone(), prompt, local_images);
+        self.clear_ai_composer_input(window, cx);
+        let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
+        reset_ai_timeline_list_measurements(self, visible_row_ids.len());
+        self.ai_timeline_follow_output = true;
+        self.ai_scroll_timeline_to_bottom = true;
+        self.flush_ai_timeline_scroll_request();
+        cx.notify();
+    }
+
+    pub(super) fn ai_edit_last_queued_prompt_action(
+        &mut self,
+        _: &AiEditLastQueuedPrompt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Ai {
+            return;
+        }
+
+        let Some(thread_id) = self.current_ai_thread_id() else {
+            return;
+        };
+        let Some(queued) = self.edit_last_ai_queued_message_for_thread(thread_id.as_str()) else {
+            return;
+        };
+
+        self.clear_current_ai_composer_status();
+        if let Some(draft) = self.current_ai_composer_draft_mut() {
+            draft.prompt = queued.prompt.clone();
+            draft.local_images = queued.local_images.clone();
+        }
+        self.ai_composer_input_state.update(cx, |state, cx| {
+            state.set_value(queued.prompt, window, cx);
+            state.focus(window, cx);
+        });
+        let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
+        reset_ai_timeline_list_measurements(self, visible_row_ids.len());
+        cx.notify();
+    }
+
     pub(super) fn ai_open_attachment_picker_action(&mut self, cx: &mut Context<Self>) {
         let prompt = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -370,9 +461,14 @@ impl DiffViewer {
         };
 
         if self.send_ai_worker_command(
-            AiWorkerCommand::InterruptTurn { thread_id, turn_id },
+            AiWorkerCommand::InterruptTurn {
+                thread_id: thread_id.clone(),
+                turn_id,
+            },
             cx,
         ) {
+            self.ai_interrupt_restore_queued_thread_ids
+                .insert(thread_id);
             self.set_current_ai_composer_status("Interrupted");
             cx.notify();
         }
@@ -595,5 +691,30 @@ impl DiffViewer {
             cx,
         );
         cx.notify();
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AiComposerShortcut {
+    QueuePrompt,
+    EditLastQueuedPrompt,
+}
+
+pub(super) fn ai_composer_shortcut_for_keystroke(
+    keystroke: &gpui::Keystroke,
+) -> Option<AiComposerShortcut> {
+    let modifiers = &keystroke.modifiers;
+    match keystroke.key.as_str() {
+        "tab" if !modifiers.modified() => Some(AiComposerShortcut::QueuePrompt),
+        "up"
+            if modifiers.control
+                && !modifiers.alt
+                && modifiers.shift
+                && !modifiers.platform
+                && !modifiers.function =>
+        {
+            Some(AiComposerShortcut::EditLastQueuedPrompt)
+        }
+        _ => None,
     }
 }

@@ -399,6 +399,10 @@ impl DiffViewer {
             pending_new_thread_selection: self.ai_pending_new_thread_selection,
             pending_thread_start: self.ai_pending_thread_start.clone(),
             pending_steers: self.ai_pending_steers.clone(),
+            queued_messages: self.ai_queued_messages.clone(),
+            interrupt_restore_queued_thread_ids: self
+                .ai_interrupt_restore_queued_thread_ids
+                .clone(),
             timeline_follow_output: self.ai_timeline_follow_output,
             thread_title_refresh_state_by_thread: self.ai_thread_title_refresh_state_by_thread.clone(),
             timeline_visible_turn_limit_by_thread: self.ai_timeline_visible_turn_limit_by_thread.clone(),
@@ -428,6 +432,11 @@ impl DiffViewer {
         reconcile_ai_pending_steers(&mut state.pending_steers, &state.state_snapshot);
         let restored_pending_steers =
             take_restorable_ai_pending_steers(&mut state.pending_steers, &state.state_snapshot);
+        let restored_queued_messages = reconcile_ai_queued_messages_after_snapshot(
+            &mut state.queued_messages,
+            &mut state.interrupt_restore_queued_thread_ids,
+            &state.state_snapshot,
+        );
         self.ai_connection_state = state.connection_state;
         self.ai_bootstrap_loading = state.bootstrap_loading;
         self.ai_status_message = state.status_message;
@@ -440,6 +449,8 @@ impl DiffViewer {
         self.ai_pending_new_thread_selection = state.pending_new_thread_selection;
         self.ai_pending_thread_start = state.pending_thread_start;
         self.ai_pending_steers = state.pending_steers;
+        self.ai_queued_messages = state.queued_messages;
+        self.ai_interrupt_restore_queued_thread_ids = state.interrupt_restore_queued_thread_ids;
         self.ai_scroll_timeline_to_bottom = false;
         self.ai_timeline_follow_output = state.timeline_follow_output;
         self.ai_thread_title_refresh_state_by_thread = state.thread_title_refresh_state_by_thread;
@@ -502,7 +513,8 @@ impl DiffViewer {
         {
             self.ai_selected_thread_id = Some(first_thread.id.clone());
         }
-        let _ = self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
+        self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
+        self.restore_ai_queued_messages_to_drafts(restored_queued_messages);
         self.prune_ai_composer_drafts();
         self.prune_ai_composer_statuses();
         reset_ai_timeline_list_measurements(self, 0);
@@ -713,6 +725,8 @@ impl DiffViewer {
         state.pending_user_inputs.clear();
         state.pending_user_input_answers.clear();
         state.pending_steers.clear();
+        state.queued_messages.clear();
+        state.interrupt_restore_queued_thread_ids.clear();
         Self::restore_ai_workspace_state_after_failure_for_state(state);
     }
 
@@ -738,11 +752,15 @@ impl DiffViewer {
         &mut self,
         workspace_key: &str,
         event: AiWorkerEventPayload,
+        cx: &mut Context<Self>,
     ) {
         let mut restored_pending_steers = Vec::new();
+        let mut restored_queued_messages = Vec::new();
+        let mut reconcile_queued_after_snapshot = false;
         self.update_background_ai_workspace_state(workspace_key, |state| match event {
             AiWorkerEventPayload::Snapshot(snapshot) => {
                 restored_pending_steers = Self::apply_ai_snapshot_to_workspace_state(state, *snapshot);
+                reconcile_queued_after_snapshot = true;
             }
             AiWorkerEventPayload::BootstrapCompleted => {
                 state.bootstrap_loading = false;
@@ -769,10 +787,85 @@ impl DiffViewer {
             }
             AiWorkerEventPayload::Fatal(message) => {
                 restored_pending_steers = take_all_ai_pending_steers(&mut state.pending_steers);
+                restored_queued_messages = take_all_ai_queued_messages(&mut state.queued_messages);
+                state.interrupt_restore_queued_thread_ids.clear();
                 Self::apply_background_ai_workspace_fatal(state, message);
             }
         });
         let _ = self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
+        if reconcile_queued_after_snapshot {
+            let mut ready_thread_ids = Vec::new();
+            if let Some(state) = self.ai_workspace_states.get_mut(workspace_key) {
+                restored_queued_messages = reconcile_ai_queued_messages_after_snapshot(
+                    &mut state.queued_messages,
+                    &mut state.interrupt_restore_queued_thread_ids,
+                    &state.state_snapshot,
+                );
+                ready_thread_ids = ready_ai_queued_message_thread_ids(
+                    state.queued_messages.as_slice(),
+                    &state.interrupt_restore_queued_thread_ids,
+                    &state.state_snapshot,
+                );
+            }
+            let _ = self.restore_ai_queued_messages_to_drafts(restored_queued_messages);
+            for thread_id in ready_thread_ids {
+                let Some((accepted_after_sequence, session_overrides)) = self
+                    .ai_workspace_states
+                    .get(workspace_key)
+                    .map(|state| {
+                        (
+                            thread_latest_timeline_sequence(
+                                &state.state_snapshot,
+                                thread_id.as_str(),
+                            ),
+                            AiTurnSessionOverrides {
+                                model: state.selected_model.clone(),
+                                effort: state.selected_effort.clone(),
+                                collaboration_mode: state.selected_collaboration_mode,
+                                service_tier: state.selected_service_tier,
+                            },
+                        )
+                    })
+                else {
+                    break;
+                };
+                let Some((queued_ix, queued)) = self
+                    .ai_workspace_states
+                    .get_mut(workspace_key)
+                    .and_then(|state| {
+                        mark_next_ai_queued_message_pending_confirmation(
+                            state.queued_messages.as_mut_slice(),
+                            thread_id.as_str(),
+                            accepted_after_sequence,
+                        )
+                    })
+                else {
+                    continue;
+                };
+                let prompt = (!queued.prompt.trim().is_empty()).then_some(queued.prompt.clone());
+                let sent = self.send_ai_worker_command_for_workspace(
+                    Some(workspace_key),
+                    AiWorkerCommand::SendPrompt {
+                        thread_id: queued.thread_id.clone(),
+                        prompt,
+                        local_image_paths: queued.local_images.clone(),
+                        session_overrides,
+                    },
+                    false,
+                    cx,
+                );
+                if !sent
+                    && let Some(state) = self.ai_workspace_states.get_mut(workspace_key)
+                {
+                    reset_ai_queued_message_to_queued(
+                        state.queued_messages.as_mut_slice(),
+                        queued_ix,
+                    );
+                }
+            }
+            return;
+        }
+        let _ = self.restore_ai_queued_messages_to_drafts(restored_queued_messages);
     }
 
     fn handle_background_ai_worker_disconnect(&mut self, workspace_key: &str) {
@@ -788,11 +881,15 @@ impl DiffViewer {
             });
         }
         let mut restored_pending_steers = Vec::new();
+        let mut restored_queued_messages = Vec::new();
         self.update_background_ai_workspace_state(workspace_key, |state| {
             restored_pending_steers = take_all_ai_pending_steers(&mut state.pending_steers);
+            restored_queued_messages = take_all_ai_queued_messages(&mut state.queued_messages);
+            state.interrupt_restore_queued_thread_ids.clear();
             Self::apply_background_ai_workspace_disconnect(state);
         });
         let _ = self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
+        let _ = self.restore_ai_queued_messages_to_drafts(restored_queued_messages);
     }
 
     pub(super) fn shutdown_ai_worker_blocking(&mut self) {

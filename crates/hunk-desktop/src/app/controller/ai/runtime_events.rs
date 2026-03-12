@@ -83,6 +83,7 @@ impl DiffViewer {
                             this.handle_background_ai_worker_event(
                                 workspace_key.as_str(),
                                 event.payload,
+                                cx,
                             );
                         }
                         if terminate_hidden_runtime || event_stream_disconnected {
@@ -114,6 +115,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         let restored_pending_steer_drafts = self.restore_all_visible_ai_pending_steers_to_drafts();
+        let restored_queued_message_drafts = self.restore_all_visible_ai_queued_messages_to_drafts();
         self.ai_command_tx = None;
         self.ai_worker_workspace_key = None;
         self.join_ai_worker_thread(join_reason);
@@ -137,7 +139,10 @@ impl DiffViewer {
         if self
             .current_ai_composer_draft_key()
             .as_ref()
-            .is_some_and(|key| restored_pending_steer_drafts.contains(key))
+            .is_some_and(|key| {
+                restored_pending_steer_drafts.contains(key)
+                    || restored_queued_message_drafts.contains(key)
+            })
         {
             self.restore_ai_visible_composer_from_current_draft(cx);
         }

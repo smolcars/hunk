@@ -17,6 +17,8 @@ mod ai_tests {
     use super::resolved_ai_thread_mode_picker_state;
     use super::ai_attachment_status_message;
     use super::ai_branch_name_for_thread;
+    use super::ai_composer_shortcut_for_keystroke;
+    use super::AiComposerShortcut;
     use super::background_branch_name_for_new_thread;
     use super::ai_thread_catalog_workspace_roots;
     use super::ai_thread_start_mode_for_workspace;
@@ -49,6 +51,9 @@ mod ai_tests {
     use super::should_reset_ai_timeline_measurements;
     use super::should_scroll_timeline_to_bottom_on_new_activity;
     use super::sorted_threads;
+    use super::reconcile_ai_queued_messages_after_snapshot;
+    use super::ready_ai_queued_message_thread_ids;
+    use super::take_last_editable_ai_queued_message_for_thread;
     use super::thread_metadata_refresh_key;
     use super::timeline_turn_ids_by_thread;
     use super::timeline_row_ids_with_height_changes;
@@ -64,6 +69,8 @@ mod ai_tests {
     use crate::app::AiComposerDraft;
     use crate::app::AiComposerDraftKey;
     use crate::app::AiNewThreadStartMode;
+    use crate::app::AiQueuedUserMessage;
+    use crate::app::AiQueuedUserMessageStatus;
     use crate::app::AiPendingSteer;
     use crate::app::AiPendingThreadStart;
     use crate::app::AiThreadTitleRefreshState;
@@ -80,6 +87,7 @@ mod ai_tests {
     use crate::app::ai_runtime::AiConnectionState;
     use crate::app::ai_runtime::AiSnapshot;
     use crate::app::review_compare_picker::ReviewCompareSourceOption;
+    use gpui::Keystroke;
     use hunk_codex::state::AiState;
     use hunk_codex::state::ItemDisplayMetadata;
     use hunk_codex::state::ItemStatus;
@@ -193,6 +201,32 @@ mod ai_tests {
         }
     }
 
+    #[test]
+    fn ai_composer_shortcut_for_keystroke_matches_queue_and_edit_shortcuts() {
+        assert!(matches!(
+            ai_composer_shortcut_for_keystroke(&Keystroke::parse("tab").expect("valid keystroke")),
+            Some(AiComposerShortcut::QueuePrompt)
+        ));
+        assert!(matches!(
+            ai_composer_shortcut_for_keystroke(
+                &Keystroke::parse("ctrl-shift-up").expect("valid keystroke")
+            ),
+            Some(AiComposerShortcut::EditLastQueuedPrompt)
+        ));
+        assert!(ai_composer_shortcut_for_keystroke(
+            &Keystroke::parse("ctrl-up").expect("valid keystroke")
+        )
+        .is_none());
+        assert!(ai_composer_shortcut_for_keystroke(
+            &Keystroke::parse("shift-tab").expect("valid keystroke")
+        )
+        .is_none());
+        assert!(ai_composer_shortcut_for_keystroke(
+            &Keystroke::parse("up").expect("valid keystroke")
+        )
+        .is_none());
+    }
+
     fn ai_model(
         id: &str,
         display_name: &str,
@@ -225,6 +259,7 @@ mod ai_tests {
     }
 
     include!("tests/workspace_state.rs");
+    include!("tests/queued_messages.rs");
     include!("tests/timeline.rs");
     include!("tests/selection_and_refresh.rs");
     include!("tests/runtime_path_and_session.rs");
