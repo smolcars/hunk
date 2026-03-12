@@ -90,6 +90,7 @@ fn app_state_round_trips_last_project_path() {
                 path: "src/main.rs".to_string(),
                 status_tag: "M".to_string(),
                 staged: false,
+                unstaged: true,
                 untracked: false,
             }],
             last_commit_subject: Some("cached".to_string()),

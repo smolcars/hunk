@@ -6,7 +6,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
-        let staged_for_commit = self.staged_commit_files.contains(file.path.as_str());
+        let staged_for_commit = file.staged;
         let is_dark = cx.theme().mode.is_dark();
         let card_surface = hunk_card_surface(cx.theme(), is_dark);
         let undo_loading = self.git_action_loading_named("Undo file changes");
@@ -19,6 +19,15 @@ impl DiffViewer {
             "Restore this file to HEAD."
         } else {
             "Delete this untracked file from the working tree."
+        };
+        let stage_tooltip = if staged_for_commit {
+            if file.unstaged {
+                "Unstage this file. Any remaining worktree changes will stay dirty."
+            } else {
+                "Unstage this file."
+            }
+        } else {
+            "Stage this file."
         };
         let stage_colors = if staged_for_commit {
             hunk_tinted_button(cx.theme(), is_dark, HunkAccentTone::Success)
@@ -62,11 +71,7 @@ impl DiffViewer {
                     .bg(stage_colors.background)
                     .border_color(stage_colors.border)
                     .text_color(stage_colors.text)
-                    .tooltip(if staged_for_commit {
-                        "Remove this file from the next commit."
-                    } else {
-                        "Stage this file for the next commit."
-                    })
+                    .tooltip(stage_tooltip)
                     .disabled(self.git_controls_busy())
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {

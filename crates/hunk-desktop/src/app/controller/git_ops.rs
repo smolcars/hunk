@@ -3,6 +3,18 @@ impl DiffViewer {
         self.git_action_loading || self.workspace_target_switch_loading
     }
 
+    fn git_index_action_loading(&self) -> bool {
+        self.git_action_label.as_deref().is_some_and(|label| {
+            label.eq_ignore_ascii_case("Stage files")
+                || label.eq_ignore_ascii_case("Unstage files")
+        })
+    }
+
+    pub(super) fn git_rail_controls_busy(&self) -> bool {
+        self.workspace_target_switch_loading
+            || (self.git_action_loading && !self.git_index_action_loading())
+    }
+
     fn set_git_warning_message(
         &mut self,
         message: String,
@@ -123,19 +135,8 @@ impl DiffViewer {
         }
     }
 
-    fn apply_optimistic_commit_success(
-        &mut self,
-        committed_paths: &[String],
-        subject: &str,
-    ) {
-        let committed_paths = committed_paths
-            .iter()
-            .map(String::as_str)
-            .collect::<BTreeSet<_>>();
-
-        self.staged_commit_files.clear();
+    fn apply_optimistic_commit_success(&mut self, subject: &str) {
         self.last_commit_subject = Some(subject.to_string());
-        self.remove_paths_from_git_workspace(&committed_paths);
 
         if self.git_workspace.branch_has_upstream {
             self.git_workspace.branch_ahead_count =
@@ -167,8 +168,6 @@ impl DiffViewer {
                         .copied()
                 }),
         );
-        self.staged_commit_files
-            .retain(|path| !removed_paths.contains(path.as_str()));
     }
 
     fn apply_optimistic_restore_success(&mut self, file_path: &str) {
@@ -212,6 +211,115 @@ impl DiffViewer {
         F: FnOnce(std::path::PathBuf) -> anyhow::Result<String> + Send + 'static,
     {
         self.run_git_action_with_refresh(action_name, cx, action)
+    }
+
+    fn run_git_index_action<F>(
+        &mut self,
+        action_name: &'static str,
+        cx: &mut Context<Self>,
+        action: F,
+    ) -> bool
+    where
+        F: FnOnce(std::path::PathBuf) -> anyhow::Result<String> + Send + 'static,
+    {
+        if self.git_controls_busy() {
+            return false;
+        }
+
+        let Some(repo_root) = self.selected_git_workspace_root() else {
+            self.git_status_message = Some("No Git repository available.".to_string());
+            cx.notify();
+            return false;
+        };
+
+        let epoch = self.begin_git_action(action_name, cx);
+        let started_at = Instant::now();
+
+        self.git_action_task = cx.spawn(async move |this, cx| {
+            let refresh_root = repo_root.clone();
+            let (execution_elapsed, result) = cx
+                .background_executor()
+                .spawn(async move {
+                    let execution_started_at = Instant::now();
+                    let result = (|| -> anyhow::Result<(
+                        String,
+                        anyhow::Result<(RepoSnapshotFingerprint, WorkflowSnapshot)>,
+                    )> {
+                        let message = action(repo_root.clone())?;
+                        let snapshot = load_workflow_snapshot_with_fingerprint_without_refresh(
+                            repo_root.as_path(),
+                        );
+                        Ok((message, snapshot))
+                    })();
+                    (execution_started_at.elapsed(), result)
+                })
+                .await;
+
+            if let Some(this) = this.upgrade() {
+                this.update(cx, |this, cx| {
+                    if epoch != this.git_action_epoch {
+                        return;
+                    }
+
+                    let total_elapsed = started_at.elapsed();
+                    this.finish_git_action();
+                    match result {
+                        Ok((message, Ok((fingerprint, workflow_snapshot)))) => {
+                            debug!(
+                                "git action complete: epoch={} action={} exec_elapsed_ms={} total_elapsed_ms={} refresh=index-only",
+                                epoch,
+                                action_name,
+                                execution_elapsed.as_millis(),
+                                total_elapsed.as_millis()
+                            );
+                            this.git_status_message = if message.is_empty() {
+                                None
+                            } else {
+                                Some(message)
+                            };
+                            this.apply_optimistic_git_action_success(action_name);
+                            this.apply_lightweight_git_index_snapshot(
+                                refresh_root.clone(),
+                                fingerprint,
+                                workflow_snapshot,
+                            );
+                        }
+                        Ok((message, Err(err))) => {
+                            warn!(
+                                "git index snapshot reload failed after action '{}': {err:#}; falling back to standard refresh",
+                                action_name
+                            );
+                            this.git_status_message = if message.is_empty() {
+                                None
+                            } else {
+                                Some(message)
+                            };
+                            this.apply_optimistic_git_action_success(action_name);
+                            this.refresh_after_git_action(action_name, cx);
+                        }
+                        Err(err) => {
+                            error!(
+                                "git action failed: epoch={} action={} exec_elapsed_ms={} total_elapsed_ms={} err={err:#}",
+                                epoch,
+                                action_name,
+                                execution_elapsed.as_millis(),
+                                total_elapsed.as_millis()
+                            );
+                            let summary = err.to_string();
+                            this.git_status_message = Some(format!("Git error: {err:#}"));
+                            Self::push_error_notification(
+                                format!("{action_name} failed: {summary}"),
+                                cx,
+                            );
+                        }
+                    }
+
+                    cx.notify();
+                });
+            }
+        });
+
+        true
     }
 
     fn run_git_action_with_refresh<F>(
@@ -337,37 +445,69 @@ impl DiffViewer {
         staged: bool,
         cx: &mut Context<Self>,
     ) {
-        if staged {
-            self.staged_commit_files.insert(file_path);
-        } else {
-            self.staged_commit_files.remove(file_path.as_str());
+        if self.git_controls_busy() {
+            return;
         }
-        cx.notify();
+
+        let message_path = file_path.clone();
+        self.run_git_index_action(
+            if staged { "Stage files" } else { "Unstage files" },
+            cx,
+            move |repo_root| {
+                let paths = vec![file_path];
+                if staged {
+                    stage_paths(&repo_root, &paths)?;
+                    Ok(format!("Staged {}", message_path))
+                } else {
+                    unstage_paths(&repo_root, &paths)?;
+                    Ok(format!("Unstaged {}", message_path))
+                }
+            },
+        );
     }
 
     pub(super) fn stage_all_files_for_commit(&mut self, cx: &mut Context<Self>) {
-        if self.staged_commit_files.len() == self.git_workspace.files.len() {
+        if self.git_controls_busy() || !self.git_workspace.files.iter().any(|file| file.unstaged) {
             return;
         }
-        self.staged_commit_files = self
+        let paths = self
             .git_workspace
             .files
             .iter()
             .map(|file| file.path.clone())
-            .collect();
-        cx.notify();
+            .collect::<Vec<_>>();
+        self.run_git_index_action("Stage files", cx, move |repo_root| {
+            stage_paths(&repo_root, &paths)?;
+            Ok("Staged all changed files".to_string())
+        });
     }
 
     pub(super) fn unstage_all_files_for_commit(&mut self, cx: &mut Context<Self>) {
-        if self.staged_commit_files.is_empty() {
+        if self.git_controls_busy() {
             return;
         }
-        self.staged_commit_files.clear();
-        cx.notify();
+        let paths = self
+            .git_workspace
+            .files
+            .iter()
+            .filter(|file| file.staged)
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
+        if paths.is_empty() {
+            return;
+        }
+        self.run_git_index_action("Unstage files", cx, move |repo_root| {
+            unstage_paths(&repo_root, &paths)?;
+            Ok("Unstaged all staged files".to_string())
+        });
     }
 
     pub(super) fn staged_commit_file_count(&self) -> usize {
-        self.staged_commit_files.len()
+        self.git_workspace
+            .files
+            .iter()
+            .filter(|file| file.staged)
+            .count()
     }
 
     pub(super) fn branch_syncable(&self) -> bool {
@@ -419,6 +559,10 @@ impl DiffViewer {
         self.branch_syncable() && self.active_branch_is_checked_out() && !self.git_controls_busy()
     }
 
+    pub(super) fn can_run_active_branch_actions_for_ui(&self) -> bool {
+        self.branch_syncable() && self.active_branch_is_checked_out() && !self.git_rail_controls_busy()
+    }
+
     fn tracking_area_clean(&self) -> bool {
         self.git_workspace.files.is_empty()
     }
@@ -437,6 +581,20 @@ impl DiffViewer {
             && !self.git_controls_busy()
     }
 
+    pub(super) fn can_sync_current_branch_for_ui(&self) -> bool {
+        self.can_run_active_branch_actions_for_ui()
+            && self.git_workspace.branch_has_upstream
+            && self.tracking_area_clean()
+            && !self.git_rail_controls_busy()
+    }
+
+    pub(super) fn can_publish_current_branch_for_ui(&self) -> bool {
+        self.can_run_active_branch_actions_for_ui()
+            && !self.git_workspace.branch_has_upstream
+            && self.tracking_area_clean()
+            && !self.git_rail_controls_busy()
+    }
+
     pub(super) fn can_push_current_branch(&self) -> bool {
         self.can_run_active_branch_actions()
             && self.git_workspace.branch_has_upstream
@@ -445,13 +603,12 @@ impl DiffViewer {
             && !self.git_controls_busy()
     }
 
-    fn staged_commit_paths(&self) -> Vec<String> {
-        self.git_workspace
-            .files
-            .iter()
-            .filter(|file| self.staged_commit_files.contains(file.path.as_str()))
-            .map(|file| file.path.clone())
-            .collect()
+    pub(super) fn can_push_current_branch_for_ui(&self) -> bool {
+        self.can_run_active_branch_actions_for_ui()
+            && self.git_workspace.branch_has_upstream
+            && self.git_workspace.branch_ahead_count > 0
+            && self.tracking_area_clean()
+            && !self.git_rail_controls_busy()
     }
 
     pub(super) fn create_or_switch_branch_from_input(
@@ -810,15 +967,12 @@ impl DiffViewer {
             cx.notify();
             return;
         };
-        let staged_paths = self.staged_commit_paths();
-        if staged_paths.is_empty() {
+        if self.staged_commit_file_count() == 0 {
             self.git_status_message =
                 Some("Stage at least one file before creating a commit.".to_string());
             cx.notify();
             return;
         }
-        let partial_commit = staged_paths.len() != self.git_workspace.files.len();
-        let staged_paths_for_ui = staged_paths.clone();
 
         let epoch = self.begin_git_action("Create commit", cx);
         let started_at = Instant::now();
@@ -828,12 +982,7 @@ impl DiffViewer {
                 .background_executor()
                 .spawn(async move {
                     let execution_started_at = Instant::now();
-                    let result = if partial_commit {
-                        commit_selected_paths_with_details(&repo_root, &message, &staged_paths)
-                            .map(|(_, commit)| commit)
-                    } else {
-                        commit_staged_with_details(&repo_root, &message)
-                    };
+                    let result = commit_index_with_details(&repo_root, &message);
                     (execution_started_at.elapsed(), result)
                 })
                 .await;
@@ -849,17 +998,13 @@ impl DiffViewer {
                     match result {
                         Ok(created_commit) => {
                             debug!(
-                                "git action complete: epoch={} action=Create commit exec_elapsed_ms={} total_elapsed_ms={} partial_commit={}",
+                                "git action complete: epoch={} action=Create commit exec_elapsed_ms={} total_elapsed_ms={}",
                                 epoch,
                                 execution_elapsed.as_millis(),
-                                total_elapsed.as_millis(),
-                                partial_commit
+                                total_elapsed.as_millis()
                             );
                             this.git_status_message = Some("Created commit".to_string());
-                            this.apply_optimistic_commit_success(
-                                staged_paths_for_ui.as_slice(),
-                                created_commit.subject.as_str(),
-                            );
+                            this.apply_optimistic_commit_success(created_commit.subject.as_str());
                             this.apply_optimistic_recent_commit(&created_commit);
 
                             let commit_input_state = this.commit_input_state.clone();
@@ -877,11 +1022,10 @@ impl DiffViewer {
                         }
                         Err(err) => {
                             error!(
-                                "git action failed: epoch={} action=Create commit exec_elapsed_ms={} total_elapsed_ms={} partial_commit={} err={err:#}",
+                                "git action failed: epoch={} action=Create commit exec_elapsed_ms={} total_elapsed_ms={} err={err:#}",
                                 epoch,
                                 execution_elapsed.as_millis(),
-                                total_elapsed.as_millis(),
-                                partial_commit
+                                total_elapsed.as_millis()
                             );
                             this.git_status_message = Some(format!("Git error: {err:#}"));
                             Self::push_error_notification(

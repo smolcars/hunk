@@ -112,4 +112,17 @@ impl DiffViewer {
         }
         None
     }
+
+    pub(super) fn active_review_action_blocker_for_ui(&self) -> Option<String> {
+        if self.git_rail_controls_busy() {
+            return Some("Another workspace action is in progress.".to_string());
+        }
+        if !self.can_run_active_branch_actions_for_ui() {
+            return Some("Activate a branch before opening PR/MR.".to_string());
+        }
+        if !self.git_workspace.branch_has_upstream {
+            return Some("Publish this branch before opening PR/MR.".to_string());
+        }
+        None
+    }
 }

@@ -16,6 +16,7 @@ impl DiffViewer {
 
         let view = cx.entity();
         let staged_count = self.staged_commit_file_count();
+        let has_unstaged_changes = self.git_workspace.files.iter().any(|file| file.unstaged);
         let is_dark = cx.theme().mode.is_dark();
         let colors = hunk_git_workspace(cx.theme(), is_dark);
 
@@ -44,7 +45,7 @@ impl DiffViewer {
                                     .text_sm()
                                     .font_semibold()
                                     .text_color(cx.theme().foreground)
-                                    .child("Working Tree"),
+                                    .child("Changes"),
                             )
                             .child(
                                 div()
@@ -79,11 +80,8 @@ impl DiffViewer {
                                         .with_size(gpui_component::Size::Small)
                                         .rounded(px(8.0))
                                         .label("Stage All")
-                                        .tooltip("Stage every changed file for the next commit.")
-                                        .disabled(
-                                            self.git_action_loading
-                                                || staged_count == self.git_workspace.files.len(),
-                                        )
+                                        .tooltip("Stage every changed file.")
+                                        .disabled(self.git_action_loading || !has_unstaged_changes)
                                         .on_click(move |_, _, cx| {
                                             view.update(cx, |this, cx| {
                                                 this.stage_all_files_for_commit(cx);
@@ -98,9 +96,7 @@ impl DiffViewer {
                                         .with_size(gpui_component::Size::Small)
                                         .rounded(px(8.0))
                                         .label("Unstage All")
-                                        .tooltip(
-                                            "Remove every file from the next commit selection.",
-                                        )
+                                        .tooltip("Unstage every staged file.")
                                         .disabled(self.git_action_loading || staged_count == 0)
                                         .on_click(move |_, _, cx| {
                                             view.update(cx, |this, cx| {
@@ -183,10 +179,10 @@ impl DiffViewer {
         let colors = hunk_git_workspace(cx.theme(), is_dark);
         let create_commit_loading = self.git_action_loading_named("Create commit");
         let push_loading = self.git_action_loading_named("Push branch");
-        let git_controls_busy = self.git_controls_busy();
-        let push_available = self.can_push_current_branch() || push_loading;
+        let git_controls_busy = self.git_rail_controls_busy();
+        let push_available = self.can_push_current_branch_for_ui() || push_loading;
         let push_disabled = !push_available || (git_controls_busy && !push_loading);
-        let push_tooltip = if !self.can_run_active_branch_actions() {
+        let push_tooltip = if !self.can_run_active_branch_actions_for_ui() {
             "Activate a branch before pushing."
         } else if !self.git_workspace.branch_has_upstream {
             "Publish this branch before pushing."

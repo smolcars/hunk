@@ -182,6 +182,7 @@ fn hash_changed_entries<'a>(entries: impl IntoIterator<Item = &'a WorkspaceDiffE
         entry.file.path.hash(&mut hasher);
         entry.file.status.hash(&mut hasher);
         entry.file.staged.hash(&mut hasher);
+        entry.file.unstaged.hash(&mut hasher);
         entry.file.untracked.hash(&mut hasher);
         entry.content_signature.hash(&mut hasher);
     }

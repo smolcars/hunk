@@ -51,11 +51,11 @@ fn collect_workspace_diff_entries_light(
             head_tree.as_ref(),
             rename_from.as_deref().unwrap_or(path.as_str()),
         )?;
-        let new_entry = worktree_entry_summary(root, path.as_str())?;
+        let mut new_entry = worktree_entry_summary(root, path.as_str())?;
         let index_has_entry = filter_index
             .entry_by_path(path.as_bytes().as_bstr())
             .is_some();
-        let status = if candidate.staged_status == Some(FileStatus::Conflicted)
+        let mut status = if candidate.staged_status == Some(FileStatus::Conflicted)
             || candidate.worktree_status == Some(FileStatus::Conflicted)
         {
             Some(FileStatus::Conflicted)
@@ -67,6 +67,16 @@ fn collect_workspace_diff_entries_light(
                 rename_from.as_deref(),
             )
         };
+        if status.is_none() && candidate.staged_status.is_some() {
+            new_entry = index_entry_summary(filter_index, path.as_str())?;
+            status = aggregate_file_status_from_summaries(
+                old_entry.as_ref(),
+                new_entry.as_ref(),
+                index_has_entry,
+                rename_from.as_deref(),
+            )
+            .or(candidate.staged_status);
+        }
         let Some(status) = status else {
             continue;
         };
@@ -84,6 +94,7 @@ fn collect_workspace_diff_entries_light(
                     path,
                     status,
                     staged: false,
+                    unstaged: candidate.worktree_status.is_some(),
                     untracked: matches!(status, FileStatus::Untracked),
                 },
                 line_stats: LineStats::default(),
@@ -111,6 +122,7 @@ fn workspace_diff_entry_from_resolved(
                 path: file.path,
                 status: file.status,
                 staged: file.staged,
+                unstaged: file.unstaged,
                 untracked: file.untracked,
             },
             line_stats,
@@ -154,6 +166,27 @@ fn resolve_workspace_files(
     Ok(resolved)
 }
 
+fn expand_selected_paths_for_renames_from_repo(
+    repo: &GitRepo,
+    selected_paths: &BTreeSet<String>,
+) -> Result<BTreeSet<String>> {
+    if selected_paths.is_empty() {
+        return Ok(BTreeSet::new());
+    }
+
+    let candidates =
+        collect_candidate_files(repo.repository(), repo.root(), Some(selected_paths))?;
+    let mut expanded_paths = selected_paths.clone();
+    for (path, candidate) in candidates {
+        expanded_paths.insert(path);
+        if let Some(rename_from) = candidate.rename_from {
+            expanded_paths.insert(rename_from);
+        }
+    }
+
+    Ok(expanded_paths)
+}
+
 fn resolve_workspace_file_full(
     repo: &gix::Repository,
     root: &Path,
@@ -170,10 +203,10 @@ fn resolve_workspace_file_full(
         head_tree,
         rename_from.as_deref().unwrap_or(path.as_str()),
     )?;
-    let new_state = worktree_file_state(repo, root, filter_pipeline, index, path.as_str())?;
-    let new_entry = worktree_entry_summary(root, path.as_str())?;
+    let mut new_state = worktree_file_state(repo, root, filter_pipeline, index, path.as_str())?;
+    let mut new_entry = worktree_entry_summary(root, path.as_str())?;
     let index_has_entry = index.entry_by_path(path.as_bytes().as_bstr()).is_some();
-    let status = if candidate.staged_status == Some(FileStatus::Conflicted)
+    let mut status = if candidate.staged_status == Some(FileStatus::Conflicted)
         || candidate.worktree_status == Some(FileStatus::Conflicted)
     {
         Some(FileStatus::Conflicted)
@@ -185,6 +218,17 @@ fn resolve_workspace_file_full(
             rename_from.as_deref(),
         )
     };
+    if status.is_none() && candidate.staged_status.is_some() {
+        new_state = index_file_state(repo, index, path.as_str())?;
+        new_entry = index_entry_summary(index, path.as_str())?;
+        status = aggregate_file_status(
+            old_state.as_ref(),
+            new_state.as_ref(),
+            index_has_entry,
+            rename_from.as_deref(),
+        )
+        .or(candidate.staged_status);
+    }
     let Some(status) = status else {
         return Ok(None);
     };
@@ -197,6 +241,7 @@ fn resolve_workspace_file_full(
     );
     Ok(Some(ResolvedWorkspaceFile {
         staged: candidate.staged_status.is_some(),
+        unstaged: candidate.worktree_status.is_some(),
         untracked: matches!(status, FileStatus::Untracked),
         path,
         rename_from,

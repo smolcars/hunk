@@ -641,18 +641,21 @@ fn benchmark_file_selection_prefers_non_deleted_text_entries() {
         path: "stress/original/file_001.ts".to_string(),
         status: FileStatus::Deleted,
         staged: false,
+        unstaged: true,
         untracked: false,
     };
     let binary_file = ChangedFile {
         path: "stress/binary_001.bin".to_string(),
         status: FileStatus::Modified,
         staged: false,
+        unstaged: true,
         untracked: false,
     };
     let renamed_target = ChangedFile {
         path: "stress/renamed/file_001.ts".to_string(),
         status: FileStatus::Added,
         staged: false,
+        unstaged: true,
         untracked: false,
     };
 

@@ -326,7 +326,6 @@ impl DiffViewer {
 
     fn clear_git_workspace_state(&mut self) {
         self.git_workspace = GitWorkspaceState::default();
-        self.staged_commit_files.clear();
         self.last_commit_subject = None;
         self.recent_commits.clear();
         self.recent_commits_error = None;
@@ -382,12 +381,6 @@ impl DiffViewer {
                         .copied()
                 }),
         );
-        self.staged_commit_files.retain(|path| {
-            self.git_workspace
-                .files
-                .iter()
-                .any(|file| file.path == *path)
-        });
         self.last_commit_subject = last_commit_subject;
     }
 

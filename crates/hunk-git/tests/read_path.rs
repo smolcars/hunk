@@ -292,7 +292,7 @@ fn workflow_snapshot_fingerprint_changes_for_tracking_only_updates() -> Result<(
 }
 
 #[test]
-fn workflow_snapshot_ignores_index_only_changes_when_worktree_matches_head() -> Result<()> {
+fn workflow_snapshot_reports_staged_index_only_changes_when_worktree_matches_head() -> Result<()> {
     let fixture = TempGitRepo::new()?;
     fixture.write_file("tracked.txt", "base\n")?;
     fixture.commit_all("initial")?;
@@ -304,8 +304,26 @@ fn workflow_snapshot_ignores_index_only_changes_when_worktree_matches_head() -> 
     let workflow = load_workflow_snapshot(fixture.root())?;
     let overall_stats = load_repo_line_stats(fixture.root())?;
 
-    assert!(workflow.files.is_empty());
-    assert_eq!(overall_stats, LineStats::default());
+    assert_eq!(workflow.files.len(), 1);
+    assert_eq!(workflow.files[0].path, "tracked.txt");
+    assert_eq!(workflow.files[0].status, FileStatus::Modified);
+    assert!(workflow.files[0].staged);
+    assert!(workflow.files[0].unstaged);
+    let patch = load_patch(
+        fixture.root(),
+        workflow.files[0].path.as_str(),
+        workflow.files[0].status,
+    )?;
+    assert!(patch.contains("diff --git a/tracked.txt b/tracked.txt"));
+    assert!(patch.contains("-base"));
+    assert!(patch.contains("+staged"));
+    assert_eq!(
+        overall_stats,
+        LineStats {
+            added: 1,
+            removed: 1
+        }
+    );
     Ok(())
 }
 
@@ -475,6 +493,7 @@ fn workflow_snapshot_reports_unstaged_rename_as_single_entry() -> Result<()> {
     assert_eq!(workflow.files[0].path, "src/new_name.rs");
     assert_eq!(workflow.files[0].status, FileStatus::Renamed);
     assert!(!workflow.files[0].staged);
+    assert!(workflow.files[0].unstaged);
 
     let patch = load_patch(
         fixture.root(),
@@ -500,6 +519,7 @@ fn patch_session_uses_source_path_for_staged_rename() -> Result<()> {
     assert_eq!(workflow.files[0].path, "src/new_name.rs");
     assert_eq!(workflow.files[0].status, FileStatus::Renamed);
     assert!(workflow.files[0].staged);
+    assert!(!workflow.files[0].unstaged);
 
     let session = open_patch_session(fixture.root())?;
     let patches = load_patches_for_files_from_session(&session, &workflow.files)?;

@@ -3,10 +3,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use git2::{BranchType, IndexAddOption, Repository, Signature, build::CheckoutBuilder};
-use hunk_git::git::load_workflow_snapshot;
+use hunk_git::git::{FileStatus, load_workflow_snapshot};
 use hunk_git::mutation::{
-    activate_or_create_branch, commit_all, commit_all_with_details, commit_selected_paths,
-    commit_selected_paths_with_details, restore_working_copy_paths, working_copy_context_for_ai,
+    activate_or_create_branch, commit_all, commit_all_with_details, commit_index_with_details,
+    commit_selected_paths, commit_selected_paths_with_details, restore_working_copy_paths,
+    stage_paths, unstage_paths, working_copy_context_for_ai,
 };
 use tempfile::TempDir;
 
@@ -214,6 +215,108 @@ fn commit_selected_paths_with_details_returns_count_and_commit_metadata() -> Res
     assert_eq!(count, 1);
     assert_eq!(created.subject, "partial");
     assert_eq!(created.commit_id.len(), 40);
+    Ok(())
+}
+
+#[test]
+fn stage_and_unstage_paths_round_trip_tracked_and_untracked_changes() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "base\n")?;
+    fixture.commit_all_git2("initial")?;
+    fixture.write_file("tracked.txt", "changed\n")?;
+    fixture.write_file("scratch.txt", "scratch\n")?;
+
+    stage_paths(
+        fixture.root(),
+        &[String::from("tracked.txt"), String::from("scratch.txt")],
+    )?;
+
+    let staged = load_workflow_snapshot(fixture.root())?;
+    assert!(staged.files.iter().any(|file| {
+        file.path == "tracked.txt"
+            && file.status == FileStatus::Modified
+            && file.staged
+            && !file.unstaged
+    }));
+    assert!(staged.files.iter().any(|file| {
+        file.path == "scratch.txt"
+            && file.status == FileStatus::Added
+            && file.staged
+            && !file.unstaged
+    }));
+
+    unstage_paths(
+        fixture.root(),
+        &[String::from("tracked.txt"), String::from("scratch.txt")],
+    )?;
+
+    let unstaged = load_workflow_snapshot(fixture.root())?;
+    assert!(unstaged.files.iter().any(|file| {
+        file.path == "tracked.txt"
+            && file.status == FileStatus::Modified
+            && !file.staged
+            && file.unstaged
+    }));
+    assert!(unstaged.files.iter().any(|file| {
+        file.path == "scratch.txt"
+            && file.status == FileStatus::Untracked
+            && !file.staged
+            && file.unstaged
+    }));
+    Ok(())
+}
+
+#[test]
+fn stage_and_unstage_paths_round_trip_rename_rows() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("src/old_name.rs", "one\ntwo\n")?;
+    fixture.commit_all_git2("initial")?;
+    fixture.rename_path("src/old_name.rs", "src/new_name.rs")?;
+
+    stage_paths(fixture.root(), &[String::from("src/new_name.rs")])?;
+
+    let staged = load_workflow_snapshot(fixture.root())?;
+    assert_eq!(staged.files.len(), 1);
+    assert_eq!(staged.files[0].path, "src/new_name.rs");
+    assert_eq!(staged.files[0].status, FileStatus::Renamed);
+    assert!(staged.files[0].staged);
+    assert!(!staged.files[0].unstaged);
+
+    unstage_paths(fixture.root(), &[String::from("src/new_name.rs")])?;
+
+    let unstaged = load_workflow_snapshot(fixture.root())?;
+    assert_eq!(unstaged.files.len(), 1);
+    assert_eq!(unstaged.files[0].path, "src/new_name.rs");
+    assert_eq!(unstaged.files[0].status, FileStatus::Renamed);
+    assert!(!unstaged.files[0].staged);
+    assert!(unstaged.files[0].unstaged);
+    Ok(())
+}
+
+#[test]
+fn commit_index_with_details_records_only_staged_changes() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.configure_signature()?;
+    fixture.write_file("src/lib.rs", "one\n")?;
+    fixture.write_file("README.md", "hello\n")?;
+    fixture.commit_all_git2("initial")?;
+    fixture.write_file("src/lib.rs", "one\ntwo\n")?;
+    fixture.write_file("README.md", "hello\nworld\n")?;
+
+    stage_paths(fixture.root(), &[String::from("src/lib.rs")])?;
+
+    let created = commit_index_with_details(fixture.root(), "partial via index")?;
+
+    let snapshot = load_workflow_snapshot(fixture.root())?;
+    assert_eq!(created.subject, "partial via index");
+    assert_eq!(
+        fixture.head_subject()?.as_deref(),
+        Some("partial via index")
+    );
+    assert_eq!(snapshot.files.len(), 1);
+    assert_eq!(snapshot.files[0].path, "README.md");
+    assert!(!snapshot.files[0].staged);
+    assert!(snapshot.files[0].unstaged);
     Ok(())
 }
 
@@ -433,6 +536,15 @@ impl TempGitRepo {
             fs::create_dir_all(parent)?;
         }
         fs::write(path, contents)?;
+        Ok(())
+    }
+
+    fn rename_path(&self, from: &str, to: &str) -> Result<()> {
+        let destination = self.root.join(to);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::rename(self.root.join(from), destination)?;
         Ok(())
     }
 

@@ -128,18 +128,21 @@ fn dirty_path_matching_supports_exact_and_directory_prefix_hits() {
             path: "src/lib.rs".to_string(),
             status: FileStatus::Modified,
             staged: false,
+            unstaged: true,
             untracked: false,
         },
         ChangedFile {
             path: "src/nested/util.rs".to_string(),
             status: FileStatus::Modified,
             staged: false,
+            unstaged: true,
             untracked: false,
         },
         ChangedFile {
             path: "README.md".to_string(),
             status: FileStatus::Modified,
             staged: false,
+            unstaged: true,
             untracked: false,
         },
     ];
@@ -168,12 +171,14 @@ fn missing_line_stats_only_returns_changed_files_without_cached_stats() {
             path: "src/lib.rs".to_string(),
             status: FileStatus::Modified,
             staged: false,
+            unstaged: true,
             untracked: false,
         },
         ChangedFile {
             path: "README.md".to_string(),
             status: FileStatus::Added,
             staged: false,
+            unstaged: true,
             untracked: true,
         },
     ];

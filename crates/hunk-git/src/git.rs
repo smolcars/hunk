@@ -54,6 +54,7 @@ pub struct ChangedFile {
     pub path: String,
     pub status: FileStatus,
     pub staged: bool,
+    pub unstaged: bool,
     pub untracked: bool,
 }
 
@@ -243,6 +244,7 @@ struct ResolvedWorkspaceFile {
     rename_from: Option<String>,
     status: FileStatus,
     staged: bool,
+    unstaged: bool,
     untracked: bool,
     content_signature: u64,
     old_state: Option<FileState>,
@@ -444,6 +446,14 @@ pub fn load_patches_for_files_from_session(
     files: &[ChangedFile],
 ) -> Result<BTreeMap<String, String>> {
     load_patches_for_files_from_repo(&session.repo, files)
+}
+
+pub fn expand_selected_paths_for_renames(
+    repo_root: &Path,
+    selected_paths: &BTreeSet<String>,
+) -> Result<BTreeSet<String>> {
+    let repo = open_repo(repo_root)?;
+    expand_selected_paths_for_renames_from_repo(&repo, selected_paths)
 }
 
 pub fn load_repo_line_stats(path: &Path) -> Result<LineStats> {

@@ -27,11 +27,12 @@ use hunk_git::branch::{
 };
 use hunk_git::compare::{CompareSource, load_compare_snapshot, resolve_default_base_branch_name};
 use hunk_git::git::{
-    WorkflowSnapshot, count_non_ignored_repo_tree_entries, invalidate_repo_metadata_caches,
-    load_patches_for_files_from_session, load_repo_file_line_stats_for_paths_without_refresh,
-    load_repo_file_line_stats_without_refresh, load_repo_tree, load_snapshot_fingerprint,
-    load_workflow_snapshot, load_workflow_snapshot_if_changed,
-    load_workflow_snapshot_if_changed_without_refresh, load_workflow_snapshot_with_fingerprint,
+    RepoSnapshotFingerprint, WorkflowSnapshot, count_non_ignored_repo_tree_entries,
+    invalidate_repo_metadata_caches, load_patches_for_files_from_session,
+    load_repo_file_line_stats_for_paths_without_refresh, load_repo_file_line_stats_without_refresh,
+    load_repo_tree, load_snapshot_fingerprint, load_workflow_snapshot,
+    load_workflow_snapshot_if_changed, load_workflow_snapshot_if_changed_without_refresh,
+    load_workflow_snapshot_with_fingerprint,
     load_workflow_snapshot_with_fingerprint_without_refresh, open_patch_session,
 };
 use hunk_git::history::{
@@ -40,8 +41,8 @@ use hunk_git::history::{
 };
 use hunk_git::mutation::{
     activate_or_create_branch as checkout_or_create_branch_with_change_transfer,
-    commit_all_with_details as commit_staged_with_details, commit_selected_paths_with_details,
-    restore_working_copy_paths, working_copy_context_for_ai,
+    commit_all_with_details as commit_staged_with_details, commit_index_with_details,
+    restore_working_copy_paths, stage_paths, unstage_paths, working_copy_context_for_ai,
 };
 use hunk_git::network::{
     push_current_branch, sync_branch_from_remote_if_tracked, sync_current_branch,

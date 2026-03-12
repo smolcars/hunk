@@ -410,6 +410,100 @@ impl DiffViewer {
         });
     }
 
+    fn apply_lightweight_git_index_snapshot(
+        &mut self,
+        root: PathBuf,
+        fingerprint: RepoSnapshotFingerprint,
+        snapshot: WorkflowSnapshot,
+    ) {
+        let root_is_primary = self.repo_root.as_ref() == Some(&root);
+        let root_is_selected_workspace = self.selected_git_workspace_root().as_ref() == Some(&root);
+
+        if root_is_primary {
+            self.last_snapshot_fingerprint = Some(fingerprint.clone());
+            self.apply_primary_git_index_snapshot(snapshot);
+            if root_is_selected_workspace {
+                self.last_git_workspace_fingerprint = Some(fingerprint);
+                self.sync_git_workspace_with_primary_state();
+            }
+            return;
+        }
+
+        if !root_is_selected_workspace {
+            return;
+        }
+
+        self.last_git_workspace_fingerprint = Some(fingerprint);
+        self.apply_git_workspace_index_snapshot(root, snapshot);
+    }
+
+    fn apply_primary_git_index_snapshot(&mut self, snapshot: WorkflowSnapshot) {
+        let WorkflowSnapshot {
+            working_copy_commit_id,
+            files,
+            last_commit_subject,
+            ..
+        } = snapshot;
+
+        self.working_copy_commit_id = Some(working_copy_commit_id);
+        self.files = files;
+        self.file_status_by_path = self
+            .files
+            .iter()
+            .map(|file| (file.path.clone(), file.status))
+            .collect();
+        self.file_line_stats
+            .retain(|path, _| self.files.iter().any(|file| file.path == *path));
+        self.recompute_overall_line_stats_from_file_stats();
+        self.collapsed_files
+            .retain(|path| self.files.iter().any(|file| file.path == *path));
+        self.selected_path = self
+            .selected_path
+            .clone()
+            .filter(|selected| self.files.iter().any(|file| &file.path == selected))
+            .or_else(|| self.files.first().map(|file| file.path.clone()));
+        self.selected_status = self
+            .selected_path
+            .as_deref()
+            .and_then(|selected| self.status_for_path(selected));
+        self.last_commit_subject = last_commit_subject;
+        self.persist_workflow_cache();
+    }
+
+    fn apply_git_workspace_index_snapshot(&mut self, root: PathBuf, snapshot: WorkflowSnapshot) {
+        let WorkflowSnapshot {
+            working_copy_commit_id,
+            files,
+            last_commit_subject,
+            ..
+        } = snapshot;
+
+        self.git_workspace.root = Some(root);
+        self.git_workspace.working_copy_commit_id = Some(working_copy_commit_id);
+        self.git_workspace.files = files;
+        self.git_workspace.file_status_by_path = self
+            .git_workspace
+            .files
+            .iter()
+            .map(|file| (file.path.clone(), file.status))
+            .collect();
+        self.git_workspace
+            .file_line_stats
+            .retain(|path, _| self.git_workspace.files.iter().any(|file| file.path == *path));
+        self.git_workspace.overall_line_stats = Self::sum_line_stats(
+            self.git_workspace
+                .files
+                .iter()
+                .filter_map(|file| {
+                    self.git_workspace
+                        .file_line_stats
+                        .get(file.path.as_str())
+                        .copied()
+                }),
+        );
+        self.last_commit_subject = last_commit_subject;
+    }
+
     fn apply_workflow_snapshot(
         &mut self,
         snapshot: WorkflowSnapshot,
@@ -479,7 +573,6 @@ impl DiffViewer {
         }
         if root_changed {
             self.start_repo_watch(cx);
-            self.staged_commit_files.clear();
             if full_refresh {
                 self.repo_tree.nodes.clear();
                 self.repo_tree.rows.clear();
@@ -611,7 +704,6 @@ impl DiffViewer {
         self.review_compare_loading = false;
         self.review_compare_error = None;
         self.last_commit_subject = None;
-        self.staged_commit_files.clear();
         self.selected_path = None;
         self.selected_status = None;
         self.overall_line_stats = LineStats::default();

@@ -667,7 +667,6 @@ struct DiffViewer {
     git_workspace_loading: bool,
     pending_git_workspace_refresh: Option<GitWorkspaceRefreshRequest>,
     last_git_workspace_fingerprint: Option<RepoSnapshotFingerprint>,
-    staged_commit_files: BTreeSet<String>,
     last_commit_subject: Option<String>,
     recent_commits: Vec<RecentCommitSummary>,
     recent_commits_error: Option<String>,

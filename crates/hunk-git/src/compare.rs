@@ -123,6 +123,7 @@ pub fn load_compare_snapshot(
             path: path.clone(),
             status,
             staged: false,
+            unstaged: false,
             untracked: false,
         });
         file_line_stats.insert(path.clone(), line_stats);

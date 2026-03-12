@@ -31,6 +31,36 @@ fn head_file_state(
     }))
 }
 
+fn index_file_state(
+    repo: &gix::Repository,
+    index: &gix::index::State,
+    path: &str,
+) -> Result<Option<FileState>> {
+    let Some(entry) = index.entry_by_path(path.as_bytes().as_bstr()) else {
+        return Ok(None);
+    };
+    let kind = entry
+        .mode
+        .to_tree_entry_mode()
+        .map(|mode| mode.kind())
+        .unwrap_or(gix::objs::tree::EntryKind::Blob);
+    let bytes = match file_kind_class(kind) {
+        FileKindClass::Regular | FileKindClass::Link => {
+            let mut blob = repo
+                .find_blob(entry.id)
+                .with_context(|| format!("failed to load blob for '{path}' from index"))?;
+            Some(blob.take_data())
+        }
+        FileKindClass::Unsupported => None,
+    };
+
+    Ok(Some(FileState {
+        kind,
+        id: entry.id,
+        bytes,
+    }))
+}
+
 fn head_entry_summary(
     head_tree: Option<&gix::Tree<'_>>,
     path: &str,
@@ -48,6 +78,24 @@ fn head_entry_summary(
     Ok(Some(HeadEntrySummary {
         kind: entry.mode().kind(),
         id: entry.object_id(),
+    }))
+}
+
+fn index_entry_summary(index: &gix::index::State, path: &str) -> Result<Option<WorktreeEntrySummary>> {
+    let Some(entry) = index.entry_by_path(path.as_bytes().as_bstr()) else {
+        return Ok(None);
+    };
+    let kind = entry
+        .mode
+        .to_tree_entry_mode()
+        .map(|mode| mode.kind())
+        .unwrap_or(gix::objs::tree::EntryKind::Blob);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    kind.hash(&mut hasher);
+    entry.id.hash(&mut hasher);
+    Ok(Some(WorktreeEntrySummary {
+        kind,
+        signature: hasher.finish(),
     }))
 }
 

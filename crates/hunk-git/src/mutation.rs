@@ -5,6 +5,7 @@ use anyhow::{Context as _, Result, anyhow};
 
 use crate::branch::is_valid_branch_name;
 use crate::command_env::git_cli_command;
+use crate::git::expand_selected_paths_for_renames;
 use crate::git2_helpers::{load_statuses, open_git2_repo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +110,19 @@ pub fn commit_all_with_details(repo_root: &Path, message: &str) -> Result<Create
     Ok(commit)
 }
 
+pub fn commit_index_with_details(repo_root: &Path, message: &str) -> Result<CreatedCommit> {
+    let message = message.trim();
+    if message.is_empty() {
+        return Err(anyhow!("commit message cannot be empty"));
+    }
+
+    let repo = open_repo(repo_root)?;
+    ensure_has_staged_index_changes(&repo)?;
+    let commit_id = create_commit_from_index(&repo, message)?;
+    let refreshed_repo = open_repo(repo_root)?;
+    created_commit(&refreshed_repo, commit_id, message)
+}
+
 pub fn commit_selected_paths(
     repo_root: &Path,
     message: &str,
@@ -133,6 +147,43 @@ pub fn commit_selected_paths_with_details(
     }
 
     commit_paths_internal(repo_root, message, Some(&selected_paths))
+}
+
+pub fn stage_paths(repo_root: &Path, paths: &[String]) -> Result<()> {
+    let selected_paths = normalize_selected_paths(paths)?;
+    if selected_paths.is_empty() {
+        return Err(anyhow!("no files selected to stage"));
+    }
+    let selected_paths = expand_selected_paths_for_renames(repo_root, &selected_paths)?;
+
+    let repo = open_repo(repo_root)?;
+    let changes = collect_selected_worktree_changes(&repo, &selected_paths)?;
+    if changes.is_empty() {
+        return Ok(());
+    }
+
+    stage_changes(&repo, &changes)
+}
+
+pub fn unstage_paths(repo_root: &Path, paths: &[String]) -> Result<()> {
+    let selected_paths = normalize_selected_paths(paths)?;
+    if selected_paths.is_empty() {
+        return Err(anyhow!("no files selected to unstage"));
+    }
+    let selected_paths = expand_selected_paths_for_renames(repo_root, &selected_paths)?;
+
+    let repo = open_repo(repo_root)?;
+    let reset_paths = collect_selected_index_paths(&repo, &selected_paths)?;
+    if reset_paths.is_empty() {
+        return Ok(());
+    }
+
+    let head_commit = current_head_commit(&repo)?;
+    repo.reset_default(
+        head_commit.as_ref().map(|commit| commit.as_object()),
+        reset_paths.iter().map(String::as_str),
+    )?;
+    Ok(())
 }
 
 pub fn working_copy_context_for_ai(
@@ -290,8 +341,73 @@ fn open_repo(repo_root: &Path) -> Result<git2::Repository> {
     open_git2_repo(repo_root)
 }
 
+fn ensure_has_staged_index_changes(repo: &git2::Repository) -> Result<()> {
+    let statuses = load_statuses(repo, || "failed to inspect staged index status".to_string())?;
+    let mut has_staged_changes = false;
+    for entry in statuses.iter() {
+        let status = entry.status();
+        if status.is_conflicted() {
+            return Err(anyhow!("cannot operate on conflicted files"));
+        }
+        if has_index_changes(status) {
+            has_staged_changes = true;
+        }
+    }
+
+    if !has_staged_changes {
+        return Err(anyhow!("no staged changes to commit"));
+    }
+
+    Ok(())
+}
+
 fn has_any_worktree_changes(repo: &git2::Repository) -> Result<bool> {
     Ok(!collect_worktree_changes(repo, None)?.is_empty())
+}
+
+fn collect_selected_worktree_changes(
+    repo: &git2::Repository,
+    selected_paths: &BTreeSet<String>,
+) -> Result<BTreeMap<String, WorktreeChange>> {
+    let statuses = load_statuses_with_renames(repo)?;
+    let mut changes = BTreeMap::new();
+
+    for entry in statuses.iter() {
+        let status = entry.status();
+        if status.is_conflicted() {
+            return Err(anyhow!("cannot operate on conflicted files"));
+        }
+
+        let Some(display_path) = status_display_path(&entry) else {
+            continue;
+        };
+        if !selected_paths.contains(display_path.as_str()) {
+            continue;
+        }
+
+        if status.is_wt_renamed() {
+            if let Some(delta) = entry.index_to_workdir().or_else(|| entry.head_to_index()) {
+                if let Some(old_path) = delta.old_file().path() {
+                    changes.insert(path_to_repo_string(old_path), WorktreeChange::Remove);
+                }
+                if let Some(new_path) = delta.new_file().path() {
+                    changes.insert(path_to_repo_string(new_path), WorktreeChange::AddOrUpdate);
+                }
+            }
+            continue;
+        }
+
+        if status.is_wt_deleted() {
+            changes.insert(display_path, WorktreeChange::Remove);
+            continue;
+        }
+
+        if status.is_wt_new() || status.is_wt_modified() || status.is_wt_typechange() {
+            changes.insert(display_path, WorktreeChange::AddOrUpdate);
+        }
+    }
+
+    Ok(changes)
 }
 
 fn collect_worktree_changes(
@@ -361,6 +477,47 @@ fn collect_worktree_changes(
     Ok(changes)
 }
 
+fn collect_selected_index_paths(
+    repo: &git2::Repository,
+    selected_paths: &BTreeSet<String>,
+) -> Result<BTreeSet<String>> {
+    let statuses = load_statuses_with_renames(repo)?;
+    let mut reset_paths = BTreeSet::new();
+
+    for entry in statuses.iter() {
+        let status = entry.status();
+        if status.is_conflicted() {
+            return Err(anyhow!("cannot operate on conflicted files"));
+        }
+        if !has_index_changes(status) {
+            continue;
+        }
+
+        let Some(display_path) = status_display_path(&entry) else {
+            continue;
+        };
+        if !selected_paths.contains(display_path.as_str()) {
+            continue;
+        }
+
+        if status.is_index_renamed() {
+            if let Some(delta) = entry.head_to_index().or_else(|| entry.index_to_workdir()) {
+                if let Some(old_path) = delta.old_file().path() {
+                    reset_paths.insert(path_to_repo_string(old_path));
+                }
+                if let Some(new_path) = delta.new_file().path() {
+                    reset_paths.insert(path_to_repo_string(new_path));
+                }
+            }
+            continue;
+        }
+
+        reset_paths.insert(display_path);
+    }
+
+    Ok(reset_paths)
+}
+
 fn stage_changes(
     repo: &git2::Repository,
     changes: &BTreeMap<String, WorktreeChange>,
@@ -401,7 +558,7 @@ fn ensure_no_hidden_index_changes(repo: &git2::Repository, action_message: &str)
         }
         if has_index_changes(status) {
             return Err(anyhow!(
-                "{action_message}; unstage or commit those changes outside Hunk first"
+                "{action_message}; commit or unstage those changes first"
             ));
         }
     }
@@ -586,6 +743,31 @@ fn normalize_repo_path(path: &str) -> Result<String> {
 
 fn path_to_repo_string(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+fn load_statuses_with_renames<'repo>(
+    repo: &'repo git2::Repository,
+) -> Result<git2::Statuses<'repo>> {
+    let mut status_options = git2::StatusOptions::new();
+    status_options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_ignored(false)
+        .include_unmodified(false)
+        .renames_head_to_index(true)
+        .renames_index_to_workdir(true);
+
+    repo.statuses(Some(&mut status_options))
+        .context("failed to inspect worktree status")
+}
+
+fn status_display_path(entry: &git2::StatusEntry<'_>) -> Option<String> {
+    entry
+        .index_to_workdir()
+        .or_else(|| entry.head_to_index())
+        .and_then(|delta| delta.new_file().path().or(delta.old_file().path()))
+        .map(path_to_repo_string)
+        .or_else(|| entry.path().map(|path| path.replace('\\', "/")))
 }
 
 fn remove_worktree_path(path: &Path) -> Result<()> {

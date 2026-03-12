@@ -173,6 +173,7 @@ impl DiffViewer {
                 path: file.path,
                 status: Self::file_status_from_cache_tag(file.status_tag.as_str()),
                 staged: file.staged,
+                unstaged: file.unstaged,
                 untracked: file.untracked,
             })
             .collect();
@@ -236,6 +237,7 @@ impl DiffViewer {
                     path: file.path.clone(),
                     status_tag: file.status.tag().to_string(),
                     staged: file.staged,
+                    unstaged: file.unstaged,
                     untracked: file.untracked,
                 })
                 .collect(),
@@ -475,7 +477,6 @@ impl DiffViewer {
             git_workspace_loading: false,
             pending_git_workspace_refresh: None,
             last_git_workspace_fingerprint: None,
-            staged_commit_files: BTreeSet::new(),
             last_commit_subject: None,
             recent_commits: Vec::new(),
             recent_commits_error: None,

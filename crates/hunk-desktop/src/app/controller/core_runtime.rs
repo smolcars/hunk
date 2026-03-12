@@ -162,6 +162,39 @@ impl DiffViewer {
         })
     }
 
+    fn repo_watch_recent_commits_changed(
+        event_paths: &[std::path::PathBuf],
+        repo_root: Option<&std::path::Path>,
+    ) -> bool {
+        repo_root.is_some_and(|root| {
+            event_paths
+                .iter()
+                .any(|path| Self::is_repo_watch_recent_commits_path(path, root))
+        })
+    }
+
+    fn is_repo_watch_recent_commits_path(
+        path: &std::path::Path,
+        repo_root: &std::path::Path,
+    ) -> bool {
+        let Ok(relative_path) = path.strip_prefix(repo_root) else {
+            return false;
+        };
+        let relative_path = relative_path.to_string_lossy().replace('\\', "/");
+
+        matches!(
+            relative_path.as_str(),
+            ".git/HEAD" | ".git/packed-refs" | ".git/reftable"
+        ) || relative_path.starts_with(".git/refs/")
+            || relative_path.starts_with(".git/logs/")
+            || relative_path.ends_with("/HEAD")
+                && relative_path.starts_with(".git/worktrees/")
+            || relative_path.contains("/refs/")
+                && relative_path.starts_with(".git/worktrees/")
+            || relative_path.contains("/logs/")
+                && relative_path.starts_with(".git/worktrees/")
+    }
+
     fn repo_watch_dirty_path(
         path: &std::path::Path,
         repo_root: &std::path::Path,
@@ -278,11 +311,24 @@ impl DiffViewer {
 
                 let metadata_changed =
                     Self::repo_watch_metadata_changed(event.paths.as_slice(), primary_root.as_deref());
+                let recent_commits_changed = Self::repo_watch_recent_commits_changed(
+                    event.paths.as_slice(),
+                    primary_root.as_deref(),
+                );
                 let git_workspace_metadata_changed = git_workspace_root
                     .as_deref()
                     .filter(|git_workspace_root| primary_root.as_deref() != Some(*git_workspace_root))
                     .is_some_and(|git_workspace_root| {
                         Self::repo_watch_metadata_changed(
+                            event.paths.as_slice(),
+                            Some(git_workspace_root),
+                        )
+                    });
+                let git_workspace_recent_commits_changed = git_workspace_root
+                    .as_deref()
+                    .filter(|git_workspace_root| primary_root.as_deref() != Some(*git_workspace_root))
+                    .is_some_and(|git_workspace_root| {
+                        Self::repo_watch_recent_commits_changed(
                             event.paths.as_slice(),
                             Some(git_workspace_root),
                         )
@@ -326,7 +372,7 @@ impl DiffViewer {
                         {
                             invalidate_repo_metadata_caches(git_workspace_root.as_path());
                         }
-                        if metadata_changed || git_workspace_metadata_changed {
+                        if recent_commits_changed || git_workspace_recent_commits_changed {
                             this.repo_watch_pending_recent_commits_refresh = true;
                         }
                         if !dirty_paths.is_empty() {
@@ -627,6 +673,50 @@ mod tests {
         assert!(DiffViewer::repo_watch_metadata_changed(
             event_paths.as_slice(),
             Some(worktree_root.as_path())
+        ));
+    }
+
+    #[test]
+    fn repo_watch_index_metadata_does_not_refresh_recent_commits() {
+        let repo_root = fixture_repo_root();
+        let event_paths = vec![repo_root.join(".git/index")];
+
+        assert!(!DiffViewer::repo_watch_recent_commits_changed(
+            event_paths.as_slice(),
+            Some(repo_root.as_path())
+        ));
+    }
+
+    #[test]
+    fn repo_watch_head_metadata_refreshes_recent_commits() {
+        let repo_root = fixture_repo_root();
+        let event_paths = vec![repo_root.join(".git/HEAD")];
+
+        assert!(DiffViewer::repo_watch_recent_commits_changed(
+            event_paths.as_slice(),
+            Some(repo_root.as_path())
+        ));
+    }
+
+    #[test]
+    fn repo_watch_linked_worktree_index_does_not_refresh_recent_commits() {
+        let repo_root = fixture_repo_root();
+        let event_paths = vec![repo_root.join(".git/worktrees/feature-one/index")];
+
+        assert!(!DiffViewer::repo_watch_recent_commits_changed(
+            event_paths.as_slice(),
+            Some(repo_root.as_path())
+        ));
+    }
+
+    #[test]
+    fn repo_watch_linked_worktree_head_refreshes_recent_commits() {
+        let repo_root = fixture_repo_root();
+        let event_paths = vec![repo_root.join(".git/worktrees/feature-one/HEAD")];
+
+        assert!(DiffViewer::repo_watch_recent_commits_changed(
+            event_paths.as_slice(),
+            Some(repo_root.as_path())
         ));
     }
 

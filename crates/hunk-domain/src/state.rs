@@ -49,6 +49,7 @@ pub struct CachedChangedFileState {
     pub path: String,
     pub status_tag: String,
     pub staged: bool,
+    pub unstaged: bool,
     pub untracked: bool,
 }
 

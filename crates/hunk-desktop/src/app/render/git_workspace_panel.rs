@@ -71,12 +71,12 @@ impl DiffViewer {
         let publish_loading = self.git_action_loading_named("Publish branch");
         let open_review_loading = self.git_action_loading_named("Open PR/MR");
         let copy_review_loading = self.git_action_loading_named("Copy PR/MR URL");
-        let git_controls_busy = self.git_controls_busy();
-        let branch_syncable = self.can_run_active_branch_actions();
-        let sync_disabled = !self.can_sync_current_branch();
-        let publish_disabled = !self.can_publish_current_branch();
+        let git_controls_busy = self.git_rail_controls_busy();
+        let branch_syncable = self.can_run_active_branch_actions_for_ui();
+        let sync_disabled = !self.can_sync_current_branch_for_ui();
+        let publish_disabled = !self.can_publish_current_branch_for_ui();
         let create_or_activate_disabled = git_controls_busy || !self.branch_input_has_text;
-        let active_review_blocker = self.active_review_action_blocker();
+        let active_review_blocker = self.active_review_action_blocker_for_ui();
         let review_url_disabled = active_review_blocker.is_some();
         let active_target_label = self
             .selected_git_workspace_target()

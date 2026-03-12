@@ -906,12 +906,14 @@ mod tests {
                 path: "src/main.rs".to_string(),
                 status: FileStatus::Modified,
                 staged: false,
+                unstaged: true,
                 untracked: false,
             },
             ChangedFile {
                 path: "README.md".to_string(),
                 status: FileStatus::Untracked,
                 staged: false,
+                unstaged: true,
                 untracked: true,
             },
         ];
