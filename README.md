@@ -242,6 +242,7 @@ Generate git-diff icon variants and rebuild the bundle:
 ```bash
 ./scripts/generate_diff_icons.py
 ./scripts/build_macos_icon.sh
+./scripts/build_windows_icon.sh
 just bundle
 ```
 
@@ -251,7 +252,7 @@ Generated assets:
 - `assets/icons/hunk-icon-dark.png` (dark appearance variant)
 - `assets/icons/hunk-icon-mono.png` (monochrome/tint-friendly variant)
 
-Current packaging uses `Hunk.icns`, `Hunk.ico`, and `hunk-icon-default.png` through `cargo-packager`.
+Current packaging uses `Hunk.icns`, `Hunk.ico`, and `hunk_new.png` through `cargo-packager`.
 
 ## Hot Reload (Bacon)
 

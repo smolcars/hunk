@@ -17,7 +17,7 @@ authors = ["Nitesh Balusu"]
 category = "DeveloperTool"
 icons = [
   "../../assets/icons/Hunk.icns",
-  "../../assets/icons/hunk-icon-default.png",
+  "../../assets/icons/hunk_new.png",
   "../../assets/icons/Hunk.ico",
 ]
 resources = ["../../assets/codex-runtime"]
