@@ -106,7 +106,7 @@ These produce:
 
 Linux release packaging requires `patchelf` for the tarball fallback bundle.
 
-## Build Codex App-Server Binaries For Embedding
+## Prepare Bundled Codex Runtime
 
 Hunk embeds a native `codex` runtime and launches app-server mode with:
 `codex app-server --listen ws://127.0.0.1:<port>`.
@@ -119,33 +119,32 @@ Expected embedded runtime paths:
 
 Runtime layout details also live in [`assets/codex-runtime/README.md`](./assets/codex-runtime/README.md).
 
-### Build `codex` from source (upstream pin)
+### Download the pinned Codex release binary
 
-The pinned upstream baseline is tracked in [`docs/AI_CODEX_SPEC.md`](./docs/AI_CODEX_SPEC.md).
+The pinned Codex baseline is tracked in [`docs/AI_CODEX_SPEC.md`](./docs/AI_CODEX_SPEC.md).
 
 ```bash
-git clone https://github.com/openai/codex.git
-cd codex
-git checkout <pinned-commit-from-docs/AI_CODEX_SPEC.md>
-cd codex-rs
-cargo build -p codex-cli --release
+./scripts/download_codex_runtime_unix.sh macos
 ```
 
-From the Hunk repo root, copy the generated binary into this repo for the platform you built on:
+Platform-specific download helpers:
 
-- macOS: `cp /path/to/codex/codex-rs/target/release/codex assets/codex-runtime/macos/codex && chmod +x assets/codex-runtime/macos/codex`
-- Linux: `cp /path/to/codex/codex-rs/target/release/codex assets/codex-runtime/linux/codex && chmod +x assets/codex-runtime/linux/codex`
-- Windows: `copy C:/path/to/codex/codex-rs/target/release/codex.exe assets/codex-runtime/windows/codex.exe`
+- macOS ARM64: `./scripts/download_codex_runtime_unix.sh macos`
+- Linux x86_64: `./scripts/download_codex_runtime_unix.sh linux`
+- Windows x86_64: `pwsh ./scripts/download_codex_runtime_windows.ps1`
 
-For CI and release packaging we now prefer downloading the pinned Codex release assets directly:
+These pull the pinned release assets directly from the Codex GitHub release for the tag in `crates/hunk-desktop/Cargo.toml`:
 
 - macOS ARM64: `codex-aarch64-apple-darwin.tar.gz`
 - Linux x86_64: `codex-x86_64-unknown-linux-musl.tar.gz`
 - Windows x86_64: `codex-x86_64-pc-windows-msvc.exe.zip`
 
+If you already have a local native binary you want to use for macOS instead, you can still override the source path:
+`./scripts/install_codex_runtime_macos.sh /absolute/path/to/codex`
+
 ### Validate + stage + bundle (macOS workflow today)
 
-If you already have `codex` installed on your PATH (npm/homebrew/releases), use:
+Download and stage the pinned macOS runtime:
 
 ```bash
 ./scripts/install_codex_runtime_macos.sh
@@ -154,9 +153,6 @@ If you already have `codex` installed on your PATH (npm/homebrew/releases), use:
 cargo test -p hunk-codex --test real_runtime_smoke -- --ignored
 just bundle
 ```
-
-You can also pass an explicit source binary path to the installer:
-`./scripts/install_codex_runtime_macos.sh /absolute/path/to/codex`
 
 ## GitHub Actions Release Flow
 

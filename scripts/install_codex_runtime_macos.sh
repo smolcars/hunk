@@ -5,6 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST_PATH="$ROOT_DIR/assets/codex-runtime/macos/codex"
 SOURCE_INPUT="${1:-${HUNK_CODEX_RUNTIME_SOURCE:-}}"
 
+if [[ -z "$SOURCE_INPUT" ]]; then
+  exec "$ROOT_DIR/scripts/download_codex_runtime_unix.sh" macos
+fi
+
 find_native_codex_from_wrapper() {
   local wrapper_path="$1"
   local wrapper_real="$wrapper_path"
