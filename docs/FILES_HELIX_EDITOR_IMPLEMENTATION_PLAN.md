@@ -2,7 +2,7 @@
 
 Date: 2026-03-13
 Owner: Codex
-Status: In Progress
+Status: Complete (V1)
 Scope: Replace the current Files-tab editor pane with a Helix-backed editor implementation while keeping the existing file tree, Files workspace shell, and Hunk app architecture intact.
 
 ## Decision
@@ -215,13 +215,13 @@ Still pending:
 
 - [x] richer selection parity beyond the current primary-selection rendering
 - [x] view-state persistence across file switches
-- [ ] final cleanup after the initial Helix rollout
+- [x] final cleanup after the initial Helix rollout
 
-Deferred until after V1:
+Future work after V1:
 
-- [ ] real LSP enablement
-- [ ] diagnostics rendering
-- [ ] completion / hover / code actions
+- real LSP enablement
+- diagnostics rendering
+- completion / hover / code actions
 
 ### Phase 0: Spike and dependency validation
 
@@ -274,7 +274,7 @@ Goals:
 Tasks:
 
 - [x] wire GPUI key events into Helix key/input handling
-- [ ] support insert/delete/newline/tab/navigation/selection
+- [x] support insert/delete/newline/tab/navigation/selection
 - [x] expose current buffer text to Hunk save flow
 - [x] replace `editor_input_state` dirty detection with editor-pane dirty detection
 - [x] keep existing save action entry points but back them with Helix buffer text
@@ -299,26 +299,26 @@ Tasks:
 
 Exit criteria:
 
-- [ ] common Files-tab flows feel stable and predictable
-- [ ] there is no obvious regression in switching and reopening files
+- [x] common Files-tab flows feel stable and predictable
+- [x] there is no obvious regression in switching and reopening files
 
-### Phase 4: LSP and diagnostics
+### Phase 4: Future work after V1
 
 Goals:
 
 - keep real language-server support out of V1 and stage it as future work after the core Files editor ships cleanly
 
-Tasks:
+Future work:
 
-- [ ] port the minimal Helix job/event loop needed for editor async work
-- [ ] handle diagnostics
-- [ ] surface diagnostics in gutter and/or inline overlay
-- [ ] surface status/progress without introducing noisy app-wide overlays
+- port the minimal Helix job/event loop needed for editor async work
+- handle diagnostics
+- surface diagnostics in gutter and/or inline overlay
+- surface status/progress without introducing noisy app-wide overlays
 
-Exit criteria:
+Exit criteria for future work:
 
-- [ ] diagnostics appear for supported languages
-- [ ] editor remains responsive while background jobs run
+- diagnostics appear for supported languages
+- editor remains responsive while background jobs run
 
 ### Phase 5: Hardening and cleanup
 
@@ -331,8 +331,8 @@ Tasks:
 
 - [x] delete Files-mode dependence on `editor_input_state`
 - [x] remove obsolete Files editor code paths in controller/render modules
-- [ ] keep markdown preview only if it still fits the product direction
-- [ ] document the final Files editor architecture
+- [x] keep markdown preview only if it still fits the product direction
+- [x] document the final Files editor architecture
 
 Exit criteria:
 

@@ -144,10 +144,9 @@ impl HelixFilesEditor {
             }
         }
         self.capture_active_view_state();
-        let runtime = self
-            .runtime
-            .as_mut()
-            .expect("runtime is initialized before use");
+        let Some(runtime) = self.runtime.as_mut() else {
+            anyhow::bail!("helix runtime was not initialized")
+        };
         let open_action = if runtime.current_view_id().is_some() {
             Action::Replace
         } else {
@@ -307,10 +306,9 @@ impl HelixFilesEditor {
             return false;
         };
         runtime.editor.focus(view_id);
-        let doc = runtime
-            .editor
-            .document_mut(doc_id)
-            .expect("current doc exists");
+        let Some(doc) = runtime.editor.document_mut(doc_id) else {
+            return false;
+        };
         let text = doc.text().slice(..);
         if add_cursor {
             let selection = doc.selection(view_id).clone();
@@ -343,10 +341,9 @@ impl HelixFilesEditor {
         if runtime.editor.mouse_down_range.is_none() {
             return false;
         }
-        let doc = runtime
-            .editor
-            .document_mut(doc_id)
-            .expect("current doc exists");
+        let Some(doc) = runtime.editor.document_mut(doc_id) else {
+            return false;
+        };
         let mut selection = doc.selection(view_id).clone();
         *selection.primary_mut() = selection
             .primary()
@@ -424,6 +421,12 @@ impl HelixFilesEditor {
             .min(text.char_to_line(view_offset.anchor));
         document.set_selection(view_id, selection);
         document.set_view_offset(view_id, view_offset);
+    }
+}
+
+impl Drop for HelixFilesEditor {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 

@@ -40,6 +40,7 @@ impl DiffViewer {
         };
 
         let epoch = self.next_editor_epoch();
+        self.cancel_editor_task();
         self.editor_loading = true;
         self.editor_error = None;
         self.editor_path = Some(path.clone());
@@ -132,6 +133,7 @@ impl DiffViewer {
         let path_for_write = path.clone();
         let status_path = path.clone();
         let epoch = self.next_editor_save_epoch();
+        self.cancel_editor_save_task();
         self.editor_save_loading = true;
         self.editor_error = None;
         self.git_status_message = None;
@@ -282,6 +284,16 @@ impl DiffViewer {
         drop(previous_task);
     }
 
+    fn cancel_editor_task(&mut self) {
+        let previous_task = std::mem::replace(&mut self.editor_task, Task::ready(()));
+        drop(previous_task);
+    }
+
+    fn cancel_editor_save_task(&mut self) {
+        let previous_task = std::mem::replace(&mut self.editor_save_task, Task::ready(()));
+        drop(previous_task);
+    }
+
     fn prevent_unsaved_editor_discard(
         &mut self,
         next_path: Option<&str>,
@@ -316,6 +328,8 @@ impl DiffViewer {
     }
 
     pub(super) fn clear_editor_state(&mut self, _cx: &mut Context<Self>) {
+        self.cancel_editor_task();
+        self.cancel_editor_save_task();
         self.editor_path = None;
         self.editor_loading = false;
         self.editor_error = None;
