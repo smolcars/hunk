@@ -28,6 +28,7 @@ main = true
 
 [dependencies]
 anyhow = "1.0"
+arc-swap = "1.7.1"
 ctrlc = "3.5"
 dirs = "6.0"
 futures = "0.3"
@@ -42,11 +43,16 @@ gpui-component = { git = "https://github.com/niteshbalusu11/gpui-component", rev
   "tree-sitter-languages",
 ] }
 gpui-component-assets = { git = "https://github.com/niteshbalusu11/gpui-component", rev = "4640591715ae6732b6b2075f040672eeabdb5c87" }
+helix-core = { git = "https://github.com/helix-editor/helix", tag = "25.07.1" }
+helix-loader = { git = "https://github.com/helix-editor/helix", tag = "25.07.1" }
+helix-term = { git = "https://github.com/helix-editor/helix", tag = "25.07.1" }
+helix-view = { git = "https://github.com/helix-editor/helix", tag = "25.07.1" }
 notify = "8.2.0"
 syntect = "5.3"
 toml = "0.9"
 serde_json = "1.0"
 lsp-types = { version = "0.97.0", features = ["proposed"] }
+tokio = { version = "1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 time = { version = "0.3", features = ["formatting", "local-offset"] }
