@@ -126,9 +126,14 @@ impl HelixFilesEditor {
             .runtime
             .as_mut()
             .expect("runtime is initialized before use");
+        let open_action = if runtime.current_view_id().is_some() {
+            Action::Replace
+        } else {
+            Action::VerticalSplit
+        };
         if let Err(err) = runtime
             .editor
-            .open(path, Action::Replace)
+            .open(path, open_action)
             .with_context(|| format!("failed to open {} in Helix editor", path.display()))
         {
             self.last_error = Some(err.to_string());
@@ -285,25 +290,28 @@ impl HelixRuntime {
             tokio::sync::mpsc::channel::<PullDiagnosticsEvent>(1);
         let (pull_all_documents_diagnostics, _pull_all_documents_diagnostics_rx) =
             tokio::sync::mpsc::channel::<PullAllDocumentsDiagnosticsEvent>(1);
-        let handlers = Handlers {
-            completions: with_tokio_runtime(|| CompletionHandler::new(completions)),
-            signature_hints,
-            auto_save,
-            document_colors,
-            word_index: with_tokio_runtime(word_index::Handler::spawn),
-            pull_diagnostics,
-            pull_all_documents_diagnostics,
-        };
-        let mut editor = Editor::new(
-            area,
-            theme_loader.clone(),
-            syn_loader,
-            Arc::new(Map::new(Arc::clone(&config), |config: &HelixConfig| {
-                &config.editor
-            })),
-            handlers,
-        );
-        editor.new_file(Action::Replace);
+        let mut editor = with_tokio_runtime(|| {
+            let handlers = Handlers {
+                completions: CompletionHandler::new(completions),
+                signature_hints,
+                auto_save,
+                document_colors,
+                word_index: word_index::Handler::spawn(),
+                pull_diagnostics,
+                pull_all_documents_diagnostics,
+            };
+            let mut editor = Editor::new(
+                area,
+                theme_loader.clone(),
+                syn_loader,
+                Arc::new(Map::new(Arc::clone(&config), |config: &HelixConfig| {
+                    &config.editor
+                })),
+                handlers,
+            );
+            editor.new_file(Action::VerticalSplit);
+            editor
+        });
         editor.set_theme(theme);
 
         let keys = Box::new(Map::new(Arc::clone(&config), |config: &HelixConfig| {
