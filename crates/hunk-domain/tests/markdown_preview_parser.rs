@@ -121,3 +121,75 @@ fn preserves_hard_line_breaks() {
     assert!(spans.iter().any(|span| span.style.hard_break));
     assert!(spans.iter().any(|span| span.text == "second line"));
 }
+
+#[test]
+fn preserves_multiple_fenced_code_blocks_with_intervening_paragraphs() {
+    let markdown = "\
+Use this:
+
+Title:
+Expose rendered bounds for input byte ranges
+
+Body:
+
+```md
+## Summary
+
+Expose a small public accessor on `InputState` to retrieve the rendered bounds for a UTF-8 byte range.
+```
+
+If you want a shorter version, use:
+
+```md
+Expose `InputState::offset_range_bounds` so callers can anchor custom overlays to rendered text/token ranges.
+```";
+
+    let blocks = parse_markdown_preview(markdown);
+    let code_blocks = blocks
+        .iter()
+        .filter_map(|block| match block {
+            MarkdownPreviewBlock::CodeBlock { language, lines } => Some((language, lines)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(code_blocks.len(), 2);
+    assert_eq!(code_blocks[0].0.as_deref(), Some("md"));
+    assert_eq!(code_blocks[1].0.as_deref(), Some("md"));
+
+    let first_code_text = code_blocks[0]
+        .1
+        .iter()
+        .map(|line| {
+            line.iter()
+                .map(|span| span.text.as_str())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let second_code_text = code_blocks[1]
+        .1
+        .iter()
+        .map(|line| {
+            line.iter()
+                .map(|span| span.text.as_str())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(first_code_text.contains("## Summary"));
+    assert!(second_code_text.contains("offset_range_bounds"));
+
+    assert!(blocks.iter().any(|block| matches!(
+        block,
+        MarkdownPreviewBlock::Paragraph(spans)
+            if spans
+                .iter()
+                .map(|span| span.text.as_str())
+                .collect::<Vec<_>>()
+                .join("")
+                .contains("If you want a shorter version, use:")
+    )));
+}
