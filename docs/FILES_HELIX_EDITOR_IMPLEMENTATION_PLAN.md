@@ -205,16 +205,16 @@ Completed in the first implementation slice:
 - [x] Wired file open/load into the Helix-backed pane
 - [x] Wired current buffer text and dirty tracking into Hunk's save flow
 - [x] Added Helix-backed rendering for syntax-colored text, line numbers, cursor, focus, and wheel scrolling
+- [x] Added mouse cursor placement, drag selection, and visible selection rendering
+- [x] Added editor-local mode/language/position status UI
 - [x] Kept the existing Files header and save/reload UI
 - [x] Preserved markdown preview mode by continuing to use Hunk's existing preview flow
 - [x] Kept the old `InputState` Files editor as a fallback path if Helix fails to open
 
 Still pending:
 
-- [ ] mouse cursor placement and selection handling inside the Helix pane
-- [ ] selection rendering parity
+- [ ] richer selection parity beyond the current primary-selection rendering
 - [ ] view-state persistence across file switches
-- [ ] statusline / richer editor state UI
 - [ ] real LSP enablement
 - [ ] diagnostics rendering
 - [ ] completion / hover / code actions
@@ -252,7 +252,7 @@ Tasks:
 - [x] add a Files-editor-specific GPUI entity/view for Helix rendering
 - [x] open the selected file using Hunk's existing file-loading path
 - [x] initialize Helix editor state for the opened document
-- [ ] paint text, cursor, selection, line numbers, and gutter
+- [x] paint text, cursor, selection, line numbers, and gutter
 - [x] keep current file header and save/reload buttons
 
 Exit criteria:
@@ -293,7 +293,7 @@ Tasks:
 - [ ] preserve cursor and scroll position when switching files
 - [x] preserve current markdown-preview behavior decision
 - [x] decide whether markdown preview remains a separate right-pane mode or is temporarily removed
-- [ ] add statusline or inline state for mode, path, dirty state, and cursor position if useful
+- [x] add statusline or inline state for mode, path, dirty state, and cursor position if useful
 
 Exit criteria:
 

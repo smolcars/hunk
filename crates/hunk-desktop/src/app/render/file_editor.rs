@@ -1,5 +1,7 @@
 use gpui::{Pixels, TextStyle, relative};
 
+use crate::app::theme::hunk_text_selection_background;
+
 impl DiffViewer {
     fn render_file_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         if self.editor_loading {
@@ -215,6 +217,7 @@ impl DiffViewer {
     ) -> AnyElement {
         if helix_ready {
             let view = cx.entity();
+            let helix_status = self.helix_files_editor.borrow().status_snapshot();
             let text_style = TextStyle {
                 color: cx.theme().foreground,
                 font_family: cx.theme().mono_font_family.clone(),
@@ -240,6 +243,7 @@ impl DiffViewer {
                     border: hunk_opacity(cx.theme().border, is_dark, 0.92, 0.78),
                     default_foreground: cx.theme().foreground,
                     current_line_background,
+                    selection_background: hunk_text_selection_background(cx.theme(), is_dark),
                     cursor: cx.theme().primary,
                 },
             );
@@ -306,12 +310,63 @@ impl DiffViewer {
                     }
                 })
                 .child(
-                    div()
+                    v_flex()
                         .h_full()
                         .rounded(px(8.0))
                         .border_1()
                         .border_color(hunk_opacity(cx.theme().border, is_dark, 0.92, 0.78))
-                        .child(helix_element),
+                        .overflow_hidden()
+                        .child(div().flex_1().min_h_0().child(helix_element))
+                        .when_some(helix_status, |this, status| {
+                            this.child(
+                                h_flex()
+                                    .w_full()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap_3()
+                                    .px_2()
+                                    .py_1()
+                                    .border_t_1()
+                                    .border_color(hunk_opacity(cx.theme().border, is_dark, 0.92, 0.78))
+                                    .bg(hunk_opacity(cx.theme().secondary, is_dark, 0.38, 0.52))
+                                    .child(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .font_semibold()
+                                                    .text_color(cx.theme().foreground)
+                                                    .child(status.mode),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(status.language),
+                                            ),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_3()
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(status.selection),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .font_family(cx.theme().mono_font_family.clone())
+                                                    .text_color(cx.theme().foreground)
+                                                    .child(status.position),
+                                            ),
+                                    ),
+                            )
+                        }),
                 )
                 .into_any_element();
         }

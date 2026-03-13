@@ -7,7 +7,8 @@ use std::sync::{Arc, OnceLock};
 use anyhow::{Context as _, Result};
 use arc_swap::{ArcSwap, access::Map};
 use gpui::*;
-use helix_core::movement::Direction;
+use helix_core::coords_at_pos;
+use helix_core::{Range, Selection, movement::Direction};
 use helix_core::syntax::{HighlightEvent, Highlighter};
 use helix_term::commands;
 use helix_term::compositor::{Component, Compositor, Context as CompositorContext, EventResult};
@@ -16,7 +17,7 @@ use helix_term::job::Jobs;
 use helix_term::keymap::Keymaps;
 use helix_term::ui::EditorView;
 use helix_view::editor::Action;
-use helix_view::graphics::{Color, CursorKind, Rect, Style as HelixStyle};
+use helix_view::graphics::{Color, Rect, Style as HelixStyle};
 use helix_view::handlers::completion::{CompletionEvent, CompletionHandler};
 use helix_view::handlers::lsp::{
     DocumentColorsEvent, PullAllDocumentsDiagnosticsEvent, PullDiagnosticsEvent,
@@ -26,12 +27,26 @@ use helix_view::handlers::{AutoSaveEvent, Handlers};
 use helix_view::input::{Event as HelixEvent, KeyEvent};
 use helix_view::keyboard::{KeyCode, KeyModifiers};
 use helix_view::{Document, DocumentId, Editor, Theme, ViewId, theme};
+mod paint;
+
+use self::paint::{
+    clamp_to_bounds, cursor_bounds, mouse_text_position, paint_current_line_background,
+    paint_line_numbers, paint_selection_backgrounds, palette_text_width,
+};
 pub(crate) type SharedHelixFilesEditor = Rc<RefCell<HelixFilesEditor>>;
 
 pub(crate) struct HelixFilesEditor {
     runtime: Option<HelixRuntime>,
     active_path: Option<PathBuf>,
     last_error: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct HelixStatusSnapshot {
+    pub(crate) mode: &'static str,
+    pub(crate) language: String,
+    pub(crate) position: String,
+    pub(crate) selection: String,
 }
 
 struct HelixRuntime {
@@ -57,10 +72,11 @@ pub(crate) struct HelixFilesEditorPalette {
     pub(crate) border: Hsla,
     pub(crate) default_foreground: Hsla,
     pub(crate) current_line_background: Hsla,
+    pub(crate) selection_background: Hsla,
     pub(crate) cursor: Hsla,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct DocumentLayout {
     rows: usize,
     line_height: Pixels,
@@ -92,132 +108,104 @@ struct SyntaxStyleIter<'h, 'r, 't> {
 }
 
 impl HelixFilesEditor {
-    pub(crate) fn new() -> Self {
-        Self {
-            runtime: None,
-            active_path: None,
-            last_error: None,
-        }
-    }
-
-    pub(crate) fn last_error(&self) -> Option<&str> {
-        self.last_error.as_deref()
-    }
-
+    pub(crate) fn new() -> Self { Self { runtime: None, active_path: None, last_error: None } }
+    pub(crate) fn last_error(&self) -> Option<&str> { self.last_error.as_deref() }
     pub(crate) fn is_ready_for_path(&self, path: Option<&str>) -> bool {
-        self.runtime.is_some()
-            && self.active_path.as_ref().and_then(|active| active.to_str()) == path
+        self.runtime.is_some() && self.active_path.as_ref().and_then(|active| active.to_str()) == path
     }
-
     pub(crate) fn open_path(&mut self, path: &Path) -> Result<()> {
         if self.runtime.is_none() {
             match HelixRuntime::new() {
-                Ok(runtime) => {
-                    self.runtime = Some(runtime);
-                }
+                Ok(runtime) => self.runtime = Some(runtime),
                 Err(err) => {
                     self.last_error = Some(err.to_string());
                     return Err(err);
                 }
             }
         }
-
-        let runtime = self
-            .runtime
-            .as_mut()
-            .expect("runtime is initialized before use");
-        let open_action = if runtime.current_view_id().is_some() {
-            Action::Replace
-        } else {
-            Action::VerticalSplit
-        };
-        if let Err(err) = runtime
-            .editor
-            .open(path, open_action)
-            .with_context(|| format!("failed to open {} in Helix editor", path.display()))
-        {
+        let runtime = self.runtime.as_mut().expect("runtime is initialized before use");
+        let open_action = if runtime.current_view_id().is_some() { Action::Replace } else { Action::VerticalSplit };
+        let open_result = with_tokio_runtime(|| runtime.editor.open(path, open_action));
+        if let Err(err) = open_result.with_context(|| format!("failed to open {} in Helix editor", path.display())) {
             self.last_error = Some(err.to_string());
             return Err(err);
         }
-
         self.active_path = Some(path.to_path_buf());
         self.last_error = None;
         Ok(())
     }
-
     pub(crate) fn clear(&mut self) {
         self.active_path = None;
         self.last_error = None;
     }
-
     pub(crate) fn is_dirty(&self) -> bool {
         if self.active_path.is_none() {
             return false;
         }
-
-        let Some(runtime) = self.runtime.as_ref() else {
-            return false;
-        };
-        let Some(doc_id) = runtime.current_doc_id() else {
-            return false;
-        };
-
-        runtime
-            .editor
-            .document(doc_id)
-            .is_some_and(Document::is_modified)
+        let Some(runtime) = self.runtime.as_ref() else { return false; };
+        let Some(doc_id) = runtime.current_doc_id() else { return false; };
+        runtime.editor.document(doc_id).is_some_and(Document::is_modified)
     }
-
     pub(crate) fn current_text(&self) -> Option<String> {
         self.active_path.as_ref()?;
         let runtime = self.runtime.as_ref()?;
         let doc_id = runtime.current_doc_id()?;
-        runtime
-            .editor
-            .document(doc_id)
-            .map(|doc| doc.text().slice(..).to_string())
+        runtime.editor.document(doc_id).map(|doc| doc.text().slice(..).to_string())
     }
-
+    pub(crate) fn status_snapshot(&self) -> Option<HelixStatusSnapshot> {
+        self.active_path.as_ref()?;
+        let runtime = self.runtime.as_ref()?;
+        let view_id = runtime.current_view_id()?;
+        let doc_id = runtime.current_doc_id()?;
+        let doc = runtime.editor.document(doc_id)?;
+        let text = doc.text().slice(..);
+        let selection = doc.selection(view_id);
+        let cursor = selection.primary().cursor(text);
+        let coords = coords_at_pos(text, cursor);
+        let selection_len = selection.primary().len();
+        Some(HelixStatusSnapshot {
+            mode: match runtime.editor.mode() {
+                helix_view::document::Mode::Insert => "INSERT",
+                helix_view::document::Mode::Select => "SELECT",
+                helix_view::document::Mode::Normal => "NORMAL",
+            },
+            language: doc.language_name().unwrap_or("text").to_string(),
+            position: format!(
+                "Ln {}  Col {}  {} lines",
+                coords.row + 1,
+                coords.col + 1,
+                text.len_lines()
+            ),
+            selection: if selection_len > 0 {
+                format!("{} sel  {} cursors", selection_len, selection.len())
+            } else {
+                format!("{} cursors", selection.len())
+            },
+        })
+    }
     pub(crate) fn mark_saved(&mut self) {
         if self.active_path.is_none() {
             return;
         }
-
-        let Some(runtime) = self.runtime.as_mut() else {
-            return;
-        };
-        let Some(doc_id) = runtime.current_doc_id() else {
-            return;
-        };
+        let Some(runtime) = self.runtime.as_mut() else { return; };
+        let Some(doc_id) = runtime.current_doc_id() else { return; };
         if let Some(doc) = runtime.editor.document_mut(doc_id) {
             doc.reset_modified();
             doc.pickup_last_saved_time();
         }
     }
-
     pub(crate) fn handle_keystroke(&mut self, keystroke: &Keystroke) -> bool {
         if self.active_path.is_none() {
             return false;
         }
-
-        let Some(runtime) = self.runtime.as_mut() else {
-            return false;
-        };
-        let Some(key) = translate_key(keystroke) else {
-            return false;
-        };
-
+        let Some(runtime) = self.runtime.as_mut() else { return false; };
+        let Some(key) = translate_key(keystroke) else { return false; };
         let event = HelixEvent::Key(key);
-        let mut comp_ctx = CompositorContext {
-            editor: &mut runtime.editor,
-            scroll: None,
-            jobs: &mut runtime.jobs,
-        };
-
+        let mut comp_ctx =
+            CompositorContext { editor: &mut runtime.editor, scroll: None, jobs: &mut runtime.jobs };
         if runtime.compositor.handle_event(&event, &mut comp_ctx) {
             return true;
         }
-
         match runtime.view.handle_event(&event, &mut comp_ctx) {
             EventResult::Consumed(callback) => {
                 if let Some(callback) = callback {
@@ -228,19 +216,11 @@ impl HelixFilesEditor {
             EventResult::Ignored(_) => false,
         }
     }
-
-    pub(crate) fn scroll_lines(
-        &mut self,
-        line_count: usize,
-        direction: helix_core::movement::Direction,
-    ) {
+    pub(crate) fn scroll_lines(&mut self, line_count: usize, direction: helix_core::movement::Direction) {
         if self.active_path.is_none() {
             return;
         }
-
-        let Some(runtime) = self.runtime.as_mut() else {
-            return;
-        };
+        let Some(runtime) = self.runtime.as_mut() else { return; };
         let mut ctx = commands::Context {
             editor: &mut runtime.editor,
             register: None,
@@ -250,6 +230,40 @@ impl HelixFilesEditor {
             jobs: &mut runtime.jobs,
         };
         commands::scroll(&mut ctx, line_count, direction, false);
+    }
+    pub(crate) fn handle_mouse_down(&mut self, position: Point<Pixels>, layout: &DocumentLayout, extend: bool) -> bool {
+        let Some((runtime, view_id, doc_id, pos)) = self.mouse_target(position, layout) else { return false; };
+        runtime.editor.focus(view_id);
+        let doc = runtime.editor.document_mut(doc_id).expect("current doc exists");
+        let range = if extend { doc.selection(view_id).primary().put_cursor(doc.text().slice(..), pos, true) } else { Range::point(pos) };
+        doc.set_selection(view_id, Selection::single(range.anchor, range.head));
+        runtime.editor.mouse_down_range = Some(range);
+        runtime.editor.ensure_cursor_in_view(view_id);
+        true
+    }
+    pub(crate) fn handle_mouse_drag(&mut self, position: Point<Pixels>, layout: &DocumentLayout) -> bool {
+        let Some((runtime, view_id, doc_id, pos)) = self.mouse_target(position, layout) else { return false; };
+        if runtime.editor.mouse_down_range.is_none() {
+            return false;
+        }
+        let doc = runtime.editor.document_mut(doc_id).expect("current doc exists");
+        let mut selection = doc.selection(view_id).clone();
+        *selection.primary_mut() = selection.primary().put_cursor(doc.text().slice(..), pos, true);
+        doc.set_selection(view_id, selection);
+        runtime.editor.ensure_cursor_in_view(view_id);
+        true
+    }
+    pub(crate) fn handle_mouse_up(&mut self) -> bool {
+        self.runtime.as_mut().is_some_and(|runtime| runtime.editor.mouse_down_range.take().is_some())
+    }
+    fn mouse_target(&mut self, position: Point<Pixels>, layout: &DocumentLayout) -> Option<(&mut HelixRuntime, ViewId, DocumentId, usize)> {
+        let runtime = self.runtime.as_mut()?;
+        let view_id = runtime.current_view_id()?;
+        let doc_id = runtime.current_doc_id()?;
+        let doc = runtime.editor.document(doc_id)?;
+        let view = runtime.editor.tree.get(view_id);
+        let pos = mouse_text_position(view, doc, position, layout)?;
+        Some((runtime, view_id, doc_id, pos))
     }
 }
 
@@ -451,6 +465,41 @@ impl Element for HelixFilesEditorElement {
         window: &mut Window,
         cx: &mut App,
     ) {
+        let mouse_down_layout = layout.clone();
+        let mouse_drag_layout = layout.clone();
+        let mouse_state = self.state.clone();
+        window.on_mouse_event(move |event: &MouseDownEvent, phase, window, _cx| {
+            if phase == DispatchPhase::Bubble
+                && event.button == gpui::MouseButton::Left
+                && mouse_down_layout.hitbox.is_hovered(window)
+                && mouse_state
+                    .borrow_mut()
+                    .handle_mouse_down(event.position, &mouse_down_layout, event.modifiers.shift)
+            {
+                window.refresh();
+            }
+        });
+        let mouse_state = self.state.clone();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, _cx| {
+            if phase == DispatchPhase::Bubble
+                && event.dragging()
+                && mouse_state
+                    .borrow_mut()
+                    .handle_mouse_drag(clamp_to_bounds(event.position, mouse_drag_layout.hitbox.bounds), &mouse_drag_layout)
+            {
+                window.refresh();
+            }
+        });
+        let mouse_state = self.state.clone();
+        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, _cx| {
+            if phase == DispatchPhase::Bubble
+                && event.button == gpui::MouseButton::Left
+                && mouse_state.borrow_mut().handle_mouse_up()
+            {
+                window.refresh();
+            }
+        });
+
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             window.paint_quad(fill(bounds, self.palette.background));
 
@@ -504,6 +553,15 @@ impl Element for HelixFilesEditorElement {
                 first_row,
                 current_line,
                 self.palette.current_line_background,
+            );
+            paint_selection_backgrounds(
+                window,
+                document,
+                view,
+                text.slice(..),
+                bounds.origin,
+                layout,
+                self.palette.selection_background,
             );
             paint_line_numbers(
                 window,
@@ -753,104 +811,6 @@ fn syntax_runs(
     }
 
     runs
-}
-
-fn paint_current_line_background(
-    window: &mut Window,
-    origin: Point<Pixels>,
-    layout: &DocumentLayout,
-    first_row: usize,
-    current_line: usize,
-    background: Hsla,
-) {
-    if current_line < first_row {
-        return;
-    }
-
-    let relative_row = current_line - first_row;
-    if relative_row >= layout.rows {
-        return;
-    }
-
-    let line_y = origin.y + px(1.0) + (layout.line_height * relative_row as f32);
-    let content_x =
-        origin.x + px(10.0) + (layout.cell_width * (layout.gutter_columns as f32 + 1.0));
-    window.paint_quad(fill(
-        Bounds {
-            origin: point(content_x, line_y),
-            size: size(px(10000.0), layout.line_height),
-        },
-        background,
-    ));
-}
-
-fn paint_line_numbers(
-    window: &mut Window,
-    cx: &mut App,
-    layout: &DocumentLayout,
-    params: LineNumberPaintParams,
-) {
-    let mut y = params.origin.y + px(1.0);
-    for line_number in params.first_row..params.last_row {
-        let color = if line_number == params.current_line {
-            params.palette.current_line_number
-        } else {
-            params.palette.line_number
-        };
-        let text = format!("{:>digits$}", line_number + 1, digits = params.digits);
-        let shaped = window.text_system().shape_line(
-            text.clone().into(),
-            layout.font_size,
-            &[TextRun {
-                len: text.len(),
-                font: params.font.clone(),
-                color,
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            }],
-            None,
-        );
-        let _ = shaped.paint(
-            point(params.origin.x, y),
-            layout.line_height,
-            TextAlign::Left,
-            None,
-            window,
-            cx,
-        );
-        y += layout.line_height;
-    }
-}
-
-fn palette_text_width(total_lines: usize) -> usize {
-    total_lines.max(1).to_string().len()
-}
-
-fn cursor_bounds(
-    origin: Point<Pixels>,
-    kind: CursorKind,
-    cell_width: Pixels,
-    line_height: Pixels,
-) -> Bounds<Pixels> {
-    match kind {
-        CursorKind::Bar => Bounds {
-            origin,
-            size: size(px(2.0), line_height),
-        },
-        CursorKind::Block => Bounds {
-            origin,
-            size: size(cell_width, line_height),
-        },
-        CursorKind::Underline => Bounds {
-            origin: origin + point(Pixels::ZERO, line_height - px(2.0)),
-            size: size(cell_width, px(2.0)),
-        },
-        CursorKind::Hidden => Bounds {
-            origin,
-            size: size(Pixels::ZERO, Pixels::ZERO),
-        },
-    }
 }
 
 fn translate_key(keystroke: &Keystroke) -> Option<KeyEvent> {
