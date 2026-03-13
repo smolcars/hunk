@@ -195,7 +195,15 @@ impl DiffViewer {
     }
 
     pub(super) fn request_ai_composer_file_completion_reload(&mut self, cx: &mut Context<Self>) {
-        let Some(workspace_root) = self.ai_workspace_cwd() else {
+        self.request_ai_composer_file_completion_reload_for_workspace(self.ai_workspace_cwd(), cx);
+    }
+
+    pub(super) fn request_ai_composer_file_completion_reload_for_workspace(
+        &mut self,
+        workspace_root: Option<std::path::PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(workspace_root) = workspace_root else {
             self.ai_composer_file_completion_provider.clear();
             self.ai_composer_file_completion_reload_task = Task::ready(());
             self.ai_composer_file_completion_menu = None;

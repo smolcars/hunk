@@ -235,6 +235,15 @@
     }
 
     #[test]
+    fn ai_completion_reload_workspace_root_targets_destination_workspace() {
+        assert_eq!(
+            ai_completion_reload_workspace_root(Some("/repo/worktrees/task-1")),
+            Some(PathBuf::from("/repo/worktrees/task-1")),
+        );
+        assert_eq!(ai_completion_reload_workspace_root(None), None);
+    }
+
+    #[test]
     fn drain_ai_worker_events_preserves_final_fatal_before_disconnect() {
         let (event_tx, event_rx) = mpsc::channel();
         event_tx

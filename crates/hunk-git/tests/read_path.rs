@@ -391,6 +391,23 @@ fn load_visible_repo_file_paths_honors_gitignore() -> Result<()> {
 }
 
 #[test]
+fn load_visible_repo_file_paths_skips_tracked_files_deleted_from_worktree() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("src/main.rs", "fn main() {}\n")?;
+    fixture.write_file("README.md", "hello\n")?;
+    fixture.commit_all("initial")?;
+
+    fs::remove_file(fixture.root().join("src/main.rs"))?;
+
+    let paths = load_visible_repo_file_paths(fixture.root())?;
+
+    assert!(paths.contains(&"README.md".to_string()));
+    assert!(!paths.contains(&"src/main.rs".to_string()));
+
+    Ok(())
+}
+
+#[test]
 fn workflow_snapshot_excludes_non_ignored_nested_repo_contents() -> Result<()> {
     let fixture = TempGitRepo::new()?;
     fixture.write_file("src/main.rs", "fn main() {}\n")?;
