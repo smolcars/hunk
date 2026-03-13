@@ -13,7 +13,7 @@ use hunk_git::git::{
     FileStatus, LineStats, RepoTreeEntryKind, count_non_ignored_repo_tree_entries, load_patch,
     load_patches_for_files_from_session, load_repo_file_line_stats_without_refresh,
     load_repo_line_stats, load_repo_line_stats_without_refresh, load_repo_tree, load_snapshot,
-    load_snapshot_without_refresh, load_workflow_snapshot,
+    load_snapshot_without_refresh, load_visible_repo_file_paths, load_workflow_snapshot,
     load_workflow_snapshot_if_changed_without_refresh, load_workflow_snapshot_with_fingerprint,
     load_workflow_snapshot_without_refresh, open_patch_session,
 };
@@ -369,6 +369,45 @@ fn load_repo_tree_marks_ignored_entries_and_counts_visible_nodes() -> Result<()>
 }
 
 #[test]
+fn load_visible_repo_file_paths_honors_gitignore() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("src/main.rs", "fn main() {}\n")?;
+    fixture.commit_all("initial")?;
+    fixture.write_file(".gitignore", "target/\n*.log\n")?;
+    fixture.write_file("draft.txt", "draft\n")?;
+    fixture.write_file("target/cache.bin", "cache\n")?;
+    fixture.write_file("logs/app.log", "hello\n")?;
+
+    let paths = load_visible_repo_file_paths(fixture.root())?;
+
+    assert!(paths.contains(&"src/main.rs".to_string()));
+    assert!(paths.contains(&".gitignore".to_string()));
+    assert!(paths.contains(&"draft.txt".to_string()));
+    assert!(!paths.contains(&"target".to_string()));
+    assert!(!paths.contains(&"target/cache.bin".to_string()));
+    assert!(!paths.contains(&"logs/app.log".to_string()));
+
+    Ok(())
+}
+
+#[test]
+fn load_visible_repo_file_paths_skips_tracked_files_deleted_from_worktree() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("src/main.rs", "fn main() {}\n")?;
+    fixture.write_file("README.md", "hello\n")?;
+    fixture.commit_all("initial")?;
+
+    fs::remove_file(fixture.root().join("src/main.rs"))?;
+
+    let paths = load_visible_repo_file_paths(fixture.root())?;
+
+    assert!(paths.contains(&"README.md".to_string()));
+    assert!(!paths.contains(&"src/main.rs".to_string()));
+
+    Ok(())
+}
+
+#[test]
 fn workflow_snapshot_excludes_non_ignored_nested_repo_contents() -> Result<()> {
     let fixture = TempGitRepo::new()?;
     fixture.write_file("src/main.rs", "fn main() {}\n")?;
@@ -391,6 +430,26 @@ fn workflow_snapshot_excludes_non_ignored_nested_repo_contents() -> Result<()> {
             .iter()
             .all(|entry| entry.path != "vendor/nested" && !entry.path.starts_with("vendor/nested/"))
     );
+
+    Ok(())
+}
+
+#[test]
+fn load_visible_repo_file_paths_skips_nested_repo_contents() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("src/main.rs", "fn main() {}\n")?;
+    fixture.commit_all("initial")?;
+
+    let nested_root = fixture.root().join("vendor/nested");
+    fs::create_dir_all(nested_root.join("src"))?;
+    let nested_repo = Repository::init(nested_root.as_path())?;
+    drop(nested_repo);
+    fs::write(nested_root.join("src/lib.rs"), "nested\n")?;
+
+    let paths = load_visible_repo_file_paths(fixture.root())?;
+
+    assert!(paths.contains(&"src/main.rs".to_string()));
+    assert!(!paths.iter().any(|path| path.starts_with("vendor/nested")));
 
     Ok(())
 }

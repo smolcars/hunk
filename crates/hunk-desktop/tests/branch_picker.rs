@@ -1,6 +1,9 @@
 #[allow(dead_code)]
 #[path = "../src/app/branch_picker.rs"]
 mod branch_picker;
+#[allow(dead_code)]
+#[path = "../src/app/fuzzy_match.rs"]
+mod fuzzy_match;
 
 use branch_picker::{branch_detail_labels, branch_match_score, matched_branch_names};
 use hunk_git::git::LocalBranch;

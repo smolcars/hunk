@@ -559,6 +559,38 @@ fn reset_ai_timeline_list_measurements(this: &mut DiffViewer, row_count: usize) 
     this.ai_timeline_list_row_count = row_count;
 }
 
+fn ai_timeline_row_needs_full_measurement_reset(this: &DiffViewer, row_id: &str) -> bool {
+    let Some(row) = this.ai_timeline_row(row_id) else {
+        return false;
+    };
+
+    match &row.source {
+        AiTimelineRowSource::Item { item_key } => this
+            .ai_state_snapshot
+            .items
+            .get(item_key.as_str())
+            .is_some_and(|item| matches!(item.kind.as_str(), "userMessage" | "agentMessage" | "plan")),
+        AiTimelineRowSource::Group { group_id } => this
+            .ai_timeline_group(group_id.as_str())
+            .is_some_and(|group| {
+                group
+                    .child_row_ids
+                    .iter()
+                    .any(|child_row_id| ai_timeline_row_needs_full_measurement_reset(this, child_row_id))
+            }),
+        AiTimelineRowSource::TurnDiff { .. } => false,
+    }
+}
+
+fn changed_ai_rows_require_full_measurement_reset(
+    this: &DiffViewer,
+    changed_row_ids: &BTreeSet<String>,
+) -> bool {
+    changed_row_ids
+        .iter()
+        .any(|row_id| ai_timeline_row_needs_full_measurement_reset(this, row_id.as_str()))
+}
+
 fn invalidate_ai_timeline_row_measurements(
     this: &mut DiffViewer,
     visible_row_ids: &[String],

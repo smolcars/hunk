@@ -566,6 +566,7 @@ impl DiffViewer {
         }
         self.persist_active_workspace_target_id();
         self.ai_handle_workspace_change(previous_ai_workspace_key, cx);
+        self.request_ai_composer_file_completion_reload(cx);
         self.repo_discovery_failed = false;
         self.error_message = None;
         if full_refresh {
@@ -687,6 +688,7 @@ impl DiffViewer {
         self.review_right_source_id = None;
         self.sync_review_compare_picker_states(cx);
         self.ai_handle_workspace_change(previous_ai_workspace_key, cx);
+        self.request_ai_composer_file_completion_reload(cx);
         self.branch_name = "unknown".to_string();
         self.branch_has_upstream = false;
         self.branch_ahead_count = 0;

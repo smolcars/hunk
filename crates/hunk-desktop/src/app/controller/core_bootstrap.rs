@@ -351,6 +351,8 @@ impl DiffViewer {
                 .rows(3)
                 .placeholder("Add comment for this diff row")
         });
+        let ai_composer_file_completion_provider =
+            Rc::new(AiComposerFileCompletionProvider::new());
         let ai_composer_input_state = cx.new(|cx| {
             InputState::new(window, cx)
                 .multi_line(true)
@@ -455,6 +457,11 @@ impl DiffViewer {
             ai_command_tx: None,
             ai_worker_workspace_key: None,
             ai_draft_workspace_target_id: None,
+            ai_composer_file_completion_provider,
+            ai_composer_file_completion_reload_task: Task::ready(()),
+            ai_composer_file_completion_menu: None,
+            ai_composer_file_completion_selected_ix: 0,
+            ai_composer_file_completion_dismissed_token: None,
             ai_worktree_base_branch_picker_state,
             ai_composer_input_state,
             ai_composer_drafts: BTreeMap::new(),
@@ -595,9 +602,18 @@ impl DiffViewer {
         .detach();
 
         let ai_composer_state = view.ai_composer_input_state.clone();
+        cx.observe(&ai_composer_state, |this, _, cx| {
+            this.sync_ai_composer_file_completion_menu(cx);
+        })
+        .detach();
         cx.subscribe(&ai_composer_state, |this, _, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.sync_ai_visible_composer_prompt_to_draft(cx);
+                this.ai_composer_file_completion_dismissed_token = None;
+            }
+            if matches!(event, InputEvent::Blur) {
+                this.ai_composer_file_completion_menu = None;
+                cx.notify();
             }
             if should_send_ai_prompt_from_input_event(event) {
                 this.ai_send_prompt_action_from_keyboard(cx);
@@ -609,10 +625,18 @@ impl DiffViewer {
         // The multiline input consumes Tab for indentation before view-level keybindings run.
         // Intercept the keystroke at the app layer so the AI composer can queue prompts reliably.
         cx.intercept_keystrokes(move |event, window, cx| {
-            let Some(shortcut) = ai_composer_shortcut_for_keystroke(&event.keystroke) else {
+            let Some(view) = weak_view.upgrade() else {
                 return;
             };
-            let Some(view) = weak_view.upgrade() else {
+            if let Some(action) = ai_composer_completion_action_for_keystroke(&event.keystroke) {
+                let handled = view.update(cx, |this, cx| {
+                    this.ai_handle_composer_completion_keystroke(action, window, cx)
+                });
+                if handled {
+                    return;
+                }
+            }
+            let Some(shortcut) = ai_composer_shortcut_for_keystroke(&event.keystroke) else {
                 return;
             };
             view.update(cx, |this, cx| {

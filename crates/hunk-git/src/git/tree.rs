@@ -3,12 +3,27 @@ fn load_visible_repo_paths(repo: &gix::Repository, root: &Path) -> Result<BTreeS
     let mut paths = BTreeSet::new();
     for (path, ()) in index.entries_with_paths_by_filter_map(|_path, _| Some(())) {
         let path = normalize_bstr_path(path);
-        if !path.is_empty() && !repo_relative_path_is_within_managed_worktrees(path.as_str()) {
+        if !path.is_empty()
+            && !repo_relative_path_is_within_managed_worktrees(path.as_str())
+            && visible_repo_file_exists(root, path.as_str())
+        {
             paths.insert(path);
         }
     }
-    paths.extend(collect_untracked_repo_paths(repo, root)?);
+    paths.extend(
+        collect_untracked_repo_paths(repo, root)?
+            .into_iter()
+            .filter(|path| visible_repo_file_exists(root, path.as_str())),
+    );
     Ok(paths)
+}
+
+fn visible_repo_file_exists(root: &Path, repo_relative_path: &str) -> bool {
+    let path = root.join(repo_relative_path);
+    match fs::symlink_metadata(path.as_path()) {
+        Ok(metadata) => metadata.is_file() || metadata.file_type().is_symlink(),
+        Err(_) => false,
+    }
 }
 
 fn collect_untracked_repo_paths(repo: &gix::Repository, root: &Path) -> Result<BTreeSet<String>> {

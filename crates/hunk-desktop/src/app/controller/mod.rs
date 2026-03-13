@@ -2,6 +2,7 @@ use anyhow::Context as _;
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
 use notify::Watcher;
+use std::rc::Rc;
 use tracing::{debug, error, warn};
 
 use crate::app::ai_git_progress::ai_delete_worktree_progress_steps;
@@ -56,6 +57,7 @@ include!("recent_commits.rs");
 include!("review_compare.rs");
 include!("workspace_mode.rs");
 include!("ai.rs");
+include!("ai_composer_completion.rs");
 include!("ai_git_ops.rs");
 include!("file_tree.rs");
 include!("file_tree_fs.rs");

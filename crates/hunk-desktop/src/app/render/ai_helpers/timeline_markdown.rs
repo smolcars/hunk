@@ -6,12 +6,62 @@ fn ai_markdown_code_line_text(spans: &[hunk_domain::markdown_preview::MarkdownCo
     text
 }
 
+fn ai_markdown_code_block_text(
+    lines: &[Vec<hunk_domain::markdown_preview::MarkdownCodeSpan>],
+) -> String {
+    lines
+        .iter()
+        .map(|line| ai_markdown_code_line_text(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn ai_markdown_code_token_color(
     default_color: Hsla,
     token: MarkdownCodeTokenKind,
     is_dark: bool,
 ) -> Hsla {
     markdown_syntax_color(default_color, token, is_dark)
+}
+
+fn ai_markdown_code_block_text_and_highlights(
+    lines: &[Vec<hunk_domain::markdown_preview::MarkdownCodeSpan>],
+    default_color: Hsla,
+    is_dark: bool,
+) -> (SharedString, Vec<(std::ops::Range<usize>, HighlightStyle)>) {
+    let mut text = String::new();
+    let mut highlights = Vec::new();
+    let mut cursor = 0usize;
+
+    for (line_ix, line_spans) in lines.iter().enumerate() {
+        if line_ix > 0 {
+            text.push('\n');
+            cursor += 1;
+        }
+
+        for span in line_spans {
+            if span.text.is_empty() {
+                continue;
+            }
+
+            let start = cursor;
+            text.push_str(span.text.as_str());
+            cursor += span.text.len();
+
+            let token_color = ai_markdown_code_token_color(default_color, span.token, is_dark);
+            if token_color != default_color {
+                highlights.push((
+                    start..cursor,
+                    HighlightStyle {
+                        color: Some(token_color),
+                        ..HighlightStyle::default()
+                    },
+                ));
+            }
+        }
+    }
+
+    (text.into(), highlights)
 }
 
 fn ai_chat_markdown_selection_surfaces(
@@ -74,25 +124,13 @@ fn ai_chat_markdown_selection_surfaces(
                 if lines.is_empty() {
                     continue;
                 }
-
-                for (line_ix, line_spans) in lines.iter().enumerate() {
-                    let separator_before = if line_ix == 0 {
-                        block_separator
-                    } else {
-                        "\n"
-                    };
-                    surfaces.push(
-                        AiTextSelectionSurfaceSpec::new(
-                            ai_timeline_text_surface_id(
-                                row_id,
-                                "message-code",
-                                format!("{block_ix}-{line_ix}"),
-                            ),
-                            ai_markdown_code_line_text(line_spans),
-                        )
-                        .with_separator_before(separator_before),
-                    );
-                }
+                surfaces.push(
+                    AiTextSelectionSurfaceSpec::new(
+                        ai_timeline_text_surface_id(row_id, "message-code", block_ix),
+                        ai_markdown_code_block_text(lines),
+                    )
+                    .with_separator_before(block_separator),
+                );
             }
             MarkdownPreviewBlock::ThematicBreak => {}
         }
@@ -255,68 +293,15 @@ fn ai_render_chat_markdown_block(
             .into_any_element(),
         MarkdownPreviewBlock::CodeBlock { language, lines } => {
             let language_label = language.clone().unwrap_or_else(|| "code".to_string());
-            let code_rows = if lines.is_empty() {
-                vec![
-                    div()
-                        .w_full()
-                        .text_xs()
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .child("")
-                        .into_any_element(),
-                ]
+            let code_surface_id = ai_timeline_text_surface_id(row_id, "message-code", block_ix);
+            let default_color = cx.theme().foreground;
+            let is_dark_theme = cx.theme().mode.is_dark();
+            let (text, highlights) =
+                ai_markdown_code_block_text_and_highlights(lines, default_color, is_dark_theme);
+            let styled_text = if highlights.is_empty() {
+                StyledText::new(text.clone())
             } else {
-                lines
-                    .iter()
-                    .enumerate()
-                    .map(|(line_ix, line_spans)| {
-                        let code_line_surface_id =
-                            ai_timeline_text_surface_id(row_id, "message-code", format!("{block_ix}-{line_ix}"));
-                        let default_color = cx.theme().foreground;
-                        let is_dark_theme = cx.theme().mode.is_dark();
-                        let mut highlights = Vec::new();
-                        let mut text = String::new();
-                        let mut cursor = 0;
-                        for span in line_spans {
-                            if span.text.is_empty() {
-                                continue;
-                            }
-                            let start = cursor;
-                            cursor += span.text.len();
-                            text.push_str(span.text.as_str());
-                            let token_color =
-                                ai_markdown_code_token_color(default_color, span.token, is_dark_theme);
-                            highlights.push((
-                                start..cursor,
-                                HighlightStyle {
-                                    color: Some(token_color),
-                                    ..HighlightStyle::default()
-                                },
-                            ));
-                        }
-                        let styled_text = if highlights.is_empty() {
-                            StyledText::new(text.clone())
-                        } else {
-                            StyledText::new(text.clone()).with_highlights(highlights)
-                        };
-                        h_flex()
-                            .w_full()
-                            .items_start()
-                            .gap_0()
-                            .text_xs()
-                            .font_family(cx.theme().mono_font_family.clone())
-                            .child(ai_render_selectable_styled_text(
-                                this,
-                                view.clone(),
-                                row_id,
-                                code_line_surface_id,
-                                selection_surfaces.clone(),
-                                styled_text,
-                                is_dark,
-                                cx,
-                            ))
-                            .into_any_element()
-                    })
-                    .collect::<Vec<_>>()
+                StyledText::new(text.clone()).with_highlights(highlights)
             };
 
             v_flex()
@@ -332,13 +317,41 @@ fn ai_render_chat_markdown_block(
                 )
                 .child(
                     div()
+                        .w_full()
                         .min_w_0()
                         .rounded(px(6.0))
                         .border_1()
                         .border_color(hunk_opacity(cx.theme().border, is_dark, 0.88, 0.74))
                         .bg(hunk_opacity(cx.theme().secondary, is_dark, 0.30, 0.44))
                         .p_2()
-                        .child(v_flex().min_w_0().children(code_rows)),
+                        .child(
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .overflow_x_scrollbar()
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .text_xs()
+                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .whitespace_normal()
+                                        .child(
+                                            div().w_full().min_w_0().child(
+                                                ai_render_selectable_styled_text(
+                                                    this,
+                                                    view.clone(),
+                                                    row_id,
+                                                    code_surface_id,
+                                                    selection_surfaces.clone(),
+                                                    styled_text,
+                                                    is_dark,
+                                                    cx,
+                                                ),
+                                            ),
+                                        ),
+                                ),
+                        ),
                 )
                 .into_any_element()
         }

@@ -168,7 +168,8 @@ impl DiffViewer {
             previous_visible_row_ids.as_slice(),
             next_visible_row_ids.as_slice(),
             self.ai_timeline_list_row_count,
-        ) {
+        ) || changed_ai_rows_require_full_measurement_reset(self, &changed_row_ids)
+        {
             reset_ai_timeline_list_measurements(self, next_visible_row_ids.len());
         } else {
             invalidate_ai_timeline_row_measurements(

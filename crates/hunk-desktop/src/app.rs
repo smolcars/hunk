@@ -1,22 +1,25 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, AnyWindowHandle, App, AppContext as _, ClipboardItem,
-    Context, Corner, Entity, FocusHandle, Hsla, InteractiveElement as _, IntoElement, IsZero as _,
-    KeyBinding, ListAlignment, ListOffset, ListSizingBehavior, ListState, Menu, MenuItem,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, OsAction, ParentElement as _,
-    PathPromptOptions, Point, Render, ScrollHandle, ScrollWheelEvent, SharedString,
-    StatefulInteractiveElement as _, Styled as _, SystemMenuType, Task, TitlebarOptions, Window,
-    WindowOptions, actions, anchored, deferred, div, list, prelude::FluentBuilder as _, px,
+    AnchoredPositionMode, Animation, AnimationExt as _, AnyElement, AnyWindowHandle, App,
+    AppContext as _, ClipboardItem, Context, Corner, Entity, EntityInputHandler, FocusHandle, Hsla,
+    InteractiveElement as _, IntoElement, IsZero as _, KeyBinding, ListAlignment, ListOffset,
+    ListSizingBehavior, ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, OsAction, ParentElement as _, PathPromptOptions, Point, Render, ScrollHandle,
+    ScrollWheelEvent, SharedString, StatefulInteractiveElement as _, Styled as _, SystemMenuType,
+    Task, TitlebarOptions, Window, WindowOptions, actions, anchored, deferred, div, list, point,
+    prelude::FluentBuilder as _, px,
 };
 use gpui_component::{
-    ActiveTheme as _, Colorize as _, GlobalState, Root, StyledExt as _, Theme, ThemeMode, h_flex,
+    ActiveTheme as _, Colorize as _, GlobalState, Root, RopeExt, StyledExt as _, Theme, ThemeMode,
+    h_flex,
     input::{Enter as InputEnter, InputEvent, InputState},
     menu::AppMenuBar,
     resizable::{h_resizable, resizable_panel},
@@ -46,6 +49,10 @@ use hunk_git::history::{
 };
 use hunk_git::worktree::WorkspaceTargetSummary;
 
+use ai_composer_completion::{
+    ActivePrefixedToken, AiComposerFileCompletionMenuState, AiComposerFileCompletionProvider,
+    ai_composer_inserted_path_text,
+};
 use ai_git_progress::{
     AiGitProgressAction, AiGitProgressState, AiGitProgressStep, ai_commit_and_push_progress_steps,
     ai_open_pr_progress_steps,
@@ -114,10 +121,12 @@ const AI_TIMELINE_TURN_PAGE_SIZE: usize = 80;
 const AI_THREAD_TITLE_REFRESH_MAX_ATTEMPTS: u8 = 20;
 const AI_THREAD_TITLE_REFRESH_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
+mod ai_composer_completion;
 mod ai_paths;
 mod ai_thread_flow;
 mod branch_activation;
 mod branch_picker;
+mod fuzzy_match;
 mod refresh_policy;
 mod review_compare_picker;
 mod workspace_target_picker;
@@ -653,6 +662,11 @@ struct DiffViewer {
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_worker_workspace_key: Option<String>,
     ai_draft_workspace_target_id: Option<String>,
+    ai_composer_file_completion_provider: Rc<AiComposerFileCompletionProvider>,
+    ai_composer_file_completion_reload_task: Task<()>,
+    ai_composer_file_completion_menu: Option<AiComposerFileCompletionMenuState>,
+    ai_composer_file_completion_selected_ix: usize,
+    ai_composer_file_completion_dismissed_token: Option<ActivePrefixedToken>,
     ai_worktree_base_branch_picker_state: Entity<SelectState<BranchPickerDelegate>>,
     ai_composer_input_state: Entity<InputState>,
     ai_composer_drafts: BTreeMap<AiComposerDraftKey, AiComposerDraft>,

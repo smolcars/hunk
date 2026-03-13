@@ -9,6 +9,7 @@ fn item_status_chip(status: hunk_codex::state::ItemStatus) -> &'static str {
 
 #[cfg(test)]
 mod ai_tests {
+    use super::ai_completion_reload_workspace_root;
     use super::ai_composer_draft_key;
     use super::ai_composer_prompt_for_target;
     use super::ai_composer_retained_thread_ids;
