@@ -496,6 +496,12 @@ pub fn load_repo_tree(repo_root: &Path) -> Result<Vec<RepoTreeEntry>> {
     Ok(entries)
 }
 
+pub fn load_visible_repo_file_paths(repo_root: &Path) -> Result<Vec<String>> {
+    let repo = open_repo_at_root(repo_root)?;
+    let visible_paths = load_visible_repo_paths(repo.repository(), repo.root())?;
+    Ok(visible_paths.into_iter().collect())
+}
+
 pub fn count_non_ignored_repo_tree_entries(entries: &[RepoTreeEntry]) -> (usize, usize) {
     let mut file_count = 0usize;
     let mut folder_count = 0usize;

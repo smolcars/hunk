@@ -4258,6 +4258,7 @@ dependencies = [
  "hunk-codex",
  "hunk-domain",
  "hunk-git",
+ "lsp-types 0.97.0",
  "notify 8.2.0",
  "serde_json",
  "syntect",
