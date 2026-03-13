@@ -8,8 +8,9 @@ use anyhow::{Context as _, Result};
 use arc_swap::{ArcSwap, access::Map};
 use gpui::*;
 use helix_core::coords_at_pos;
-use helix_core::{Range, Selection, movement::Direction};
 use helix_core::syntax::{HighlightEvent, Highlighter};
+use helix_core::textobject::{TextObject, textobject_word};
+use helix_core::{Range, Selection, movement::Direction};
 use helix_term::commands;
 use helix_term::compositor::{Component, Compositor, Context as CompositorContext, EventResult};
 use helix_term::config::Config as HelixConfig;
@@ -85,6 +86,18 @@ pub(crate) struct DocumentLayout {
     hitbox: Hitbox,
 }
 
+impl DocumentLayout {
+    fn content_origin_x(&self) -> Pixels {
+        self.hitbox.bounds.origin.x
+            + px(10.0)
+            + (self.cell_width * (self.gutter_columns as f32 + 1.0))
+    }
+
+    fn is_in_gutter(&self, position: Point<Pixels>) -> bool {
+        position.x < self.content_origin_x()
+    }
+}
+
 struct LineNumberPaintParams {
     origin: Point<Pixels>,
     first_row: usize,
@@ -107,7 +120,12 @@ struct SyntaxStyleIter<'h, 'r, 't> {
 }
 
 impl HelixFilesEditor {
-    pub(crate) fn new() -> Self { Self { runtime: None, active_path: None } }
+    pub(crate) fn new() -> Self {
+        Self {
+            runtime: None,
+            active_path: None,
+        }
+    }
     pub(crate) fn open_path(&mut self, path: &Path) -> Result<()> {
         if self.runtime.is_none() {
             match HelixRuntime::new() {
@@ -115,12 +133,18 @@ impl HelixFilesEditor {
                 Err(err) => return Err(err),
             }
         }
-        let runtime = self.runtime.as_mut().expect("runtime is initialized before use");
-        let open_action = if runtime.current_view_id().is_some() { Action::Replace } else { Action::VerticalSplit };
+        let runtime = self
+            .runtime
+            .as_mut()
+            .expect("runtime is initialized before use");
+        let open_action = if runtime.current_view_id().is_some() {
+            Action::Replace
+        } else {
+            Action::VerticalSplit
+        };
         let open_result = with_tokio_runtime(|| runtime.editor.open(path, open_action));
-        if let Err(err) = open_result.with_context(|| format!("failed to open {} in Helix editor", path.display())) {
-            return Err(err);
-        }
+        open_result
+            .with_context(|| format!("failed to open {} in Helix editor", path.display()))?;
         self.active_path = Some(path.to_path_buf());
         Ok(())
     }
@@ -131,15 +155,25 @@ impl HelixFilesEditor {
         if self.active_path.is_none() {
             return false;
         }
-        let Some(runtime) = self.runtime.as_ref() else { return false; };
-        let Some(doc_id) = runtime.current_doc_id() else { return false; };
-        runtime.editor.document(doc_id).is_some_and(Document::is_modified)
+        let Some(runtime) = self.runtime.as_ref() else {
+            return false;
+        };
+        let Some(doc_id) = runtime.current_doc_id() else {
+            return false;
+        };
+        runtime
+            .editor
+            .document(doc_id)
+            .is_some_and(Document::is_modified)
     }
     pub(crate) fn current_text(&self) -> Option<String> {
         self.active_path.as_ref()?;
         let runtime = self.runtime.as_ref()?;
         let doc_id = runtime.current_doc_id()?;
-        runtime.editor.document(doc_id).map(|doc| doc.text().slice(..).to_string())
+        runtime
+            .editor
+            .document(doc_id)
+            .map(|doc| doc.text().slice(..).to_string())
     }
     pub(crate) fn status_snapshot(&self) -> Option<HelixStatusSnapshot> {
         self.active_path.as_ref()?;
@@ -176,8 +210,12 @@ impl HelixFilesEditor {
         if self.active_path.is_none() {
             return;
         }
-        let Some(runtime) = self.runtime.as_mut() else { return; };
-        let Some(doc_id) = runtime.current_doc_id() else { return; };
+        let Some(runtime) = self.runtime.as_mut() else {
+            return;
+        };
+        let Some(doc_id) = runtime.current_doc_id() else {
+            return;
+        };
         if let Some(doc) = runtime.editor.document_mut(doc_id) {
             doc.reset_modified();
             doc.pickup_last_saved_time();
@@ -187,11 +225,18 @@ impl HelixFilesEditor {
         if self.active_path.is_none() {
             return false;
         }
-        let Some(runtime) = self.runtime.as_mut() else { return false; };
-        let Some(key) = translate_key(keystroke) else { return false; };
+        let Some(runtime) = self.runtime.as_mut() else {
+            return false;
+        };
+        let Some(key) = translate_key(keystroke) else {
+            return false;
+        };
         let event = HelixEvent::Key(key);
-        let mut comp_ctx =
-            CompositorContext { editor: &mut runtime.editor, scroll: None, jobs: &mut runtime.jobs };
+        let mut comp_ctx = CompositorContext {
+            editor: &mut runtime.editor,
+            scroll: None,
+            jobs: &mut runtime.jobs,
+        };
         if runtime.compositor.handle_event(&event, &mut comp_ctx) {
             return true;
         }
@@ -205,11 +250,17 @@ impl HelixFilesEditor {
             EventResult::Ignored(_) => false,
         }
     }
-    pub(crate) fn scroll_lines(&mut self, line_count: usize, direction: helix_core::movement::Direction) {
+    pub(crate) fn scroll_lines(
+        &mut self,
+        line_count: usize,
+        direction: helix_core::movement::Direction,
+    ) {
         if self.active_path.is_none() {
             return;
         }
-        let Some(runtime) = self.runtime.as_mut() else { return; };
+        let Some(runtime) = self.runtime.as_mut() else {
+            return;
+        };
         let mut ctx = commands::Context {
             editor: &mut runtime.editor,
             register: None,
@@ -220,32 +271,69 @@ impl HelixFilesEditor {
         };
         commands::scroll(&mut ctx, line_count, direction, false);
     }
-    pub(crate) fn handle_mouse_down(&mut self, position: Point<Pixels>, layout: &DocumentLayout, extend: bool) -> bool {
-        let Some((runtime, view_id, doc_id, pos)) = self.mouse_target(position, layout) else { return false; };
+    pub(crate) fn handle_mouse_down(
+        &mut self,
+        position: Point<Pixels>,
+        layout: &DocumentLayout,
+        extend: bool,
+        click_count: usize,
+    ) -> bool {
+        let Some((runtime, view_id, doc_id, pos)) = self.mouse_target(position, layout) else {
+            return false;
+        };
         runtime.editor.focus(view_id);
-        let doc = runtime.editor.document_mut(doc_id).expect("current doc exists");
-        let range = if extend { doc.selection(view_id).primary().put_cursor(doc.text().slice(..), pos, true) } else { Range::point(pos) };
+        let doc = runtime
+            .editor
+            .document_mut(doc_id)
+            .expect("current doc exists");
+        let text = doc.text().slice(..);
+        let range = if layout.is_in_gutter(position) || click_count >= 3 {
+            line_selection_range(text, &doc.selection(view_id).primary(), pos, extend)
+        } else if click_count == 2 {
+            word_selection_range(text, pos)
+        } else if extend {
+            doc.selection(view_id).primary().put_cursor(text, pos, true)
+        } else {
+            Range::point(pos)
+        };
         doc.set_selection(view_id, Selection::single(range.anchor, range.head));
         runtime.editor.mouse_down_range = Some(range);
         runtime.editor.ensure_cursor_in_view(view_id);
         true
     }
-    pub(crate) fn handle_mouse_drag(&mut self, position: Point<Pixels>, layout: &DocumentLayout) -> bool {
-        let Some((runtime, view_id, doc_id, pos)) = self.mouse_target(position, layout) else { return false; };
+    pub(crate) fn handle_mouse_drag(
+        &mut self,
+        position: Point<Pixels>,
+        layout: &DocumentLayout,
+    ) -> bool {
+        let Some((runtime, view_id, doc_id, pos)) = self.mouse_target(position, layout) else {
+            return false;
+        };
         if runtime.editor.mouse_down_range.is_none() {
             return false;
         }
-        let doc = runtime.editor.document_mut(doc_id).expect("current doc exists");
+        let doc = runtime
+            .editor
+            .document_mut(doc_id)
+            .expect("current doc exists");
         let mut selection = doc.selection(view_id).clone();
-        *selection.primary_mut() = selection.primary().put_cursor(doc.text().slice(..), pos, true);
+        *selection.primary_mut() = selection
+            .primary()
+            .put_cursor(doc.text().slice(..), pos, true);
         doc.set_selection(view_id, selection);
         runtime.editor.ensure_cursor_in_view(view_id);
         true
     }
     pub(crate) fn handle_mouse_up(&mut self) -> bool {
-        self.runtime.as_mut().is_some_and(|runtime| runtime.editor.mouse_down_range.take().is_some())
+        self.runtime
+            .as_mut()
+            .is_some_and(|runtime| runtime.editor.mouse_down_range.take().is_some())
     }
-    fn mouse_target(&mut self, position: Point<Pixels>, layout: &DocumentLayout) -> Option<(&mut HelixRuntime, ViewId, DocumentId, usize)> {
+    fn mouse_target(
+        &mut self,
+        position: Point<Pixels>,
+        layout: &DocumentLayout,
+    ) -> Option<(&mut HelixRuntime, ViewId, DocumentId, usize)> {
         let runtime = self.runtime.as_mut()?;
         let view_id = runtime.current_view_id()?;
         let doc_id = runtime.current_doc_id()?;
@@ -254,6 +342,38 @@ impl HelixFilesEditor {
         let pos = mouse_text_position(view, doc, position, layout)?;
         Some((runtime, view_id, doc_id, pos))
     }
+}
+
+fn word_selection_range(text: helix_core::ropey::RopeSlice<'_>, pos: usize) -> Range {
+    textobject_word(text, Range::point(pos), TextObject::Inside, 1, false)
+}
+
+fn line_selection_range(
+    text: helix_core::ropey::RopeSlice<'_>,
+    current: &Range,
+    pos: usize,
+    extend: bool,
+) -> Range {
+    let target_line = text.char_to_line(pos.min(text.len_chars()));
+    let target_start = text.line_to_char(target_line);
+    let target_end = line_end_char(text, target_line);
+    if !extend {
+        return Range::new(target_start, target_end);
+    }
+
+    let anchor_line = text.char_to_line(current.anchor.min(text.len_chars()));
+    let anchor_start = text.line_to_char(anchor_line);
+    let anchor_end = line_end_char(text, anchor_line);
+    if target_line >= anchor_line {
+        Range::new(anchor_start, target_end)
+    } else {
+        Range::new(anchor_end, target_start)
+    }
+}
+
+fn line_end_char(text: helix_core::ropey::RopeSlice<'_>, line: usize) -> usize {
+    let next_line = (line + 1).min(text.len_lines());
+    text.line_to_char(next_line).min(text.len_chars())
 }
 
 impl HelixRuntime {
@@ -461,9 +581,12 @@ impl Element for HelixFilesEditorElement {
             if phase == DispatchPhase::Bubble
                 && event.button == gpui::MouseButton::Left
                 && mouse_down_layout.hitbox.is_hovered(window)
-                && mouse_state
-                    .borrow_mut()
-                    .handle_mouse_down(event.position, &mouse_down_layout, event.modifiers.shift)
+                && mouse_state.borrow_mut().handle_mouse_down(
+                    event.position,
+                    &mouse_down_layout,
+                    event.modifiers.shift,
+                    event.click_count,
+                )
             {
                 window.refresh();
             }
@@ -472,9 +595,10 @@ impl Element for HelixFilesEditorElement {
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, _cx| {
             if phase == DispatchPhase::Bubble
                 && event.dragging()
-                && mouse_state
-                    .borrow_mut()
-                    .handle_mouse_drag(clamp_to_bounds(event.position, mouse_drag_layout.hitbox.bounds), &mouse_drag_layout)
+                && mouse_state.borrow_mut().handle_mouse_drag(
+                    clamp_to_bounds(event.position, mouse_drag_layout.hitbox.bounds),
+                    &mouse_drag_layout,
+                )
             {
                 window.refresh();
             }
@@ -734,15 +858,18 @@ fn syntax_runs(
 ) -> Vec<TextRun> {
     let loader = editor.syn_loader.load();
     let highlighter = EditorView::doc_syntax_highlighter(doc, anchor, lines, &loader);
+    let base_text_style = editor.theme.get("ui.text");
+    let default_foreground = base_text_style
+        .fg
+        .and_then(color_to_hsla)
+        .unwrap_or(default_foreground);
     let mut styles = SyntaxStyleIter::new(
         highlighter,
         doc.text().slice(..),
         &editor.theme,
-        HelixStyle::default(),
+        base_text_style,
     );
-    let mut current_span = styles
-        .next()
-        .unwrap_or((HelixStyle::default(), 0, usize::MAX));
+    let mut current_span = styles.next().unwrap_or((base_text_style, 0, usize::MAX));
     let mut position = anchor;
     let mut runs = Vec::new();
 
@@ -860,7 +987,55 @@ fn color_to_hsla(color: Color) -> Option<Hsla> {
         Color::Rgb(r, g, b) => {
             Some(rgb(((r as u32) << 16) | ((g as u32) << 8) | (b as u32)).into())
         }
-        Color::Indexed(_) => None,
+        Color::Indexed(index) => indexed_color_to_hsla(index),
+    }
+}
+
+fn indexed_color_to_hsla(index: u8) -> Option<Hsla> {
+    let (r, g, b) = match index {
+        0 => (0, 0, 0),
+        1 => (205, 49, 49),
+        2 => (13, 188, 121),
+        3 => (229, 229, 16),
+        4 => (36, 114, 200),
+        5 => (188, 63, 188),
+        6 => (17, 168, 205),
+        7 => (229, 229, 229),
+        8 => (102, 102, 102),
+        9 => (241, 76, 76),
+        10 => (35, 209, 139),
+        11 => (245, 245, 67),
+        12 => (59, 142, 234),
+        13 => (214, 112, 214),
+        14 => (41, 184, 219),
+        15 => (255, 255, 255),
+        16..=231 => {
+            let cube = index - 16;
+            let red = cube / 36;
+            let green = (cube % 36) / 6;
+            let blue = cube % 6;
+            (
+                xterm_cube_component(red),
+                xterm_cube_component(green),
+                xterm_cube_component(blue),
+            )
+        }
+        232..=255 => {
+            let gray = 8 + (index - 232) * 10;
+            (gray, gray, gray)
+        }
+    };
+    Some(rgb(((r as u32) << 16) | ((g as u32) << 8) | (b as u32)).into())
+}
+
+fn xterm_cube_component(value: u8) -> u8 {
+    match value {
+        0 => 0,
+        1 => 95,
+        2 => 135,
+        3 => 175,
+        4 => 215,
+        _ => 255,
     }
 }
 

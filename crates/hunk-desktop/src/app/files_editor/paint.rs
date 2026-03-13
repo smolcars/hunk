@@ -81,7 +81,15 @@ pub(super) fn paint_selection_backgrounds(
         for row in (start.row + 1)..end.row {
             paint_selection_segment(window, content_origin, layout, row, 0, max_col, background);
         }
-        paint_selection_segment(window, content_origin, layout, end.row, 0, end.col, background);
+        paint_selection_segment(
+            window,
+            content_origin,
+            layout,
+            end.row,
+            0,
+            end.col,
+            background,
+        );
     }
 }
 
@@ -102,7 +110,10 @@ fn paint_selection_segment(
     window.paint_quad(fill(
         Bounds {
             origin: point(line_x, line_y),
-            size: size(layout.cell_width * (end_col - start_col) as f32, layout.line_height),
+            size: size(
+                layout.cell_width * (end_col - start_col) as f32,
+                layout.line_height,
+            ),
         },
         background,
     ));
