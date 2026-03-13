@@ -416,6 +416,7 @@ fn free_port() -> u16 {
         .port()
 }
 
+#[cfg(unix)]
 fn set_helper_port_env(config: &mut HostConfig, port: u16) {
     let value = port.to_string();
     let Some((_, existing_value)) = config

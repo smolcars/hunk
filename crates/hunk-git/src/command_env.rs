@@ -251,6 +251,7 @@ pub(crate) fn windows_gui_search_path(
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
 pub(crate) fn resolve_program_in_search_path(
     program: &str,
     search_path: &OsStr,
@@ -364,6 +365,7 @@ fn windows_file_has_mz_header(path: &Path) -> bool {
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
 fn is_spawnable_path(path: &Path) -> bool {
     if !path.is_file() {
         return false;

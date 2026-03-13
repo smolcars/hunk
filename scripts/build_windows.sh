@@ -18,7 +18,7 @@ Options:
   --target <triple>   Override target triple (default: x86_64-pc-windows-msvc)
                       Must be a Windows target triple.
   --debug             Build debug profile instead of release
-  --no-stage-runtime  Skip staging assets/codex-runtime/windows/codex.exe
+  --no-stage-runtime  Skip staging assets/codex-runtime/windows
   -h, --help          Show this help
 EOF
 }
@@ -97,14 +97,17 @@ fi
 echo "Built binary: $BINARY_PATH"
 
 if [[ "$STAGE_RUNTIME" == "1" ]]; then
-  SOURCE_RUNTIME="$ROOT_DIR/assets/codex-runtime/windows/codex.exe"
-  DEST_RUNTIME="$TARGET_DIR/$TARGET_TRIPLE/$PROFILE/codex-runtime/windows/codex.exe"
+  SOURCE_RUNTIME_DIR="$ROOT_DIR/assets/codex-runtime/windows"
+  SOURCE_LAUNCHER="$SOURCE_RUNTIME_DIR/codex.cmd"
+  SOURCE_BINARY="$SOURCE_RUNTIME_DIR/codex.exe"
+  DEST_RUNTIME_DIR="$TARGET_DIR/$TARGET_TRIPLE/$PROFILE/codex-runtime/windows"
 
-  if [[ ! -f "$SOURCE_RUNTIME" ]]; then
-    echo "warn: windows runtime asset not found at $SOURCE_RUNTIME; skipping runtime staging" >&2
+  if [[ ! -f "$SOURCE_LAUNCHER" || ! -f "$SOURCE_BINARY" ]]; then
+    echo "warn: windows runtime assets not found at $SOURCE_RUNTIME_DIR; skipping runtime staging" >&2
   else
-    mkdir -p "$(dirname "$DEST_RUNTIME")"
-    cp "$SOURCE_RUNTIME" "$DEST_RUNTIME"
-    echo "Staged Windows runtime: $DEST_RUNTIME"
+    rm -rf "$DEST_RUNTIME_DIR"
+    mkdir -p "$DEST_RUNTIME_DIR"
+    cp -R "$SOURCE_RUNTIME_DIR"/. "$DEST_RUNTIME_DIR"
+    echo "Staged Windows runtime: $DEST_RUNTIME_DIR"
   fi
 fi

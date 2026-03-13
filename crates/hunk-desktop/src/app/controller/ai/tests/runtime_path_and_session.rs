@@ -450,23 +450,75 @@
         let runtime_path = exe_dir
             .join("codex-runtime")
             .join(codex_runtime_platform_dir())
-            .join(codex_runtime_binary_name());
+            .join(if cfg!(target_os = "windows") {
+                "codex.cmd"
+            } else {
+                codex_runtime_binary_name()
+            });
         std::fs::create_dir_all(
             runtime_path
                 .parent()
                 .expect("runtime parent should exist"),
         )
         .expect("runtime dir should be created");
-        #[cfg(target_os = "windows")]
-        write_fake_windows_pe(runtime_path.as_path());
-        #[cfg(not(target_os = "windows"))]
-        std::fs::write(&runtime_path, "").expect("runtime binary should be written");
+        write_fake_codex_launcher(runtime_path.as_path());
 
         let resolved = resolve_bundled_codex_executable_from_exe(exe_path.as_path());
         assert_eq!(resolved, Some(runtime_path));
 
         let candidates = bundled_codex_executable_candidates(exe_path.as_path());
-        assert!(candidates.iter().any(|candidate| candidate.ends_with(PathBuf::from("codex-runtime").join(codex_runtime_platform_dir()).join(codex_runtime_binary_name()))));
+        #[cfg(target_os = "windows")]
+        assert!(candidates.iter().any(|candidate| {
+            candidate.ends_with(
+                PathBuf::from("codex-runtime")
+                    .join(codex_runtime_platform_dir())
+                    .join("codex.cmd"),
+            )
+        }));
+        #[cfg(not(target_os = "windows"))]
+        assert!(candidates.iter().any(|candidate| {
+            candidate.ends_with(
+                PathBuf::from("codex-runtime")
+                    .join(codex_runtime_platform_dir())
+                    .join(codex_runtime_binary_name()),
+            )
+        }));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn bundled_codex_resolution_prefers_windows_cmd_over_exe() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be monotonic")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("hunk-codex-runtime-bad-{unique}"));
+        let exe_dir = root.join("bin");
+        std::fs::create_dir_all(&exe_dir).expect("exe dir should be created");
+        let exe_path = exe_dir.join("hunk");
+        std::fs::write(&exe_path, "").expect("fake exe should be written");
+
+        let runtime_path = exe_dir
+            .join("codex-runtime")
+            .join(codex_runtime_platform_dir())
+            .join("codex.exe");
+        let launcher_path = exe_dir
+            .join("codex-runtime")
+            .join(codex_runtime_platform_dir())
+            .join("codex.cmd");
+        std::fs::create_dir_all(
+            runtime_path
+                .parent()
+                .expect("runtime parent should exist"),
+        )
+        .expect("runtime dir should be created");
+        write_fake_windows_pe(runtime_path.as_path());
+        write_fake_codex_launcher(launcher_path.as_path());
+
+        let resolved = resolve_bundled_codex_executable_from_exe(exe_path.as_path());
+        assert_eq!(resolved, Some(launcher_path));
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -487,22 +539,33 @@
             .join("Resources")
             .join("codex-runtime")
             .join(codex_runtime_platform_dir())
-            .join(codex_runtime_binary_name());
+            .join(if cfg!(target_os = "windows") {
+                "codex.cmd"
+            } else {
+                codex_runtime_binary_name()
+            });
         std::fs::create_dir_all(
             runtime_path
                 .parent()
                 .expect("runtime parent should exist"),
         )
         .expect("runtime dir should be created");
-        #[cfg(target_os = "windows")]
-        write_fake_windows_pe(runtime_path.as_path());
-        #[cfg(not(target_os = "windows"))]
-        std::fs::write(&runtime_path, "").expect("runtime binary should be written");
+        write_fake_codex_launcher(runtime_path.as_path());
 
         let resolved = resolve_bundled_codex_executable_from_exe(exe_path.as_path());
         assert_eq!(resolved, Some(runtime_path.clone()));
 
         let candidates = bundled_codex_executable_candidates(exe_path.as_path());
+        #[cfg(target_os = "windows")]
+        assert!(candidates.iter().any(|candidate| {
+            candidate.ends_with(
+                PathBuf::from("Resources")
+                    .join("codex-runtime")
+                    .join(codex_runtime_platform_dir())
+                    .join("codex.cmd"),
+            )
+        }));
+        #[cfg(not(target_os = "windows"))]
         assert!(candidates.iter().any(|candidate| {
             candidate.ends_with(
                 PathBuf::from("Resources")
@@ -545,7 +608,7 @@
                 .expect("runtime parent should exist"),
         )
         .expect("runtime dir should be created");
-        std::fs::write(&runtime_path, "").expect("runtime binary should be written");
+        write_fake_codex_launcher(runtime_path.as_path());
 
         let resolved = resolve_bundled_codex_executable_from_exe(exe_path.as_path());
         assert_eq!(resolved, Some(runtime_path.clone()));

@@ -12,7 +12,7 @@ expected_binary_name() {
       printf '%s\n' "codex"
       ;;
     windows)
-      printf '%s\n' "codex.exe"
+      printf '%s\n' "codex.cmd"
       ;;
     *)
       return 1
@@ -73,6 +73,14 @@ for platform in macos linux windows; do
       continue
     fi
     echo "ok: found $binary_path" >&2
+    if [[ "$platform" == "windows" ]]; then
+      native_binary_path="$platform_dir/codex.exe"
+      if [[ ! -f "$native_binary_path" ]]; then
+        echo "error: missing native Windows Codex binary: $native_binary_path" >&2
+        exit 1
+      fi
+      echo "ok: found $native_binary_path" >&2
+    fi
   else
     if [[ "$STRICT" == "1" ]]; then
       echo "error: missing runtime binary for $platform: $binary_path" >&2

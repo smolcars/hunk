@@ -4,6 +4,7 @@ Hunk resolves a bundled Codex executable using these platform-specific paths:
 
 - `assets/codex-runtime/macos/codex`
 - `assets/codex-runtime/linux/codex`
+- `assets/codex-runtime/windows/codex.cmd`
 - `assets/codex-runtime/windows/codex.exe`
 
 At bundle time, package these files into application resources so runtime discovery can

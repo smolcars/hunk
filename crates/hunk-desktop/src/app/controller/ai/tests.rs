@@ -117,6 +117,31 @@ mod ai_tests {
         std::fs::write(path, b"MZfake-pe").expect("fake PE should be written");
     }
 
+    #[cfg(target_os = "windows")]
+    fn write_fake_codex_launcher(path: &std::path::Path) {
+        std::fs::write(
+            path,
+            "@echo off\r\nif /I \"%~1\"==\"app-server\" if /I \"%~2\"==\"--help\" exit /b 0\r\nexit /b 1\r\n",
+        )
+        .expect("fake launcher should be written");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn write_fake_codex_launcher(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::write(
+            path,
+            "#!/bin/sh\nif [ \"$1\" = \"app-server\" ] && [ \"$2\" = \"--help\" ]; then\n  exit 0\nfi\nexit 1\n",
+        )
+        .expect("fake launcher should be written");
+        let mut permissions = std::fs::metadata(path)
+            .expect("launcher metadata should be readable")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).expect("launcher should be executable");
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn timeline_tool_item(
         item_id: &str,

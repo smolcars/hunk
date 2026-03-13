@@ -1,8 +1,11 @@
-use std::env::{join_paths, split_paths};
+use std::env::split_paths;
 use std::ffi::OsString;
-use std::fs;
 use std::path::PathBuf;
 
+#[cfg(unix)]
+use std::env::join_paths;
+#[cfg(unix)]
+use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 

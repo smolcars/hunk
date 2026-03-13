@@ -115,6 +115,7 @@ Expected embedded runtime paths:
 
 - `assets/codex-runtime/macos/codex`
 - `assets/codex-runtime/linux/codex`
+- `assets/codex-runtime/windows/codex.cmd`
 - `assets/codex-runtime/windows/codex.exe`
 
 Runtime layout details also live in [`assets/codex-runtime/README.md`](./assets/codex-runtime/README.md).
@@ -132,6 +133,8 @@ Platform-specific download helpers:
 - macOS ARM64: `./scripts/download_codex_runtime_unix.sh macos`
 - Linux x86_64: `./scripts/download_codex_runtime_unix.sh linux`
 - Windows x86_64: `pwsh ./scripts/download_codex_runtime_windows.ps1`
+
+The Windows helper stages both `assets/codex-runtime/windows/codex.exe` and the bundled launcher `assets/codex-runtime/windows/codex.cmd`.
 
 These pull the pinned release assets directly from the Codex GitHub release for the tag in `crates/hunk-desktop/Cargo.toml`:
 
