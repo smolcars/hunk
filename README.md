@@ -115,6 +115,7 @@ Expected embedded runtime paths:
 
 - `assets/codex-runtime/macos/codex`
 - `assets/codex-runtime/linux/codex`
+- `assets/codex-runtime/windows/codex.cmd`
 - `assets/codex-runtime/windows/codex.exe`
 
 Runtime layout details also live in [`assets/codex-runtime/README.md`](./assets/codex-runtime/README.md).
@@ -135,7 +136,7 @@ From the Hunk repo root, copy the generated binary into this repo for the platfo
 
 - macOS: `cp /path/to/codex/codex-rs/target/release/codex assets/codex-runtime/macos/codex && chmod +x assets/codex-runtime/macos/codex`
 - Linux: `cp /path/to/codex/codex-rs/target/release/codex assets/codex-runtime/linux/codex && chmod +x assets/codex-runtime/linux/codex`
-- Windows: `copy C:/path/to/codex/codex-rs/target/release/codex.exe assets/codex-runtime/windows/codex.exe`
+- Windows: `copy C:/path/to/codex/codex-rs/target/release/codex.exe assets/codex-runtime/windows/codex.exe` and `copy C:/path/to/codex/codex-rs/target/release/codex.cmd assets/codex-runtime/windows/codex.cmd`
 
 For CI and release packaging we now prefer downloading the pinned Codex release assets directly:
 

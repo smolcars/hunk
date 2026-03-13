@@ -127,35 +127,46 @@ fn windows_file_has_mz_header(path: &std::path::Path) -> bool {
     file.read_exact(&mut header).is_ok() && header == *b"MZ"
 }
 
+#[cfg(target_os = "windows")]
+const BUNDLED_CODEX_ENTRYPOINT_FILE_NAMES: &[&str] = &["codex.cmd", "codex.exe"];
+#[cfg(not(target_os = "windows"))]
+const BUNDLED_CODEX_ENTRYPOINT_FILE_NAMES: &[&str] = &["codex"];
+
 fn bundled_codex_executable_candidates(current_exe: &std::path::Path) -> Vec<std::path::PathBuf> {
     let Some(exe_dir) = current_exe.parent() else {
         return Vec::new();
     };
 
-    let binary_name = codex_runtime_binary_name();
     let platform_dir = codex_runtime_platform_dir();
-    let mut candidates = vec![
-        exe_dir
-            .join("codex-runtime")
-            .join(platform_dir)
-            .join(binary_name),
-    ];
+    let mut candidates = Vec::new();
+    let push_candidates = |base_dir: &std::path::Path, candidates: &mut Vec<std::path::PathBuf>| {
+        for entrypoint in bundled_codex_entrypoint_file_names() {
+            candidates.push(base_dir.join(entrypoint));
+        }
+    };
+
+    push_candidates(
+        exe_dir.join("codex-runtime").join(platform_dir).as_path(),
+        &mut candidates,
+    );
 
     if cfg!(target_os = "macos") && let Some(contents_dir) = exe_dir.parent() {
-        candidates.push(
+        push_candidates(
             contents_dir
                 .join("Resources")
                 .join("codex-runtime")
                 .join(platform_dir)
-                .join(binary_name),
+                .as_path(),
+            &mut candidates,
         );
     } else {
-        candidates.push(
+        push_candidates(
             exe_dir
                 .join("Resources")
                 .join("codex-runtime")
                 .join(platform_dir)
-                .join(binary_name),
+                .as_path(),
+            &mut candidates,
         );
     }
 
@@ -163,17 +174,18 @@ fn bundled_codex_executable_candidates(current_exe: &std::path::Path) -> Vec<std
     if let Some(binary_file_name) = current_exe.file_name()
         && let Some(usr_dir) = exe_dir.parent()
     {
-        candidates.push(
+        push_candidates(
             usr_dir
                 .join("lib")
                 .join(binary_file_name)
                 .join("codex-runtime")
                 .join(platform_dir)
-                .join(binary_name),
+                .as_path(),
+            &mut candidates,
         );
     }
 
-    candidates.push(exe_dir.join(binary_name));
+    push_candidates(exe_dir, &mut candidates);
 
     candidates
 }
@@ -188,12 +200,17 @@ fn codex_runtime_platform_dir() -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn codex_runtime_binary_name() -> &'static str {
     if cfg!(target_os = "windows") {
         "codex.exe"
     } else {
         "codex"
     }
+}
+
+fn bundled_codex_entrypoint_file_names() -> &'static [&'static str] {
+    BUNDLED_CODEX_ENTRYPOINT_FILE_NAMES
 }
 
 fn is_command_name_without_path(path: &std::path::Path) -> bool {
