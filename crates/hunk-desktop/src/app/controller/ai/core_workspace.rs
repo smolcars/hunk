@@ -296,9 +296,12 @@ impl DiffViewer {
             .map(std::path::PathBuf::from)
             .map(Self::resolve_windows_codex_command_path)
             .or_else(|| {
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|path| resolve_bundled_codex_executable_from_exe(path.as_path()))
+                let current_exe = std::env::current_exe().ok()?;
+                resolve_bundled_codex_executable_from_exe(current_exe.as_path()).or_else(|| {
+                    running_from_packaged_bundle().then(|| {
+                        expected_bundled_codex_executable_from_exe(current_exe.as_path())
+                    })?
+                })
             })
             .or({
                 #[cfg(target_os = "windows")]
@@ -323,7 +326,15 @@ impl DiffViewer {
                 ));
             }
             #[cfg(not(target_os = "windows"))]
-            return Ok(());
+            {
+                if running_from_packaged_bundle() {
+                    return Err(format!(
+                        "Bundled Codex executable was not found for this packaged build; refusing to fall back to PATH for '{}'.",
+                        path.display()
+                    ));
+                }
+                return Ok(());
+            }
         }
         if !path.exists() {
             return Err(format!(

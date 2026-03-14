@@ -72,7 +72,7 @@ if [[ -z "$TARGET_LIBDIR" || ! -d "$TARGET_LIBDIR" ]]; then
   echo "hint: verify your active toolchain supports this target (for rustup: 'rustup target add $TARGET_TRIPLE')" >&2
   exit 1
 fi
-if ! compgen -G "$TARGET_LIBDIR/libcore-*" >/dev/null && ! compgen -G "$TARGET_LIBDIR/core-*" >/dev/null; then
+if ! find "$TARGET_LIBDIR" -maxdepth 1 \( -name 'libcore-*' -o -name 'core-*' \) | grep -q .; then
   echo "error: target core libraries were not found in $TARGET_LIBDIR" >&2
   echo "hint: verify your active toolchain supports this target (for rustup: 'rustup target add $TARGET_TRIPLE')" >&2
   exit 1

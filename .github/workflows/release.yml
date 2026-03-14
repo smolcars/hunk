@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
@@ -55,7 +55,13 @@ jobs:
         shell: bash
 
       - name: Resolve release version
-        run: echo "HUNK_RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "${GITHUB_REF_TYPE:-}" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(./scripts/resolve_hunk_version.sh)"
+          fi
+          echo "HUNK_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
         shell: bash
 
       - name: Assert Apple signing secrets are configured
@@ -130,7 +136,13 @@ jobs:
           cache-on-failure: "true"
 
       - name: Resolve release version
-        run: echo "HUNK_RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "${GITHUB_REF_TYPE:-}" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(./scripts/resolve_hunk_version.sh)"
+          fi
+          echo "HUNK_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
         shell: bash
 
       - name: Install cargo-packager
@@ -210,7 +222,12 @@ jobs:
 
       - name: Resolve release version
         run: |
-          "HUNK_RELEASE_VERSION=$($env:GITHUB_REF_NAME.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if ($env:GITHUB_EVENT_NAME -eq "push" -and $env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME.StartsWith("v")) {
+              $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+              $version = (bash ./scripts/resolve_hunk_version.sh).Trim()
+          }
+          "HUNK_RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         shell: pwsh
 
       - name: Package Windows release artifact
@@ -228,13 +245,15 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish GitHub Release
+    name: Prepare Release Artifacts
     needs:
       - macos
       - linux
       - windows
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: write
 
     steps:
       - name: Download release artifacts
@@ -248,7 +267,7 @@ jobs:
           find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
         shell: bash
 
-      - name: Publish GitHub Release assets
+      - name: List prepared release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -263,4 +282,7 @@ jobs:
           fi
 
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+
+          printf 'Prepared release artifacts:\n'
+          printf ' - %s\n' "${files[@]}"
         shell: bash

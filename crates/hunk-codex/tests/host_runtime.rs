@@ -56,6 +56,28 @@ fn default_codex_arguments_use_websocket_listen_url() {
 }
 
 #[test]
+fn codex_app_server_clears_linux_bundle_environment() {
+    let _guard = host_runtime_test_guard();
+    let setup = TestSetup::new();
+    let config = setup.host_config();
+
+    #[cfg(target_os = "linux")]
+    assert_eq!(
+        config.cleared_environment,
+        vec![
+            "APPDIR".to_string(),
+            "APPIMAGE".to_string(),
+            "ARGV0".to_string(),
+            "LD_LIBRARY_PATH".to_string(),
+            "OWD".to_string(),
+        ]
+    );
+
+    #[cfg(not(target_os = "linux"))]
+    assert!(config.cleared_environment.is_empty());
+}
+
+#[test]
 fn host_boots_and_accepts_websocket_client() {
     let _guard = host_runtime_test_guard();
     let setup = TestSetup::new();
@@ -387,6 +409,13 @@ impl TestSetup {
                 "--nocapture".to_string(),
             ],
             environment,
+            cleared_environment: HostConfig::codex_app_server(
+                self.test_executable.clone(),
+                self.temp_dir.path().join("workspace-env"),
+                self.temp_dir.path().join(".codex-env"),
+                self.port,
+            )
+            .cleared_environment,
         }
     }
 

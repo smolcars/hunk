@@ -13,6 +13,7 @@ use gix::bstr::{BStr, ByteSlice as _};
 use gix::diff::blob::intern::InternedInput;
 use gix::filter::plumbing::pipeline::convert::ToGitOutcome;
 
+use crate::git2_helpers::open_git2_repo;
 use crate::worktree::{
     WorkspaceTargetKind, list_workspace_targets, repo_relative_path_is_within_managed_worktrees,
 };
@@ -161,6 +162,11 @@ pub struct GitRepo {
 #[derive(Debug, Clone)]
 pub struct GitPatchSession {
     repo: GitRepo,
+}
+
+pub struct RepoIgnoreMatcher {
+    repo_root: PathBuf,
+    repo: git2::Repository,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -358,6 +364,60 @@ pub fn open_repo_at_root(repo_root: &Path) -> Result<GitRepo> {
     }
     let root = repo_root_from_repository(&repo)?;
     Ok(GitRepo { root, repo })
+}
+
+impl RepoIgnoreMatcher {
+    pub fn open(repo_root: &Path) -> Result<Self> {
+        let repo_root = canonicalize_existing_path(repo_root)?;
+        let repo = open_git2_repo(repo_root.as_path()).with_context(|| {
+            format!(
+                "failed to open Git ignore matcher for {}",
+                repo_root.display()
+            )
+        })?;
+        Ok(Self { repo_root, repo })
+    }
+
+    pub fn filter_non_ignored_paths(
+        &self,
+        candidates: &[(String, bool)],
+    ) -> Result<BTreeSet<String>> {
+        let mut included_paths = BTreeSet::new();
+        for (candidate_path, is_dir) in candidates {
+            let candidate_path = normalize_path(candidate_path.as_str());
+            if candidate_path.is_empty() {
+                continue;
+            }
+            if !self.is_path_ignored(candidate_path.as_str(), *is_dir)? {
+                included_paths.insert(candidate_path);
+            }
+        }
+        Ok(included_paths)
+    }
+
+    pub fn is_path_ignored(&self, repo_relative_path: &str, is_dir: bool) -> Result<bool> {
+        let path = if is_dir {
+            PathBuf::from(format!("{repo_relative_path}/"))
+        } else {
+            PathBuf::from(repo_relative_path)
+        };
+        self.repo
+            .status_should_ignore(path.as_path())
+            .with_context(|| {
+                format!(
+                    "failed to evaluate ignore rules for '{}' in {}",
+                    repo_relative_path,
+                    self.repo_root.display()
+                )
+            })
+    }
+}
+
+pub fn filter_non_ignored_repo_paths(
+    repo_root: &Path,
+    candidates: &[(String, bool)],
+) -> Result<BTreeSet<String>> {
+    RepoIgnoreMatcher::open(repo_root)?.filter_non_ignored_paths(candidates)
 }
 
 pub fn load_snapshot(path: &Path) -> Result<RepoSnapshot> {

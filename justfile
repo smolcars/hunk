@@ -5,6 +5,9 @@ CARGO_TARGET_DIR := `./scripts/resolve_cargo_target_dir.sh`
 start:
     cargo run -p hunk-desktop
 
+start-linux:
+    ./scripts/run_linux_dev.sh
+
 build:
     cargo build -p hunk-desktop
 

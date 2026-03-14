@@ -56,6 +56,7 @@ pub struct HostConfig {
     pub port: u16,
     pub arguments: Vec<String>,
     pub environment: Vec<(String, String)>,
+    pub cleared_environment: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -64,17 +65,21 @@ struct SharedHostKey {
     codex_home: PathBuf,
     arguments: Vec<String>,
     environment: Vec<(String, String)>,
+    cleared_environment: Vec<String>,
 }
 
 impl SharedHostKey {
     fn from_config(config: &HostConfig) -> Self {
         let mut environment = config.environment.clone();
         environment.sort();
+        let mut cleared_environment = config.cleared_environment.clone();
+        cleared_environment.sort();
         Self {
             executable_path: config.executable_path.clone(),
             codex_home: config.codex_home.clone(),
             arguments: config.arguments.clone(),
             environment,
+            cleared_environment,
         }
     }
 }
@@ -172,6 +177,21 @@ impl HostConfig {
             port,
             arguments: Self::default_codex_arguments(port),
             environment: Vec::new(),
+            cleared_environment: Self::default_cleared_environment(),
+        }
+    }
+
+    fn default_cleared_environment() -> Vec<String> {
+        #[cfg(target_os = "linux")]
+        {
+            ["APPDIR", "APPIMAGE", "ARGV0", "LD_LIBRARY_PATH", "OWD"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Vec::new()
         }
     }
 
@@ -189,6 +209,9 @@ impl HostConfig {
         command.args(&self.arguments);
         command.current_dir(&self.working_directory);
         command.env("CODEX_HOME", &self.codex_home);
+        for key in &self.cleared_environment {
+            command.env_remove(key);
+        }
         for (key, value) in &self.environment {
             command.env(key, value);
         }
@@ -382,6 +405,8 @@ impl HostRuntime {
                 .map_err(CodexIntegrationError::HostProcessIo)?;
 
             if let Some(exit_status) = status {
+                let stderr_lines = self.stderr_snapshot();
+                let status = format_host_exit_status(exit_status.to_string(), &stderr_lines);
                 unregister_tracked_host_process(
                     self.child
                         .as_ref()
@@ -391,9 +416,7 @@ impl HostRuntime {
                 self.child = None;
                 self.join_stderr_reader();
                 self.state = HostLifecycleState::Failed;
-                return Err(CodexIntegrationError::HostExitedBeforeReady {
-                    status: exit_status.to_string(),
-                });
+                return Err(CodexIntegrationError::HostExitedBeforeReady { status });
             }
 
             if TcpStream::connect_timeout(&probe_address, READY_PROBE_CONNECT_TIMEOUT).is_ok() {
@@ -492,6 +515,24 @@ impl HostRuntime {
             warn!("stderr reader join failed: {error:?}");
         }
     }
+}
+
+fn format_host_exit_status(status: String, stderr_lines: &[String]) -> String {
+    if stderr_lines.is_empty() {
+        return status;
+    }
+
+    let stderr_excerpt = stderr_lines
+        .iter()
+        .rev()
+        .take(4)
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join(" | ");
+    format!("{status}; stderr: {stderr_excerpt}")
 }
 
 #[cfg(unix)]

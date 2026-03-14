@@ -214,6 +214,49 @@ impl DiffViewer {
         Some(relative_path.to_string_lossy().replace('\\', "/"))
     }
 
+    fn repo_watch_dirty_path_candidate(
+        path: &std::path::Path,
+        repo_root: &std::path::Path,
+    ) -> Option<(String, bool)> {
+        let relative_path = Self::repo_watch_dirty_path(path, repo_root)?;
+        let is_dir = std::fs::symlink_metadata(path)
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false);
+        Some((relative_path, is_dir))
+    }
+
+    fn repo_watch_non_ignored_dirty_paths(
+        event_paths: &[std::path::PathBuf],
+        repo_root: Option<&std::path::Path>,
+        ignore_matcher: Option<&hunk_git::git::RepoIgnoreMatcher>,
+    ) -> BTreeSet<String> {
+        let Some(repo_root) = repo_root else {
+            return BTreeSet::new();
+        };
+
+        let candidates = event_paths
+            .iter()
+            .filter_map(|path| Self::repo_watch_dirty_path_candidate(path, repo_root))
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return BTreeSet::new();
+        }
+
+        match ignore_matcher {
+            Some(ignore_matcher) => match ignore_matcher.filter_non_ignored_paths(candidates.as_slice()) {
+                Ok(paths) => paths,
+                Err(err) => {
+                    warn!(
+                        "failed to filter ignored repo watch paths for {}: {err:#}",
+                        repo_root.display()
+                    );
+                    candidates.into_iter().map(|(path, _)| path).collect()
+                }
+            },
+            None => candidates.into_iter().map(|(path, _)| path).collect(),
+        }
+    }
+
     fn queue_dirty_paths<I>(&mut self, paths: I)
     where
         I: IntoIterator<Item = String>,
@@ -225,6 +268,7 @@ impl DiffViewer {
         event_paths: &[std::path::PathBuf],
         primary_root: &std::path::Path,
         git_workspace_root: &std::path::Path,
+        ignore_matcher: Option<&hunk_git::git::RepoIgnoreMatcher>,
     ) -> bool {
         if primary_root == git_workspace_root {
             return false;
@@ -233,8 +277,13 @@ impl DiffViewer {
         event_paths.iter().any(|path| {
             Self::is_repo_watch_metadata_path(path, primary_root)
                 || Self::is_repo_watch_metadata_path(path, git_workspace_root)
-                || Self::repo_watch_dirty_path(path, git_workspace_root).is_some()
         })
+            || !Self::repo_watch_non_ignored_dirty_paths(
+                event_paths,
+                Some(git_workspace_root),
+                ignore_matcher,
+            )
+                .is_empty()
     }
 
     fn is_hunk_temp_save_component(name: &str) -> bool {
@@ -299,6 +348,30 @@ impl DiffViewer {
             }
         }
 
+        let primary_ignore_matcher = primary_root.as_ref().and_then(|root| {
+            hunk_git::git::RepoIgnoreMatcher::open(root.as_path())
+                .map_err(|err| {
+                    warn!(
+                        "failed to initialize repo watch ignore matcher for {}: {err:#}",
+                        root.display()
+                    );
+                })
+                .ok()
+        });
+        let git_workspace_ignore_matcher = git_workspace_root
+            .as_ref()
+            .filter(|git_workspace_root| primary_root.as_deref() != Some(git_workspace_root.as_path()))
+            .and_then(|root| {
+                hunk_git::git::RepoIgnoreMatcher::open(root.as_path())
+                    .map_err(|err| {
+                        warn!(
+                            "failed to initialize repo watch ignore matcher for {}: {err:#}",
+                            root.display()
+                        );
+                    })
+                    .ok()
+            });
+
         self.repo_watch_task = cx.spawn(async move |this, cx| {
             while let Some(event) = event_rx.next().await {
                 let Ok(event) = event else {
@@ -333,16 +406,11 @@ impl DiffViewer {
                             Some(git_workspace_root),
                         )
                     });
-                let dirty_paths = primary_root
-                    .as_ref()
-                    .map(|root| {
-                        event
-                            .paths
-                            .iter()
-                            .filter_map(|path| Self::repo_watch_dirty_path(path, root))
-                            .collect::<BTreeSet<_>>()
-                    })
-                    .unwrap_or_default();
+                let dirty_paths = Self::repo_watch_non_ignored_dirty_paths(
+                    event.paths.as_slice(),
+                    primary_root.as_deref(),
+                    primary_ignore_matcher.as_ref(),
+                );
                 let request = repo_watch_refresh_request(metadata_changed, !dirty_paths.is_empty());
                 let refresh_git_workspace = primary_root
                     .as_ref()
@@ -352,6 +420,7 @@ impl DiffViewer {
                             event.paths.as_slice(),
                             primary_root,
                             git_workspace_root,
+                            git_workspace_ignore_matcher.as_ref(),
                         )
                     });
                 if request.is_none() && !refresh_git_workspace {
@@ -648,7 +717,8 @@ mod tests {
         assert!(DiffViewer::should_refresh_git_workspace_from_repo_watch(
             event_paths.as_slice(),
             repo_root.as_path(),
-            worktree_root.as_path()
+            worktree_root.as_path(),
+            None,
         ));
     }
 
@@ -661,7 +731,8 @@ mod tests {
         assert!(DiffViewer::should_refresh_git_workspace_from_repo_watch(
             event_paths.as_slice(),
             repo_root.as_path(),
-            worktree_root.as_path()
+            worktree_root.as_path(),
+            None,
         ));
     }
 
