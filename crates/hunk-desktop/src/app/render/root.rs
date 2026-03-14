@@ -356,6 +356,7 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::ai_new_thread_action))
             .on_action(cx.listener(Self::ai_new_worktree_thread_shortcut_action))
             .on_action(cx.listener(Self::open_project_action))
+            .on_action(cx.listener(Self::quick_open_file_action))
             .on_action(cx.listener(Self::save_current_file_action))
             .on_action(cx.listener(Self::open_settings_action))
             .bg(cx.theme().background)
@@ -379,6 +380,9 @@ impl Render for DiffViewer {
             .child(self.render_app_footer(cx))
             .when(self.comments_preview_open, |this| {
                 this.child(self.render_comments_preview(cx))
+            })
+            .when(self.file_quick_open_visible, |this| {
+                this.child(self.render_file_quick_open_popup(window, cx))
             })
             .when(self.settings_draft.is_some(), |this| {
                 this.child(self.render_settings_popup(cx))

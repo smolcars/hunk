@@ -85,6 +85,7 @@ use refresh_policy::{
     should_request_startup_git_workspace_refresh, should_run_cold_start_reconcile,
     should_scroll_selected_after_reload,
 };
+use repo_file_search::RepoFileSearchProvider;
 use review_compare_picker::{
     ReviewComparePickerDelegate, ReviewCompareSourceOption, build_review_compare_picker_delegate,
 };
@@ -142,6 +143,7 @@ mod data_segments;
 mod files_editor;
 mod highlight;
 mod render;
+mod repo_file_search;
 mod theme;
 mod workspace_view;
 
@@ -169,6 +171,7 @@ actions!(
         AiEditLastQueuedPrompt,
         AiInterruptSelectedTurn,
         OpenProject,
+        QuickOpenFile,
         SaveCurrentFile,
         OpenSettings,
         QuitApp,
@@ -216,6 +219,7 @@ fn build_application_menus() -> Vec<Menu> {
                 name: "File".into(),
                 items: vec![
                     MenuItem::action("Open Project...", OpenProject),
+                    MenuItem::action("Quick Open...", QuickOpenFile),
                     MenuItem::action("Save File", SaveCurrentFile),
                     MenuItem::separator(),
                     MenuItem::action("Settings...", OpenSettings),
@@ -235,6 +239,7 @@ fn build_application_menus() -> Vec<Menu> {
                 name: "File".into(),
                 items: vec![
                     MenuItem::action("Open Project...", OpenProject),
+                    MenuItem::action("Quick Open...", QuickOpenFile),
                     MenuItem::action("Save File", SaveCurrentFile),
                     MenuItem::action("Settings...", OpenSettings),
                     MenuItem::separator(),
@@ -396,6 +401,8 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
             .iter()
             .map(|shortcut| KeyBinding::new(shortcut.as_str(), OpenProject, None)),
     );
+    bindings.push(KeyBinding::new("cmd-p", QuickOpenFile, Some("DiffViewer")));
+    bindings.push(KeyBinding::new("ctrl-p", QuickOpenFile, Some("DiffViewer")));
     bindings.extend(
         shortcuts
             .save_current_file
@@ -663,6 +670,9 @@ struct DiffViewer {
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_worker_workspace_key: Option<String>,
     ai_draft_workspace_target_id: Option<String>,
+    repo_file_search_provider: Rc<RepoFileSearchProvider>,
+    repo_file_search_reload_task: Task<()>,
+    repo_file_search_loading: bool,
     ai_composer_file_completion_provider: Rc<AiComposerFileCompletionProvider>,
     ai_composer_file_completion_reload_task: Task<()>,
     ai_composer_file_completion_menu: Option<AiComposerFileCompletionMenuState>,
@@ -775,6 +785,10 @@ struct DiffViewer {
     repo_tree_inline_edit: Option<RepoTreeInlineEditState>,
     repo_tree_context_menu: Option<RepoTreeContextMenuState>,
     helix_files_editor: files_editor::SharedHelixFilesEditor,
+    file_quick_open_input_state: Entity<InputState>,
+    file_quick_open_visible: bool,
+    file_quick_open_matches: Vec<String>,
+    file_quick_open_selected_ix: usize,
     editor_path: Option<String>,
     editor_loading: bool,
     editor_error: Option<String>,

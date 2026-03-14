@@ -92,6 +92,9 @@ impl DiffViewer {
         if mode != WorkspaceViewMode::Files {
             self.repo_tree_inline_edit = None;
             self.repo_tree_context_menu = None;
+            self.file_quick_open_visible = false;
+            self.file_quick_open_matches.clear();
+            self.file_quick_open_selected_ix = 0;
         }
 
         if mode == WorkspaceViewMode::Files {
