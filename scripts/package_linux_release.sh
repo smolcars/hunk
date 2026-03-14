@@ -94,6 +94,8 @@ Comment=Very fast git diff viewer and codex orchestrator.
 Exec=hunk_desktop
 Icon=hunk_desktop
 Name=Hunk
+StartupNotify=true
+StartupWMClass=hunk_desktop
 Terminal=false
 Type=Application
 EOF

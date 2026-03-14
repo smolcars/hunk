@@ -531,6 +531,7 @@ pub fn run() -> Result<()> {
 
 fn open_main_window(cx: &mut App) {
     let window_options = WindowOptions {
+        app_id: Some("hunk_desktop".into()),
         titlebar: Some(TitlebarOptions {
             title: Some("Hunk".into()),
             ..Default::default()
