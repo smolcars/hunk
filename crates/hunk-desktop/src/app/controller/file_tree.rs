@@ -64,8 +64,17 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.activate_ai_workspace(window, cx);
+    }
+
+    pub(super) fn activate_ai_workspace(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.focus_handle.focus(window, cx);
         self.set_workspace_view_mode(WorkspaceSwitchAction::Ai.target_mode(), cx);
+        self.focus_ai_composer_input(window, cx);
     }
 
     pub(super) fn set_workspace_view_mode(&mut self, mode: WorkspaceViewMode, cx: &mut Context<Self>) {
@@ -92,6 +101,9 @@ impl DiffViewer {
         if mode != WorkspaceViewMode::Files {
             self.repo_tree_inline_edit = None;
             self.repo_tree_context_menu = None;
+            self.file_quick_open_visible = false;
+            self.file_quick_open_matches.clear();
+            self.file_quick_open_selected_ix = 0;
         }
 
         if mode == WorkspaceViewMode::Files {

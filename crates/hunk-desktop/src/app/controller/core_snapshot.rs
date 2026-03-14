@@ -404,6 +404,7 @@ impl DiffViewer {
                         cx,
                     );
                     this.request_recent_commits_refresh(true, cx);
+                    this.defer_root_focus(cx);
                     cx.notify();
                 });
             }

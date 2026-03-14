@@ -1,7 +1,6 @@
-use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::rc::Rc;
 
 use anyhow::Result;
 use gpui::{Context, Task, Window};
@@ -14,7 +13,7 @@ use lsp_types::{
     InsertReplaceEdit, Range as LspRange,
 };
 
-use super::fuzzy_match::{is_match_boundary, segment_prefix_position, subsequence_match_score};
+use super::repo_file_search::RepoFileSearchProvider;
 
 const AI_COMPOSER_FILE_COMPLETION_LIMIT: usize = 5;
 
@@ -31,39 +30,17 @@ pub(crate) struct AiComposerFileCompletionMenuState {
     pub(crate) items: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
-struct SearchableRepoFile {
-    path: String,
-    normalized_path: String,
-    normalized_file_name: String,
-}
-
-#[derive(Debug, Default)]
-struct AiComposerFileCompletionState {
-    repo_root: Option<PathBuf>,
-    files: Arc<[SearchableRepoFile]>,
-    reload_generation: u64,
-}
-
 pub(crate) struct AiComposerFileCompletionProvider {
-    state: RwLock<AiComposerFileCompletionState>,
+    repo_file_search: Rc<RepoFileSearchProvider>,
 }
 
 impl AiComposerFileCompletionProvider {
-    pub(crate) fn new() -> Self {
-        Self {
-            state: RwLock::new(AiComposerFileCompletionState::default()),
-        }
+    pub(crate) fn new(repo_file_search: Rc<RepoFileSearchProvider>) -> Self {
+        Self { repo_file_search }
     }
 
     pub(crate) fn begin_reload(&self, repo_root: Option<PathBuf>) -> u64 {
-        let mut state = self.write_state();
-        state.reload_generation = state.reload_generation.wrapping_add(1);
-        if state.repo_root.as_ref() != repo_root.as_ref() {
-            state.files = Arc::from(Vec::<SearchableRepoFile>::new());
-        }
-        state.repo_root = repo_root;
-        state.reload_generation
+        self.repo_file_search.begin_reload(repo_root)
     }
 
     pub(crate) fn apply_reload(
@@ -72,17 +49,12 @@ impl AiComposerFileCompletionProvider {
         repo_root: &Path,
         paths: Vec<String>,
     ) -> bool {
-        let mut state = self.write_state();
-        if state.reload_generation != generation || state.repo_root.as_deref() != Some(repo_root) {
-            return false;
-        }
-
-        state.files = searchable_repo_files(paths);
-        true
+        self.repo_file_search
+            .apply_reload(generation, repo_root, paths)
     }
 
     pub(crate) fn clear(&self) {
-        let _ = self.begin_reload(None);
+        self.repo_file_search.clear();
     }
 
     pub(crate) fn menu_state(
@@ -95,15 +67,10 @@ impl AiComposerFileCompletionProvider {
             return None;
         }
 
-        let files = self.searchable_files();
-        if files.is_empty() {
-            return None;
-        }
-
-        let items = ranked_file_matches(files.as_ref(), active_token.query.as_str())
-            .into_iter()
-            .map(|ranked| ranked.file.path.clone())
-            .collect::<Vec<_>>();
+        let items = self.repo_file_search.matched_paths(
+            active_token.query.as_str(),
+            AI_COMPOSER_FILE_COMPLETION_LIMIT,
+        );
         if items.is_empty() {
             return None;
         }
@@ -114,29 +81,11 @@ impl AiComposerFileCompletionProvider {
             items,
         })
     }
-
-    fn searchable_files(&self) -> Arc<[SearchableRepoFile]> {
-        self.read_state().files.clone()
-    }
-
-    fn read_state(&self) -> RwLockReadGuard<'_, AiComposerFileCompletionState> {
-        match self.state.read() {
-            Ok(guard) => guard,
-            Err(error) => error.into_inner(),
-        }
-    }
-
-    fn write_state(&self) -> RwLockWriteGuard<'_, AiComposerFileCompletionState> {
-        match self.state.write() {
-            Ok(guard) => guard,
-            Err(error) => error.into_inner(),
-        }
-    }
 }
 
 impl Default for AiComposerFileCompletionProvider {
     fn default() -> Self {
-        Self::new()
+        Self::new(Rc::new(RepoFileSearchProvider::new()))
     }
 }
 
@@ -157,15 +106,18 @@ impl CompletionProvider for AiComposerFileCompletionProvider {
             return Task::ready(Ok(CompletionResponse::Array(Vec::new())));
         }
 
-        let files = self.searchable_files();
-        if files.is_empty() {
+        let paths = self.repo_file_search.matched_paths(
+            active_token.query.as_str(),
+            AI_COMPOSER_FILE_COMPLETION_LIMIT,
+        );
+        if paths.is_empty() {
             return Task::ready(Ok(CompletionResponse::Array(Vec::new())));
         }
 
         let replace_range = lsp_replace_range(text.as_str(), &active_token.replace_range);
-        let items = ranked_file_matches(files.as_ref(), active_token.query.as_str())
+        let items = paths
             .into_iter()
-            .map(|ranked| completion_item_for_path(replace_range, ranked.file.path.as_str()))
+            .map(|path| completion_item_for_path(replace_range, path.as_str()))
             .collect::<Vec<_>>();
 
         Task::ready(Ok(CompletionResponse::Array(items)))
@@ -174,18 +126,6 @@ impl CompletionProvider for AiComposerFileCompletionProvider {
     fn is_completion_trigger(&self, _: usize, _: &str, _: &mut Context<InputState>) -> bool {
         true
     }
-}
-
-fn searchable_repo_files(paths: Vec<String>) -> Arc<[SearchableRepoFile]> {
-    paths
-        .into_iter()
-        .map(|path| SearchableRepoFile {
-            normalized_path: normalize_file_match_key(path.as_str()),
-            normalized_file_name: normalize_file_match_key(file_name_from_path(path.as_str())),
-            path,
-        })
-        .collect::<Vec<_>>()
-        .into()
 }
 
 fn completion_item_for_path(replace_range: LspRange, path: &str) -> CompletionItem {
@@ -220,122 +160,6 @@ fn lsp_replace_range(text: &str, replace_range: &Range<usize>) -> LspRange {
         rope.offset_to_position(replace_range.start),
         rope.offset_to_position(replace_range.end),
     )
-}
-
-#[derive(Debug)]
-struct RankedRepoFile<'a> {
-    file: &'a SearchableRepoFile,
-    score: i32,
-}
-
-fn ranked_file_matches<'a>(
-    files: &'a [SearchableRepoFile],
-    query: &str,
-) -> Vec<RankedRepoFile<'a>> {
-    let mut ranked = Vec::with_capacity(AI_COMPOSER_FILE_COMPLETION_LIMIT);
-
-    for file in files {
-        let Some(score) = file_match_score(query, file) else {
-            continue;
-        };
-
-        ranked.push(RankedRepoFile { file, score });
-        ranked.sort_by(compare_ranked_repo_files);
-        if ranked.len() > AI_COMPOSER_FILE_COMPLETION_LIMIT {
-            ranked.truncate(AI_COMPOSER_FILE_COMPLETION_LIMIT);
-        }
-    }
-
-    ranked
-}
-
-fn compare_ranked_repo_files(left: &RankedRepoFile<'_>, right: &RankedRepoFile<'_>) -> Ordering {
-    right
-        .score
-        .cmp(&left.score)
-        .then_with(|| left.file.path.len().cmp(&right.file.path.len()))
-        .then_with(|| left.file.path.cmp(&right.file.path))
-}
-
-fn file_match_score(query: &str, file: &SearchableRepoFile) -> Option<i32> {
-    let query = normalize_file_match_key(query);
-    if query.is_empty() {
-        return Some(0);
-    }
-
-    let candidate = file.normalized_path.as_str();
-    let file_name = file.normalized_file_name.as_str();
-    if candidate.is_empty() {
-        return None;
-    }
-
-    let mut best_score = None;
-
-    if candidate == query {
-        best_score = Some(10_000);
-    }
-
-    if file_name == query {
-        best_score = Some(best_score.map_or(9_600, |current| current.max(9_600)));
-    }
-
-    if file_name.starts_with(query.as_str()) {
-        let score = 8_900 - (file_name.len() as i32 - query.len() as i32).max(0);
-        best_score = Some(best_score.map_or(score, |current| current.max(score)));
-    }
-
-    if let Some(position) = file_name.find(query.as_str()) {
-        let boundary_bonus = if position == 0
-            || is_match_boundary(file_name.as_bytes()[position.saturating_sub(1)])
-        {
-            220
-        } else {
-            0
-        };
-        let score = 8_000 + boundary_bonus
-            - (position as i32 * 12)
-            - (file_name.len() as i32 - query.len() as i32).max(0);
-        best_score = Some(best_score.map_or(score, |current| current.max(score)));
-    }
-
-    if candidate.starts_with(query.as_str()) {
-        let score = 8_400 - (candidate.len() as i32 - query.len() as i32).max(0);
-        best_score = Some(best_score.map_or(score, |current| current.max(score)));
-    }
-
-    if let Some(position) = segment_prefix_position(candidate, query.as_str()) {
-        let score =
-            7_200 - (position as i32 * 8) - (candidate.len() as i32 - query.len() as i32).max(0);
-        best_score = Some(best_score.map_or(score, |current| current.max(score)));
-    }
-
-    if let Some(position) = candidate.find(query.as_str()) {
-        let boundary_bonus = if position == 0
-            || is_match_boundary(candidate.as_bytes()[position.saturating_sub(1)])
-        {
-            180
-        } else {
-            0
-        };
-        let score = 6_400 + boundary_bonus
-            - (position as i32 * 10)
-            - (candidate.len() as i32 - query.len() as i32).max(0);
-        best_score = Some(best_score.map_or(score, |current| current.max(score)));
-    }
-
-    if let Some(score) = subsequence_match_score(candidate, query.as_str()) {
-        best_score = Some(best_score.map_or(score, |current| current.max(score)));
-    }
-
-    best_score
-}
-
-fn file_name_from_path(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
-}
-
-fn normalize_file_match_key(value: &str) -> String {
-    value.trim().to_lowercase().replace('\\', "/")
 }
 
 pub(crate) fn active_file_completion_token(
@@ -464,21 +288,10 @@ fn clamp_to_char_boundary(text: &str, cursor_offset: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ActivePrefixedToken, SearchableRepoFile, active_file_completion_token, file_match_score,
-        inserted_path_text, ranked_file_matches,
-    };
+    use super::{ActivePrefixedToken, active_file_completion_token, inserted_path_text};
 
     fn token(text: &str, cursor_offset: usize) -> Option<ActivePrefixedToken> {
         active_file_completion_token(text, cursor_offset)
-    }
-
-    fn searchable_file(path: &str) -> SearchableRepoFile {
-        SearchableRepoFile {
-            path: path.to_string(),
-            normalized_path: path.to_lowercase(),
-            normalized_file_name: path.rsplit('/').next().unwrap_or(path).to_lowercase(),
-        }
     }
 
     #[test]
@@ -577,30 +390,5 @@ mod tests {
             inserted_path_text("docs/hello\"world.md"),
             "docs/hello\"world.md "
         );
-    }
-
-    #[test]
-    fn file_match_score_prefers_file_name_matches() {
-        let exact_name = searchable_file("src/main.rs");
-        let substring = searchable_file("docs/domain-guide.md");
-
-        let exact_name_score = file_match_score("main", &exact_name).expect("match score");
-        let substring_score = file_match_score("main", &substring).expect("match score");
-
-        assert!(exact_name_score > substring_score);
-    }
-
-    #[test]
-    fn ranked_file_matches_sort_by_relevance_then_shorter_paths() {
-        let files = vec![
-            searchable_file("src/main.rs"),
-            searchable_file("crates/hunk-desktop/src/main.rs"),
-            searchable_file("README.md"),
-        ];
-
-        let ranked = ranked_file_matches(&files, "main");
-
-        assert_eq!(ranked[0].file.path, "src/main.rs");
-        assert_eq!(ranked[1].file.path, "crates/hunk-desktop/src/main.rs");
     }
 }

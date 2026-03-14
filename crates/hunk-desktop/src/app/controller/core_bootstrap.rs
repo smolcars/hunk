@@ -338,13 +338,8 @@ impl DiffViewer {
         });
         let commit_input_state = cx
             .new(|cx| InputState::new(window, cx).multi_line(true).rows(4).placeholder("Commit message"));
-        let editor_input_state = cx.new(|cx| {
-            InputState::new(window, cx)
-                .code_editor("text")
-                .line_number(true)
-                .soft_wrap(false)
-                .placeholder("Select a file from Files tree to edit it.")
-        });
+        let helix_files_editor = Rc::new(RefCell::new(crate::app::files_editor::HelixFilesEditor::new()));
+        let repo_file_search_provider = Rc::new(RepoFileSearchProvider::new());
         let comment_input_state = cx.new(|cx| {
             InputState::new(window, cx)
                 .multi_line(true)
@@ -352,12 +347,15 @@ impl DiffViewer {
                 .placeholder("Add comment for this diff row")
         });
         let ai_composer_file_completion_provider =
-            Rc::new(AiComposerFileCompletionProvider::new());
+            Rc::new(AiComposerFileCompletionProvider::default());
         let ai_composer_input_state = cx.new(|cx| {
             InputState::new(window, cx)
                 .multi_line(true)
                 .rows(4)
                 .placeholder("Ask for follow-up changes")
+        });
+        let file_quick_open_input_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Type a file name or path")
         });
         let in_app_menu_bar = (!cfg!(target_os = "macos")).then(|| AppMenuBar::new(cx));
 
@@ -457,6 +455,9 @@ impl DiffViewer {
             ai_command_tx: None,
             ai_worker_workspace_key: None,
             ai_draft_workspace_target_id: None,
+            repo_file_search_provider,
+            repo_file_search_reload_task: Task::ready(()),
+            repo_file_search_loading: false,
             ai_composer_file_completion_provider,
             ai_composer_file_completion_reload_task: Task::ready(()),
             ai_composer_file_completion_menu: None,
@@ -546,6 +547,7 @@ impl DiffViewer {
             in_app_menu_bar,
             focus_handle: cx.focus_handle(),
             repo_tree_focus_handle: cx.focus_handle(),
+            files_editor_focus_handle: cx.focus_handle(),
             selection_anchor_row: None,
             selection_head_row: None,
             drag_selecting_rows: false,
@@ -567,7 +569,11 @@ impl DiffViewer {
             repo_tree: RepoTreeState::new(),
             repo_tree_inline_edit: None,
             repo_tree_context_menu: None,
-            editor_input_state,
+            helix_files_editor,
+            file_quick_open_input_state,
+            file_quick_open_visible: false,
+            file_quick_open_matches: Vec::new(),
+            file_quick_open_selected_ix: 0,
             editor_path: None,
             editor_loading: false,
             editor_error: None,
@@ -584,12 +590,6 @@ impl DiffViewer {
             editor_markdown_preview_revision: 0,
             editor_markdown_preview: false,
         };
-
-        let editor_state = view.editor_input_state.clone();
-        cx.observe(&editor_state, |this, _, cx| {
-            this.sync_editor_dirty_from_input(cx);
-        })
-        .detach();
 
         let branch_input_state = view.branch_input_state.clone();
         cx.subscribe(&branch_input_state, |this, _, event, cx| {
@@ -621,6 +621,14 @@ impl DiffViewer {
         })
         .detach();
 
+        let file_quick_open_state = view.file_quick_open_input_state.clone();
+        cx.subscribe(&file_quick_open_state, |this, _, event, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.sync_file_quick_open_matches(cx);
+            }
+        })
+        .detach();
+
         let weak_view = cx.entity().downgrade();
         // The multiline input consumes Tab for indentation before view-level keybindings run.
         // Intercept the keystroke at the app layer so the AI composer can queue prompts reliably.
@@ -628,6 +636,14 @@ impl DiffViewer {
             let Some(view) = weak_view.upgrade() else {
                 return;
             };
+            if let Some(action) = file_quick_open_action_for_keystroke(&event.keystroke) {
+                let handled = view.update(cx, |this, cx| {
+                    this.handle_file_quick_open_keystroke(action, window, cx)
+                });
+                if handled {
+                    return;
+                }
+            }
             if let Some(action) = ai_composer_completion_action_for_keystroke(&event.keystroke) {
                 let handled = view.update(cx, |this, cx| {
                     this.ai_handle_composer_completion_keystroke(action, window, cx)

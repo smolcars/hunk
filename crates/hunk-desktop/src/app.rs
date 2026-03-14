@@ -85,6 +85,7 @@ use refresh_policy::{
     should_request_startup_git_workspace_refresh, should_run_cold_start_reconcile,
     should_scroll_selected_after_reload,
 };
+use repo_file_search::RepoFileSearchProvider;
 use review_compare_picker::{
     ReviewComparePickerDelegate, ReviewCompareSourceOption, build_review_compare_picker_delegate,
 };
@@ -139,8 +140,10 @@ mod ai_runtime;
 mod controller;
 mod data;
 mod data_segments;
+mod files_editor;
 mod highlight;
 mod render;
+mod repo_file_search;
 mod theme;
 mod workspace_view;
 
@@ -168,6 +171,10 @@ actions!(
         AiEditLastQueuedPrompt,
         AiInterruptSelectedTurn,
         OpenProject,
+        QuickOpenFile,
+        FilesEditorCopy,
+        FilesEditorCut,
+        FilesEditorPaste,
         SaveCurrentFile,
         OpenSettings,
         QuitApp,
@@ -215,6 +222,7 @@ fn build_application_menus() -> Vec<Menu> {
                 name: "File".into(),
                 items: vec![
                     MenuItem::action("Open Project...", OpenProject),
+                    MenuItem::action("Quick Open...", QuickOpenFile),
                     MenuItem::action("Save File", SaveCurrentFile),
                     MenuItem::separator(),
                     MenuItem::action("Settings...", OpenSettings),
@@ -234,6 +242,7 @@ fn build_application_menus() -> Vec<Menu> {
                 name: "File".into(),
                 items: vec![
                     MenuItem::action("Open Project...", OpenProject),
+                    MenuItem::action("Quick Open...", QuickOpenFile),
                     MenuItem::action("Save File", SaveCurrentFile),
                     MenuItem::action("Settings...", OpenSettings),
                     MenuItem::separator(),
@@ -395,6 +404,38 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
             .iter()
             .map(|shortcut| KeyBinding::new(shortcut.as_str(), OpenProject, None)),
     );
+    bindings.push(KeyBinding::new("cmd-p", QuickOpenFile, Some("DiffViewer")));
+    bindings.push(KeyBinding::new("ctrl-p", QuickOpenFile, Some("DiffViewer")));
+    bindings.push(KeyBinding::new(
+        "cmd-c",
+        FilesEditorCopy,
+        Some("FilesEditor"),
+    ));
+    bindings.push(KeyBinding::new(
+        "ctrl-c",
+        FilesEditorCopy,
+        Some("FilesEditor"),
+    ));
+    bindings.push(KeyBinding::new(
+        "cmd-x",
+        FilesEditorCut,
+        Some("FilesEditor"),
+    ));
+    bindings.push(KeyBinding::new(
+        "ctrl-x",
+        FilesEditorCut,
+        Some("FilesEditor"),
+    ));
+    bindings.push(KeyBinding::new(
+        "cmd-v",
+        FilesEditorPaste,
+        Some("FilesEditor"),
+    ));
+    bindings.push(KeyBinding::new(
+        "ctrl-v",
+        FilesEditorPaste,
+        Some("FilesEditor"),
+    ));
     bindings.extend(
         shortcuts
             .save_current_file
@@ -460,6 +501,7 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
 }
 
 pub fn run() -> Result<()> {
+    files_editor::initialize_helix_runtime_environment();
     let app = gpui_platform::application().with_assets(Assets);
     let keyboard_shortcuts = load_keyboard_shortcuts();
     app.on_reopen(|cx: &mut App| {
@@ -498,6 +540,7 @@ fn open_main_window(cx: &mut App) {
 
     if let Err(err) = cx.open_window(window_options, |window, cx| {
         let view = cx.new(|cx| DiffViewer::new(window, cx));
+        view.update(cx, |this, cx| this.defer_root_focus(cx));
         cx.new(|cx| Root::new(view, window, cx))
     }) {
         error!("failed to open window: {err:#}");
@@ -662,6 +705,9 @@ struct DiffViewer {
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_worker_workspace_key: Option<String>,
     ai_draft_workspace_target_id: Option<String>,
+    repo_file_search_provider: Rc<RepoFileSearchProvider>,
+    repo_file_search_reload_task: Task<()>,
+    repo_file_search_loading: bool,
     ai_composer_file_completion_provider: Rc<AiComposerFileCompletionProvider>,
     ai_composer_file_completion_reload_task: Task<()>,
     ai_composer_file_completion_menu: Option<AiComposerFileCompletionMenuState>,
@@ -751,6 +797,7 @@ struct DiffViewer {
     in_app_menu_bar: Option<Entity<AppMenuBar>>,
     focus_handle: FocusHandle,
     repo_tree_focus_handle: FocusHandle,
+    files_editor_focus_handle: FocusHandle,
     selection_anchor_row: Option<usize>,
     selection_head_row: Option<usize>,
     drag_selecting_rows: bool,
@@ -772,7 +819,11 @@ struct DiffViewer {
     repo_tree: RepoTreeState,
     repo_tree_inline_edit: Option<RepoTreeInlineEditState>,
     repo_tree_context_menu: Option<RepoTreeContextMenuState>,
-    editor_input_state: Entity<InputState>,
+    helix_files_editor: files_editor::SharedHelixFilesEditor,
+    file_quick_open_input_state: Entity<InputState>,
+    file_quick_open_visible: bool,
+    file_quick_open_matches: Vec<String>,
+    file_quick_open_selected_ix: usize,
     editor_path: Option<String>,
     editor_loading: bool,
     editor_error: Option<String>,
@@ -792,6 +843,7 @@ struct DiffViewer {
 
 impl Drop for DiffViewer {
     fn drop(&mut self) {
+        self.helix_files_editor.borrow_mut().shutdown();
         self.shutdown_ai_worker_blocking();
     }
 }
