@@ -40,6 +40,7 @@ mod ai_tests {
     use super::preferred_ai_worktree_base_branch_name;
     use super::review_compare_selection_ids_for_workspace_root;
     use super::requested_branch_name_for_new_thread;
+    use super::running_from_packaged_bundle;
     use super::resolve_bundled_codex_executable_from_exe;
     use super::resolved_ai_workspace_cwd;
     use super::seed_ai_workspace_preferences;
@@ -111,7 +112,18 @@ mod ai_tests {
     use std::ffi::OsString;
     use std::path::PathBuf;
     use std::sync::mpsc;
+    use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    static ENV_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn with_locked_env<T>(f: impl FnOnce() -> T) -> T {
+        let _guard = ENV_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env mutex should not be poisoned");
+        f()
+    }
 
     #[cfg(target_os = "windows")]
     fn write_fake_windows_pe(path: &std::path::Path) {

@@ -15,6 +15,14 @@ fn resolve_bundled_codex_executable_from_exe(
         })
 }
 
+fn expected_bundled_codex_executable_from_exe(
+    current_exe: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    bundled_codex_executable_candidates(current_exe)
+        .into_iter()
+        .next()
+}
+
 #[cfg(target_os = "windows")]
 fn resolve_windows_command_path(command_name: &std::path::Path) -> Option<std::path::PathBuf> {
     if is_command_name_without_path(command_name) {
@@ -144,7 +152,6 @@ fn bundled_codex_executable_candidates(current_exe: &std::path::Path) -> Vec<std
             candidates.push(base_dir.join(entrypoint));
         }
     };
-
     push_candidates(
         exe_dir.join("codex-runtime").join(platform_dir).as_path(),
         &mut candidates,
@@ -171,23 +178,75 @@ fn bundled_codex_executable_candidates(current_exe: &std::path::Path) -> Vec<std
     }
 
     #[cfg(target_os = "linux")]
-    if let Some(binary_file_name) = current_exe.file_name()
-        && let Some(usr_dir) = exe_dir.parent()
     {
-        push_candidates(
-            usr_dir
-                .join("lib")
-                .join(binary_file_name)
-                .join("codex-runtime")
-                .join(platform_dir)
-                .as_path(),
-            &mut candidates,
-        );
+        let push_linux_packager_candidates = |root_dir: &std::path::Path,
+                                              binary_names: &[std::ffi::OsString],
+                                              candidates: &mut Vec<std::path::PathBuf>| {
+            for binary_name in binary_names {
+                push_candidates(
+                    root_dir
+                        .join("usr")
+                        .join("lib")
+                        .join(binary_name)
+                        .join("codex-runtime")
+                        .join(platform_dir)
+                        .as_path(),
+                    candidates,
+                );
+            }
+        };
+        let binary_names = packaged_linux_binary_dir_names(current_exe);
+
+        if let Some(root_dir) = linux_packager_root_from_current_exe(current_exe) {
+            push_linux_packager_candidates(root_dir.as_path(), &binary_names, &mut candidates);
+        }
+
+        if let Some(appdir) = std::env::var_os("APPDIR") {
+            push_linux_packager_candidates(
+                std::path::Path::new(&appdir),
+                &binary_names,
+                &mut candidates,
+            );
+        }
     }
 
     push_candidates(exe_dir, &mut candidates);
 
     candidates
+}
+
+#[cfg(target_os = "linux")]
+fn linux_packager_root_from_current_exe(current_exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let exe_dir = current_exe.parent()?;
+    if exe_dir.file_name()? != std::ffi::OsStr::new("bin") {
+        return None;
+    }
+    let usr_dir = exe_dir.parent()?;
+    if usr_dir.file_name()? != std::ffi::OsStr::new("usr") {
+        return None;
+    }
+    usr_dir.parent().map(std::path::Path::to_path_buf)
+}
+
+#[cfg(target_os = "linux")]
+fn packaged_linux_binary_dir_names(current_exe: &std::path::Path) -> Vec<std::ffi::OsString> {
+    use std::ffi::OsString;
+
+    let mut names = Vec::new();
+    if let Some(file_name) = current_exe.file_name() {
+        names.push(file_name.to_os_string());
+    }
+
+    for candidate in [
+        OsString::from(env!("CARGO_PKG_NAME")),
+        OsString::from(env!("CARGO_PKG_NAME").replace('-', "_")),
+    ] {
+        if !names.iter().any(|existing| existing == &candidate) {
+            names.push(candidate);
+        }
+    }
+
+    names
 }
 
 fn codex_runtime_platform_dir() -> &'static str {
@@ -219,4 +278,26 @@ fn is_command_name_without_path(path: &std::path::Path) -> bool {
     }
     let text = path.to_string_lossy();
     !text.contains(std::path::MAIN_SEPARATOR) && !text.contains('/')
+}
+
+fn running_from_packaged_bundle() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        return std::env::var_os("APPDIR").is_some() || std::env::var_os("APPIMAGE").is_some();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let Ok(current_exe) = std::env::current_exe() else {
+            return false;
+        };
+        return current_exe
+            .components()
+            .any(|component| component.as_os_str() == std::ffi::OsStr::new("Contents"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        false
+    }
 }

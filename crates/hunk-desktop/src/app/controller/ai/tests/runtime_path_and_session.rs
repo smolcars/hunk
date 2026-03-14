@@ -662,6 +662,62 @@
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn bundled_codex_resolution_uses_appdir_packager_resource_candidate() {
+        with_locked_env(|| {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock should be monotonic")
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!("hunk-codex-runtime-appdir-{unique}"));
+            let exe_path = root.join("AppRun");
+            std::fs::create_dir_all(&root).expect("root dir should be created");
+            std::fs::write(&exe_path, "").expect("fake AppRun should be written");
+
+            let runtime_path = root
+                .join("usr")
+                .join("lib")
+                .join("hunk-desktop")
+                .join("codex-runtime")
+                .join(codex_runtime_platform_dir())
+                .join(codex_runtime_binary_name());
+            std::fs::create_dir_all(
+                runtime_path
+                    .parent()
+                    .expect("runtime parent should exist"),
+            )
+            .expect("runtime dir should be created");
+            write_fake_codex_launcher(runtime_path.as_path());
+
+            let previous_appdir = env::var_os("APPDIR");
+            let previous_appimage = env::var_os("APPIMAGE");
+            unsafe {
+                env::set_var("APPDIR", &root);
+                env::set_var("APPIMAGE", root.join("Hunk.AppImage"));
+            }
+
+            assert!(running_from_packaged_bundle());
+
+            let resolved = resolve_bundled_codex_executable_from_exe(exe_path.as_path());
+            assert_eq!(resolved, Some(runtime_path.clone()));
+
+            let candidates = bundled_codex_executable_candidates(exe_path.as_path());
+            assert!(candidates.iter().any(|candidate| candidate == &runtime_path));
+
+            match previous_appdir {
+                Some(value) => unsafe { env::set_var("APPDIR", value) },
+                None => unsafe { env::remove_var("APPDIR") },
+            }
+            match previous_appimage {
+                Some(value) => unsafe { env::set_var("APPIMAGE", value) },
+                None => unsafe { env::remove_var("APPIMAGE") },
+            }
+
+            let _ = std::fs::remove_dir_all(root);
+        });
+    }
+
     #[test]
     fn normalized_user_input_answers_defaults_to_first_option_or_blank() {
         let request = AiPendingUserInputRequest {
