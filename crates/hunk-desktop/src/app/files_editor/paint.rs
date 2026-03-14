@@ -10,33 +10,6 @@ use super::{DocumentLayout, LineNumberPaintParams};
 
 const INSERT_CURSOR_BLINK_PERIOD: Duration = Duration::from_millis(530);
 
-pub(super) fn paint_current_line_background(
-    window: &mut Window,
-    origin: Point<Pixels>,
-    layout: &DocumentLayout,
-    first_row: usize,
-    current_line: usize,
-    background: Hsla,
-) {
-    if current_line < first_row {
-        return;
-    }
-    let relative_row = current_line - first_row;
-    if relative_row >= layout.rows {
-        return;
-    }
-    let line_y = origin.y + px(1.0) + (layout.line_height * relative_row as f32);
-    let content_x =
-        origin.x + px(10.0) + (layout.cell_width * (layout.gutter_columns as f32 + 1.0));
-    window.paint_quad(fill(
-        Bounds {
-            origin: point(content_x, line_y),
-            size: size(px(10000.0), layout.line_height),
-        },
-        background,
-    ));
-}
-
 pub(super) fn paint_selection_backgrounds(
     window: &mut Window,
     document: &Document,
@@ -47,6 +20,7 @@ pub(super) fn paint_selection_backgrounds(
     background: Hsla,
 ) {
     let selection = document.selection(view.id);
+    let primary_index = selection.primary_index();
     let content_origin = point(
         origin.x + px(10.0) + (layout.cell_width * (layout.gutter_columns as f32 + 1.0)),
         origin.y + px(1.0),
@@ -68,8 +42,11 @@ pub(super) fn paint_selection_backgrounds(
     ) else {
         return;
     };
-    for range in selection.ranges() {
+    for (index, range) in selection.ranges().iter().enumerate() {
         if range.is_empty() {
+            continue;
+        }
+        if index == primary_index && range.len() <= 1 {
             continue;
         }
         if range.to() <= visible_start || range.from() >= visible_end {

@@ -35,9 +35,8 @@ mod theme;
 
 use self::highlight::syntax_runs;
 use self::paint::{
-    CursorPaintParams, animated_cursor_kind, clamp_to_bounds, mouse_text_position,
-    paint_current_line_background, paint_cursors, paint_line_numbers, paint_selection_backgrounds,
-    palette_text_width, visible_row_char_range,
+    CursorPaintParams, animated_cursor_kind, clamp_to_bounds, mouse_text_position, paint_cursors,
+    paint_line_numbers, paint_selection_backgrounds, palette_text_width, visible_row_char_range,
 };
 use self::selection::{line_selection_range, word_selection_range};
 use self::theme::load_hunk_helix_theme;
@@ -90,7 +89,6 @@ pub(crate) struct HelixFilesEditorPalette {
     pub(crate) current_line_number: Hsla,
     pub(crate) border: Hsla,
     pub(crate) default_foreground: Hsla,
-    pub(crate) current_line_background: Hsla,
     pub(crate) selection_background: Hsla,
     pub(crate) cursor: Hsla,
 }
@@ -714,14 +712,6 @@ impl Element for HelixFilesEditorElement {
                 .min(text.len_chars());
             let current_line = text.char_to_line(current_line);
 
-            paint_current_line_background(
-                window,
-                bounds.origin,
-                layout,
-                first_row,
-                current_line,
-                self.palette.current_line_background,
-            );
             paint_selection_backgrounds(
                 window,
                 document,

@@ -214,13 +214,6 @@ impl DiffViewer {
             line_height: relative(1.45),
             ..Default::default()
         };
-        let mut current_line_background = hunk_opacity(
-            cx.theme().secondary_active,
-            is_dark,
-            0.18,
-            0.28,
-        );
-        current_line_background.a = current_line_background.a.max(0.12);
         let helix_element = crate::app::files_editor::HelixFilesEditorElement::new(
             self.helix_files_editor.clone(),
             is_editor_focused,
@@ -231,7 +224,6 @@ impl DiffViewer {
                 current_line_number: cx.theme().foreground,
                 border: hunk_opacity(cx.theme().border, is_dark, 0.92, 0.78),
                 default_foreground: cx.theme().foreground,
-                current_line_background,
                 selection_background: hunk_text_selection_background(cx.theme(), is_dark),
                 cursor: cx.theme().primary,
             },
