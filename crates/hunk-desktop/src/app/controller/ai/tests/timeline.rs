@@ -604,6 +604,41 @@
     }
 
     #[test]
+    fn turn_file_change_detection_matches_thread_and_turn() {
+        let mut state = AiState::default();
+        state.items.insert(
+            hunk_codex::state::item_storage_key("thread-1", "turn-1", "item-1"),
+            hunk_codex::state::ItemSummary {
+                id: "item-1".to_string(),
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                kind: "fileChange".to_string(),
+                status: ItemStatus::Completed,
+                content: String::new(),
+                display_metadata: None,
+                last_sequence: 1,
+            },
+        );
+        state.items.insert(
+            hunk_codex::state::item_storage_key("thread-1", "turn-2", "item-2"),
+            hunk_codex::state::ItemSummary {
+                id: "item-2".to_string(),
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-2".to_string(),
+                kind: "commandExecution".to_string(),
+                status: ItemStatus::Completed,
+                content: String::new(),
+                display_metadata: None,
+                last_sequence: 2,
+            },
+        );
+
+        assert!(ai_turn_has_file_change_items(&state, "thread-1", "turn-1"));
+        assert!(!ai_turn_has_file_change_items(&state, "thread-1", "turn-2"));
+        assert!(!ai_turn_has_file_change_items(&state, "thread-2", "turn-1"));
+    }
+
+    #[test]
     fn timeline_grouping_respects_non_tool_boundaries() {
         let thread_id = "thread-1";
         let turn_id = "turn-1";

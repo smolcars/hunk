@@ -6,6 +6,7 @@ mod ai_helper_tests {
     use super::ai_command_execution_display_details;
     use super::ai_composer_status_tone;
     use super::ai_collaboration_picker_label;
+    use super::ai_file_change_summary;
     use super::ai_should_show_no_turns_empty_state;
     use super::ai_tool_compact_summary;
     use super::ai_thread_display_title;
@@ -315,6 +316,53 @@ diff --git a/crates/hunk-desktop/src/app/render/ai.rs b/crates/hunk-desktop/src/
         assert_eq!(summary.files[0].path, "changes");
         assert_eq!(summary.files[0].added, 2);
         assert_eq!(summary.files[0].removed, 1);
+    }
+
+    #[test]
+    fn file_change_summary_uses_persisted_change_paths_and_diffs() {
+        let item = ItemSummary {
+            id: "item-1".to_string(),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            kind: "fileChange".to_string(),
+            status: ItemStatus::Completed,
+            content: String::new(),
+            display_metadata: Some(ItemDisplayMetadata {
+                summary: Some("Applied file changes".to_string()),
+                details_json: Some(
+                    r#"{
+                        "type": "fileChange",
+                        "id": "item-1",
+                        "changes": [
+                            {
+                                "path": "docs/alpha.md",
+                                "kind": { "type": "update", "movePath": null },
+                                "diff": "@@ -1 +1,2 @@\n-old\n+new\n+extra"
+                            },
+                            {
+                                "path": "docs/beta.md",
+                                "kind": { "type": "update", "movePath": null },
+                                "diff": "@@ -4 +4 @@\n-old beta\n+new beta"
+                            }
+                        ],
+                        "status": "completed"
+                    }"#
+                        .to_string(),
+                ),
+            }),
+            last_sequence: 1,
+        };
+
+        let summary = ai_file_change_summary(&item).expect("file change summary should parse");
+        assert_eq!(summary.total_added, 3);
+        assert_eq!(summary.total_removed, 2);
+        assert_eq!(summary.files.len(), 2);
+        assert_eq!(summary.files[0].path, "docs/alpha.md");
+        assert_eq!(summary.files[0].added, 2);
+        assert_eq!(summary.files[0].removed, 1);
+        assert_eq!(summary.files[1].path, "docs/beta.md");
+        assert_eq!(summary.files[1].added, 1);
+        assert_eq!(summary.files[1].removed, 1);
     }
 
     #[test]

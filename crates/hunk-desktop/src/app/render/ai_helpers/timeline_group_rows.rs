@@ -21,6 +21,18 @@ fn render_ai_tool_item_row(
     nested: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
+    if item.kind == "fileChange" && let Some(summary) = ai_file_change_summary(item) {
+        return render_ai_compact_diff_summary_row(
+            this,
+            view,
+            row_id,
+            &summary,
+            nested,
+            is_dark,
+            cx,
+        );
+    }
+
     let content_text = item.content.trim();
     let title = ai_tool_header_title(item);
     let compact_summary = ai_tool_compact_summary(item, content_text);
@@ -199,6 +211,20 @@ fn render_ai_timeline_group_row(
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
+    if group.kind == "file_change_batch"
+        && let Some(summary) = ai_file_change_group_summary(this, group)
+    {
+        return render_ai_compact_diff_summary_row(
+            this,
+            view,
+            row.id.as_str(),
+            &summary,
+            false,
+            is_dark,
+            cx,
+        );
+    }
+
     let expanded = this.ai_expanded_timeline_row_ids.contains(row.id.as_str());
     let (title_color, summary_color, hover_bg_color, chevron_color) =
         ai_group_row_style(group.kind.as_str(), is_dark, cx);

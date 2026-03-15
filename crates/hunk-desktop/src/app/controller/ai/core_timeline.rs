@@ -268,6 +268,13 @@ impl DiffViewer {
             if diff.trim().is_empty() {
                 continue;
             }
+            if ai_turn_has_file_change_items(
+                &self.ai_state_snapshot,
+                turn.thread_id.as_str(),
+                turn.id.as_str(),
+            ) {
+                continue;
+            }
             let diff_row_id = format!("turn-diff:{turn_key}");
             base_rows_by_thread
                 .entry(turn.thread_id.clone())
@@ -541,4 +548,15 @@ impl DiffViewer {
             cx.notify();
         }
     }
+}
+
+fn ai_turn_has_file_change_items(
+    state: &hunk_codex::state::AiState,
+    thread_id: &str,
+    turn_id: &str,
+) -> bool {
+    state
+        .items
+        .values()
+        .any(|item| item.thread_id == thread_id && item.turn_id == turn_id && item.kind == "fileChange")
 }

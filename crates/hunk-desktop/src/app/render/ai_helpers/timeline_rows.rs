@@ -89,6 +89,15 @@ fn ai_timeline_item_details_json(item: &hunk_codex::state::ItemSummary) -> Optio
         .filter(|value| !value.is_empty())
 }
 
+fn ai_timeline_item_thread_item(
+    item: &hunk_codex::state::ItemSummary,
+) -> Option<codex_app_server_protocol::ThreadItem> {
+    serde_json::from_str::<codex_app_server_protocol::ThreadItem>(
+        ai_timeline_item_details_json(item)?,
+    )
+    .ok()
+}
+
 fn ai_command_execution_display_details(
     item: &hunk_codex::state::ItemSummary,
 ) -> Option<AiCommandExecutionDisplayDetails> {
@@ -145,10 +154,7 @@ fn ai_tool_compact_preview_text(
         return Some(details.command);
     }
 
-    let details_json = ai_timeline_item_details_json(item)?;
-    let thread_item =
-        serde_json::from_str::<codex_app_server_protocol::ThreadItem>(details_json).ok();
-    match thread_item {
+    match ai_timeline_item_thread_item(item) {
         Some(codex_app_server_protocol::ThreadItem::FileChange { changes, .. }) => {
             let first_path = changes.first()?.path.clone();
             if changes.len() == 1 {
@@ -333,6 +339,105 @@ fn ai_turn_diff_summary(diff_text: &str) -> AiTurnDiffSummary {
         total_added,
         total_removed,
     }
+}
+
+fn ai_diff_line_counts(diff_text: &str) -> (usize, usize) {
+    let mut added = 0usize;
+    let mut removed = 0usize;
+
+    for line in diff_text.lines() {
+        if line.starts_with("+++") || line.starts_with("---") {
+            continue;
+        }
+        if line.starts_with('+') {
+            added = added.saturating_add(1);
+            continue;
+        }
+        if line.starts_with('-') {
+            removed = removed.saturating_add(1);
+        }
+    }
+
+    (added, removed)
+}
+
+fn ai_diff_summary_push_file(
+    summary: &mut AiTurnDiffSummary,
+    path: String,
+    added: usize,
+    removed: usize,
+) {
+    if path.trim().is_empty() {
+        return;
+    }
+
+    if let Some(existing) = summary.files.iter_mut().find(|file| file.path == path) {
+        existing.added = existing.added.saturating_add(added);
+        existing.removed = existing.removed.saturating_add(removed);
+    } else {
+        summary.files.push(AiTurnDiffFileSummary {
+            path,
+            added,
+            removed,
+        });
+    }
+    summary.total_added = summary.total_added.saturating_add(added);
+    summary.total_removed = summary.total_removed.saturating_add(removed);
+}
+
+fn ai_file_change_summary(
+    item: &hunk_codex::state::ItemSummary,
+) -> Option<AiTurnDiffSummary> {
+    let codex_app_server_protocol::ThreadItem::FileChange { changes, .. } =
+        ai_timeline_item_thread_item(item)?
+    else {
+        return None;
+    };
+
+    let mut summary = AiTurnDiffSummary {
+        files: Vec::new(),
+        total_added: 0,
+        total_removed: 0,
+    };
+    for change in changes {
+        let path = change.path.trim();
+        let resolved_path = if path.is_empty() {
+            "changes".to_string()
+        } else {
+            path.to_string()
+        };
+        let (added, removed) = ai_diff_line_counts(change.diff.as_str());
+        ai_diff_summary_push_file(&mut summary, resolved_path, added, removed);
+    }
+
+    (!summary.files.is_empty()).then_some(summary)
+}
+
+fn ai_file_change_group_summary(
+    this: &DiffViewer,
+    group: &AiTimelineGroup,
+) -> Option<AiTurnDiffSummary> {
+    let mut summary = AiTurnDiffSummary {
+        files: Vec::new(),
+        total_added: 0,
+        total_removed: 0,
+    };
+
+    for child_row_id in &group.child_row_ids {
+        let row = this.ai_timeline_row(child_row_id.as_str())?;
+        let AiTimelineRowSource::Item { item_key } = &row.source else {
+            continue;
+        };
+        let item = this.ai_state_snapshot.items.get(item_key.as_str())?;
+        let Some(item_summary) = ai_file_change_summary(item) else {
+            continue;
+        };
+        for file in item_summary.files {
+            ai_diff_summary_push_file(&mut summary, file.path, file.added, file.removed);
+        }
+    }
+
+    (!summary.files.is_empty()).then_some(summary)
 }
 
 fn ai_tool_meta_chip(
@@ -591,20 +696,25 @@ fn render_ai_command_execution_details(
         .into_any_element()
 }
 
-fn render_ai_turn_diff_row(
+fn render_ai_compact_diff_summary_row(
     this: &DiffViewer,
     view: Entity<DiffViewer>,
-    row: &AiTimelineRow,
-    diff_text: &str,
+    row_id: &str,
+    summary: &AiTurnDiffSummary,
+    nested: bool,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     const AI_TURN_DIFF_VISIBLE_FILE_LIMIT: usize = 4;
 
-    let summary = ai_turn_diff_summary(diff_text);
     let disclosure_colors = hunk_disclosure_row(cx.theme(), is_dark);
     let line_stats_colors = hunk_line_stats(cx.theme(), is_dark);
-    let row_id = row.id.clone();
+    let row_id_string = row_id.to_string();
+    let file_count_label = if summary.files.len() == 1 {
+        "1 file changed".to_string()
+    } else {
+        format!("{} files changed", summary.files.len())
+    };
     let visible_files = summary
         .files
         .iter()
@@ -733,10 +843,7 @@ fn render_ai_turn_diff_row(
                                             div()
                                                 .text_xs()
                                                 .text_color(disclosure_colors.title)
-                                                .child(format!(
-                                                    "{} files changed",
-                                                    summary.files.len()
-                                                )),
+                                                .child(file_count_label.clone()),
                                         )
                                         .child(
                                             div()
@@ -762,7 +869,35 @@ fn render_ai_turn_diff_row(
                 ),
         );
 
-    ai_timeline_row_with_animation(this, row_id.as_str(), row_element)
+    let wrapped_row = h_flex()
+        .w_full()
+        .min_w_0()
+        .justify_start()
+        .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .when(nested, |this| this.pl_4())
+                .child(row_element),
+        );
+
+    if nested {
+        wrapped_row.into_any_element()
+    } else {
+        ai_timeline_row_with_animation(this, row_id_string.as_str(), wrapped_row)
+    }
+}
+
+fn render_ai_turn_diff_row(
+    this: &DiffViewer,
+    view: Entity<DiffViewer>,
+    row: &AiTimelineRow,
+    diff_text: &str,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let summary = ai_turn_diff_summary(diff_text);
+    render_ai_compact_diff_summary_row(this, view, row.id.as_str(), &summary, false, is_dark, cx)
 }
 
 fn render_ai_chat_timeline_row_for_view(
