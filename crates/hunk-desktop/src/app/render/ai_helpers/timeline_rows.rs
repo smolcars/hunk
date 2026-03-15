@@ -22,6 +22,20 @@ struct AiCommandExecutionDisplayDetails {
     duration_ms: Option<i64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiTurnDiffFileSummary {
+    path: String,
+    added: usize,
+    removed: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiTurnDiffSummary {
+    files: Vec<AiTurnDiffFileSummary>,
+    total_added: usize,
+    total_removed: usize,
+}
+
 fn ai_timeline_item_role(kind: &str) -> AiTimelineItemRole {
     match kind {
         "userMessage" => AiTimelineItemRole::User,
@@ -73,6 +87,21 @@ fn ai_timeline_item_details_json(item: &hunk_codex::state::ItemSummary) -> Optio
         .and_then(|metadata| metadata.details_json.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+fn ai_timeline_item_details_value(
+    item: &hunk_codex::state::ItemSummary,
+) -> Option<serde_json::Value> {
+    serde_json::from_str::<serde_json::Value>(ai_timeline_item_details_json(item)?).ok()
+}
+
+fn ai_timeline_item_thread_item(
+    item: &hunk_codex::state::ItemSummary,
+) -> Option<codex_app_server_protocol::ThreadItem> {
+    serde_json::from_str::<codex_app_server_protocol::ThreadItem>(
+        ai_timeline_item_details_json(item)?,
+    )
+    .ok()
 }
 
 fn ai_command_execution_display_details(
@@ -130,19 +159,15 @@ fn ai_tool_compact_preview_text(
     if let Some(details) = ai_command_execution_display_details(item) {
         return Some(details.command);
     }
-
-    let details_json = ai_timeline_item_details_json(item)?;
-    let thread_item =
-        serde_json::from_str::<codex_app_server_protocol::ThreadItem>(details_json).ok();
-    match thread_item {
-        Some(codex_app_server_protocol::ThreadItem::FileChange { changes, .. }) => {
-            let first_path = changes.first()?.path.clone();
-            if changes.len() == 1 {
-                Some(first_path)
-            } else {
-                Some(format!("{first_path} (+{} more files)", changes.len() - 1))
-            }
+    if let Some(summary) = ai_file_change_summary(item) {
+        let first_path = summary.files.first()?.path.clone();
+        if summary.files.len() == 1 {
+            return Some(first_path);
         }
+        return Some(format!("{first_path} (+{} more files)", summary.files.len() - 1));
+    }
+
+    match ai_timeline_item_thread_item(item) {
         Some(codex_app_server_protocol::ThreadItem::McpToolCall { server, tool, .. }) => {
             Some(format!("{server} :: {tool}"))
         }
@@ -215,6 +240,252 @@ fn ai_duration_ms_label(duration_ms: Option<i64>) -> Option<String> {
     Some(ai_activity_elapsed_label(std::time::Duration::from_millis(
         millis,
     )))
+}
+
+fn ai_turn_diff_file_header_paths(line: &str) -> Option<(String, String)> {
+    let mut parts = line.split_whitespace();
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some("diff"), Some("--git"), Some(old_path), Some(new_path)) => {
+            Some((old_path.to_string(), new_path.to_string()))
+        }
+        _ => None,
+    }
+}
+
+fn ai_turn_diff_display_path(old_path: &str, new_path: &str) -> String {
+    let normalized_new = new_path.strip_prefix("b/").unwrap_or(new_path);
+    if normalized_new != "/dev/null" {
+        return normalized_new.to_string();
+    }
+
+    let normalized_old = old_path.strip_prefix("a/").unwrap_or(old_path);
+    if normalized_old != "/dev/null" {
+        return normalized_old.to_string();
+    }
+
+    "changes".to_string()
+}
+
+fn ai_turn_diff_fallback_file(files: &mut Vec<AiTurnDiffFileSummary>) -> &mut AiTurnDiffFileSummary {
+    if files.is_empty() {
+        files.push(AiTurnDiffFileSummary {
+            path: "changes".to_string(),
+            added: 0,
+            removed: 0,
+        });
+    }
+
+    files
+        .last_mut()
+        .expect("fallback diff file must exist after initialization")
+}
+
+fn ai_turn_diff_summary(diff_text: &str) -> AiTurnDiffSummary {
+    let mut files = Vec::new();
+    let mut total_added = 0usize;
+    let mut total_removed = 0usize;
+
+    for line in diff_text.lines() {
+        if let Some((old_path, new_path)) = ai_turn_diff_file_header_paths(line) {
+            files.push(AiTurnDiffFileSummary {
+                path: ai_turn_diff_display_path(old_path.as_str(), new_path.as_str()),
+                added: 0,
+                removed: 0,
+            });
+            continue;
+        }
+
+        if let Some(path) = line.strip_prefix("+++ ") {
+            let path = path.strip_prefix("b/").unwrap_or(path);
+            let file = ai_turn_diff_fallback_file(&mut files);
+            if file.path == "changes" && path != "/dev/null" {
+                file.path = path.to_string();
+            }
+            continue;
+        }
+
+        if let Some(path) = line.strip_prefix("--- ") {
+            let path = path.strip_prefix("a/").unwrap_or(path);
+            let file = ai_turn_diff_fallback_file(&mut files);
+            if file.path == "changes" && path != "/dev/null" {
+                file.path = path.to_string();
+            }
+            continue;
+        }
+
+        if line.starts_with("+++") || line.starts_with("---") {
+            continue;
+        }
+
+        if line.starts_with('+') {
+            let file = ai_turn_diff_fallback_file(&mut files);
+            file.added = file.added.saturating_add(1);
+            total_added = total_added.saturating_add(1);
+            continue;
+        }
+
+        if line.starts_with('-') {
+            let file = ai_turn_diff_fallback_file(&mut files);
+            file.removed = file.removed.saturating_add(1);
+            total_removed = total_removed.saturating_add(1);
+        }
+    }
+
+    if files.is_empty() && !diff_text.trim().is_empty() {
+        files.push(AiTurnDiffFileSummary {
+            path: "changes".to_string(),
+            added: total_added,
+            removed: total_removed,
+        });
+    }
+
+    AiTurnDiffSummary {
+        files,
+        total_added,
+        total_removed,
+    }
+}
+
+fn ai_diff_line_counts(diff_text: &str) -> (usize, usize) {
+    let mut added = 0usize;
+    let mut removed = 0usize;
+
+    for line in diff_text.lines() {
+        if line.starts_with("+++") || line.starts_with("---") {
+            continue;
+        }
+        if line.starts_with('+') {
+            added = added.saturating_add(1);
+            continue;
+        }
+        if line.starts_with('-') {
+            removed = removed.saturating_add(1);
+        }
+    }
+
+    (added, removed)
+}
+
+fn ai_diff_summary_push_file(
+    summary: &mut AiTurnDiffSummary,
+    path: String,
+    added: usize,
+    removed: usize,
+) {
+    if path.trim().is_empty() {
+        return;
+    }
+
+    if let Some(existing) = summary.files.iter_mut().find(|file| file.path == path) {
+        existing.added = existing.added.saturating_add(added);
+        existing.removed = existing.removed.saturating_add(removed);
+    } else {
+        summary.files.push(AiTurnDiffFileSummary {
+            path,
+            added,
+            removed,
+        });
+    }
+    summary.total_added = summary.total_added.saturating_add(added);
+    summary.total_removed = summary.total_removed.saturating_add(removed);
+}
+
+fn ai_file_change_summary_from_details_value(
+    details: &serde_json::Value,
+) -> Option<AiTurnDiffSummary> {
+    if details.get("kind").and_then(|value| value.as_str()) != Some("fileChangeSummary") {
+        return None;
+    }
+
+    let mut summary = AiTurnDiffSummary {
+        files: Vec::new(),
+        total_added: 0,
+        total_removed: 0,
+    };
+    let changes = details.get("changes")?.as_array()?;
+    for change in changes {
+        let path = change
+            .get("path")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("changes")
+            .to_string();
+        let added = change
+            .get("added")
+            .and_then(|value| value.as_u64())
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(0);
+        let removed = change
+            .get("removed")
+            .and_then(|value| value.as_u64())
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(0);
+        ai_diff_summary_push_file(&mut summary, path, added, removed);
+    }
+
+    (!summary.files.is_empty()).then_some(summary)
+}
+
+fn ai_file_change_summary(
+    item: &hunk_codex::state::ItemSummary,
+) -> Option<AiTurnDiffSummary> {
+    if let Some(details) = ai_timeline_item_details_value(item)
+        && let Some(summary) = ai_file_change_summary_from_details_value(&details)
+    {
+        return Some(summary);
+    }
+
+    let codex_app_server_protocol::ThreadItem::FileChange { changes, .. } =
+        ai_timeline_item_thread_item(item)?
+    else {
+        return None;
+    };
+
+    let mut summary = AiTurnDiffSummary {
+        files: Vec::new(),
+        total_added: 0,
+        total_removed: 0,
+    };
+    for change in changes {
+        let path = change.path.trim();
+        let resolved_path = if path.is_empty() {
+            "changes".to_string()
+        } else {
+            path.to_string()
+        };
+        let (added, removed) = ai_diff_line_counts(change.diff.as_str());
+        ai_diff_summary_push_file(&mut summary, resolved_path, added, removed);
+    }
+
+    (!summary.files.is_empty()).then_some(summary)
+}
+
+fn ai_file_change_group_summary(
+    this: &DiffViewer,
+    group: &AiTimelineGroup,
+) -> Option<AiTurnDiffSummary> {
+    let mut summary = AiTurnDiffSummary {
+        files: Vec::new(),
+        total_added: 0,
+        total_removed: 0,
+    };
+
+    for child_row_id in &group.child_row_ids {
+        let row = this.ai_timeline_row(child_row_id.as_str())?;
+        let AiTimelineRowSource::Item { item_key } = &row.source else {
+            continue;
+        };
+        let item = this.ai_state_snapshot.items.get(item_key.as_str())?;
+        let Some(item_summary) = ai_file_change_summary(item) else {
+            continue;
+        };
+        for file in item_summary.files {
+            ai_diff_summary_push_file(&mut summary, file.path, file.added, file.removed);
+        }
+    }
+
+    (!summary.files.is_empty()).then_some(summary)
 }
 
 fn ai_tool_meta_chip(
@@ -473,6 +744,210 @@ fn render_ai_command_execution_details(
         .into_any_element()
 }
 
+fn render_ai_compact_diff_summary_row(
+    this: &DiffViewer,
+    view: Entity<DiffViewer>,
+    row_id: &str,
+    summary: &AiTurnDiffSummary,
+    nested: bool,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    const AI_TURN_DIFF_VISIBLE_FILE_LIMIT: usize = 4;
+
+    let disclosure_colors = hunk_disclosure_row(cx.theme(), is_dark);
+    let line_stats_colors = hunk_line_stats(cx.theme(), is_dark);
+    let row_id_string = row_id.to_string();
+    let file_count_label = if summary.files.len() == 1 {
+        "1 file changed".to_string()
+    } else {
+        format!("{} files changed", summary.files.len())
+    };
+    let visible_files = summary
+        .files
+        .iter()
+        .take(AI_TURN_DIFF_VISIBLE_FILE_LIMIT)
+        .map(|file| {
+            let path = file.path.as_str();
+            let file_name = path.rsplit('/').next().unwrap_or(path).to_string();
+            let directory = path
+                .rsplit_once('/')
+                .map(|(prefix, _)| prefix.to_string())
+                .filter(|prefix| !prefix.is_empty());
+
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_none()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Edited"),
+                )
+                .child(
+                    h_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .items_baseline()
+                        .gap_1p5()
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .text_sm()
+                                .font_semibold()
+                                .text_color(cx.theme().accent)
+                                .child(file_name),
+                        )
+                        .when_some(directory, |this, directory| {
+                            this.child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(directory),
+                            )
+                        }),
+                )
+                .child(
+                    h_flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_1p5()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_xs()
+                        .child(
+                            div()
+                                .text_color(line_stats_colors.added)
+                                .child(format!("+{}", file.added)),
+                        )
+                        .child(
+                            div()
+                                .text_color(line_stats_colors.removed)
+                                .child(format!("-{}", file.removed)),
+                        ),
+                )
+                .into_any_element()
+        })
+        .collect::<Vec<_>>();
+    let hidden_file_count = summary.files.len().saturating_sub(AI_TURN_DIFF_VISIBLE_FILE_LIMIT);
+
+    let row_element = h_flex()
+        .w_full()
+        .min_w_0()
+        .justify_start()
+        .child(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .max_w(px(940.0))
+                .gap_1()
+                .child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_stretch()
+                        .gap_0p5()
+                        .px_2()
+                        .py_1p5()
+                        .rounded(px(8.0))
+                        .hover(move |style| {
+                            style
+                                .bg(disclosure_colors.hover_background)
+                                .cursor_pointer()
+                        })
+                        .on_mouse_down(MouseButton::Left, {
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.ai_open_review_tab(cx);
+                                });
+                            }
+                        })
+                        .children(visible_files)
+                        .when(hidden_file_count > 0, |this| {
+                            this.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("+{hidden_file_count} more files")),
+                            )
+                        })
+                        .child(
+                            h_flex()
+                                .items_center()
+                                .justify_between()
+                                .gap_2()
+                                .child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_1p5()
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(disclosure_colors.title)
+                                                .child(file_count_label.clone()),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .font_family(cx.theme().mono_font_family.clone())
+                                                .text_color(line_stats_colors.added)
+                                                .child(format!("+{}", summary.total_added)),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .font_family(cx.theme().mono_font_family.clone())
+                                                .text_color(line_stats_colors.removed)
+                                                .child(format!("-{}", summary.total_removed)),
+                                        ),
+                                )
+                                .child(
+                                    Icon::new(IconName::ChevronRight)
+                                        .size(px(12.0))
+                                        .text_color(disclosure_colors.chevron),
+                                ),
+                        ),
+                ),
+        );
+
+    let wrapped_row = h_flex()
+        .w_full()
+        .min_w_0()
+        .justify_start()
+        .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .when(nested, |this| this.pl_4())
+                .child(row_element),
+        );
+
+    if nested {
+        wrapped_row.into_any_element()
+    } else {
+        ai_timeline_row_with_animation(this, row_id_string.as_str(), wrapped_row)
+    }
+}
+
+fn render_ai_turn_diff_row(
+    this: &DiffViewer,
+    view: Entity<DiffViewer>,
+    row: &AiTimelineRow,
+    diff_text: &str,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let summary = ai_turn_diff_summary(diff_text);
+    render_ai_compact_diff_summary_row(this, view, row.id.as_str(), &summary, false, is_dark, cx)
+}
+
 fn render_ai_chat_timeline_row_for_view(
     this: &DiffViewer,
     row_id: &str,
@@ -627,128 +1102,7 @@ fn render_ai_chat_timeline_row_for_view(
             if diff_text.is_empty() {
                 return div().w_full().h(px(0.0)).into_any_element();
             }
-            let diff_line_count = diff_text.lines().count();
-            let expanded = this.ai_expanded_timeline_row_ids.contains(row.id.as_str());
-            let (preview, preview_truncated) = if expanded {
-                (diff_text.to_string(), false)
-            } else {
-                ai_truncate_multiline_content(diff_text, 10)
-            };
-            let show_toggle = preview_truncated || expanded;
-            let view_diff_button_id =
-                format!("ai-open-review-tab-{}", row.turn_id.replace('\u{1f}', "--"));
-            let toggle_id = format!("ai-toggle-diff-row-{}", row.id.replace('\u{1f}', "--"));
-
-            let row_element = h_flex()
-                .w_full()
-                .min_w_0()
-                .justify_start()
-                .child(
-                    v_flex()
-                        .max_w(px(920.0))
-                        .w_full()
-                        .min_w_0()
-                        .gap_1()
-                        .px_2p5()
-                        .py_2()
-                        .overflow_hidden()
-                        .rounded(px(10.0))
-                        .border_1()
-                        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.9, 0.74))
-                        .bg(hunk_blend(cx.theme().background, cx.theme().muted, is_dark, 0.16, 0.22))
-                        .child(
-                            h_flex()
-                                .w_full()
-                                .min_w_0()
-                                .items_start()
-                                .justify_between()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .text_xs()
-                                        .font_semibold()
-                                        .whitespace_nowrap()
-                                        .truncate()
-                                        .child(format!("Code Diff ({diff_line_count} lines)")),
-                                )
-                                .child(
-                                    h_flex()
-                                        .items_center()
-                                        .gap_1()
-                                        .when(show_toggle, |this| {
-                                            let row_id = row.id.clone();
-                                            let view = view.clone();
-                                            this.child(
-                                                Button::new(toggle_id)
-                                                    .compact()
-                                                    .outline()
-                                                    .with_size(gpui_component::Size::Small)
-                                                    .icon(
-                                                        Icon::new(if expanded {
-                                                            IconName::ChevronDown
-                                                        } else {
-                                                            IconName::ChevronRight
-                                                        })
-                                                        .size(px(12.0)),
-                                                    )
-                                                    .tooltip(if expanded {
-                                                        "Collapse diff preview"
-                                                    } else {
-                                                        "Expand diff preview"
-                                                    })
-                                                    .on_click(move |_, _, cx| {
-                                                        view.update(cx, |this, cx| {
-                                                            this.ai_toggle_timeline_row_expansion_action(
-                                                                row_id.clone(),
-                                                                cx,
-                                                            );
-                                                        });
-                                                    }),
-                                            )
-                                        })
-                                        .child({
-                                            let view = view.clone();
-                                            Button::new(view_diff_button_id)
-                                                .compact()
-                                                .outline()
-                                                .with_size(gpui_component::Size::Small)
-                                                .label("View Diff")
-                                                .on_click(move |_, _, cx| {
-                                                    view.update(cx, |this, cx| {
-                                                        this.ai_open_review_tab(cx);
-                                                    });
-                                                })
-                                        }),
-                                ),
-                        )
-                        .when(!preview.is_empty(), |container| {
-                            let preview_surface_id =
-                                ai_timeline_text_surface_id(row.id.as_str(), "diff-preview", 0);
-                            let preview_selection_surfaces = ai_text_selection_surfaces(vec![
-                                AiTextSelectionSurfaceSpec::new(
-                                    preview_surface_id.clone(),
-                                    preview.clone(),
-                                ),
-                            ]);
-                            container.child(ai_tool_detail_section(
-                                this,
-                                view.clone(),
-                                row.id.as_str(),
-                                preview_surface_id,
-                                preview_selection_surfaces,
-                                "Preview",
-                                preview.clone(),
-                                true,
-                                expanded.then_some(px(280.0)),
-                                false,
-                                is_dark,
-                                cx,
-                            ))
-                        }),
-                );
-            ai_timeline_row_with_animation(this, row.id.as_str(), row_element)
+            render_ai_turn_diff_row(this, view, row, diff_text, is_dark, cx)
         }
     }
 }

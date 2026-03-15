@@ -85,7 +85,7 @@ impl DiffViewer {
             .map(|thread_id| self.ai_queued_message_row_ids_for_thread(thread_id).len())
             .unwrap_or(0);
         let model_supports_image_inputs = self.current_ai_model_supports_image_inputs();
-        let review_action_enabled = selected_thread_id.is_some();
+        let review_action_blocker = self.ai_review_blocker();
         let ai_publish_blocker = self.ai_publish_blocker();
         let ai_publish_disabled = ai_publish_blocker.is_some();
         let ai_commit_and_push_loading = self.git_action_loading_named("Commit and Push");
@@ -159,7 +159,7 @@ impl DiffViewer {
             composer_send_waiting_on_connection,
             composer_interrupt_available,
             queued_message_count,
-            review_action_enabled,
+            review_action_blocker,
             composer_drop_border_color,
             composer_drop_bg,
         };

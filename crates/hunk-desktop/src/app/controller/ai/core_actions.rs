@@ -422,6 +422,12 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(reason) = self.ai_review_blocker() {
+            self.set_current_ai_composer_status(reason);
+            cx.notify();
+            return;
+        }
+
         let Some(thread_id) = self.current_ai_thread_id() else {
             self.set_current_ai_composer_status("Select a thread before starting review.");
             cx.notify();
@@ -445,6 +451,16 @@ impl DiffViewer {
             self.clear_current_ai_composer_status();
             self.clear_ai_composer_input(window, cx);
         }
+    }
+
+    pub(super) fn ai_review_blocker(&self) -> Option<String> {
+        let Some(thread_id) = self.current_ai_thread_id() else {
+            return Some("Select a thread before starting review.".to_string());
+        };
+        if self.current_ai_in_progress_turn_id(thread_id.as_str()).is_some() {
+            return Some("Wait for the current run to finish or interrupt it first.".to_string());
+        }
+        None
     }
 
     pub(super) fn ai_interrupt_turn_action(&mut self, cx: &mut Context<Self>) {

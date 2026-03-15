@@ -6,6 +6,7 @@ mod ai_helper_tests {
     use super::ai_command_execution_display_details;
     use super::ai_composer_status_tone;
     use super::ai_collaboration_picker_label;
+    use super::ai_file_change_summary;
     use super::ai_should_show_no_turns_empty_state;
     use super::ai_tool_compact_summary;
     use super::ai_thread_display_title;
@@ -14,6 +15,7 @@ mod ai_helper_tests {
     use super::ai_item_display_label;
     use super::ai_reasoning_effort_label;
     use super::ai_rate_limit_summary;
+    use super::ai_turn_diff_summary;
     use super::ai_tool_header_label;
     use super::ai_timeline_item_is_renderable;
     use super::ai_truncate_multiline_content;
@@ -260,6 +262,106 @@ mod ai_helper_tests {
         assert_eq!(details.action_summaries, vec!["Run cargo test".to_string()]);
         assert_eq!(details.exit_code, Some(0));
         assert_eq!(details.duration_ms, Some(1250));
+    }
+
+    #[test]
+    fn turn_diff_summary_groups_line_counts_by_file() {
+        let diff = "\
+diff --git a/crates/hunk-desktop/src/app/render/ai_composer.rs b/crates/hunk-desktop/src/app/render/ai_composer.rs
+--- a/crates/hunk-desktop/src/app/render/ai_composer.rs
++++ b/crates/hunk-desktop/src/app/render/ai_composer.rs
+@@ -1,2 +1,3 @@
+-old
++new
++newer
+ keep
+diff --git a/crates/hunk-desktop/src/app/render/ai.rs b/crates/hunk-desktop/src/app/render/ai.rs
+--- a/crates/hunk-desktop/src/app/render/ai.rs
++++ b/crates/hunk-desktop/src/app/render/ai.rs
+@@ -10,1 +10,0 @@
+-gone";
+
+        let summary = ai_turn_diff_summary(diff);
+
+        assert_eq!(summary.total_added, 2);
+        assert_eq!(summary.total_removed, 2);
+        assert_eq!(summary.files.len(), 2);
+        assert_eq!(
+            summary.files[0],
+            super::AiTurnDiffFileSummary {
+                path: "crates/hunk-desktop/src/app/render/ai_composer.rs".to_string(),
+                added: 2,
+                removed: 1,
+            }
+        );
+        assert_eq!(
+            summary.files[1],
+            super::AiTurnDiffFileSummary {
+                path: "crates/hunk-desktop/src/app/render/ai.rs".to_string(),
+                added: 0,
+                removed: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn turn_diff_summary_uses_fallback_file_for_headerless_patch() {
+        let summary = ai_turn_diff_summary(
+            "@@ -1 +1 @@\n-old line\n+new line\n+second line",
+        );
+
+        assert_eq!(summary.total_added, 2);
+        assert_eq!(summary.total_removed, 1);
+        assert_eq!(summary.files.len(), 1);
+        assert_eq!(summary.files[0].path, "changes");
+        assert_eq!(summary.files[0].added, 2);
+        assert_eq!(summary.files[0].removed, 1);
+    }
+
+    #[test]
+    fn file_change_summary_uses_compact_persisted_metadata() {
+        let item = ItemSummary {
+            id: "item-1".to_string(),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            kind: "fileChange".to_string(),
+            status: ItemStatus::Completed,
+            content: String::new(),
+            display_metadata: Some(ItemDisplayMetadata {
+                summary: Some("Applied file changes".to_string()),
+                details_json: Some(
+                    r#"{
+                        "kind": "fileChangeSummary",
+                        "changes": [
+                            {
+                                "path": "docs/alpha.md",
+                                "added": 2,
+                                "removed": 1
+                            },
+                            {
+                                "path": "docs/beta.md",
+                                "added": 1,
+                                "removed": 1
+                            }
+                        ],
+                        "truncatedCount": 0
+                    }"#
+                        .to_string(),
+                ),
+            }),
+            last_sequence: 1,
+        };
+
+        let summary = ai_file_change_summary(&item).expect("file change summary should parse");
+        assert_eq!(summary.total_added, 3);
+        assert_eq!(summary.total_removed, 2);
+        assert_eq!(summary.files.len(), 2);
+        assert_eq!(summary.files[0].path, "docs/alpha.md");
+        assert_eq!(summary.files[0].added, 2);
+        assert_eq!(summary.files[0].removed, 1);
+        assert_eq!(summary.files[1].path, "docs/beta.md");
+        assert_eq!(summary.files[1].added, 1);
+        assert_eq!(summary.files[1].removed, 1);
     }
 
     #[test]

@@ -24,6 +24,7 @@ mod ai_tests {
     use super::ai_thread_catalog_workspace_roots;
     use super::ai_thread_workspace_matches_current_project;
     use super::ai_thread_start_mode_for_workspace;
+    use super::ai_turn_keys_with_file_change_items;
     use super::apply_ai_thread_catalog_to_workspace_state;
     use super::bundled_codex_executable_candidates;
     use super::codex_runtime_binary_name;

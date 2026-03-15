@@ -473,6 +473,34 @@ fn ai_file_change_batch_group_summary_for_item(
         return None;
     }
 
+    let details = ai_timeline_item_details_value(item)?;
+    if details.get("kind").and_then(|value| value.as_str()) == Some("fileChangeSummary") {
+        let preview_paths = details
+            .get("changes")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|change| {
+                change
+                    .get("path")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+            })
+            .collect::<Vec<_>>();
+        return Some(AiFileChangeBatchGroupSummary {
+            operation_count: 1,
+            total_files: preview_paths.len()
+                + details
+                    .get("truncatedCount")
+                    .and_then(|value| value.as_u64())
+                    .and_then(|value| usize::try_from(value).ok())
+                    .unwrap_or(0),
+            preview_paths,
+        });
+    }
+
     let thread_item = ai_timeline_item_thread_item(item)?;
     let codex_app_server_protocol::ThreadItem::FileChange { changes, .. } = thread_item else {
         return None;

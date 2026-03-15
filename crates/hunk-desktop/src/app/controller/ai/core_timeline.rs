@@ -241,6 +241,8 @@ impl DiffViewer {
 
         let mut base_rows_by_thread = BTreeMap::<String, Vec<(u64, String)>>::new();
         let mut rows_by_id = BTreeMap::<String, AiTimelineRow>::new();
+        let turn_keys_with_file_change_items =
+            ai_turn_keys_with_file_change_items(&self.ai_state_snapshot);
         for (item_key, item) in &self.ai_state_snapshot.items {
             let row_id = format!("item:{item_key}");
             base_rows_by_thread
@@ -266,6 +268,9 @@ impl DiffViewer {
                 continue;
             };
             if diff.trim().is_empty() {
+                continue;
+            }
+            if turn_keys_with_file_change_items.contains(turn_key.as_str()) {
                 continue;
             }
             let diff_row_id = format!("turn-diff:{turn_key}");
@@ -541,4 +546,15 @@ impl DiffViewer {
             cx.notify();
         }
     }
+}
+
+fn ai_turn_keys_with_file_change_items(
+    state: &hunk_codex::state::AiState,
+) -> std::collections::BTreeSet<String> {
+    state
+        .items
+        .values()
+        .filter(|item| item.kind == "fileChange")
+        .map(|item| hunk_codex::state::turn_storage_key(item.thread_id.as_str(), item.turn_id.as_str()))
+        .collect()
 }

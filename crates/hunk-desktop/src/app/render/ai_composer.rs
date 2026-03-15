@@ -10,7 +10,7 @@ struct AiComposerPanelState {
     composer_send_waiting_on_connection: bool,
     composer_interrupt_available: bool,
     queued_message_count: usize,
-    review_action_enabled: bool,
+    review_action_blocker: Option<String>,
     composer_drop_border_color: Hsla,
     composer_drop_bg: Hsla,
 }
@@ -221,15 +221,22 @@ impl DiffViewer {
                                             .gap_1()
                                             .child({
                                                 let view = view.clone();
-                                                let review_action_enabled =
-                                                    state.review_action_enabled;
+                                                let review_action_blocker =
+                                                    state.review_action_blocker.clone();
+                                                let review_action_disabled =
+                                                    review_action_blocker.is_some();
+                                                let review_action_tooltip =
+                                                    review_action_blocker.unwrap_or_else(|| {
+                                                        "Review the current working-copy changes for correctness and regressions.".to_string()
+                                                    });
                                                 Button::new("ai-start-review")
                                                     .compact()
                                                     .ghost()
                                                     .rounded(px(999.0))
                                                     .with_size(gpui_component::Size::Small)
                                                     .label("Review")
-                                                    .disabled(!review_action_enabled)
+                                                    .disabled(review_action_disabled)
+                                                    .tooltip(review_action_tooltip)
                                                     .on_click(move |_, window, cx| {
                                                         view.update(cx, |this, cx| {
                                                             this.ai_start_review_action(window, cx);
