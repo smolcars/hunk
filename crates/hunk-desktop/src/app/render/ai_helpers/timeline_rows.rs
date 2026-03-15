@@ -89,6 +89,12 @@ fn ai_timeline_item_details_json(item: &hunk_codex::state::ItemSummary) -> Optio
         .filter(|value| !value.is_empty())
 }
 
+fn ai_timeline_item_details_value(
+    item: &hunk_codex::state::ItemSummary,
+) -> Option<serde_json::Value> {
+    serde_json::from_str::<serde_json::Value>(ai_timeline_item_details_json(item)?).ok()
+}
+
 fn ai_timeline_item_thread_item(
     item: &hunk_codex::state::ItemSummary,
 ) -> Option<codex_app_server_protocol::ThreadItem> {
@@ -153,16 +159,15 @@ fn ai_tool_compact_preview_text(
     if let Some(details) = ai_command_execution_display_details(item) {
         return Some(details.command);
     }
+    if let Some(summary) = ai_file_change_summary(item) {
+        let first_path = summary.files.first()?.path.clone();
+        if summary.files.len() == 1 {
+            return Some(first_path);
+        }
+        return Some(format!("{first_path} (+{} more files)", summary.files.len() - 1));
+    }
 
     match ai_timeline_item_thread_item(item) {
-        Some(codex_app_server_protocol::ThreadItem::FileChange { changes, .. }) => {
-            let first_path = changes.first()?.path.clone();
-            if changes.len() == 1 {
-                Some(first_path)
-            } else {
-                Some(format!("{first_path} (+{} more files)", changes.len() - 1))
-            }
-        }
         Some(codex_app_server_protocol::ThreadItem::McpToolCall { server, tool, .. }) => {
             Some(format!("{server} :: {tool}"))
         }
@@ -385,9 +390,52 @@ fn ai_diff_summary_push_file(
     summary.total_removed = summary.total_removed.saturating_add(removed);
 }
 
+fn ai_file_change_summary_from_details_value(
+    details: &serde_json::Value,
+) -> Option<AiTurnDiffSummary> {
+    if details.get("kind").and_then(|value| value.as_str()) != Some("fileChangeSummary") {
+        return None;
+    }
+
+    let mut summary = AiTurnDiffSummary {
+        files: Vec::new(),
+        total_added: 0,
+        total_removed: 0,
+    };
+    let changes = details.get("changes")?.as_array()?;
+    for change in changes {
+        let path = change
+            .get("path")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("changes")
+            .to_string();
+        let added = change
+            .get("added")
+            .and_then(|value| value.as_u64())
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(0);
+        let removed = change
+            .get("removed")
+            .and_then(|value| value.as_u64())
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(0);
+        ai_diff_summary_push_file(&mut summary, path, added, removed);
+    }
+
+    (!summary.files.is_empty()).then_some(summary)
+}
+
 fn ai_file_change_summary(
     item: &hunk_codex::state::ItemSummary,
 ) -> Option<AiTurnDiffSummary> {
+    if let Some(details) = ai_timeline_item_details_value(item)
+        && let Some(summary) = ai_file_change_summary_from_details_value(&details)
+    {
+        return Some(summary);
+    }
+
     let codex_app_server_protocol::ThreadItem::FileChange { changes, .. } =
         ai_timeline_item_thread_item(item)?
     else {

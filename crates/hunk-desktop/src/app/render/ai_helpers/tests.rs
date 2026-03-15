@@ -319,7 +319,7 @@ diff --git a/crates/hunk-desktop/src/app/render/ai.rs b/crates/hunk-desktop/src/
     }
 
     #[test]
-    fn file_change_summary_uses_persisted_change_paths_and_diffs() {
+    fn file_change_summary_uses_compact_persisted_metadata() {
         let item = ItemSummary {
             id: "item-1".to_string(),
             thread_id: "thread-1".to_string(),
@@ -331,21 +331,20 @@ diff --git a/crates/hunk-desktop/src/app/render/ai.rs b/crates/hunk-desktop/src/
                 summary: Some("Applied file changes".to_string()),
                 details_json: Some(
                     r#"{
-                        "type": "fileChange",
-                        "id": "item-1",
+                        "kind": "fileChangeSummary",
                         "changes": [
                             {
                                 "path": "docs/alpha.md",
-                                "kind": { "type": "update", "movePath": null },
-                                "diff": "@@ -1 +1,2 @@\n-old\n+new\n+extra"
+                                "added": 2,
+                                "removed": 1
                             },
                             {
                                 "path": "docs/beta.md",
-                                "kind": { "type": "update", "movePath": null },
-                                "diff": "@@ -4 +4 @@\n-old beta\n+new beta"
+                                "added": 1,
+                                "removed": 1
                             }
                         ],
-                        "status": "completed"
+                        "truncatedCount": 0
                     }"#
                         .to_string(),
                 ),

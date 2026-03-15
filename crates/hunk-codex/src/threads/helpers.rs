@@ -82,10 +82,59 @@ fn thread_item_display_details_json(item: &ThreadItem) -> Option<String> {
             "durationMs": duration_ms,
         }))
         .ok(),
+        ThreadItem::FileChange { changes, .. } => {
+            let mut change_summaries = changes
+                .iter()
+                .map(|change| {
+                    let path = change.path.trim();
+                    let (added, removed) = file_change_diff_line_counts(change.diff.as_str());
+                    serde_json::json!({
+                        "path": if path.is_empty() { "changes" } else { path },
+                        "added": added,
+                        "removed": removed,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let mut truncated_count = 0usize;
+
+            loop {
+                let value = serde_json::json!({
+                    "kind": "fileChangeSummary",
+                    "changes": &change_summaries,
+                    "truncatedCount": truncated_count,
+                });
+                let json = serde_json::to_string_pretty(&value).ok()?;
+                if json.len() <= MAX_ITEM_DETAILS_JSON_BYTES || change_summaries.is_empty() {
+                    return Some(json);
+                }
+                change_summaries.pop();
+                truncated_count = truncated_count.saturating_add(1);
+            }
+        }
         _ => serde_json::to_string_pretty(item)
             .ok()
             .map(|json| truncate_utf8_for_display(json, MAX_ITEM_DETAILS_JSON_BYTES)),
     }
+}
+
+fn file_change_diff_line_counts(diff_text: &str) -> (u64, u64) {
+    let mut added = 0u64;
+    let mut removed = 0u64;
+
+    for line in diff_text.lines() {
+        if line.starts_with("+++") || line.starts_with("---") {
+            continue;
+        }
+        if line.starts_with('+') {
+            added = added.saturating_add(1);
+            continue;
+        }
+        if line.starts_with('-') {
+            removed = removed.saturating_add(1);
+        }
+    }
+
+    (added, removed)
 }
 
 fn thread_item_supports_display_metadata(item: &ThreadItem) -> bool {
@@ -421,5 +470,36 @@ mod tests {
         assert!(!truncated.starts_with("tool ✅"));
         assert!(!truncated.contains('\u{fffd}'));
         assert!(truncated.contains("... [truncated]"));
+    }
+
+    #[test]
+    fn file_change_display_details_json_stays_valid_when_truncated() {
+        let item = serde_json::from_value::<ThreadItem>(serde_json::json!({
+            "type": "fileChange",
+            "id": "item-1",
+            "changes": (0..400).map(|index| {
+                serde_json::json!({
+                    "path": format!("docs/file-{index}.md"),
+                    "kind": { "type": "update", "movePath": null },
+                    "diff": "@@ -1 +1,2 @@\n-old\n+new\n+extra"
+                })
+            }).collect::<Vec<_>>(),
+            "status": "completed"
+        }))
+        .expect("file change item should deserialize");
+
+        let details_json = thread_item_display_details_json(&item).expect("details json");
+        assert!(details_json.len() <= MAX_ITEM_DETAILS_JSON_BYTES);
+
+        let value =
+            serde_json::from_str::<serde_json::Value>(details_json.as_str()).expect("valid json");
+        assert_eq!(
+            value.get("kind").and_then(|value| value.as_str()),
+            Some("fileChangeSummary")
+        );
+        assert!(value
+            .get("truncatedCount")
+            .and_then(|value| value.as_u64())
+            .is_some());
     }
 }

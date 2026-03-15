@@ -604,7 +604,94 @@
     }
 
     #[test]
-    fn turn_file_change_detection_matches_thread_and_turn() {
+    fn timeline_grouping_merges_compact_file_change_batches() {
+        let thread_id = "thread-1";
+        let turn_id = "turn-1";
+        let first_item_key = hunk_codex::state::item_storage_key(thread_id, turn_id, "item-1");
+        let second_item_key = hunk_codex::state::item_storage_key(thread_id, turn_id, "item-2");
+        let first_row_id = format!("item:{first_item_key}");
+        let second_row_id = format!("item:{second_item_key}");
+
+        let mut state = AiState::default();
+        state.items.insert(
+            first_item_key.clone(),
+            timeline_tool_item(
+                "item-1",
+                thread_id,
+                turn_id,
+                "fileChange",
+                ItemStatus::Completed,
+                "",
+                r#"{
+                    "kind": "fileChangeSummary",
+                    "changes": [
+                        { "path": "/repo/src/first.rs", "added": 2, "removed": 1 },
+                        { "path": "/repo/src/second.rs", "added": 1, "removed": 0 }
+                    ],
+                    "truncatedCount": 0
+                }"#,
+                1,
+            ),
+        );
+        state.items.insert(
+            second_item_key.clone(),
+            timeline_tool_item(
+                "item-2",
+                thread_id,
+                turn_id,
+                "fileChange",
+                ItemStatus::Completed,
+                "",
+                r#"{
+                    "kind": "fileChangeSummary",
+                    "changes": [
+                        { "path": "/repo/src/third.rs", "added": 1, "removed": 1 }
+                    ],
+                    "truncatedCount": 2
+                }"#,
+                2,
+            ),
+        );
+
+        let row_ids = vec![first_row_id.clone(), second_row_id.clone()];
+        let rows_by_id = BTreeMap::from([
+            (
+                first_row_id.clone(),
+                timeline_item_row(
+                    first_row_id.as_str(),
+                    thread_id,
+                    turn_id,
+                    1,
+                    first_item_key.as_str(),
+                ),
+            ),
+            (
+                second_row_id.clone(),
+                timeline_item_row(
+                    second_row_id.as_str(),
+                    thread_id,
+                    turn_id,
+                    2,
+                    second_item_key.as_str(),
+                ),
+            ),
+        ]);
+
+        let (grouped_row_ids, groups, _) =
+            group_ai_timeline_rows_for_thread(&state, row_ids.as_slice(), &rows_by_id);
+
+        assert_eq!(grouped_row_ids, vec![format!("group:{first_row_id}")]);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].kind, "file_change_batch");
+        assert_eq!(groups[0].title, "Applied 5 file changes");
+        assert_eq!(
+            groups[0].summary.as_deref(),
+            Some("/repo/src/first.rs (+4 more files)")
+        );
+    }
+
+    #[test]
+    fn turn_file_change_detection_tracks_turn_keys() {
         let mut state = AiState::default();
         state.items.insert(
             hunk_codex::state::item_storage_key("thread-1", "turn-1", "item-1"),
@@ -633,9 +720,10 @@
             },
         );
 
-        assert!(ai_turn_has_file_change_items(&state, "thread-1", "turn-1"));
-        assert!(!ai_turn_has_file_change_items(&state, "thread-1", "turn-2"));
-        assert!(!ai_turn_has_file_change_items(&state, "thread-2", "turn-1"));
+        let turn_keys = ai_turn_keys_with_file_change_items(&state);
+        assert!(turn_keys.contains(hunk_codex::state::turn_storage_key("thread-1", "turn-1").as_str()));
+        assert!(!turn_keys.contains(hunk_codex::state::turn_storage_key("thread-1", "turn-2").as_str()));
+        assert!(!turn_keys.contains(hunk_codex::state::turn_storage_key("thread-2", "turn-1").as_str()));
     }
 
     #[test]
