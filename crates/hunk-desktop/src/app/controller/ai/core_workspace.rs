@@ -394,7 +394,7 @@ impl DiffViewer {
         };
         let persisted = workspace_key
             .and_then(|workspace| self.state.ai_workspace_session_overrides.get(workspace).cloned())
-            .unwrap_or_default();
+            .unwrap_or_else(AiThreadSessionState::preferred_defaults);
         next.selected_model = persisted.model;
         next.selected_effort = persisted.effort;
         next.selected_collaboration_mode = persisted.collaboration_mode;

@@ -379,6 +379,23 @@
     }
 
     #[test]
+    fn normalized_ai_session_selection_keeps_preferred_defaults_when_supported() {
+        let defaults = AiThreadSessionState::preferred_defaults();
+        let models = vec![ai_model(
+            "gpt-5.4",
+            "GPT-5.4",
+            false,
+            &[ReasoningEffort::Medium, ReasoningEffort::High],
+            ReasoningEffort::Medium,
+        )];
+
+        assert_eq!(
+            normalized_ai_session_selection(models.as_slice(), defaults.model, defaults.effort),
+            (Some("gpt-5.4".to_string()), Some("high".to_string())),
+        );
+    }
+
+    #[test]
     fn normalized_ai_session_selection_preserves_selection_while_models_load() {
         assert_eq!(
             normalized_ai_session_selection(

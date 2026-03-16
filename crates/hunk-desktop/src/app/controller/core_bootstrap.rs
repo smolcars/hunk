@@ -284,6 +284,7 @@ impl DiffViewer {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (config_store, config) = Self::load_app_config();
         let (state_store, mut state) = Self::load_app_state();
+        let preferred_ai_session = hunk_domain::state::AiThreadSessionState::preferred_defaults();
         let database_store = Self::load_database_store();
         if state.last_project_path.is_none()
             && let Some(config_store) = config_store.as_ref()
@@ -439,8 +440,8 @@ impl DiffViewer {
             ai_experimental_features: Vec::new(),
             ai_collaboration_modes: Vec::new(),
             ai_include_hidden_models: initial_ai_include_hidden_models,
-            ai_selected_model: None,
-            ai_selected_effort: None,
+            ai_selected_model: preferred_ai_session.model,
+            ai_selected_effort: preferred_ai_session.effort,
             ai_selected_collaboration_mode: AiCollaborationModeSelection::Default,
             ai_selected_service_tier: AiServiceTierSelection::Standard,
             ai_mad_max_mode: initial_ai_mad_max_mode,

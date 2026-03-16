@@ -678,7 +678,7 @@ impl DiffViewer {
             .ai_workspace_key()
             .as_ref()
             .and_then(|workspace| self.state.ai_workspace_session_overrides.get(workspace).cloned())
-            .unwrap_or_default();
+            .unwrap_or_else(AiThreadSessionState::preferred_defaults);
         let (selected_model, selected_effort) = normalized_ai_session_selection(
             self.ai_models.as_slice(),
             persisted.model,

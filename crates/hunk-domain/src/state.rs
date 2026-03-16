@@ -43,6 +43,17 @@ pub struct AiThreadSessionState {
     pub service_tier: Option<AiServiceTierSelection>,
 }
 
+impl AiThreadSessionState {
+    pub fn preferred_defaults() -> Self {
+        Self {
+            model: Some("gpt-5.4".to_string()),
+            effort: Some("high".to_string()),
+            collaboration_mode: AiCollaborationModeSelection::Default,
+            service_tier: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CachedChangedFileState {

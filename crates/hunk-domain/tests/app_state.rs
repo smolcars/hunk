@@ -39,6 +39,19 @@ fn app_state_parses_without_last_project_path_field() {
 }
 
 #[test]
+fn ai_thread_session_state_preferred_defaults_pin_model_and_effort() {
+    let defaults = AiThreadSessionState::preferred_defaults();
+
+    assert_eq!(defaults.model.as_deref(), Some("gpt-5.4"));
+    assert_eq!(defaults.effort.as_deref(), Some("high"));
+    assert_eq!(
+        defaults.collaboration_mode,
+        AiCollaborationModeSelection::Default
+    );
+    assert_eq!(defaults.service_tier, None);
+}
+
+#[test]
 fn app_state_round_trips_last_project_path() {
     let state = AppState {
         last_project_path: Some(PathBuf::from("/tmp/hunk-repo")),
