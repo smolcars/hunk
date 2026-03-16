@@ -3,6 +3,7 @@ struct AiSelectableStyledText {
     row_id: String,
     surface_id: String,
     selection_surfaces: std::sync::Arc<[AiTextSelectionSurfaceSpec]>,
+    link_ranges: std::sync::Arc<[MarkdownLinkRange]>,
     text: StyledText,
     selection_range: Option<std::ops::Range<usize>>,
     selection_background: Hsla,
@@ -14,6 +15,7 @@ impl AiSelectableStyledText {
         row_id: impl Into<String>,
         surface_id: impl Into<String>,
         selection_surfaces: std::sync::Arc<[AiTextSelectionSurfaceSpec]>,
+        link_ranges: std::sync::Arc<[MarkdownLinkRange]>,
         text: StyledText,
         selection_range: Option<std::ops::Range<usize>>,
         selection_background: Hsla,
@@ -25,6 +27,7 @@ impl AiSelectableStyledText {
             row_id: row_id.into(),
             surface_id,
             selection_surfaces,
+            link_ranges,
             text,
             selection_range,
             selection_background,
@@ -87,6 +90,20 @@ impl AiSelectableStyledText {
 
         let _ = cx;
     }
+
+    fn link_at_position(
+        &self,
+        layout: &gpui::TextLayout,
+        position: gpui::Point<gpui::Pixels>,
+    ) -> Option<MarkdownLinkRange> {
+        let index = match layout.index_for_position(position) {
+            Ok(index) | Err(index) => index,
+        };
+        self.link_ranges
+            .iter()
+            .find(|range| range.range.contains(&index))
+            .cloned()
+    }
 }
 
 impl gpui::Element for AiSelectableStyledText {
@@ -140,7 +157,10 @@ impl gpui::Element for AiSelectableStyledText {
         let row_id = self.row_id.clone();
         let hitbox_for_mouse_down = hitbox.clone();
         let hitbox_for_mouse_move = hitbox.clone();
+        let hitbox_for_mouse_up = hitbox.clone();
         let selection_surfaces = self.selection_surfaces.clone();
+        let link_ranges_for_mouse_down = self.link_ranges.clone();
+        let link_ranges_for_mouse_up = self.link_ranges.clone();
 
         window.on_mouse_event(move |event: &gpui::MouseDownEvent, phase, window, cx| {
             if phase != gpui::DispatchPhase::Bubble
@@ -153,7 +173,17 @@ impl gpui::Element for AiSelectableStyledText {
             let index = match text_layout.index_for_position(event.position) {
                 Ok(index) | Err(index) => index,
             };
+            let pressed_link = link_ranges_for_mouse_down
+                .iter()
+                .find(|range| range.range.contains(&index))
+                .map(|range| AiPressedMarkdownLink {
+                    surface_id: surface_id.clone(),
+                    raw_target: range.raw_target.clone(),
+                    mouse_down_position: event.position,
+                    dragged: false,
+                });
             view.update(cx, |this, cx| {
+                this.ai_set_pressed_markdown_link(pressed_link.clone());
                 this.ai_begin_text_selection(
                     row_id.clone(),
                     selection_surfaces.clone(),
@@ -173,6 +203,10 @@ impl gpui::Element for AiSelectableStyledText {
             if phase != gpui::DispatchPhase::Bubble {
                 return;
             }
+
+            view.update(cx, |this, _| {
+                this.ai_mark_pressed_markdown_link_dragged(event.position);
+            });
 
             if !hitbox_for_mouse_move.is_hovered(window) {
                 return;
@@ -196,17 +230,44 @@ impl gpui::Element for AiSelectableStyledText {
         });
 
         let view = self.view.clone();
-        window.on_mouse_event(move |_: &gpui::MouseUpEvent, phase, _window, cx| {
+        let surface_id = self.surface_id.clone();
+        let text_layout = self.text.layout().clone();
+        window.on_mouse_event(move |event: &gpui::MouseUpEvent, phase, window, cx| {
             if phase != gpui::DispatchPhase::Bubble {
                 return;
             }
             view.update(cx, |this, cx| {
                 this.ai_end_text_selection(cx);
+                let Some(pressed_link) = this.ai_pressed_markdown_link.as_ref() else {
+                    return;
+                };
+                if pressed_link.surface_id != surface_id {
+                    return;
+                };
+                let Some(pressed_link) = this.ai_take_pressed_markdown_link() else {
+                    return;
+                };
+                if pressed_link.dragged || !hitbox_for_mouse_up.is_hovered(window) {
+                    return;
+                }
+                let index = match text_layout.index_for_position(event.position) {
+                    Ok(index) | Err(index) => index,
+                };
+                let activated = link_ranges_for_mouse_up.iter().any(|range| {
+                    range.raw_target == pressed_link.raw_target && range.range.contains(&index)
+                });
+                if activated {
+                    this.activate_markdown_link(pressed_link.raw_target, Some(window), cx);
+                }
             });
         });
 
         if hitbox.is_hovered(window) {
-            window.set_cursor_style(gpui::CursorStyle::IBeam, hitbox);
+            let cursor_style = self
+                .link_at_position(&self.text.layout().clone(), window.mouse_position())
+                .map(|_| gpui::CursorStyle::PointingHand)
+                .unwrap_or(gpui::CursorStyle::IBeam);
+            window.set_cursor_style(cursor_style, hitbox);
         }
 
         self.paint_selection(&self.text.layout().clone(), window, cx);
@@ -230,6 +291,7 @@ fn ai_render_selectable_styled_text(
     row_id: &str,
     surface_id: impl Into<String>,
     selection_surfaces: std::sync::Arc<[AiTextSelectionSurfaceSpec]>,
+    link_ranges: std::sync::Arc<[MarkdownLinkRange]>,
     styled_text: StyledText,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
@@ -240,6 +302,7 @@ fn ai_render_selectable_styled_text(
         row_id,
         surface_id,
         selection_surfaces,
+        link_ranges,
         styled_text,
         selection_range,
         hunk_text_selection_background(cx.theme(), is_dark),
@@ -259,4 +322,10 @@ fn ai_text_selection_surfaces(
     surfaces: Vec<AiTextSelectionSurfaceSpec>,
 ) -> std::sync::Arc<[AiTextSelectionSurfaceSpec]> {
     surfaces.into()
+}
+
+fn ai_text_link_ranges(
+    ranges: Vec<MarkdownLinkRange>,
+) -> std::sync::Arc<[MarkdownLinkRange]> {
+    ranges.into()
 }

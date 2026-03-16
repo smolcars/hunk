@@ -427,6 +427,7 @@ impl DiffViewer {
             ai_in_progress_turn_started_at: BTreeMap::new(),
             ai_composer_activity_elapsed_second: None,
             ai_expanded_timeline_row_ids: BTreeSet::new(),
+            ai_pressed_markdown_link: None,
             ai_text_selection: None,
             ai_pending_approvals: Vec::new(),
             ai_pending_user_inputs: Vec::new(),

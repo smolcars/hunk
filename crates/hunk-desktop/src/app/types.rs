@@ -362,6 +362,14 @@ struct AiTextSelectionSurfaceRange {
     range: Range<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct AiPressedMarkdownLink {
+    surface_id: String,
+    raw_target: String,
+    mouse_down_position: gpui::Point<gpui::Pixels>,
+    dragged: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiTextSelection {
     row_id: String,

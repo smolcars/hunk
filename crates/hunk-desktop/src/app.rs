@@ -142,6 +142,7 @@ mod data;
 mod data_segments;
 mod files_editor;
 mod highlight;
+mod markdown_links;
 mod render;
 mod repo_file_search;
 mod theme;
@@ -677,6 +678,7 @@ struct DiffViewer {
     ai_in_progress_turn_started_at: BTreeMap<String, Instant>,
     ai_composer_activity_elapsed_second: Option<u64>,
     ai_expanded_timeline_row_ids: BTreeSet<String>,
+    ai_pressed_markdown_link: Option<AiPressedMarkdownLink>,
     ai_text_selection: Option<AiTextSelection>,
     ai_pending_approvals: Vec<AiPendingApproval>,
     ai_pending_user_inputs: Vec<AiPendingUserInputRequest>,

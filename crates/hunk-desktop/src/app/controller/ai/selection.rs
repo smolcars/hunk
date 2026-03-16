@@ -1,4 +1,28 @@
 impl DiffViewer {
+    pub(super) fn ai_set_pressed_markdown_link(
+        &mut self,
+        pressed_link: Option<AiPressedMarkdownLink>,
+    ) {
+        self.ai_pressed_markdown_link = pressed_link;
+    }
+
+    pub(super) fn ai_mark_pressed_markdown_link_dragged(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+    ) {
+        let Some(pressed_link) = self.ai_pressed_markdown_link.as_mut() else {
+            return;
+        };
+        let drag_delta = position - pressed_link.mouse_down_position;
+        if drag_delta.x.abs() > px(3.0) || drag_delta.y.abs() > px(3.0) {
+            pressed_link.dragged = true;
+        }
+    }
+
+    pub(super) fn ai_take_pressed_markdown_link(&mut self) -> Option<AiPressedMarkdownLink> {
+        self.ai_pressed_markdown_link.take()
+    }
+
     pub(super) fn ai_copy_text_action(
         &mut self,
         text: String,

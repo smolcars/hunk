@@ -2,7 +2,6 @@
 #[allow(clippy::items_after_test_module)]
 mod ai_helper_tests {
     use super::ai_account_summary;
-    use super::ai_chat_markdown_text;
     use super::ai_markdown_code_block_text;
     use super::ai_markdown_code_block_text_and_highlights;
     use super::ai_command_execution_display_details;
@@ -21,6 +20,7 @@ mod ai_helper_tests {
     use super::ai_tool_header_label;
     use super::ai_timeline_item_is_renderable;
     use super::ai_truncate_multiline_content;
+    use crate::app::markdown_links::markdown_inline_text_and_link_ranges;
     use hunk_codex::state::ItemDisplayMetadata;
     use hunk_codex::state::ItemStatus;
     use hunk_codex::state::ItemSummary;
@@ -490,7 +490,7 @@ diff --git a/crates/hunk-desktop/src/app/render/ai.rs b/crates/hunk-desktop/src/
         };
 
         assert_eq!(
-            ai_chat_markdown_text(spans),
+            markdown_inline_text_and_link_ranges(spans).0,
             "That is now in timeline_rows.rs, and wired."
         );
     }

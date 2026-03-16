@@ -579,6 +579,7 @@ fn ai_tool_detail_section(
                 row_id,
                 surface_id,
                 selection_surfaces,
+                ai_text_link_ranges(Vec::new()),
                 StyledText::new(content),
                 is_dark,
                 cx,

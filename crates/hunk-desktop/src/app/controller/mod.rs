@@ -13,6 +13,7 @@ use crate::app::ai_thread_flow::{
     ai_commit_message_for_thread, ai_first_prompt_seed_for_thread,
     ai_latest_agent_message_for_thread, try_ai_branch_name_for_prompt, try_ai_commit_message,
 };
+use crate::app::markdown_links::open_url_in_browser;
 
 use super::data::{
     DiffSegmentQuality, DiffStream, DiffStreamRowKind, RepoTreeNodeKind,
@@ -52,6 +53,7 @@ use hunk_git::network::{
 
 include!("core.rs");
 include!("core_runtime.rs");
+include!("markdown_links.rs");
 include!("git_ops_review.rs");
 include!("git_ops.rs");
 include!("recent_commits.rs");

@@ -4,40 +4,6 @@ enum ReviewUrlAction {
     Copy,
 }
 
-fn open_url_in_browser(url: &str) -> anyhow::Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .context("failed to launch macOS browser opener")?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .context("failed to launch Linux browser opener")?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .spawn()
-            .context("failed to launch Windows browser opener")?;
-        return Ok(());
-    }
-
-    #[allow(unreachable_code)]
-    Err(anyhow::anyhow!(
-        "opening review URLs is not supported on this platform"
-    ))
-}
-
 fn with_review_title_prefill(url: String, title: &str) -> String {
     let normalized_title = normalized_review_title_subject(title);
     let Some(title) = normalized_title else {

@@ -480,10 +480,11 @@ impl DiffViewer {
                 .into_any_element();
         }
 
+        let view = cx.entity();
         let rendered_blocks = self
             .editor_markdown_preview_blocks
             .iter()
-            .map(|block| self.render_markdown_preview_block(block, is_dark, cx))
+            .map(|block| self.render_markdown_preview_block(view.clone(), block, is_dark, cx))
             .collect::<Vec<_>>();
         let mut preview = div().flex_1().size_full().min_h_0().p_2().child(
             div()
@@ -512,6 +513,7 @@ impl DiffViewer {
 
     fn render_markdown_preview_block(
         &self,
+        view: Entity<Self>,
         block: &MarkdownPreviewBlock,
         is_dark: bool,
         cx: &mut Context<Self>,
@@ -520,6 +522,7 @@ impl DiffViewer {
             MarkdownPreviewBlock::Heading { level, spans } => {
                 let heading = match level {
                     1 | 2 => self.render_markdown_inline_spans(
+                        view.clone(),
                         spans,
                         true,
                         true,
@@ -528,6 +531,7 @@ impl DiffViewer {
                         cx,
                     ),
                     _ => self.render_markdown_inline_spans(
+                        view.clone(),
                         spans,
                         false,
                         true,
@@ -540,6 +544,7 @@ impl DiffViewer {
             }
             MarkdownPreviewBlock::Paragraph(spans) => self
                 .render_markdown_inline_spans(
+                    view.clone(),
                     spans,
                     false,
                     false,
@@ -560,6 +565,7 @@ impl DiffViewer {
                 )
                 .child(
                     self.render_markdown_inline_spans(
+                        view.clone(),
                         spans,
                         false,
                         false,
@@ -581,6 +587,7 @@ impl DiffViewer {
                 )
                 .child(
                     self.render_markdown_inline_spans(
+                        view.clone(),
                         spans,
                         false,
                         false,
@@ -602,6 +609,7 @@ impl DiffViewer {
                 )
                 .child(
                     self.render_markdown_inline_spans(
+                        view.clone(),
                         spans,
                         false,
                         false,
@@ -684,6 +692,7 @@ impl DiffViewer {
 
     fn render_markdown_inline_spans(
         &self,
+        view: Entity<Self>,
         spans: &[MarkdownInlineSpan],
         large: bool,
         emphasized: bool,
@@ -706,7 +715,9 @@ impl DiffViewer {
             .children(
                 spans
                     .iter()
-                    .map(|span| self.render_markdown_inline_span(span, base_color, is_dark, cx)),
+                    .map(|span| {
+                        self.render_markdown_inline_span(view.clone(), span, base_color, is_dark, cx)
+                    }),
             );
 
         if large {
@@ -723,6 +734,7 @@ impl DiffViewer {
 
     fn render_markdown_inline_span(
         &self,
+        view: Entity<Self>,
         span: &MarkdownInlineSpan,
         base_color: Hsla,
         is_dark: bool,
@@ -756,8 +768,18 @@ impl DiffViewer {
                 .rounded(px(4.0))
                 .px_1();
         }
-        if span.style.link.is_some() {
-            element = element.underline();
+        if let Some(raw_target) = span.style.link.as_ref().cloned() {
+            let link_color = cx.theme().primary;
+            element = element
+                .underline()
+                .text_color(link_color)
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    cx.stop_propagation();
+                    view.update(cx, |this, cx| {
+                        this.activate_markdown_link(raw_target.clone(), Some(window), cx);
+                    });
+                });
         }
 
         element.into_any_element()
