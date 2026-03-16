@@ -220,6 +220,7 @@ fn render_ai_session_controls_panel(
     view: Entity<DiffViewer>,
     _cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
+    let controls_gap = px(2.0);
     let model_label = ai_model_picker_label(panel.models, panel.selected_model);
     let selected_model = panel
         .selected_model
@@ -256,7 +257,7 @@ fn render_ai_session_controls_panel(
     h_flex()
         .min_w_0()
         .items_center()
-        .gap_1()
+        .gap(controls_gap)
         .flex_wrap()
         .child({
             let view = view.clone();
@@ -266,6 +267,7 @@ fn render_ai_session_controls_panel(
                 .ghost()
                 .rounded(px(999.0))
                 .with_size(gpui_component::Size::Small)
+                .px_1()
                 .dropdown_caret(true)
                 .disabled(panel.read_only)
                 .label(model_label)
@@ -338,6 +340,7 @@ fn render_ai_session_controls_panel(
                 .ghost()
                 .rounded(px(999.0))
                 .with_size(gpui_component::Size::Small)
+                .px_1()
                 .dropdown_caret(true)
                 .disabled(panel.read_only || selected_model.is_none())
                 .label(effort_label)
@@ -385,6 +388,7 @@ fn render_ai_session_controls_panel(
                 .ghost()
                 .rounded(px(999.0))
                 .with_size(gpui_component::Size::Small)
+                .px_1()
                 .dropdown_caret(true)
                 .disabled(panel.read_only)
                 .label(service_tier_label)
@@ -417,6 +421,7 @@ fn render_ai_session_controls_panel(
                 .ghost()
                 .rounded(px(999.0))
                 .with_size(gpui_component::Size::Small)
+                .px_1()
                 .dropdown_caret(true)
                 .label(thread_mode_label)
                 .disabled(panel.read_only || !panel.thread_mode_editable)
@@ -467,6 +472,7 @@ fn render_ai_session_controls_panel(
                     .ghost()
                     .rounded(px(999.0))
                     .with_size(gpui_component::Size::Small)
+                    .px_1()
                     .dropdown_caret(true)
                     .disabled(panel.read_only)
                     .label(collaboration_label)

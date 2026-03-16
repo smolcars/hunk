@@ -25,6 +25,8 @@ impl DiffViewer {
     ) -> AnyElement {
         let composer_drop_border_color = state.composer_drop_border_color;
         let composer_drop_bg = state.composer_drop_bg;
+        let footer_group_gap = px(6.0);
+        let footer_button_gap = px(2.0);
         h_flex()
             .w_full()
             .justify_center()
@@ -175,13 +177,13 @@ impl DiffViewer {
                                     .min_w_0()
                                     .items_center()
                                     .justify_between()
-                                    .gap_2()
+                                    .gap(footer_group_gap)
                                     .flex_wrap()
                                     .child(
                                         h_flex()
                                             .min_w_0()
                                             .items_center()
-                                            .gap_1()
+                                            .gap(footer_button_gap)
                                             .flex_wrap()
                                             .child({
                                                 let view = view.clone();
@@ -218,7 +220,7 @@ impl DiffViewer {
                                         h_flex()
                                             .items_center()
                                             .justify_end()
-                                            .gap_1()
+                                            .gap(footer_button_gap)
                                             .child({
                                                 let view = view.clone();
                                                 let review_action_blocker =
@@ -234,6 +236,7 @@ impl DiffViewer {
                                                     .ghost()
                                                     .rounded(px(999.0))
                                                     .with_size(gpui_component::Size::Small)
+                                                    .px_1()
                                                     .label("Review")
                                                     .disabled(review_action_disabled)
                                                     .tooltip(review_action_tooltip)
