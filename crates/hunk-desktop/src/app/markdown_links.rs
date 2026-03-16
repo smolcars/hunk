@@ -111,8 +111,14 @@ pub(crate) fn open_url_in_browser(url: &str) -> anyhow::Result<()> {
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
+        use std::os::windows::process::CommandExt as _;
+
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", "", url]);
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
             .spawn()
             .context("failed to launch Windows browser opener")?;
         return Ok(());
