@@ -140,13 +140,23 @@ staple_macos_artifact_with_retry() {
   local artifact_path="$1"
   local max_attempts=6
   local attempt
+  local stapler_output
 
   for attempt in $(seq 1 "$max_attempts"); do
-    if xcrun stapler staple -v "$artifact_path"; then
-      if xcrun stapler validate -v "$artifact_path"; then
+    stapler_output="$(mktemp)"
+    if xcrun stapler staple -v "$artifact_path" >"$stapler_output" 2>&1; then
+      cat "$stapler_output" >&2
+      : >"$stapler_output"
+      if xcrun stapler validate -v "$artifact_path" >"$stapler_output" 2>&1; then
+        cat "$stapler_output" >&2
+        rm -f "$stapler_output"
         return 0
       fi
+      cat "$stapler_output" >&2
+    else
+      cat "$stapler_output" >&2
     fi
+    rm -f "$stapler_output"
 
     if [[ "$attempt" -lt "$max_attempts" ]]; then
       echo "Stapling attempt $attempt failed for $artifact_path; retrying after notarization propagation delay..." >&2
@@ -156,6 +166,48 @@ staple_macos_artifact_with_retry() {
 
   echo "error: failed to staple notarization ticket to $artifact_path after $max_attempts attempts" >&2
   return 1
+}
+
+print_notary_submission_details() {
+  local submission_output_path="$1"
+  python3 - "$submission_output_path" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+data = json.loads(path.read_text())
+print("Notary submission response:", file=sys.stderr)
+print(json.dumps(data, indent=2, sort_keys=True), file=sys.stderr)
+submission_id = data.get("id") or ""
+status = data.get("status") or ""
+print(f"NOTARY_SUBMISSION_ID={submission_id}")
+print(f"NOTARY_STATUS={status}")
+PY
+}
+
+print_notarytool_log() {
+  local submission_id="$1"
+  local notary_log_output
+
+  if [[ -z "$submission_id" ]]; then
+    return 0
+  fi
+
+  notary_log_output="$(mktemp)"
+  echo "Fetching notarization log for submission $submission_id..." >&2
+  if xcrun notarytool log \
+    "$submission_id" \
+    --key "$APPLE_NOTARY_API_KEY_PATH" \
+    --key-id "$APPLE_NOTARY_KEY_ID" \
+    --issuer "$APPLE_NOTARY_ISSUER" \
+    --output-format json >"$notary_log_output" 2>&1; then
+    cat "$notary_log_output" >&2
+  else
+    echo "warning: failed to fetch notarization log for submission $submission_id" >&2
+    cat "$notary_log_output" >&2
+  fi
+  rm -f "$notary_log_output"
 }
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -212,6 +264,8 @@ hdiutil create \
   "$DMG_PATH" >/dev/null
 
 if [[ -n "${APPLE_NOTARY_KEY_ID:-}" || -n "${APPLE_NOTARY_ISSUER:-}" || -n "${APPLE_NOTARY_API_KEY_PATH:-}" ]]; then
+  local_notary_submission_output="$(mktemp)"
+  local_notary_status_file="$(mktemp)"
   : "${APPLE_SIGNING_IDENTITY:?APPLE_SIGNING_IDENTITY is required for notarization}"
   : "${APPLE_NOTARY_KEY_ID:?APPLE_NOTARY_KEY_ID is required for notarization}"
   : "${APPLE_NOTARY_ISSUER:?APPLE_NOTARY_ISSUER is required for notarization}"
@@ -223,9 +277,18 @@ if [[ -n "${APPLE_NOTARY_KEY_ID:-}" || -n "${APPLE_NOTARY_ISSUER:-}" || -n "${AP
     --key "$APPLE_NOTARY_API_KEY_PATH" \
     --key-id "$APPLE_NOTARY_KEY_ID" \
     --issuer "$APPLE_NOTARY_ISSUER" \
-    --wait
+    --wait \
+    --output-format json >"$local_notary_submission_output"
+  print_notary_submission_details "$local_notary_submission_output" >"$local_notary_status_file"
+  # shellcheck disable=SC1090
+  source "$local_notary_status_file"
   echo "Stapling notarization tickets..." >&2
-  staple_macos_artifact_with_retry "$DMG_PATH"
+  if ! staple_macos_artifact_with_retry "$DMG_PATH"; then
+    print_notarytool_log "${NOTARY_SUBMISSION_ID:-}"
+    rm -f "$local_notary_submission_output" "$local_notary_status_file"
+    exit 1
+  fi
+  rm -f "$local_notary_submission_output" "$local_notary_status_file"
 fi
 
 echo "Created macOS release artifact at $DMG_PATH" >&2
