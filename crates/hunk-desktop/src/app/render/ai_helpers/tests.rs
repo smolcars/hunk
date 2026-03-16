@@ -3,6 +3,8 @@
 mod ai_helper_tests {
     use super::ai_account_summary;
     use super::ai_chat_markdown_text;
+    use super::ai_markdown_code_block_text;
+    use super::ai_markdown_code_block_text_and_highlights;
     use super::ai_command_execution_display_details;
     use super::ai_composer_status_tone;
     use super::ai_collaboration_picker_label;
@@ -24,6 +26,8 @@ mod ai_helper_tests {
     use hunk_codex::state::ItemSummary;
     use hunk_codex::state::ThreadSummary;
     use hunk_codex::state::ThreadLifecycleStatus;
+    use hunk_domain::markdown_preview::MarkdownCodeSpan;
+    use hunk_domain::markdown_preview::MarkdownCodeTokenKind;
     use hunk_domain::state::AiCollaborationModeSelection;
     use hunk_domain::markdown_preview::MarkdownPreviewBlock;
 
@@ -489,5 +493,52 @@ diff --git a/crates/hunk-desktop/src/app/render/ai.rs b/crates/hunk-desktop/src/
             ai_chat_markdown_text(spans),
             "That is now in timeline_rows.rs, and wired."
         );
+    }
+
+    #[test]
+    fn markdown_code_block_text_preserves_line_breaks() {
+        let lines = vec![
+            vec![
+                MarkdownCodeSpan {
+                    text: "cargo ".to_string(),
+                    token: MarkdownCodeTokenKind::Plain,
+                },
+                MarkdownCodeSpan {
+                    text: "test".to_string(),
+                    token: MarkdownCodeTokenKind::Keyword,
+                },
+            ],
+            vec![MarkdownCodeSpan {
+                text: "--workspace".to_string(),
+                token: MarkdownCodeTokenKind::Plain,
+            }],
+        ];
+
+        assert_eq!(ai_markdown_code_block_text(&lines), "cargo test\n--workspace");
+    }
+
+    #[test]
+    fn markdown_code_block_highlights_keep_plain_text_intact() {
+        let lines = vec![vec![
+            MarkdownCodeSpan {
+                text: "fn".to_string(),
+                token: MarkdownCodeTokenKind::Keyword,
+            },
+            MarkdownCodeSpan {
+                text: " main".to_string(),
+                token: MarkdownCodeTokenKind::Plain,
+            },
+            MarkdownCodeSpan {
+                text: "()".to_string(),
+                token: MarkdownCodeTokenKind::Operator,
+            },
+        ]];
+
+        let default_color = gpui::transparent_black();
+        let (text, highlights) =
+            ai_markdown_code_block_text_and_highlights(&lines, default_color, true);
+
+        assert_eq!(text.as_ref(), "fn main()");
+        assert!(!highlights.is_empty());
     }
 }

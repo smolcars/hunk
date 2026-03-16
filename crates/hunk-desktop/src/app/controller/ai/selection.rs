@@ -1,4 +1,20 @@
 impl DiffViewer {
+    pub(super) fn ai_copy_text_action(
+        &mut self,
+        text: String,
+        success_message: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+        gpui_component::WindowExt::push_notification(
+            window,
+            gpui_component::notification::Notification::success(success_message),
+            cx,
+        );
+        cx.notify();
+    }
+
     pub(super) fn ai_text_selection_range_for_surface(
         &self,
         surface_id: &str,
@@ -110,12 +126,6 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        cx.write_to_clipboard(ClipboardItem::new_string(message));
-        gpui_component::WindowExt::push_notification(
-            window,
-            gpui_component::notification::Notification::success("Copied message."),
-            cx,
-        );
-        cx.notify();
+        self.ai_copy_text_action(message, "Copied message.", window, cx);
     }
 }

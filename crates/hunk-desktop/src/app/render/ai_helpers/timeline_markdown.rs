@@ -294,6 +294,11 @@ fn ai_render_chat_markdown_block(
         MarkdownPreviewBlock::CodeBlock { language, lines } => {
             let language_label = language.clone().unwrap_or_else(|| "code".to_string());
             let code_surface_id = ai_timeline_text_surface_id(row_id, "message-code", block_ix);
+            let copy_button_id = format!(
+                "ai-copy-code-block-{}-{block_ix}",
+                row_id.replace('\u{1f}', "--")
+            );
+            let code_text = ai_markdown_code_block_text(lines);
             let default_color = cx.theme().foreground;
             let is_dark_theme = cx.theme().mode.is_dark();
             let (text, highlights) =
@@ -309,11 +314,48 @@ fn ai_render_chat_markdown_block(
                 .min_w_0()
                 .gap_1()
                 .child(
-                    div()
-                        .text_xs()
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .text_color(cx.theme().muted_foreground)
-                        .child(language_label),
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .whitespace_nowrap()
+                                .truncate()
+                                .text_xs()
+                                .font_family(cx.theme().mono_font_family.clone())
+                                .text_color(cx.theme().muted_foreground)
+                                .child(language_label),
+                        )
+                        .child(
+                            Button::new(copy_button_id)
+                                .flex_none()
+                                .ghost()
+                                .compact()
+                                .rounded(px(7.0))
+                                .icon(Icon::new(IconName::Copy).size(px(12.0)))
+                                .text_color(cx.theme().muted_foreground)
+                                .min_w(px(22.0))
+                                .h(px(20.0))
+                                .tooltip("Copy code block")
+                                .on_click({
+                                    let view = view.clone();
+                                    move |_, window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_copy_text_action(
+                                                code_text.clone(),
+                                                "Copied code block.",
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
+                        ),
                 )
                 .child(
                     div()
