@@ -707,19 +707,24 @@ fn workspace_path_key(path: &Path) -> String {
 
 fn workspace_path_aliases(path: &Path) -> Vec<String> {
     let normalized = normalize_workspace_path(path);
-    let aliases = vec![normalized.to_string_lossy().to_string()];
+    let normalized_text = normalized.to_string_lossy().to_string();
 
     #[cfg(windows)]
     {
+        let mut aliases = vec![normalized_text.clone()];
         let text = aliases[0].clone();
         if let Some(legacy) = windows_verbatim_workspace_alias(text.as_str())
             && !aliases.iter().any(|alias| alias == &legacy)
         {
             aliases.push(legacy);
         }
+        return aliases;
     }
 
-    aliases
+    #[cfg(not(windows))]
+    {
+        vec![normalized_text]
+    }
 }
 
 fn normalize_workspace_path(path: &Path) -> PathBuf {
