@@ -98,11 +98,14 @@ mod ai_visible_threads_tests {
             &state_snapshot,
             Some("/repo"),
             &background_workspace_states,
-            &[workspace_target(
-                "primary",
-                WorkspaceTargetKind::PrimaryCheckout,
-                "/repo",
-            )],
+            &[
+                workspace_target("primary", WorkspaceTargetKind::PrimaryCheckout, "/repo"),
+                workspace_target(
+                    "task-7",
+                    WorkspaceTargetKind::LinkedWorktree,
+                    "/repo/worktrees/task-7",
+                ),
+            ],
             Some(std::path::Path::new("/repo")),
             Some(std::path::Path::new("/repo")),
         );
@@ -142,11 +145,14 @@ mod ai_visible_threads_tests {
             &state_snapshot,
             Some("/repo-b"),
             &background_workspace_states,
-            &[workspace_target(
-                "primary",
-                WorkspaceTargetKind::PrimaryCheckout,
-                "/repo-b",
-            )],
+            &[
+                workspace_target("primary", WorkspaceTargetKind::PrimaryCheckout, "/repo-b"),
+                workspace_target(
+                    "task-7",
+                    WorkspaceTargetKind::LinkedWorktree,
+                    "/repo-b/worktrees/task-7",
+                ),
+            ],
             Some(std::path::Path::new("/repo-b")),
             Some(std::path::Path::new("/repo-b")),
         );

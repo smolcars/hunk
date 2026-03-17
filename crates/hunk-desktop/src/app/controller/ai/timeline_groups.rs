@@ -711,7 +711,9 @@ fn ai_file_change_batch_title_and_summary(
     summary: &AiFileChangeBatchGroupSummary,
     child_count: usize,
 ) -> (String, Option<String>) {
-    let count = summary.operation_count.max(child_count);
+    let count = summary
+        .total_files
+        .max(summary.operation_count.max(child_count));
     let title = format!("Applied {}", ai_count_noun(count, "file change", "file changes"));
     let summary = ai_file_change_batch_preview(summary);
     (title, summary)

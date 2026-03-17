@@ -1451,11 +1451,7 @@ impl TestServer {
 
 fn run_initialize_handshake(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, api::method::INITIALIZE);
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-thread-service-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
     expect_notification(socket, api::method::INITIALIZED);
 }
 
@@ -2274,6 +2270,14 @@ fn connect_initialized_session(port: u16) -> JsonRpcSession {
         .initialize(InitializeOptions::default(), TIMEOUT)
         .expect("initialize should succeed");
     session
+}
+
+fn initialize_response_json() -> Value {
+    serde_json::json!({
+        "userAgent": "hunk-thread-service-test-server",
+        "platformFamily": "windows",
+        "platformOs": "windows"
+    })
 }
 
 fn thread(id: &str, cwd: &str, status: ThreadStatus, turns: Vec<Turn>) -> Thread {

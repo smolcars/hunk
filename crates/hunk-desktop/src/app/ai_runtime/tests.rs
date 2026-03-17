@@ -322,6 +322,21 @@ mod ai_tests {
         }
     }
 
+    fn normalize_test_path(path: PathBuf) -> PathBuf {
+        #[cfg(windows)]
+        {
+            let text = path.to_string_lossy();
+            if let Some(stripped) = text.strip_prefix(r"\\?\UNC\") {
+                return PathBuf::from(format!(r"\\{stripped}"));
+            }
+            if let Some(stripped) = text.strip_prefix(r"\\?\") {
+                return PathBuf::from(stripped);
+            }
+        }
+
+        path
+    }
+
     fn init_test_repo(root: &Path) -> PathBuf {
         let repo_root = root.join("repo");
         fs::create_dir_all(repo_root.as_path()).expect("repo dir");
@@ -342,7 +357,7 @@ mod ai_tests {
         repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
             .expect("initial commit");
 
-        fs::canonicalize(repo_root.as_path()).expect("canonical repo root")
+        normalize_test_path(fs::canonicalize(repo_root.as_path()).expect("canonical repo root"))
     }
 
     fn create_linked_worktree(repo_root: &Path, worktree_name: &str) -> PathBuf {
@@ -353,7 +368,9 @@ mod ai_tests {
             .join(format!("{worktree_name}-worktree"));
         repo.worktree(worktree_name, worktree_root.as_path(), None)
             .expect("create linked worktree");
-        fs::canonicalize(worktree_root.as_path()).expect("canonical worktree root")
+        normalize_test_path(
+            fs::canonicalize(worktree_root.as_path()).expect("canonical worktree root"),
+        )
     }
 
     #[test]

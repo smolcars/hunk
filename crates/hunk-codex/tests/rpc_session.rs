@@ -518,11 +518,7 @@ impl TestServer {
 
 fn run_initialize_success(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
 
     expect_notification(socket, "initialized");
 }
@@ -534,11 +530,7 @@ fn run_reject_before_initialize(socket: &mut WebSocket<TcpStream>) {
 
 fn run_duplicate_initialize(socket: &mut WebSocket<TcpStream>) {
     let first = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        first.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, first.id, initialize_response_json());
 
     expect_notification(socket, "initialized");
 
@@ -548,11 +540,7 @@ fn run_duplicate_initialize(socket: &mut WebSocket<TcpStream>) {
 
 fn run_idle_notification(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
     expect_notification(socket, "initialized");
 
     send_notification(
@@ -568,11 +556,7 @@ fn run_idle_notification(socket: &mut WebSocket<TcpStream>) {
 
 fn run_command_approval_request_round_trip(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
     expect_notification(socket, "initialized");
 
     send_jsonrpc(
@@ -609,11 +593,7 @@ fn run_command_approval_request_round_trip(socket: &mut WebSocket<TcpStream>) {
 
 fn run_file_change_approval_request_round_trip(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
     expect_notification(socket, "initialized");
 
     send_jsonrpc(
@@ -648,11 +628,7 @@ fn run_file_change_approval_request_round_trip(socket: &mut WebSocket<TcpStream>
 
 fn run_mad_max_turn_start_no_approval_prompt(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
     expect_notification(socket, "initialized");
 
     let request = expect_request(socket, "turn/start");
@@ -679,11 +655,7 @@ fn run_mad_max_turn_start_no_approval_prompt(socket: &mut WebSocket<TcpStream>) 
 
 fn run_dynamic_tool_call_round_trip(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
     expect_notification(socket, "initialized");
 
     send_jsonrpc(
@@ -720,11 +692,7 @@ fn run_dynamic_tool_call_round_trip(socket: &mut WebSocket<TcpStream>) {
 
 fn run_tool_request_user_input_round_trip(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
     expect_notification(socket, "initialized");
 
     send_jsonrpc(
@@ -785,11 +753,7 @@ fn run_tool_request_user_input_round_trip(socket: &mut WebSocket<TcpStream>) {
 
 fn run_account_login_lifecycle_notifications(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
     expect_notification(socket, "initialized");
 
     let login = expect_request(socket, "account/login/start");
@@ -828,11 +792,7 @@ fn run_account_login_lifecycle_notifications(socket: &mut WebSocket<TcpStream>) 
 
 fn run_account_logout_and_updated_notification(socket: &mut WebSocket<TcpStream>) {
     let initialize = expect_request(socket, "initialize");
-    send_success_response(
-        socket,
-        initialize.id,
-        serde_json::json!({ "userAgent": "hunk-test-server" }),
-    );
+    send_success_response(socket, initialize.id, initialize_response_json());
     expect_notification(socket, "initialized");
 
     let logout = expect_request(socket, "account/logout");
@@ -874,6 +834,14 @@ fn expect_request(socket: &mut WebSocket<TcpStream>, method: &str) -> JSONRPCReq
         }
         other => panic!("expected request, got: {other:?}"),
     }
+}
+
+fn initialize_response_json() -> serde_json::Value {
+    serde_json::json!({
+        "userAgent": "hunk-test-server",
+        "platformFamily": "windows",
+        "platformOs": "windows"
+    })
 }
 
 fn expect_notification(socket: &mut WebSocket<TcpStream>, method: &str) -> JSONRPCNotification {
