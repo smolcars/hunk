@@ -9,18 +9,24 @@ use gpui::*;
 use hunk_editor::{
     EditorCommand, EditorState, FoldRegion, OverlayDescriptor, OverlayKind, Viewport,
 };
-use hunk_language::{FoldCandidate, HighlightCapture, LanguageRegistry, SyntaxSession};
+use hunk_language::{
+    FoldCandidate, HighlightCapture, LanguageRegistry, SyntaxSession, merge_highlight_layers,
+    semantic_token_captures,
+};
 use hunk_text::{BufferId, Selection, TextBuffer, TextPosition};
 use tracing::error;
 
 #[path = "native_files_editor_element.rs"]
 mod element_impl;
+#[path = "native_files_editor_language.rs"]
+mod language_impl;
 #[path = "native_files_editor_paint.rs"]
 mod paint;
 
 use paint::{
     EditorLayout, current_line_text, last_position, raw_column_for_display, uses_primary_shortcut,
 };
+use language_impl::overlay_kind_for_diagnostic_severity;
 
 pub(crate) fn scroll_direction_and_count(
     event: &ScrollWheelEvent,
@@ -661,6 +667,16 @@ impl FilesEditor {
         self.soft_wrap_enabled()
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn display_snapshot_for_test(
+        &mut self,
+        columns: usize,
+        visible_rows: usize,
+    ) -> hunk_editor::DisplaySnapshot {
+        self.apply_layout(columns, visible_rows)
+    }
+
     fn apply_layout(
         &mut self,
         columns: usize,
@@ -817,14 +833,27 @@ impl FilesEditor {
         }
 
         let source = snapshot.text();
-        self.syntax_highlights = self
+        let syntax_highlights = self
             .syntax
             .highlight_visible_range(&self.registry, &source, start..end)
             .unwrap_or_default();
+        let semantic_highlights =
+            semantic_token_captures(&source, self.editor.semantic_tokens(), start..end);
+        self.syntax_highlights = merge_highlight_layers(&syntax_highlights, &semantic_highlights);
     }
 
     fn sync_overlays(&mut self) {
         let mut overlays = self.manual_overlays.clone();
+        overlays.extend(
+            self.editor
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| OverlayDescriptor {
+                    line: diagnostic.range.start.line,
+                    kind: overlay_kind_for_diagnostic_severity(diagnostic.severity),
+                    message: Some(diagnostic.message.clone()),
+                }),
+        );
         if matches!(
             self.editor.status_snapshot().parse_status,
             hunk_language::ParseStatus::Failed

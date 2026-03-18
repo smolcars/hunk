@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+hunk-text = { path = "../hunk-text" }
 tree-sitter = "0.25.9"
 tree-sitter-highlight = "0.25.9"
 tree-sitter-css = "0.25.0"

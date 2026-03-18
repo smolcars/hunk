@@ -1,14 +1,23 @@
 mod assets;
+mod features;
 
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
 
+use hunk_text::{TextPosition, TextRange};
 use tree_sitter::{Language, Parser, Point, Tree};
 use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
 
 pub use assets::CANONICAL_HIGHLIGHT_NAMES;
+pub use features::{
+    CompletionContext, CompletionItem, CompletionRequest, CompletionTriggerKind, DefinitionLink,
+    DefinitionRequest, Diagnostic, DiagnosticSeverity, DocumentContext, HoverRequest, HoverResult,
+    LanguageFeatureProvider, SemanticToken, SemanticTokenKind, SemanticTokenModifier, SymbolKind,
+    SymbolOccurrence, merge_highlight_layers, semantic_token_captures,
+};
+use features::{position_to_byte_in_source, text_range_for_byte_range};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LanguageId(u16);
@@ -427,6 +436,78 @@ impl SyntaxSession {
         collect_fold_candidates(&mut cursor, language, source, &mut candidates);
         candidates
     }
+
+    pub fn hover_target_at(
+        &self,
+        source: &str,
+        position: TextPosition,
+    ) -> Option<SymbolOccurrence> {
+        self.symbol_occurrence_at(source, position)
+    }
+
+    pub fn definition_target_at(
+        &self,
+        source: &str,
+        position: TextPosition,
+    ) -> Option<SymbolOccurrence> {
+        self.symbol_occurrence_at(source, position)
+    }
+
+    pub fn completion_context_at(
+        &self,
+        source: &str,
+        position: TextPosition,
+        trigger: CompletionTriggerKind,
+    ) -> Option<CompletionContext> {
+        let line = source.lines().nth(position.line)?;
+        if position.column > line.chars().count() {
+            return None;
+        }
+
+        let chars = line.chars().collect::<Vec<_>>();
+        let mut start = position.column;
+        while start > 0 && is_completion_token_char(chars[start - 1]) {
+            start -= 1;
+        }
+
+        let mut end = position.column;
+        while end < chars.len() && is_completion_token_char(chars[end]) {
+            end += 1;
+        }
+
+        let prefix = chars[start..position.column].iter().collect::<String>();
+        Some(CompletionContext {
+            replace_range: TextRange::new(
+                TextPosition::new(position.line, start),
+                TextPosition::new(position.line, end),
+            ),
+            prefix,
+            trigger,
+        })
+    }
+
+    fn symbol_occurrence_at(
+        &self,
+        source: &str,
+        position: TextPosition,
+    ) -> Option<SymbolOccurrence> {
+        let tree = self.tree.as_ref()?;
+        let byte = position_to_byte_in_source(source, position)?;
+        let node = tree
+            .root_node()
+            .named_descendant_for_byte_range(byte, byte)
+            .or_else(|| tree.root_node().descendant_for_byte_range(byte, byte))?;
+        let byte_range = node.byte_range();
+        let range = text_range_for_byte_range(source, byte_range.clone())?;
+        let text = source.get(byte_range)?.to_string();
+        let parent_kind = node.parent().map(|parent| parent.kind().to_string());
+        Some(SymbolOccurrence {
+            range,
+            text,
+            kind: classify_symbol_kind(node.kind(), parent_kind.as_deref()),
+            node_kind: node.kind().to_string(),
+        })
+    }
 }
 
 fn collect_fold_candidates(
@@ -475,4 +556,59 @@ fn byte_to_point(source: &str, byte: usize) -> Point {
         .take_while(|value| **value != b'\n')
         .count();
     Point::new(row, column)
+}
+
+fn classify_symbol_kind(node_kind: &str, parent_kind: Option<&str>) -> SymbolKind {
+    if node_kind.contains("comment") {
+        return SymbolKind::Comment;
+    }
+    if node_kind.contains("string") {
+        return SymbolKind::String;
+    }
+    if node_kind.contains("float")
+        || node_kind.contains("integer")
+        || node_kind.contains("number")
+        || node_kind.contains("numeric")
+    {
+        return SymbolKind::Number;
+    }
+    if node_kind.contains("keyword") {
+        return SymbolKind::Keyword;
+    }
+
+    if node_kind.contains("field") || node_kind.contains("property") {
+        return SymbolKind::Property;
+    }
+
+    if node_kind.contains("type")
+        || parent_kind.is_some_and(|kind| {
+            kind.contains("struct")
+                || kind.contains("enum")
+                || kind.contains("class")
+                || kind.contains("interface")
+                || kind.contains("trait")
+                || kind.contains("type")
+        })
+    {
+        return SymbolKind::Type;
+    }
+
+    if parent_kind.is_some_and(|kind| kind.contains("method")) {
+        return SymbolKind::Method;
+    }
+
+    if parent_kind.is_some_and(|kind| {
+        kind.contains("function")
+            || kind.contains("call")
+            || kind.contains("closure")
+            || kind.contains("macro")
+    }) {
+        return SymbolKind::Function;
+    }
+
+    SymbolKind::Symbol
+}
+
+fn is_completion_token_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }

@@ -4,7 +4,8 @@ mod native_files_editor;
 
 use gpui::Keystroke;
 use hunk_editor::Viewport;
-use hunk_text::{Selection, TextPosition};
+use hunk_language::{CompletionTriggerKind, Diagnostic, DiagnosticSeverity};
+use hunk_text::{Selection, TextPosition, TextRange};
 use native_files_editor::FilesEditor;
 use std::path::PathBuf;
 
@@ -106,6 +107,75 @@ fn reopening_same_file_restores_fold_and_view_toggles() {
     assert_eq!(editor.folded_region_count_for_test(), 1);
     assert!(editor.show_whitespace_for_test());
     assert!(editor.soft_wrap_enabled_for_test());
+}
+
+#[test]
+fn language_intelligence_requests_and_diagnostics_flow_through_native_editor() {
+    let mut editor = FilesEditor::new();
+    let path = PathBuf::from("example.rs");
+    let contents = "fn main() {\n    let answer = compute_value();\n}\n";
+    editor
+        .open_document(path.as_path(), contents)
+        .expect("document should open");
+    editor.set_selection_for_test(Selection::caret(TextPosition::new(1, 19)));
+
+    let hover = editor
+        .request_hover_at_cursor()
+        .expect("hover request should exist");
+    assert_eq!(hover.target.text, "compute_value");
+    assert_eq!(
+        editor
+            .take_pending_hover_request()
+            .expect("pending hover request")
+            .target
+            .text,
+        "compute_value"
+    );
+
+    let definition = editor
+        .request_definition_at_cursor()
+        .expect("definition request should exist");
+    assert_eq!(definition.target.text, "compute_value");
+    assert_eq!(
+        editor
+            .take_pending_definition_request()
+            .expect("pending definition request")
+            .target
+            .text,
+        "compute_value"
+    );
+
+    editor.set_selection_for_test(Selection::caret(TextPosition::new(1, 14)));
+    let completion = editor
+        .trigger_completion(CompletionTriggerKind::Invoked)
+        .expect("completion request should exist");
+    assert_eq!(completion.context.prefix, "answer");
+    assert_eq!(
+        editor
+            .take_pending_completion_request()
+            .expect("pending completion request")
+            .context
+            .prefix,
+        "answer"
+    );
+
+    editor.set_diagnostics(vec![Diagnostic {
+        range: TextRange::new(TextPosition::new(1, 8), TextPosition::new(1, 14)),
+        severity: DiagnosticSeverity::Warning,
+        message: "shadowed binding".to_string(),
+        source: Some("test".to_string()),
+        code: Some("W1".to_string()),
+    }]);
+    assert_eq!(
+        editor
+            .display_snapshot_for_test(120, 12)
+            .visible_rows
+            .iter()
+            .flat_map(|row| row.overlays.iter())
+            .filter(|overlay| matches!(overlay.kind, hunk_editor::OverlayKind::DiagnosticWarning))
+            .count(),
+        1
+    );
 }
 
 fn primary_shortcut_keystroke(key: &str) -> Keystroke {
