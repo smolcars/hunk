@@ -79,7 +79,6 @@ create_linux_appdir() {
   cp "$APPIMAGE_APPRUN_PATH" "$APPDIR_PATH/AppRun"
   cp "$PACKAGED_BINARY_PATH" "$APPDIR_REAL_BINARY_PATH"
   cp "$PACKAGED_LAUNCHER_PATH" "$APPDIR_LAUNCHER_PATH"
-  cp -R "$PACKAGED_HELIX_RUNTIME_DIR" "$APPDIR_HELIX_RUNTIME_PATH"
   cp -R "$PACKAGE_LIB_DIR/." "$APPDIR_PATH/usr/lib/"
   cp "$PACKAGED_CODEX_PATH" "$APPDIR_PATH/usr/lib/hunk_desktop/codex-runtime/linux/codex"
   chmod +x "$APPDIR_PATH/AppRun" "$APPDIR_REAL_BINARY_PATH" "$APPDIR_LAUNCHER_PATH" \
@@ -87,6 +86,7 @@ create_linux_appdir() {
 
   patch_linux_runtime_paths "$APPDIR_REAL_BINARY_PATH" "$APPDIR_PATH/usr/lib" '$ORIGIN/../lib'
   validate_linux_runtime_bundle "$APPDIR_REAL_BINARY_PATH" "$APPDIR_PATH/usr/lib"
+  "$ROOT_DIR/scripts/validate_release_bundle_layout.sh" linux-appdir "$APPDIR_PATH"
 
   cat >"$APP_DESKTOP_ENTRY_PATH" <<'EOF'
 [Desktop Entry]
@@ -253,6 +253,7 @@ echo "Bundling Linux shared libraries into tarball fallback..." >&2
 bundle_linux_runtime_dependencies "$BINARY_SOURCE_PATH"
 patch_linux_runtime_paths "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR" '$ORIGIN/lib'
 validate_linux_runtime_bundle "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR"
+"$ROOT_DIR/scripts/validate_release_bundle_layout.sh" linux-package "$PACKAGE_DIR"
 
 mkdir -p "$DIST_DIR"
 tar -C "$DIST_DIR" -czf "$ARCHIVE_PATH" "$(basename "$PACKAGE_DIR")"

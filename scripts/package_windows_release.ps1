@@ -94,6 +94,7 @@ function Invoke-CargoPackagerWithManifestOverride {
 
 $rootDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $resolveTargetDirScript = Join-Path $PSScriptRoot "resolve_cargo_target_dir.ps1"
+$validateBundleScript = Join-Path $PSScriptRoot "validate_windows_release_bundle.ps1"
 $cargoTomlPath = Join-Path $rootDir "crates/hunk-desktop/Cargo.toml"
 $cargoLockPath = Join-Path $rootDir "Cargo.lock"
 $targetTriple = "x86_64-pc-windows-msvc"
@@ -118,6 +119,7 @@ try {
     & ./scripts/download_codex_runtime_windows.ps1 | Out-Null
     Write-Host "Validating bundled Codex runtime for Windows..."
     Test-WindowsCodexRuntimeBundle -RootDir $rootDir
+    & $validateBundleScript -RootDir $rootDir
     Write-Host "Building Windows release binary..."
     cargo build -p hunk-desktop --release --target $targetTriple --locked
     Write-Host "Building Windows MSI package..."
@@ -128,6 +130,7 @@ try {
         -WindowsPackagerVersion $windowsPackagerVersion `
         -TargetTriple $targetTriple `
         -PackagerOutDir $packagerOutDir
+    & $validateBundleScript -RootDir $rootDir -PackagerOutDir $packagerOutDir
 } finally {
     if ($null -eq $originalCargoTargetDir) {
         Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
