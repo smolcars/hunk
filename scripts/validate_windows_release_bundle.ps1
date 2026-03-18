@@ -18,7 +18,7 @@ function Assert-Exists {
     )
 
     if (-not (Test-Path $Path)) {
-        throw "Missing $Description: $Path"
+        throw "Missing ${Description}: ${Path}"
     }
 }
 
