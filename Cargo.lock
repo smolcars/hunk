@@ -5203,7 +5203,6 @@ dependencies = [
 name = "hunk-language"
 version = "0.1.0"
 dependencies = [
- "hunk-text",
  "tree-sitter",
  "tree-sitter-css 0.25.0",
  "tree-sitter-go 0.25.0",
