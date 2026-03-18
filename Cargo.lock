@@ -5135,7 +5135,7 @@ dependencies = [
 
 [[package]]
 name = "hunk-desktop"
-version = "0.0.1-alpha.6"
+version = "0.0.1-alpha.7"
 dependencies = [
  "anyhow",
  "arc-swap",

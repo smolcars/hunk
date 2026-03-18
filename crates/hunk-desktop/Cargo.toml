@@ -1,6 +1,6 @@
 [package]
 name = "hunk-desktop"
-version = "0.0.1-alpha.6"
+version = "0.0.1-alpha.7"
 edition = "2024"
 authors = ["Nitesh Balusu"]
 
