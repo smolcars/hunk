@@ -253,7 +253,7 @@ impl DiffViewer {
                             if finished {
                                 this.patch_loading = false;
                             }
-                            this.apply_loaded_diff_stream(stream);
+                            this.apply_loaded_diff_stream(stream, cx);
                             cx.notify();
                         }
                         PatchProgressUpdate::Error {
@@ -304,7 +304,7 @@ impl DiffViewer {
         vec![files[0].clone()]
     }
 
-    fn apply_loaded_diff_stream(&mut self, stream: DiffStream) {
+    fn apply_loaded_diff_stream(&mut self, stream: DiffStream, cx: &mut Context<Self>) {
         self.file_line_stats = self.apply_loaded_diff_surface_stream(stream);
         if !self.patch_loading || !self.line_stats_loading {
             self.recompute_overall_line_stats_from_file_stats();
@@ -336,6 +336,7 @@ impl DiffViewer {
                 self.scroll_selected_after_reload = false;
             }
         }
+        self.prime_diff_surface_visible_state(cx);
         if !self.patch_loading {
             self.reconcile_comments_with_loaded_diff();
         }

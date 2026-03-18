@@ -3,6 +3,7 @@ struct DiffCellRenderSpec<'a> {
     side: &'static str,
     cell: &'a DiffCell,
     peer_kind: DiffCellKind,
+    panel_width: Option<Pixels>,
 }
 
 impl DiffViewer {
@@ -162,6 +163,7 @@ impl DiffViewer {
     ) -> AnyElement {
         let stable_row_id = self.diff_row_stable_id(ix);
         let chrome = hunk_diff_chrome(cx.theme(), cx.theme().mode.is_dark());
+        let layout = self.diff_column_layout();
         let code_row = h_flex()
             .id(("diff-code-row", stable_row_id))
             .relative()
@@ -200,6 +202,7 @@ impl DiffViewer {
                     side: "left",
                     cell: &row_data.left,
                     peer_kind: row_data.right.kind,
+                    panel_width: layout.map(|layout| layout.left_panel_width),
                 },
                 cx,
             ))
@@ -211,6 +214,7 @@ impl DiffViewer {
                     side: "right",
                     cell: &row_data.right,
                     peer_kind: row_data.left.kind,
+                    panel_width: layout.map(|layout| layout.right_panel_width),
                 },
                 cx,
             ))
@@ -364,6 +368,10 @@ impl DiffViewer {
             .overflow_x_hidden()
             .items_stretch()
             .bg(background)
+            .when_some(spec.panel_width, |this, width| {
+                this.w(width).min_w(width).max_w(width).flex_none()
+            })
+            .when(spec.panel_width.is_none(), |this| this.flex_1().min_w_0())
             .when(should_draw_right_divider, |this| {
                 this.border_r_1()
                     .border_color(chrome.center_divider)
@@ -456,8 +464,6 @@ impl DiffViewer {
                         },
                     ),
             )
-            .flex_1()
-            .min_w_0()
             .into_any_element()
     }
 

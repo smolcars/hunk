@@ -669,6 +669,7 @@ impl DiffViewer {
             self.scroll_selected_file_to_top();
             self.scroll_selected_after_reload = false;
         }
+        self.prime_diff_surface_visible_state(cx);
 
         self.request_repo_tree_reload(cx);
         cx.notify();

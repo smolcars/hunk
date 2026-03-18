@@ -9,12 +9,13 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use gpui::{
     AnchoredPositionMode, Animation, AnimationExt as _, AnyElement, AnyWindowHandle, App,
-    AppContext as _, ClipboardItem, Context, Corner, Entity, EntityInputHandler, FocusHandle, Hsla,
-    InteractiveElement as _, IntoElement, IsZero as _, KeyBinding, ListAlignment, ListOffset,
-    ListSizingBehavior, ListState, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, OsAction, ParentElement as _, PathPromptOptions, Point, Render, ScrollHandle,
-    ScrollWheelEvent, SharedString, StatefulInteractiveElement as _, Styled as _, SystemMenuType,
-    Task, TitlebarOptions, Window, WindowOptions, actions, anchored, deferred, div, list, point,
+    AppContext as _, Bounds, ClipboardItem, Context, Corner, DragMoveEvent, Empty, Entity,
+    EntityId, EntityInputHandler, FocusHandle, Hsla, InteractiveElement as _, IntoElement,
+    IsZero as _, KeyBinding, ListAlignment, ListOffset, ListSizingBehavior, ListState, Menu,
+    MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, OsAction,
+    ParentElement as _, PathPromptOptions, Pixels, Point, Render, ScrollHandle, ScrollWheelEvent,
+    SharedString, StatefulInteractiveElement as _, Styled as _, SystemMenuType, Task,
+    TitlebarOptions, Window, WindowOptions, actions, anchored, canvas, deferred, div, list, point,
     prelude::FluentBuilder as _, px,
 };
 use gpui_component::{
@@ -104,6 +105,9 @@ const APP_BOTTOM_SAFE_INSET: f32 = 0.0;
 const DIFF_BOTTOM_SAFE_INSET: f32 = APP_BOTTOM_SAFE_INSET;
 const DIFF_SCROLLBAR_RIGHT_INSET: f32 = 0.0;
 const DIFF_SCROLLBAR_SIZE: f32 = 16.0;
+const DIFF_SPLIT_MIN_CODE_WIDTH: f32 = 120.0;
+const DIFF_SPLIT_HANDLE_WIDTH: f32 = 1.0;
+const DIFF_SPLIT_HANDLE_HIT_WIDTH: f32 = 10.0;
 const FILE_EDITOR_MAX_BYTES: usize = 2_400_000;
 const MARKDOWN_PREVIEW_DEBOUNCE: Duration = Duration::from_millis(200);
 const DIFF_SEGMENT_PREFETCH_RADIUS_ROWS: usize = 120;
@@ -759,6 +763,8 @@ struct DiffViewer {
     diff_list_state: ListState,
     diff_show_whitespace: bool,
     diff_show_eol_markers: bool,
+    diff_split_ratio: f32,
+    diff_split_bounds: Option<Bounds<Pixels>>,
     diff_left_line_number_width: f32,
     diff_right_line_number_width: f32,
     review_files: Vec<ChangedFile>,

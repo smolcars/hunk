@@ -506,6 +506,8 @@ impl DiffViewer {
             diff_list_state: ListState::new(0, ListAlignment::Top, px(360.0)),
             diff_show_whitespace,
             diff_show_eol_markers,
+            diff_split_ratio: 0.5,
+            diff_split_bounds: None,
             diff_left_line_number_width: line_number_column_width(DIFF_LINE_NUMBER_MIN_DIGITS),
             diff_right_line_number_width: line_number_column_width(DIFF_LINE_NUMBER_MIN_DIGITS),
             review_files: Vec::new(),
