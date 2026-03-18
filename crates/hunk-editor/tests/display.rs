@@ -38,7 +38,7 @@ fn folded_regions_create_placeholder_rows() {
     });
 
     let display = editor.display_snapshot();
-    assert_eq!(display.total_display_rows, 2);
+    assert_eq!(display.total_display_rows, 3);
     assert!(matches!(
         display.visible_rows[1].kind,
         DisplayRowKind::FoldPlaceholder {
@@ -79,6 +79,28 @@ fn search_and_overlays_are_projected_into_visible_rows() {
     let display = editor.display_snapshot();
     assert_eq!(display.visible_rows[0].search_highlights.len(), 2);
     assert_eq!(display.visible_rows[0].overlays.len(), 1);
+}
+
+#[test]
+fn multiline_search_matches_project_with_line_relative_columns() {
+    let mut editor = sample_editor("zero\nalpha beta\nomega alpha\n");
+    editor.apply(EditorCommand::SetWrapWidth(Some(40)));
+    editor.apply(EditorCommand::SetViewport(Viewport {
+        first_visible_row: 0,
+        visible_row_count: 10,
+        horizontal_offset: 0,
+    }));
+    editor.apply(EditorCommand::SetSearchQuery(Some("alpha".to_string())));
+
+    let display = editor.display_snapshot();
+
+    assert_eq!(display.visible_rows[1].search_highlights.len(), 1);
+    assert_eq!(display.visible_rows[1].search_highlights[0].start_column, 0);
+    assert_eq!(display.visible_rows[1].search_highlights[0].end_column, 5);
+
+    assert_eq!(display.visible_rows[2].search_highlights.len(), 1);
+    assert_eq!(display.visible_rows[2].search_highlights[0].start_column, 6);
+    assert_eq!(display.visible_rows[2].search_highlights[0].end_column, 11);
 }
 
 #[test]

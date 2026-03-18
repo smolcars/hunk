@@ -355,10 +355,14 @@ impl SyntaxSession {
         };
 
         self.parse_status = ParseStatus::Parsing;
+        let next_language_id = Some(language.id);
+        if self.language_id != next_language_id {
+            self.tree = None;
+        }
         self.parser.set_language(&language.language())?;
         let next_tree = self.parser.parse(source, self.tree.as_ref());
         self.tree = next_tree;
-        self.language_id = Some(language.id);
+        self.language_id = next_language_id;
         self.tree_revision = self.tree_revision.saturating_add(1);
         self.highlight_revision = self.highlight_revision.saturating_add(1);
         self.parse_status = if self.tree.is_some() {

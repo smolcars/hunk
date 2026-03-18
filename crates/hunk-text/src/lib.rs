@@ -496,16 +496,7 @@ fn validate_edits(rope: &Rope, edits: &[Edit]) -> Result<(), TextError> {
 }
 
 fn visible_line_count(rope: &Rope) -> usize {
-    let raw_line_count = rope.len_lines();
-    let ends_with_newline = rope
-        .chars_at(rope.len_chars())
-        .prev()
-        .is_some_and(|ch| ch == '\n');
-    if raw_line_count > 1 && ends_with_newline {
-        raw_line_count - 1
-    } else {
-        raw_line_count
-    }
+    rope.len_lines()
 }
 
 fn visible_line_char_len(line: ropey::RopeSlice<'_>) -> usize {

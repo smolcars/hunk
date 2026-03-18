@@ -151,6 +151,25 @@ fn powershell_source_parses_and_highlights_keywords() {
 }
 
 #[test]
+fn reused_session_clears_cached_tree_when_switching_languages() {
+    let registry = LanguageRegistry::builtin();
+    let mut session = SyntaxSession::new();
+
+    let rust_source = "fn main() {}\n";
+    let rust_snapshot = session
+        .parse_for_path(&registry, Path::new("main.rs"), rust_source)
+        .expect("parse rust");
+    assert_eq!(rust_snapshot.root_kind.as_deref(), Some("source_file"));
+
+    let ts_source = "const answer = 42;\n";
+    let ts_snapshot = session
+        .parse_for_path(&registry, Path::new("main.ts"), ts_source)
+        .expect("parse typescript after rust");
+    assert_eq!(ts_snapshot.parse_status, ParseStatus::Ready);
+    assert_eq!(ts_snapshot.root_kind.as_deref(), Some("program"));
+}
+
+#[test]
 fn fold_candidates_cover_multiline_rust_blocks() {
     let registry = LanguageRegistry::builtin();
     let mut session = SyntaxSession::new();

@@ -192,7 +192,22 @@ pub(crate) fn search_matches_for_line(
         .filter_map(|found| {
             let start = found.byte_range.start.max(line_start);
             let end = found.byte_range.end.min(line_end);
-            (start < end).then_some(start..end)
+            if start >= end {
+                return None;
+            }
+
+            let start_column = if start == line_start {
+                0
+            } else {
+                snapshot.byte_to_position(start).ok()?.column
+            };
+            let end_column = if end == line_end && line + 1 < snapshot.line_count() {
+                line_text(snapshot, line).chars().count()
+            } else {
+                snapshot.byte_to_position(end).ok()?.column
+            };
+
+            (start_column < end_column).then_some(start_column..end_column)
         })
         .collect()
 }

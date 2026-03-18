@@ -9,14 +9,14 @@ fn text_buffer_snapshot_tracks_version_and_shape() {
 
     assert_eq!(initial.buffer_id, BufferId::new(7));
     assert_eq!(initial.version, 0);
-    assert_eq!(initial.line_count(), 2);
+    assert_eq!(initial.line_count(), 3);
     assert_eq!(initial.byte_len(), "alpha\nbeta\n".len());
 
     buffer.set_text("gamma\n");
 
     let updated = buffer.snapshot();
     assert_eq!(updated.version, 1);
-    assert_eq!(updated.line_count(), 1);
+    assert_eq!(updated.line_count(), 2);
     assert_eq!(updated.text(), "gamma\n");
 }
 
@@ -99,4 +99,21 @@ fn large_snapshot_clone_and_edit_smoke() {
         .apply_transaction(Transaction::new().replace(10..20, "TEN-TO-TWENTY"))
         .expect("edit large buffer");
     assert_ne!(buffer.text(), source);
+}
+
+#[test]
+fn newline_terminated_buffers_keep_eof_as_terminal_empty_line() {
+    let buffer = TextBuffer::new(BufferId::new(12), "alpha\nbeta\n");
+    let snapshot = buffer.snapshot();
+
+    let eof = snapshot
+        .byte_to_position(snapshot.byte_len())
+        .expect("eof position");
+    assert_eq!(eof, TextPosition::new(2, 0));
+    assert_eq!(
+        snapshot
+            .position_to_byte(TextPosition::new(2, 0))
+            .expect("terminal line byte"),
+        snapshot.byte_len()
+    );
 }
