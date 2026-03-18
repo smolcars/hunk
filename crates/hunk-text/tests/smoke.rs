@@ -9,14 +9,14 @@ fn text_buffer_snapshot_tracks_version_and_shape() {
 
     assert_eq!(initial.buffer_id, BufferId::new(7));
     assert_eq!(initial.version, 0);
-    assert_eq!(initial.line_count(), 3);
+    assert_eq!(initial.line_count(), 2);
     assert_eq!(initial.byte_len(), "alpha\nbeta\n".len());
 
     buffer.set_text("gamma\n");
 
     let updated = buffer.snapshot();
     assert_eq!(updated.version, 1);
-    assert_eq!(updated.line_count(), 2);
+    assert_eq!(updated.line_count(), 1);
     assert_eq!(updated.text(), "gamma\n");
 }
 

@@ -149,7 +149,7 @@ pub struct TextSnapshot {
 
 impl TextSnapshot {
     pub fn line_count(&self) -> usize {
-        self.rope.len_lines()
+        visible_line_count(&self.rope)
     }
 
     pub fn byte_len(&self) -> usize {
@@ -183,11 +183,12 @@ impl TextSnapshot {
 
         let line_start = self.rope.line_to_char(position.line);
         let line = self.rope.line(position.line);
-        if position.column > line.len_chars() {
+        let max_column = visible_line_char_len(line);
+        if position.column > max_column {
             return Err(TextError::ColumnOutOfBounds {
                 line: position.line,
                 column: position.column,
-                max: line.len_chars(),
+                max: max_column,
             });
         }
 
@@ -356,7 +357,7 @@ impl TextBuffer {
     }
 
     pub fn line_count(&self) -> usize {
-        self.rope.len_lines()
+        visible_line_count(&self.rope)
     }
 
     pub fn byte_len(&self) -> usize {
@@ -492,6 +493,28 @@ fn validate_edits(rope: &Rope, edits: &[Edit]) -> Result<(), TextError> {
         validate_byte_boundary(rope, edit.range.end)?;
     }
     Ok(())
+}
+
+fn visible_line_count(rope: &Rope) -> usize {
+    let raw_line_count = rope.len_lines();
+    let ends_with_newline = rope
+        .chars_at(rope.len_chars())
+        .prev()
+        .is_some_and(|ch| ch == '\n');
+    if raw_line_count > 1 && ends_with_newline {
+        raw_line_count - 1
+    } else {
+        raw_line_count
+    }
+}
+
+fn visible_line_char_len(line: ropey::RopeSlice<'_>) -> usize {
+    let len = line.len_chars();
+    if len > 0 && line.get_char(len - 1).is_some_and(|ch| ch == '\n') {
+        len - 1
+    } else {
+        len
+    }
 }
 
 fn validate_byte_boundary(rope: &Rope, byte: usize) -> Result<(), TextError> {
