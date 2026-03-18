@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  pull_request:
 
 permissions:
   contents: read
@@ -292,17 +291,16 @@ jobs:
             exit 1
           fi
 
-          # GitHub release creation/upload is intentionally disabled for now.
-          # release_args=(--title "$GITHUB_REF_NAME" --verify-tag --generate-notes)
-          # if [[ "${GITHUB_REF_NAME,,}" == *alpha* ]]; then
-          #   release_args+=(--prerelease)
-          # fi
-          #
-          # if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-          #   gh release create "$GITHUB_REF_NAME" "${release_args[@]}"
-          # fi
-          #
-          # gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          release_args=(--title "$GITHUB_REF_NAME" --verify-tag --generate-notes)
+          if [[ "${GITHUB_REF_NAME,,}" == *alpha* ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" "${release_args[@]}"
+          fi
+
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
 
           printf 'Prepared release artifacts:\n'
           printf ' - %s\n' "${files[@]}"
