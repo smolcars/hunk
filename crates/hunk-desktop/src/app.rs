@@ -838,6 +838,7 @@ struct DiffViewer {
     repo_tree_inline_edit: Option<RepoTreeInlineEditState>,
     repo_tree_context_menu: Option<RepoTreeContextMenuState>,
     files_editor: native_files_editor::SharedFilesEditor,
+    editor_search_input_state: Entity<InputState>,
     file_quick_open_input_state: Entity<InputState>,
     file_quick_open_visible: bool,
     file_quick_open_matches: Vec<String>,
@@ -857,6 +858,7 @@ struct DiffViewer {
     editor_markdown_preview_loading: bool,
     editor_markdown_preview_revision: usize,
     editor_markdown_preview: bool,
+    editor_search_visible: bool,
 }
 
 impl Drop for DiffViewer {

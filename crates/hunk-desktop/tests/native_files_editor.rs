@@ -64,6 +64,50 @@ fn reopening_same_file_restores_selection_and_viewport() {
     assert_eq!(editor.viewport_for_test().first_visible_row, 3);
 }
 
+#[test]
+fn search_navigation_selects_next_match() {
+    let mut editor = FilesEditor::new();
+    let path = PathBuf::from("example.rs");
+    editor
+        .open_document(path.as_path(), "alpha\nneedle one\nbeta\nneedle two\n")
+        .expect("document should open");
+
+    editor.set_search_query(Some("needle"));
+    assert_eq!(editor.search_match_count(), 2);
+    assert!(editor.select_next_search_match(true));
+    assert_eq!(
+        editor.selection_for_test(),
+        Selection::new(TextPosition::new(1, 0), TextPosition::new(1, 6))
+    );
+    assert!(editor.select_next_search_match(true));
+    assert_eq!(
+        editor.selection_for_test(),
+        Selection::new(TextPosition::new(3, 0), TextPosition::new(3, 6))
+    );
+}
+
+#[test]
+fn reopening_same_file_restores_fold_and_view_toggles() {
+    let mut editor = FilesEditor::new();
+    let path = PathBuf::from("example.rs");
+    let contents = "fn main() {\n    if true {\n        println!(\"hi\");\n    }\n}\n";
+    editor
+        .open_document(path.as_path(), contents)
+        .expect("document should open");
+
+    assert!(editor.toggle_fold_at_line(0));
+    assert!(editor.toggle_show_whitespace());
+    assert!(editor.toggle_soft_wrap());
+
+    editor
+        .open_document(path.as_path(), contents)
+        .expect("document should reopen");
+
+    assert_eq!(editor.folded_region_count_for_test(), 1);
+    assert!(editor.show_whitespace_for_test());
+    assert!(editor.soft_wrap_enabled_for_test());
+}
+
 fn primary_shortcut_keystroke(key: &str) -> Keystroke {
     let shortcut = if cfg!(target_os = "macos") {
         format!("cmd-{key}")

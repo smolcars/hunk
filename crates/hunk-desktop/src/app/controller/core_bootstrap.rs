@@ -360,6 +360,8 @@ impl DiffViewer {
         let file_quick_open_input_state = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Type a file name or path")
         });
+        let editor_search_input_state =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Find in file"));
         let in_app_menu_bar = (!cfg!(target_os = "macos")).then(|| AppMenuBar::new(cx));
 
         let mut view = Self {
@@ -576,6 +578,7 @@ impl DiffViewer {
             repo_tree_inline_edit: None,
             repo_tree_context_menu: None,
             files_editor,
+            editor_search_input_state,
             file_quick_open_input_state,
             file_quick_open_visible: false,
             file_quick_open_matches: Vec::new(),
@@ -595,6 +598,7 @@ impl DiffViewer {
             editor_markdown_preview_loading: false,
             editor_markdown_preview_revision: 0,
             editor_markdown_preview: false,
+            editor_search_visible: false,
         };
 
         let branch_input_state = view.branch_input_state.clone();
@@ -631,6 +635,22 @@ impl DiffViewer {
         cx.subscribe(&file_quick_open_state, |this, _, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.sync_file_quick_open_matches(cx);
+            }
+        })
+        .detach();
+
+        let editor_search_state = view.editor_search_input_state.clone();
+        cx.subscribe(&editor_search_state, |this, _, event, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.sync_editor_search_query(cx);
+            }
+            if let InputEvent::PressEnter { secondary } = event
+                && this
+                    .files_editor
+                    .borrow_mut()
+                    .select_next_search_match(!secondary)
+            {
+                cx.notify();
             }
         })
         .detach();

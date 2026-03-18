@@ -220,6 +220,18 @@ impl EditorState {
         self.dirty
     }
 
+    pub fn wrap_width(&self) -> Option<usize> {
+        self.wrap_width
+    }
+
+    pub fn show_whitespace(&self) -> bool {
+        self.show_whitespace
+    }
+
+    pub fn folded_regions(&self) -> &[FoldRegion] {
+        &self.folded_regions
+    }
+
     pub fn display_snapshot(&self) -> DisplaySnapshot {
         let rows = self.build_display_rows();
         let total_display_rows = rows.len();

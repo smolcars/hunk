@@ -1,15 +1,33 @@
 use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::BTreeMap;
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::Result;
 use gpui::*;
-use hunk_editor::{DisplayRow, DisplayRowKind, EditorCommand, EditorState, Viewport};
-use hunk_language::{LanguageRegistry, SyntaxSession};
+use hunk_editor::{
+    EditorCommand, EditorState, FoldRegion, OverlayDescriptor, OverlayKind, Viewport,
+};
+use hunk_language::{FoldCandidate, HighlightCapture, LanguageRegistry, SyntaxSession};
 use hunk_text::{BufferId, Selection, TextBuffer, TextPosition};
+use tracing::error;
+
+#[path = "native_files_editor_element.rs"]
+mod element_impl;
+#[path = "native_files_editor_paint.rs"]
+mod paint;
+
+use paint::{
+    EditorLayout, current_line_text, last_position, raw_column_for_display, uses_primary_shortcut,
+};
+
+pub(crate) fn scroll_direction_and_count(
+    event: &ScrollWheelEvent,
+    line_height: Pixels,
+) -> Option<(ScrollDirection, usize)> {
+    paint::scroll_direction_and_count(event, line_height)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScrollDirection {
@@ -36,6 +54,10 @@ pub(crate) struct FilesEditor {
     view_state_by_path: BTreeMap<PathBuf, FilesEditorViewState>,
     language_label: String,
     drag_anchor: Option<TextPosition>,
+    fold_candidates: Vec<FoldCandidate>,
+    search_query: Option<String>,
+    syntax_highlights: Vec<HighlightCapture>,
+    manual_overlays: Vec<OverlayDescriptor>,
 }
 
 #[derive(Clone)]
@@ -57,38 +79,63 @@ pub(crate) struct FilesEditorPalette {
     pub(crate) muted_foreground: Hsla,
     pub(crate) selection_background: Hsla,
     pub(crate) cursor: Hsla,
+    pub(crate) invisible: Hsla,
+    pub(crate) indent_guide: Hsla,
+    pub(crate) fold_marker: Hsla,
+    pub(crate) current_scope: Hsla,
+    pub(crate) bracket_match: Hsla,
+    pub(crate) diagnostic_error: Hsla,
+    pub(crate) diagnostic_warning: Hsla,
+    pub(crate) diagnostic_info: Hsla,
+    pub(crate) diff_addition: Hsla,
+    pub(crate) diff_deletion: Hsla,
+    pub(crate) diff_modification: Hsla,
 }
 
-#[derive(Clone)]
-pub struct EditorLayout {
-    line_height: Pixels,
-    font_size: Pixels,
-    cell_width: Pixels,
-    gutter_columns: usize,
-    hitbox: Hitbox,
-    display_snapshot: hunk_editor::DisplaySnapshot,
+#[derive(Clone, Copy)]
+pub(crate) struct FilesEditorPaletteOverlay {
+    pub(crate) gutter_marker: Hsla,
+    pub(crate) inline_background: Hsla,
 }
 
-impl EditorLayout {
-    fn content_origin_x(&self) -> Pixels {
-        self.hitbox.bounds.origin.x
-            + px(10.0)
-            + (self.cell_width * (self.gutter_columns as f32 + 1.0))
+impl FilesEditorPalette {
+    pub(crate) fn overlay_colors(self, kind: OverlayKind) -> FilesEditorPaletteOverlay {
+        match kind {
+            OverlayKind::DiagnosticError => FilesEditorPaletteOverlay {
+                gutter_marker: self.diagnostic_error,
+                inline_background: self.diagnostic_error.opacity(0.28),
+            },
+            OverlayKind::DiagnosticWarning => FilesEditorPaletteOverlay {
+                gutter_marker: self.diagnostic_warning,
+                inline_background: self.diagnostic_warning.opacity(0.24),
+            },
+            OverlayKind::DiagnosticInfo => FilesEditorPaletteOverlay {
+                gutter_marker: self.diagnostic_info,
+                inline_background: self.diagnostic_info.opacity(0.22),
+            },
+            OverlayKind::DiffAddition => FilesEditorPaletteOverlay {
+                gutter_marker: self.diff_addition,
+                inline_background: self.diff_addition.opacity(0.10),
+            },
+            OverlayKind::DiffDeletion => FilesEditorPaletteOverlay {
+                gutter_marker: self.diff_deletion,
+                inline_background: self.diff_deletion.opacity(0.10),
+            },
+            OverlayKind::DiffModification => FilesEditorPaletteOverlay {
+                gutter_marker: self.diff_modification,
+                inline_background: self.diff_modification.opacity(0.10),
+            },
+        }
     }
 }
 
 #[derive(Clone)]
-struct LineNumberPaintParams {
-    origin: Point<Pixels>,
-    current_line: usize,
-    palette: FilesEditorPalette,
-    font: Font,
-}
-
-#[derive(Clone, Copy)]
 struct FilesEditorViewState {
     selection: Selection,
     viewport: Viewport,
+    folded_regions: Vec<FoldRegion>,
+    soft_wrap: bool,
+    show_whitespace: bool,
 }
 
 impl FilesEditor {
@@ -102,6 +149,10 @@ impl FilesEditor {
             view_state_by_path: BTreeMap::new(),
             language_label: "text".to_string(),
             drag_anchor: None,
+            fold_candidates: Vec::new(),
+            search_query: None,
+            syntax_highlights: Vec::new(),
+            manual_overlays: Vec::new(),
         }
     }
 
@@ -115,11 +166,6 @@ impl FilesEditor {
             visible_row_count: 1,
             horizontal_offset: 0,
         }));
-        let syntax = self.syntax.parse_for_path(&self.registry, path, contents)?;
-        self.editor
-            .apply(EditorCommand::SetLanguage(syntax.language_id));
-        self.editor
-            .apply(EditorCommand::SetParseStatus(syntax.parse_status));
         self.active_path = Some(path.to_path_buf());
         self.language_label = self
             .registry
@@ -127,6 +173,14 @@ impl FilesEditor {
             .map(|definition| definition.name.clone())
             .unwrap_or_else(|| "text".to_string());
         self.drag_anchor = None;
+        self.fold_candidates.clear();
+        self.syntax_highlights.clear();
+        self.apply_path_defaults(path);
+        self.refresh_syntax_state()?;
+        if self.search_query.is_some() {
+            self.editor
+                .apply(EditorCommand::SetSearchQuery(self.search_query.clone()));
+        }
         self.restore_view_state(path);
         Ok(())
     }
@@ -138,6 +192,9 @@ impl FilesEditor {
         self.next_buffer_id = self.next_buffer_id.saturating_add(1);
         self.language_label = "text".to_string();
         self.drag_anchor = None;
+        self.fold_candidates.clear();
+        self.syntax_highlights.clear();
+        self.manual_overlays.clear();
     }
 
     pub(crate) fn shutdown(&mut self) {
@@ -183,7 +240,7 @@ impl FilesEditor {
 
     pub(crate) fn cut_selection_text(&mut self) -> Option<String> {
         self.active_path.as_ref()?;
-        let output = self.editor.apply(EditorCommand::CutSelection);
+        let output = self.apply_editor_command(EditorCommand::CutSelection);
         output.copied_text
     }
 
@@ -192,11 +249,120 @@ impl FilesEditor {
             return false;
         }
 
-        let output = self.editor.apply(EditorCommand::Paste(text.to_string()));
+        let output = self.apply_editor_command(EditorCommand::Paste(text.to_string()));
         output.document_changed || output.selection_changed
     }
 
     pub(crate) fn sync_theme(&mut self, _is_dark: bool) {}
+
+    pub(crate) fn show_whitespace(&self) -> bool {
+        self.editor.show_whitespace()
+    }
+
+    pub(crate) fn soft_wrap_enabled(&self) -> bool {
+        self.editor.wrap_width().is_some()
+    }
+
+    pub(crate) fn toggle_show_whitespace(&mut self) -> bool {
+        let next = !self.show_whitespace();
+        self.editor.apply(EditorCommand::SetShowWhitespace(next));
+        true
+    }
+
+    pub(crate) fn toggle_soft_wrap(&mut self) -> bool {
+        if self.soft_wrap_enabled() {
+            self.editor.apply(EditorCommand::SetWrapWidth(None));
+        } else {
+            self.editor.apply(EditorCommand::SetWrapWidth(Some(80)));
+        }
+        true
+    }
+
+    pub(crate) fn set_search_query(&mut self, query: Option<&str>) {
+        self.search_query = query
+            .map(str::trim)
+            .filter(|query| !query.is_empty())
+            .map(ToOwned::to_owned);
+        self.editor
+            .apply(EditorCommand::SetSearchQuery(self.search_query.clone()));
+    }
+
+    pub(crate) fn search_match_count(&self) -> usize {
+        self.search_query
+            .as_ref()
+            .map(|query| self.editor.buffer().snapshot().find_all(query).len())
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn select_next_search_match(&mut self, forward: bool) -> bool {
+        let Some(query) = self.search_query.as_ref() else {
+            return false;
+        };
+        let snapshot = self.editor.buffer().snapshot();
+        let matches = snapshot.find_all(query);
+        if matches.is_empty() {
+            return false;
+        }
+
+        let selection = self.editor.selection().range();
+        let Ok(caret_start) = snapshot.position_to_byte(selection.start) else {
+            return false;
+        };
+        let Ok(caret_end) = snapshot.position_to_byte(selection.end) else {
+            return false;
+        };
+
+        let next = if forward {
+            matches
+                .iter()
+                .find(|found| found.byte_range.start > caret_end)
+                .or_else(|| matches.first())
+        } else {
+            matches
+                .iter()
+                .rev()
+                .find(|found| found.byte_range.end < caret_start)
+                .or_else(|| matches.last())
+        };
+        let Some(next) = next else {
+            return false;
+        };
+
+        let Ok(start) = snapshot.byte_to_position(next.byte_range.start) else {
+            return false;
+        };
+        let Ok(end) = snapshot.byte_to_position(next.byte_range.end) else {
+            return false;
+        };
+        self.editor
+            .apply(EditorCommand::SetSelection(Selection::new(start, end)))
+            .selection_changed
+    }
+
+    pub(crate) fn toggle_fold_at_line(&mut self, line: usize) -> bool {
+        if self
+            .editor
+            .folded_regions()
+            .iter()
+            .any(|region| region.start_line <= line && line <= region.end_line)
+        {
+            self.editor.apply(EditorCommand::UnfoldAtLine { line });
+            true
+        } else {
+            let Some(candidate) = self
+                .fold_candidates
+                .iter()
+                .find(|candidate| candidate.start_line == line)
+            else {
+                return false;
+            };
+            self.editor.apply(EditorCommand::FoldLines {
+                start_line: candidate.start_line,
+                end_line: candidate.end_line,
+            });
+            true
+        }
+    }
 
     pub(crate) fn handle_keystroke(&mut self, keystroke: &Keystroke) -> bool {
         if self.active_path.is_none() {
@@ -223,13 +389,11 @@ impl FilesEditor {
                 true
             }
             "backspace" => {
-                self.editor
-                    .apply(EditorCommand::DeleteBackward)
+                self.apply_editor_command(EditorCommand::DeleteBackward)
                     .document_changed
             }
             "delete" => {
-                self.editor
-                    .apply(EditorCommand::DeleteForward)
+                self.apply_editor_command(EditorCommand::DeleteForward)
                     .document_changed
             }
             "escape" => self.collapse_selection_to_head(),
@@ -415,8 +579,7 @@ impl FilesEditor {
     }
 
     fn insert_text(&mut self, text: &str) -> bool {
-        self.editor
-            .apply(EditorCommand::InsertText(text.to_string()))
+        self.apply_editor_command(EditorCommand::InsertText(text.to_string()))
             .document_changed
     }
 
@@ -429,18 +592,31 @@ impl FilesEditor {
             FilesEditorViewState {
                 selection: self.editor.selection(),
                 viewport: self.editor.viewport(),
+                folded_regions: self.editor.folded_regions().to_vec(),
+                soft_wrap: self.soft_wrap_enabled(),
+                show_whitespace: self.show_whitespace(),
             },
         );
     }
 
     fn restore_view_state(&mut self, path: &Path) {
-        let Some(state) = self.view_state_by_path.get(path).copied() else {
+        let Some(state) = self.view_state_by_path.get(path).cloned() else {
             return;
         };
         self.editor
             .apply(EditorCommand::SetViewport(state.viewport));
         self.editor
             .apply(EditorCommand::SetSelection(state.selection));
+        self.editor
+            .apply(EditorCommand::SetShowWhitespace(state.show_whitespace));
+        self.editor
+            .apply(EditorCommand::SetWrapWidth(state.soft_wrap.then_some(80)));
+        for region in state.folded_regions {
+            self.editor.apply(EditorCommand::FoldLines {
+                start_line: region.start_line,
+                end_line: region.end_line,
+            });
+        }
     }
 
     #[cfg(test)]
@@ -467,20 +643,42 @@ impl FilesEditor {
         self.editor.viewport()
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn folded_region_count_for_test(&self) -> usize {
+        self.editor.folded_regions().len()
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn show_whitespace_for_test(&self) -> bool {
+        self.show_whitespace()
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn soft_wrap_enabled_for_test(&self) -> bool {
+        self.soft_wrap_enabled()
+    }
+
     fn apply_layout(
         &mut self,
         columns: usize,
         visible_rows: usize,
     ) -> hunk_editor::DisplaySnapshot {
-        self.editor
-            .apply(EditorCommand::SetWrapWidth(Some(columns.max(1))));
+        if self.soft_wrap_enabled() {
+            self.editor
+                .apply(EditorCommand::SetWrapWidth(Some(columns.max(1))));
+        }
         let viewport = self.editor.viewport();
         self.editor.apply(EditorCommand::SetViewport(Viewport {
             first_visible_row: viewport.first_visible_row,
             visible_row_count: visible_rows.max(1),
             horizontal_offset: 0,
         }));
-        self.editor.display_snapshot()
+        let display_snapshot = self.editor.display_snapshot();
+        self.refresh_visible_syntax_highlights(&display_snapshot);
+        display_snapshot
     }
 
     fn handle_mouse_down(
@@ -489,6 +687,9 @@ impl FilesEditor {
         layout: &EditorLayout,
         shift_held: bool,
     ) -> bool {
+        if self.handle_fold_toggle_click(position, layout) {
+            return true;
+        }
         let Some(next_position) = self.position_for_point(position, layout) else {
             return false;
         };
@@ -547,443 +748,167 @@ impl FilesEditor {
         let raw_column = raw_column_for_display(display_row, display_column);
         Some(TextPosition::new(display_row.source_line, raw_column))
     }
-}
 
-impl FilesEditorElement {
-    pub(crate) fn new(
-        state: SharedFilesEditor,
-        is_focused: bool,
-        style: TextStyle,
-        palette: FilesEditorPalette,
-    ) -> Self {
-        Self {
-            state,
-            is_focused,
-            style,
-            palette,
-        }
-    }
-}
-
-impl IntoElement for FilesEditorElement {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
-impl Element for FilesEditorElement {
-    type RequestLayoutState = ();
-    type PrepaintState = EditorLayout;
-
-    fn id(&self) -> Option<ElementId> {
-        None
-    }
-
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        None
-    }
-
-    fn request_layout(
-        &mut self,
-        _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, Self::RequestLayoutState) {
-        let mut style = gpui::Style::default();
-        style.size.width = relative(1.).into();
-        style.size.height = relative(1.).into();
-        (window.request_layout(style, [], cx), ())
-    }
-
-    fn prepaint(
-        &mut self,
-        _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _request_layout: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        _cx: &mut App,
-    ) -> Self::PrepaintState {
-        let font_id = window.text_system().resolve_font(&self.style.font());
-        let font_size = self.style.font_size.to_pixels(window.rem_size());
-        let line_height = self.style.line_height_in_pixels(window.rem_size());
-        let cell_width = window
-            .text_system()
-            .advance(font_id, font_size, 'm')
-            .map(|size| size.width)
-            .unwrap_or_else(|_| px(8.0));
-        let columns = (bounds.size.width / cell_width).floor().max(1.0) as usize;
-        let rows = (bounds.size.height / line_height).floor().max(1.0) as usize;
-
-        let gutter_columns = self
-            .state
-            .borrow()
-            .editor
-            .display_snapshot()
-            .line_count
-            .max(1)
-            .to_string()
-            .len()
-            + 1;
-        let editor_columns = columns.saturating_sub(gutter_columns + 2).max(1);
-        let display_snapshot = self.state.borrow_mut().apply_layout(editor_columns, rows);
-
-        EditorLayout {
-            line_height,
-            font_size,
-            cell_width,
-            gutter_columns,
-            hitbox: window.insert_hitbox(bounds, HitboxBehavior::Normal),
-            display_snapshot,
-        }
-    }
-
-    fn paint(
-        &mut self,
-        _id: Option<&GlobalElementId>,
-        _inspector_id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _request_layout: &mut Self::RequestLayoutState,
-        layout: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let mouse_down_layout = layout.clone();
-        let mouse_drag_layout = layout.clone();
-        let mouse_state = self.state.clone();
-        window.on_mouse_event(move |event: &MouseDownEvent, phase, window, _cx| {
-            if phase == DispatchPhase::Bubble
-                && event.button == gpui::MouseButton::Left
-                && mouse_down_layout.hitbox.is_hovered(window)
-                && mouse_state.borrow_mut().handle_mouse_down(
-                    event.position,
-                    &mouse_down_layout,
-                    event.modifiers.shift,
-                )
-            {
-                window.refresh();
-            }
-        });
-        let mouse_state = self.state.clone();
-        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, _cx| {
-            if phase == DispatchPhase::Bubble
-                && event.dragging()
-                && mouse_state
-                    .borrow_mut()
-                    .handle_mouse_drag(event.position, &mouse_drag_layout)
-            {
-                window.refresh();
-            }
-        });
-        let mouse_state = self.state.clone();
-        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, _cx| {
-            if phase == DispatchPhase::Bubble
-                && event.button == gpui::MouseButton::Left
-                && mouse_state.borrow_mut().handle_mouse_up()
-            {
-                window.refresh();
-            }
-        });
-
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            window.paint_quad(fill(bounds, self.palette.background));
-
-            let content_origin = point(layout.content_origin_x(), bounds.origin.y + px(1.0));
-            let gutter_x = bounds.origin.x + (layout.cell_width * layout.gutter_columns as f32);
-            window.paint_quad(fill(
-                Bounds {
-                    origin: point(gutter_x + px(4.0), bounds.origin.y),
-                    size: size(px(1.0), bounds.size.height),
-                },
-                self.palette.border,
+    fn apply_editor_command(&mut self, command: EditorCommand) -> hunk_editor::CommandOutput {
+        let output = self.editor.apply(command);
+        if output.document_changed
+            && let Err(err) = self.refresh_syntax_state()
+        {
+            error!("failed to refresh native editor syntax state: {err:#}");
+            self.fold_candidates.clear();
+            self.syntax_highlights.clear();
+            self.editor.apply(EditorCommand::SetParseStatus(
+                hunk_language::ParseStatus::Failed,
             ));
-
-            let selection = self.state.borrow().editor.selection();
-            let current_line = selection.head.line;
-            let mut row_origin = content_origin;
-            for row in &layout.display_snapshot.visible_rows {
-                if row.source_line == current_line {
-                    window.paint_quad(fill(
-                        Bounds {
-                            origin: point(bounds.origin.x, row_origin.y),
-                            size: size(bounds.size.width, layout.line_height),
-                        },
-                        self.palette.active_line_background,
-                    ));
-                }
-                if let Some(selection_range) = selection_range_for_row(row, selection) {
-                    paint_selection(
-                        window,
-                        row_origin,
-                        layout,
-                        selection_range,
-                        self.palette.selection_background,
-                    );
-                }
-                for highlight in &row.search_highlights {
-                    paint_selection(
-                        window,
-                        row_origin,
-                        layout,
-                        highlight.start_column..highlight.end_column,
-                        hsla(
-                            self.palette.selection_background.h,
-                            self.palette.selection_background.s,
-                            self.palette.selection_background.l,
-                            0.35,
-                        ),
-                    );
-                }
-
-                paint_line_number(
-                    window,
-                    cx,
-                    row,
-                    layout,
-                    LineNumberPaintParams {
-                        origin: row_origin,
-                        current_line,
-                        palette: self.palette,
-                        font: self.style.font(),
-                    },
-                );
-
-                let row_color = match row.kind {
-                    DisplayRowKind::Text => self.palette.default_foreground,
-                    DisplayRowKind::FoldPlaceholder { .. } => self.palette.muted_foreground,
-                };
-                let runs = vec![TextRun {
-                    len: row.text.chars().count(),
-                    color: row_color,
-                    font: self.style.font(),
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
-                }];
-                let line = window.text_system().shape_line(
-                    row.text.clone().into(),
-                    layout.font_size,
-                    &runs,
-                    None,
-                );
-                let _ = line.paint(
-                    row_origin,
-                    layout.line_height,
-                    TextAlign::Left,
-                    None,
-                    window,
-                    cx,
-                );
-                row_origin.y += layout.line_height;
-            }
-
-            if self.is_focused {
-                paint_cursor(
-                    window,
-                    &layout.display_snapshot.visible_rows,
-                    selection.head,
-                    content_origin,
-                    layout,
-                    self.palette.cursor,
-                );
-            }
-
-            if layout.hitbox.is_hovered(window) {
-                window.set_cursor_style(CursorStyle::IBeam, &layout.hitbox);
-            }
-        });
-    }
-}
-
-pub(crate) fn scroll_direction_and_count(
-    event: &ScrollWheelEvent,
-    line_height: Pixels,
-) -> Option<(ScrollDirection, usize)> {
-    let delta = event.delta.pixel_delta(line_height);
-    if delta.y.abs() < px(0.5) {
-        return None;
+            self.sync_overlays();
+        }
+        output
     }
 
-    Some((
-        if delta.y > Pixels::ZERO {
-            ScrollDirection::Backward
-        } else {
-            ScrollDirection::Forward
-        },
-        ((delta.y.abs() / line_height).ceil() as usize).max(1),
-    ))
-}
+    fn refresh_syntax_state(&mut self) -> Result<()> {
+        let Some(path) = self.active_path.clone() else {
+            self.fold_candidates.clear();
+            self.syntax_highlights.clear();
+            return Ok(());
+        };
 
-fn current_line_text(snapshot: &hunk_text::TextSnapshot, line: usize) -> String {
-    let start = snapshot.line_to_byte(line).unwrap_or(0);
-    let end = if line + 1 < snapshot.line_count() {
-        snapshot
-            .line_to_byte(line + 1)
-            .unwrap_or(snapshot.byte_len())
-    } else {
-        snapshot.byte_len()
-    };
-    snapshot
-        .slice(start..end)
-        .unwrap_or_default()
-        .trim_end_matches('\n')
-        .to_string()
-}
-
-fn last_position(snapshot: &hunk_text::TextSnapshot) -> Option<TextPosition> {
-    let line = snapshot.line_count().checked_sub(1)?;
-    Some(TextPosition::new(
-        line,
-        current_line_text(snapshot, line).chars().count(),
-    ))
-}
-
-fn uses_primary_shortcut(keystroke: &Keystroke) -> bool {
-    if cfg!(target_os = "macos") {
-        keystroke.modifiers.platform
-    } else {
-        keystroke.modifiers.control
-    }
-}
-
-fn paint_line_number(
-    window: &mut Window,
-    cx: &mut App,
-    row: &DisplayRow,
-    layout: &EditorLayout,
-    params: LineNumberPaintParams,
-) {
-    let label = if row.start_column == 0 {
-        format!("{}", row.source_line + 1)
-    } else {
-        String::new()
-    };
-    let color = if row.source_line == params.current_line {
-        params.palette.current_line_number
-    } else {
-        params.palette.line_number
-    };
-    let runs = vec![TextRun {
-        len: label.chars().count(),
-        color,
-        font: params.font,
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    }];
-    let line = window
-        .text_system()
-        .shape_line(label.into(), layout.font_size, &runs, None);
-    let _ = line.paint(
-        point(layout.hitbox.bounds.origin.x + px(2.0), params.origin.y),
-        layout.line_height,
-        TextAlign::Left,
-        None,
-        window,
-        cx,
-    );
-}
-
-fn selection_range_for_row(row: &DisplayRow, selection: Selection) -> Option<Range<usize>> {
-    let selection = selection.range();
-    if selection.is_empty()
-        || row.source_line < selection.start.line
-        || row.source_line > selection.end.line
-    {
-        return None;
+        let source = self.editor.buffer().text();
+        let syntax = self.syntax.parse_for_path(&self.registry, &path, &source)?;
+        self.fold_candidates = self.syntax.fold_candidates(&self.registry, &source);
+        self.editor
+            .apply(EditorCommand::SetLanguage(syntax.language_id));
+        self.editor
+            .apply(EditorCommand::SetParseStatus(syntax.parse_status));
+        self.sync_overlays();
+        Ok(())
     }
 
-    let row_start = if row.source_line == selection.start.line {
-        selection.start.column.max(row.raw_start_column)
-    } else {
-        row.raw_start_column
-    };
-    let row_end = if row.source_line == selection.end.line {
-        selection.end.column.min(row.raw_end_column)
-    } else {
-        row.raw_end_column
-    };
-    (row_start < row_end)
-        .then_some(display_column_for_raw(row, row_start)..display_column_for_raw(row, row_end))
-}
+    fn refresh_visible_syntax_highlights(
+        &mut self,
+        display_snapshot: &hunk_editor::DisplaySnapshot,
+    ) {
+        let Some(first_row) = display_snapshot.visible_rows.first() else {
+            self.syntax_highlights.clear();
+            return;
+        };
+        let Some(last_row) = display_snapshot.visible_rows.last() else {
+            self.syntax_highlights.clear();
+            return;
+        };
 
-fn paint_selection(
-    window: &mut Window,
-    row_origin: Point<Pixels>,
-    layout: &EditorLayout,
-    columns: Range<usize>,
-    color: Hsla,
-) {
-    window.paint_quad(fill(
-        Bounds {
-            origin: point(
-                row_origin.x + (layout.cell_width * columns.start as f32),
-                row_origin.y,
-            ),
-            size: size(
-                layout.cell_width * columns.end.saturating_sub(columns.start) as f32,
-                layout.line_height,
-            ),
-        },
-        color,
-    ));
-}
+        let snapshot = self.editor.buffer().snapshot();
+        let Ok(start) = snapshot.position_to_byte(TextPosition::new(
+            first_row.source_line,
+            first_row.raw_start_column,
+        )) else {
+            self.syntax_highlights.clear();
+            return;
+        };
+        let Ok(end) = snapshot.position_to_byte(TextPosition::new(
+            last_row.source_line,
+            last_row.raw_end_column,
+        )) else {
+            self.syntax_highlights.clear();
+            return;
+        };
+        if start >= end {
+            self.syntax_highlights.clear();
+            return;
+        }
 
-fn paint_cursor(
-    window: &mut Window,
-    rows: &[DisplayRow],
-    caret: TextPosition,
-    content_origin: Point<Pixels>,
-    layout: &EditorLayout,
-    color: Hsla,
-) {
-    if let Some(row) = rows.iter().find(|row| {
-        row.source_line == caret.line
-            && row.raw_start_column <= caret.column
-            && caret.column <= row.raw_end_column
-    }) {
-        let x = content_origin.x
-            + (layout.cell_width * display_column_for_raw(row, caret.column) as f32);
-        let y = content_origin.y
-            + (layout.line_height * row.row_index.saturating_sub(rows[0].row_index) as f32);
-        window.paint_quad(fill(
-            Bounds {
-                origin: point(x, y),
-                size: size(px(1.5), layout.line_height),
-            },
-            color,
+        let source = snapshot.text();
+        self.syntax_highlights = self
+            .syntax
+            .highlight_visible_range(&self.registry, &source, start..end)
+            .unwrap_or_default();
+    }
+
+    fn sync_overlays(&mut self) {
+        let mut overlays = self.manual_overlays.clone();
+        if matches!(
+            self.editor.status_snapshot().parse_status,
+            hunk_language::ParseStatus::Failed
+        ) {
+            overlays.push(OverlayDescriptor {
+                line: 0,
+                kind: OverlayKind::DiagnosticError,
+                message: Some("syntax parser failed for this file".to_string()),
+            });
+        }
+        self.editor.apply(EditorCommand::SetOverlays(overlays));
+    }
+
+    fn apply_path_defaults(&mut self, path: &Path) {
+        self.editor.apply(EditorCommand::SetShowWhitespace(
+            default_show_whitespace_for_path(path),
+        ));
+        self.editor.apply(EditorCommand::SetWrapWidth(
+            default_soft_wrap_for_path(path).then_some(80),
         ));
     }
-}
 
-fn display_column_for_raw(row: &DisplayRow, raw_column: usize) -> usize {
-    let offset = raw_column.saturating_sub(row.raw_start_column);
-    row.raw_column_offsets
-        .get(offset)
-        .copied()
-        .unwrap_or_else(|| row.raw_column_offsets.last().copied().unwrap_or(0))
-}
-
-fn raw_column_for_display(row: &DisplayRow, display_column: usize) -> usize {
-    let clamped_display = min(display_column, row.text.chars().count());
-    let offsets = &row.raw_column_offsets;
-    if offsets.is_empty() {
-        return row.raw_start_column;
-    }
-
-    match offsets.binary_search(&clamped_display) {
-        Ok(index) => row.raw_start_column + index,
-        Err(0) => row.raw_start_column,
-        Err(index) if index >= offsets.len() => row.raw_start_column + offsets.len() - 1,
-        Err(index) => {
-            let previous_offset = offsets[index - 1];
-            let next_offset = offsets[index];
-            let snaps_to_next = clamped_display.saturating_sub(previous_offset)
-                >= next_offset.saturating_sub(clamped_display);
-            row.raw_start_column + if snaps_to_next { index } else { index - 1 }
+    fn handle_fold_toggle_click(&mut self, position: Point<Pixels>, layout: &EditorLayout) -> bool {
+        let row = ((position.y - layout.hitbox.bounds.origin.y) / layout.line_height)
+            .floor()
+            .max(0.0) as usize;
+        let Some(display_row) = layout.display_snapshot.visible_rows.get(row) else {
+            return false;
+        };
+        let fold_bounds = layout.fold_marker_bounds_for_row(
+            display_row.row_index,
+            layout.display_snapshot.visible_rows[0].row_index,
+        );
+        if !fold_bounds.contains(&position) {
+            return false;
         }
+        self.toggle_fold_at_line(display_row.source_line)
     }
+
+    fn active_scope(&self) -> Option<FoldRegion> {
+        let current_line = self.editor.selection().head.line;
+        self.fold_candidates
+            .iter()
+            .filter(|candidate| {
+                candidate.start_line <= current_line && current_line <= candidate.end_line
+            })
+            .min_by_key(|candidate| candidate.end_line - candidate.start_line)
+            .and_then(|candidate| FoldRegion::new(candidate.start_line, candidate.end_line))
+    }
+
+    fn is_foldable_line(&self, line: usize) -> bool {
+        self.fold_candidates
+            .iter()
+            .any(|candidate| candidate.start_line == line)
+    }
+
+    fn is_folded_line(&self, line: usize) -> bool {
+        self.editor
+            .folded_regions()
+            .iter()
+            .any(|region| region.start_line == line)
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn set_overlays_for_test(&mut self, overlays: Vec<OverlayDescriptor>) {
+        self.manual_overlays = overlays;
+        self.sync_overlays();
+    }
+}
+
+fn default_soft_wrap_for_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension,
+                "md" | "mdx" | "markdown" | "txt" | "rst" | "json" | "yaml" | "yml" | "toml"
+            )
+        })
+}
+
+fn default_show_whitespace_for_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| matches!(extension, "md" | "mdx" | "markdown" | "txt"))
 }

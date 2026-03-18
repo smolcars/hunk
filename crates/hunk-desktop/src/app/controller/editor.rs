@@ -441,6 +441,7 @@ impl DiffViewer {
         self.editor_markdown_preview = false;
         self.invalidate_editor_markdown_preview();
         self.files_editor.borrow_mut().clear();
+        self.editor_search_visible = false;
     }
 
     pub(crate) fn current_editor_text(&self) -> anyhow::Result<String> {
@@ -511,6 +512,7 @@ impl DiffViewer {
         self.files_editor
             .borrow_mut()
             .open_document(&absolute_path, text)?;
+        self.sync_editor_search_query(cx);
 
         let focus_handle = self.files_editor_focus_handle.clone();
         if let Err(err) = Self::update_any_window(cx, |window, cx| {
@@ -565,5 +567,56 @@ impl DiffViewer {
     fn next_editor_save_epoch(&mut self) -> usize {
         self.editor_save_epoch = self.editor_save_epoch.saturating_add(1);
         self.editor_save_epoch
+    }
+
+    pub(super) fn sync_editor_search_query(&mut self, cx: &mut Context<Self>) {
+        let query = if self.editor_search_visible {
+            self.editor_search_input_state.read(cx).value().to_string()
+        } else {
+            String::new()
+        };
+        self.files_editor
+            .borrow_mut()
+            .set_search_query(Some(query.as_str()));
+        cx.notify();
+    }
+
+    pub(super) fn toggle_editor_search(
+        &mut self,
+        visible: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.editor_search_visible = visible;
+        if visible {
+            self.editor_search_input_state.update(cx, |state, cx| {
+                state.focus(window, cx);
+            });
+        } else {
+            self.editor_search_input_state.update(cx, |state, cx| {
+                state.set_value("", window, cx);
+            });
+            self.files_editor.borrow_mut().set_search_query(None);
+            self.files_editor_focus_handle.focus(window, cx);
+        }
+        cx.notify();
+    }
+
+    pub(super) fn toggle_editor_search_visibility(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_editor_search(!self.editor_search_visible, window, cx);
+    }
+
+    pub(super) fn navigate_editor_search(
+        &mut self,
+        forward: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.files_editor.borrow_mut().select_next_search_match(forward) {
+            cx.notify();
+        }
     }
 }

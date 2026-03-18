@@ -49,6 +49,7 @@ include!("syntax_colors.rs");
 include!("diff.rs");
 include!("diff_rows.rs");
 include!("file_editor.rs");
+include!("file_editor_surface.rs");
 include!("file_quick_open.rs");
 include!("ai_loading.rs");
 include!("ai.rs");
