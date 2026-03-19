@@ -1,5 +1,6 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -25,7 +26,7 @@ mod language_impl;
 mod paint;
 
 use language_impl::overlay_kind_for_diagnostic_severity;
-use paint::EditorLayout;
+use paint::{EditorLayout, RowSyntaxSpan, build_row_syntax_spans_for_row};
 
 pub(crate) fn scroll_direction_and_count(
     event: &ScrollWheelEvent,
@@ -62,6 +63,10 @@ pub(crate) struct FilesEditor {
     search_query: Option<String>,
     syntax_highlights: Vec<HighlightCapture>,
     manual_overlays: Vec<OverlayDescriptor>,
+    visible_highlight_cache: Option<VisibleHighlightCache>,
+    row_syntax_cache: Option<RowSyntaxSpanCache>,
+    semantic_highlight_revision: u64,
+    syntax_highlight_revision: u64,
 }
 
 #[derive(Clone)]
@@ -148,6 +153,30 @@ struct PointerSelectionState {
     mode: PointerSelectionMode,
 }
 
+#[derive(Clone)]
+struct VisibleHighlightCache {
+    buffer_id: BufferId,
+    buffer_version: u64,
+    semantic_revision: u64,
+    byte_range: Range<usize>,
+    captures: Vec<HighlightCapture>,
+}
+
+struct RowSyntaxSpanCache {
+    buffer_id: BufferId,
+    buffer_version: u64,
+    syntax_revision: u64,
+    spans_by_signature: HashMap<VisibleRowSignature, Vec<RowSyntaxSpan>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct VisibleRowSignature {
+    row_index: usize,
+    source_line: usize,
+    raw_start_column: usize,
+    raw_end_column: usize,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PointerSelectionMode {
     Character,
@@ -170,6 +199,10 @@ impl FilesEditor {
             search_query: None,
             syntax_highlights: Vec::new(),
             manual_overlays: Vec::new(),
+            visible_highlight_cache: None,
+            row_syntax_cache: None,
+            semantic_highlight_revision: 0,
+            syntax_highlight_revision: 0,
         }
     }
 
@@ -191,7 +224,10 @@ impl FilesEditor {
             .unwrap_or_else(|| "text".to_string());
         self.pointer_selection = None;
         self.fold_candidates.clear();
-        self.syntax_highlights.clear();
+        self.clear_syntax_highlights();
+        self.visible_highlight_cache = None;
+        self.row_syntax_cache = None;
+        self.semantic_highlight_revision = self.semantic_highlight_revision.saturating_add(1);
         self.apply_path_defaults(path);
         self.refresh_syntax_state()?;
         if self.search_query.is_some() {
@@ -210,8 +246,12 @@ impl FilesEditor {
         self.language_label = "text".to_string();
         self.pointer_selection = None;
         self.fold_candidates.clear();
-        self.syntax_highlights.clear();
+        self.clear_syntax_highlights();
         self.manual_overlays.clear();
+        self.visible_highlight_cache = None;
+        self.row_syntax_cache = None;
+        self.semantic_highlight_revision = 0;
+        self.syntax_highlight_revision = 0;
     }
 
     pub(crate) fn shutdown(&mut self) {
@@ -495,7 +535,10 @@ impl FilesEditor {
         {
             error!("failed to refresh native editor syntax state: {err:#}");
             self.fold_candidates.clear();
-            self.syntax_highlights.clear();
+            self.clear_syntax_highlights();
+            self.visible_highlight_cache = None;
+            self.row_syntax_cache = None;
+            self.semantic_highlight_revision = self.semantic_highlight_revision.saturating_add(1);
             self.editor.apply(EditorCommand::SetParseStatus(
                 hunk_language::ParseStatus::Failed,
             ));
@@ -507,7 +550,10 @@ impl FilesEditor {
     fn refresh_syntax_state(&mut self) -> Result<()> {
         let Some(path) = self.active_path.clone() else {
             self.fold_candidates.clear();
-            self.syntax_highlights.clear();
+            self.clear_syntax_highlights();
+            self.visible_highlight_cache = None;
+            self.row_syntax_cache = None;
+            self.semantic_highlight_revision = self.semantic_highlight_revision.saturating_add(1);
             return Ok(());
         };
 
@@ -518,6 +564,9 @@ impl FilesEditor {
             .apply(EditorCommand::SetLanguage(syntax.language_id));
         self.editor
             .apply(EditorCommand::SetParseStatus(syntax.parse_status));
+        self.visible_highlight_cache = None;
+        self.row_syntax_cache = None;
+        self.semantic_highlight_revision = self.semantic_highlight_revision.saturating_add(1);
         self.sync_overlays();
         Ok(())
     }
@@ -527,42 +576,212 @@ impl FilesEditor {
         display_snapshot: &hunk_editor::DisplaySnapshot,
     ) {
         let Some(first_row) = display_snapshot.visible_rows.first() else {
-            self.syntax_highlights.clear();
+            self.clear_syntax_highlights();
             return;
         };
         let Some(last_row) = display_snapshot.visible_rows.last() else {
-            self.syntax_highlights.clear();
+            self.clear_syntax_highlights();
             return;
         };
 
         let snapshot = self.editor.buffer().snapshot();
-        let Ok(start) = snapshot.position_to_byte(TextPosition::new(
+        let Ok(visible_start) = snapshot.position_to_byte(TextPosition::new(
             first_row.source_line,
             first_row.raw_start_column,
         )) else {
-            self.syntax_highlights.clear();
+            self.clear_syntax_highlights();
             return;
         };
-        let Ok(end) = snapshot.position_to_byte(TextPosition::new(
+        let Ok(visible_end) = snapshot.position_to_byte(TextPosition::new(
             last_row.source_line,
             last_row.raw_end_column,
         )) else {
-            self.syntax_highlights.clear();
+            self.clear_syntax_highlights();
             return;
         };
+        if visible_start >= visible_end {
+            self.clear_syntax_highlights();
+            return;
+        }
+
+        if self.visible_highlight_cache.as_ref().is_some_and(|cache| {
+            cache.buffer_id == snapshot.buffer_id
+                && cache.buffer_version == snapshot.version
+                && cache.semantic_revision == self.semantic_highlight_revision
+                && cache.byte_range.start <= visible_start
+                && visible_end <= cache.byte_range.end
+        }) {
+            return;
+        }
+
+        let highlight_overscan_lines =
+            highlight_overscan_lines(display_snapshot.visible_rows.len());
+        let start_line = first_row
+            .source_line
+            .saturating_sub(highlight_overscan_lines);
+        let end_line = last_row
+            .source_line
+            .saturating_add(highlight_overscan_lines)
+            .min(snapshot.line_count().saturating_sub(1));
+        let Ok(start) = snapshot.line_to_byte(start_line) else {
+            self.clear_syntax_highlights();
+            return;
+        };
+        let end = if end_line + 1 < snapshot.line_count() {
+            snapshot
+                .line_to_byte(end_line + 1)
+                .unwrap_or(snapshot.byte_len())
+        } else {
+            snapshot.byte_len()
+        };
         if start >= end {
-            self.syntax_highlights.clear();
+            self.clear_syntax_highlights();
             return;
         }
 
         let source = snapshot.text();
+        let captures = if let Some(cache) =
+            self.visible_highlight_cache
+                .as_ref()
+                .cloned()
+                .filter(|cache| {
+                    cache.buffer_id == snapshot.buffer_id
+                        && cache.buffer_version == snapshot.version
+                        && cache.semantic_revision == self.semantic_highlight_revision
+                        && ranges_overlap_or_touch(&cache.byte_range, &(start..end))
+                }) {
+            let mut merged_captures = Vec::new();
+            let merged_start = cache.byte_range.start.min(start);
+            let merged_end = cache.byte_range.end.max(end);
+
+            if start < cache.byte_range.start {
+                merged_captures.extend(
+                    self.highlight_captures_for_range(&source, start..cache.byte_range.start),
+                );
+            }
+
+            merged_captures.extend(
+                cache
+                    .captures
+                    .iter()
+                    .filter(|capture| {
+                        capture.byte_range.start < merged_end
+                            && merged_start < capture.byte_range.end
+                    })
+                    .cloned(),
+            );
+
+            if cache.byte_range.end < end {
+                merged_captures
+                    .extend(self.highlight_captures_for_range(&source, cache.byte_range.end..end));
+            }
+
+            self.visible_highlight_cache = Some(VisibleHighlightCache {
+                buffer_id: snapshot.buffer_id,
+                buffer_version: snapshot.version,
+                semantic_revision: self.semantic_highlight_revision,
+                byte_range: merged_start..merged_end,
+                captures: merged_captures.clone(),
+            });
+            merged_captures
+        } else {
+            let fresh_captures = self.highlight_captures_for_range(&source, start..end);
+            self.visible_highlight_cache = Some(VisibleHighlightCache {
+                buffer_id: snapshot.buffer_id,
+                buffer_version: snapshot.version,
+                semantic_revision: self.semantic_highlight_revision,
+                byte_range: start..end,
+                captures: fresh_captures.clone(),
+            });
+            fresh_captures
+        };
+        self.set_syntax_highlights(captures);
+    }
+
+    fn highlight_captures_for_range(
+        &mut self,
+        source: &str,
+        range: Range<usize>,
+    ) -> Vec<HighlightCapture> {
+        if range.start >= range.end {
+            return Vec::new();
+        }
+
         let syntax_highlights = self
             .syntax
-            .highlight_visible_range(&self.registry, &source, start..end)
+            .highlight_visible_range(&self.registry, source, range.clone())
             .unwrap_or_default();
         let semantic_highlights =
-            semantic_token_captures(&source, self.editor.semantic_tokens(), start..end);
-        self.syntax_highlights = merge_highlight_layers(&syntax_highlights, &semantic_highlights);
+            semantic_token_captures(source, self.editor.semantic_tokens(), range);
+        compact_highlight_captures(merge_highlight_layers(
+            &syntax_highlights,
+            &semantic_highlights,
+        ))
+    }
+
+    pub(crate) fn row_syntax_spans(
+        &mut self,
+        visible_rows: &[hunk_editor::DisplayRow],
+    ) -> Rc<BTreeMap<usize, Vec<RowSyntaxSpan>>> {
+        let snapshot = self.editor.buffer().snapshot();
+        let rebuild_needed = self.row_syntax_cache.as_ref().is_none_or(|cache| {
+            cache.buffer_id != snapshot.buffer_id
+                || cache.buffer_version != snapshot.version
+                || cache.syntax_revision != self.syntax_highlight_revision
+        });
+
+        if rebuild_needed {
+            self.row_syntax_cache = Some(RowSyntaxSpanCache {
+                buffer_id: snapshot.buffer_id,
+                buffer_version: snapshot.version,
+                syntax_revision: self.syntax_highlight_revision,
+                spans_by_signature: HashMap::new(),
+            });
+        }
+
+        let cache = self
+            .row_syntax_cache
+            .as_mut()
+            .expect("row syntax cache populated");
+        let mut spans_by_row = BTreeMap::new();
+        for row in visible_rows {
+            let signature = VisibleRowSignature {
+                row_index: row.row_index,
+                source_line: row.source_line,
+                raw_start_column: row.raw_start_column,
+                raw_end_column: row.raw_end_column,
+            };
+            let spans = cache
+                .spans_by_signature
+                .entry(signature)
+                .or_insert_with(|| {
+                    build_row_syntax_spans_for_row(row, &self.syntax_highlights, &snapshot)
+                });
+            if !spans.is_empty() {
+                spans_by_row.insert(row.row_index, spans.clone());
+            }
+        }
+
+        Rc::new(spans_by_row)
+    }
+
+    fn invalidate_row_syntax_cache(&mut self) {
+        self.syntax_highlight_revision = self.syntax_highlight_revision.saturating_add(1);
+        self.row_syntax_cache = None;
+    }
+
+    fn set_syntax_highlights(&mut self, captures: Vec<HighlightCapture>) {
+        if self.syntax_highlights != captures {
+            self.syntax_highlights = captures;
+            self.invalidate_row_syntax_cache();
+        }
+    }
+
+    fn clear_syntax_highlights(&mut self) {
+        if !self.syntax_highlights.is_empty() {
+            self.syntax_highlights.clear();
+            self.invalidate_row_syntax_cache();
+        }
     }
 
     fn sync_overlays(&mut self) {
@@ -646,6 +865,14 @@ impl FilesEditor {
         self.manual_overlays = overlays;
         self.sync_overlays();
     }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn visible_highlight_range_for_test(&self) -> Option<Range<usize>> {
+        self.visible_highlight_cache
+            .as_ref()
+            .map(|cache| cache.byte_range.clone())
+    }
 }
 
 fn default_soft_wrap_for_path(path: &Path) -> bool {
@@ -663,4 +890,29 @@ fn default_show_whitespace_for_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| matches!(extension, "md" | "mdx" | "markdown" | "txt"))
+}
+
+fn highlight_overscan_lines(visible_row_count: usize) -> usize {
+    let dynamic_rows = visible_row_count.saturating_mul(8);
+    dynamic_rows.clamp(192, 512)
+}
+
+fn ranges_overlap_or_touch(left: &Range<usize>, right: &Range<usize>) -> bool {
+    left.start <= right.end && right.start <= left.end
+}
+
+fn compact_highlight_captures(captures: Vec<HighlightCapture>) -> Vec<HighlightCapture> {
+    let mut compacted: Vec<HighlightCapture> = Vec::with_capacity(captures.len());
+    for capture in captures {
+        if let Some(previous) = compacted.last_mut()
+            && previous.style_key == capture.style_key
+            && previous.name == capture.name
+            && previous.byte_range.end >= capture.byte_range.start
+        {
+            previous.byte_range.end = previous.byte_range.end.max(capture.byte_range.end);
+            continue;
+        }
+        compacted.push(capture);
+    }
+    compacted
 }

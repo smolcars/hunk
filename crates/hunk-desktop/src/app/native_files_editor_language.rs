@@ -15,6 +15,8 @@ impl FilesEditor {
     #[allow(dead_code)]
     pub(crate) fn set_semantic_tokens(&mut self, tokens: Vec<SemanticToken>) {
         self.editor.apply(EditorCommand::SetSemanticTokens(tokens));
+        self.visible_highlight_cache = None;
+        self.semantic_highlight_revision = self.semantic_highlight_revision.saturating_add(1);
     }
 
     #[allow(dead_code)]

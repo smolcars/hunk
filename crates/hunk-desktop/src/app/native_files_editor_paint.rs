@@ -61,10 +61,20 @@ pub(super) struct LineNumberPaintParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RowSyntaxSpan {
+pub(crate) struct RowSyntaxSpan {
     pub(super) start_column: usize,
     pub(super) end_column: usize,
     pub(super) style_key: String,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ResolvedSyntaxStyle {
+    pub(super) color: Option<Hsla>,
+    pub(super) background_color: Option<Hsla>,
+    pub(super) underline: Option<gpui::UnderlineStyle>,
+    pub(super) strikethrough: Option<gpui::StrikethroughStyle>,
+    pub(super) font_weight: Option<gpui::FontWeight>,
+    pub(super) font_style: Option<gpui::FontStyle>,
 }
 
 pub(super) fn current_line_text(snapshot: &TextSnapshot, line: usize) -> String {
@@ -99,73 +109,85 @@ pub(super) fn uses_primary_shortcut(keystroke: &gpui::Keystroke) -> bool {
     }
 }
 
-pub(super) fn build_row_syntax_spans(
-    rows: &[DisplayRow],
+pub(crate) fn build_row_syntax_spans_for_row(
+    row: &DisplayRow,
     captures: &[HighlightCapture],
     snapshot: &TextSnapshot,
-) -> BTreeMap<usize, Vec<RowSyntaxSpan>> {
-    let mut spans_by_row = BTreeMap::new();
+) -> Vec<RowSyntaxSpan> {
+    if !matches!(row.kind, DisplayRowKind::Text) || row.text.is_empty() {
+        return Vec::new();
+    }
 
-    for row in rows {
-        if !matches!(row.kind, DisplayRowKind::Text) || row.text.is_empty() {
-            continue;
+    let Ok(row_start) =
+        snapshot.position_to_byte(TextPosition::new(row.source_line, row.raw_start_column))
+    else {
+        return Vec::new();
+    };
+    let Ok(row_end) =
+        snapshot.position_to_byte(TextPosition::new(row.source_line, row.raw_end_column))
+    else {
+        return Vec::new();
+    };
+
+    let mut row_spans = Vec::new();
+    let mut scan_index = captures.partition_point(|capture| capture.byte_range.end <= row_start);
+    while scan_index < captures.len() {
+        let capture = &captures[scan_index];
+        if capture.byte_range.start >= row_end {
+            break;
         }
 
-        let Ok(row_start) =
-            snapshot.position_to_byte(TextPosition::new(row.source_line, row.raw_start_column))
-        else {
-            continue;
-        };
-        let Ok(row_end) =
-            snapshot.position_to_byte(TextPosition::new(row.source_line, row.raw_end_column))
-        else {
-            continue;
-        };
-
-        let mut row_spans = Vec::new();
-        for capture in captures {
-            let start = capture.byte_range.start.max(row_start);
-            let end = capture.byte_range.end.min(row_end);
-            if start >= end {
-                continue;
-            }
-
+        let start = capture.byte_range.start.max(row_start);
+        let end = capture.byte_range.end.min(row_end);
+        if start < end {
             let Ok(start_position) = snapshot.byte_to_position(start) else {
+                scan_index += 1;
                 continue;
             };
             let Ok(end_position) = snapshot.byte_to_position(end) else {
+                scan_index += 1;
                 continue;
             };
-            if start_position.line != row.source_line || end_position.line != row.source_line {
-                continue;
-            }
-
-            let start_column = display_column_for_raw(row, start_position.column);
-            let end_column = display_column_for_raw(row, end_position.column);
-            if start_column < end_column {
-                row_spans.push(RowSyntaxSpan {
-                    start_column,
-                    end_column,
-                    style_key: capture.style_key.clone(),
-                });
+            if start_position.line == row.source_line && end_position.line == row.source_line {
+                let start_column = display_column_for_raw(row, start_position.column);
+                let end_column = display_column_for_raw(row, end_position.column);
+                if start_column < end_column {
+                    push_compacted_row_syntax_span(
+                        &mut row_spans,
+                        RowSyntaxSpan {
+                            start_column,
+                            end_column,
+                            style_key: capture.style_key.clone(),
+                        },
+                    );
+                }
             }
         }
-
-        if !row_spans.is_empty() {
-            spans_by_row.insert(row.row_index, row_spans);
-        }
+        scan_index += 1;
     }
 
-    spans_by_row
+    row_spans
+}
+
+fn push_compacted_row_syntax_span(spans: &mut Vec<RowSyntaxSpan>, next: RowSyntaxSpan) {
+    if let Some(previous) = spans.last_mut()
+        && previous.style_key == next.style_key
+        && previous.end_column >= next.start_column
+    {
+        previous.end_column = previous.end_column.max(next.end_column);
+        return;
+    }
+
+    spans.push(next);
 }
 
 pub(super) fn build_text_runs_for_row(
     row: &DisplayRow,
     syntax_spans: &[RowSyntaxSpan],
+    syntax_styles: &BTreeMap<String, ResolvedSyntaxStyle>,
     font: Font,
     default_foreground: Hsla,
     muted_foreground: Hsla,
-    cx: &App,
 ) -> Vec<TextRun> {
     if row.text.is_empty() {
         return Vec::new();
@@ -182,65 +204,57 @@ pub(super) fn build_text_runs_for_row(
         }];
     }
 
-    let total_columns = row.text.chars().count();
-    let mut boundaries = vec![0, total_columns];
-    for span in syntax_spans {
-        boundaries.push(span.start_column.min(total_columns));
-        boundaries.push(span.end_column.min(total_columns));
+    let mut column_byte_offsets = Vec::with_capacity(row.text.chars().count() + 1);
+    column_byte_offsets.push(0);
+    for (byte_index, ch) in row.text.char_indices() {
+        column_byte_offsets.push(byte_index + ch.len_utf8());
     }
-    boundaries.sort_unstable();
-    boundaries.dedup();
+    let total_columns = column_byte_offsets.len().saturating_sub(1);
 
     let mut runs = Vec::new();
-    for pair in boundaries.windows(2) {
-        let start = pair[0];
-        let end = pair[1];
-        if start >= end {
+    let mut current_column = 0usize;
+
+    for span in syntax_spans {
+        let span_start = span.start_column.min(total_columns);
+        let span_end = span.end_column.min(total_columns);
+        if span_start >= span_end {
             continue;
         }
 
-        let segment = row
-            .text
-            .chars()
-            .skip(start)
-            .take(end.saturating_sub(start))
-            .collect::<String>();
-        if segment.is_empty() {
-            continue;
+        if current_column < span_start {
+            push_text_run(
+                &mut runs,
+                &column_byte_offsets,
+                current_column,
+                span_start,
+                font.clone(),
+                default_foreground,
+                None,
+            );
         }
 
-        let highlight = syntax_spans
-            .iter()
-            .rev()
-            .find(|span| span.start_column <= start && end <= span.end_column)
-            .and_then(|span| {
-                cx.theme()
-                    .highlight_theme
-                    .style
-                    .syntax
-                    .style(&span.style_key)
-            });
+        push_text_run(
+            &mut runs,
+            &column_byte_offsets,
+            span_start,
+            span_end,
+            font.clone(),
+            default_foreground,
+            syntax_styles.get(&span.style_key).copied(),
+        );
+        current_column = span_end;
+    }
 
-        let mut run_font = font.clone();
-        if let Some(style) = highlight {
-            if let Some(weight) = style.font_weight {
-                run_font.weight = weight;
-            }
-            if let Some(font_style) = style.font_style {
-                run_font.style = font_style;
-            }
-        }
-
-        runs.push(TextRun {
-            len: segment.len(),
-            color: highlight
-                .and_then(|style| style.color)
-                .unwrap_or(default_foreground),
-            font: run_font,
-            background_color: highlight.and_then(|style| style.background_color),
-            underline: highlight.and_then(|style| style.underline),
-            strikethrough: highlight.and_then(|style| style.strikethrough),
-        });
+    if current_column < total_columns {
+        push_text_run(
+            &mut runs,
+            &column_byte_offsets,
+            current_column,
+            total_columns,
+            font.clone(),
+            default_foreground,
+            None,
+        );
     }
 
     if runs.is_empty() {
@@ -255,6 +269,81 @@ pub(super) fn build_text_runs_for_row(
     }
 
     runs
+}
+
+fn push_text_run(
+    runs: &mut Vec<TextRun>,
+    column_byte_offsets: &[usize],
+    start_column: usize,
+    end_column: usize,
+    mut font: Font,
+    default_foreground: Hsla,
+    style: Option<ResolvedSyntaxStyle>,
+) {
+    if start_column >= end_column || end_column >= column_byte_offsets.len() {
+        return;
+    }
+
+    let len = column_byte_offsets[end_column].saturating_sub(column_byte_offsets[start_column]);
+    if len == 0 {
+        return;
+    }
+
+    if let Some(style) = style {
+        if let Some(weight) = style.font_weight {
+            font.weight = weight;
+        }
+        if let Some(font_style) = style.font_style {
+            font.style = font_style;
+        }
+
+        runs.push(TextRun {
+            len,
+            color: style.color.unwrap_or(default_foreground),
+            font,
+            background_color: style.background_color,
+            underline: style.underline,
+            strikethrough: style.strikethrough,
+        });
+        return;
+    }
+
+    runs.push(TextRun {
+        len,
+        color: default_foreground,
+        font,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    });
+}
+
+pub(crate) fn resolve_syntax_styles(
+    spans_by_row: &BTreeMap<usize, Vec<RowSyntaxSpan>>,
+    cx: &App,
+) -> BTreeMap<String, ResolvedSyntaxStyle> {
+    let mut styles = BTreeMap::new();
+    for spans in spans_by_row.values() {
+        for span in spans {
+            styles.entry(span.style_key.clone()).or_insert_with(|| {
+                let style = cx
+                    .theme()
+                    .highlight_theme
+                    .style
+                    .syntax
+                    .style(&span.style_key);
+                ResolvedSyntaxStyle {
+                    color: style.and_then(|style| style.color),
+                    background_color: style.and_then(|style| style.background_color),
+                    underline: style.and_then(|style| style.underline),
+                    strikethrough: style.and_then(|style| style.strikethrough),
+                    font_weight: style.and_then(|style| style.font_weight),
+                    font_style: style.and_then(|style| style.font_style),
+                }
+            });
+        }
+    }
+    styles
 }
 
 pub(super) fn paint_line_number(

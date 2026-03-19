@@ -366,6 +366,42 @@ fn language_intelligence_requests_and_diagnostics_flow_through_native_editor() {
     );
 }
 
+#[test]
+fn scrolling_large_file_extends_visible_highlight_cache_range() {
+    let mut editor = FilesEditor::new();
+    let path = PathBuf::from("example.rs");
+    let contents = (0..3000)
+        .map(|index| format!("const VALUE_{index}: usize = {index};"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    editor
+        .open_document(path.as_path(), contents.as_str())
+        .expect("document should open");
+
+    editor.set_viewport_for_test(Viewport {
+        first_visible_row: 0,
+        visible_row_count: 35,
+        horizontal_offset: 0,
+    });
+    editor.display_snapshot_for_test(120, 35);
+    let initial_range = editor
+        .visible_highlight_range_for_test()
+        .expect("initial highlight cache");
+
+    editor.set_viewport_for_test(Viewport {
+        first_visible_row: 500,
+        visible_row_count: 35,
+        horizontal_offset: 0,
+    });
+    editor.display_snapshot_for_test(120, 35);
+    let extended_range = editor
+        .visible_highlight_range_for_test()
+        .expect("extended highlight cache");
+
+    assert_eq!(extended_range.start, initial_range.start);
+    assert!(extended_range.end > initial_range.end);
+}
+
 fn primary_shortcut_keystroke(key: &str) -> Keystroke {
     let shortcut = if cfg!(target_os = "macos") {
         format!("cmd-{key}")

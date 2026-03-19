@@ -1,5 +1,6 @@
 mod display;
 
+use std::cell::RefCell;
 use std::cmp::min;
 
 use display::{
@@ -204,6 +205,14 @@ pub struct EditorState {
     pending_definition_request: Option<DefinitionRequest>,
     pending_completion_request: Option<CompletionRequest>,
     preferred_display_column: Option<usize>,
+    display_generation: u64,
+    display_cache: RefCell<Option<DisplayCacheEntry>>,
+}
+
+#[derive(Debug, Clone)]
+struct DisplayCacheEntry {
+    generation: u64,
+    rows: Vec<DisplayRow>,
 }
 
 impl EditorState {
@@ -230,6 +239,8 @@ impl EditorState {
             pending_definition_request: None,
             pending_completion_request: None,
             preferred_display_column: None,
+            display_generation: 0,
+            display_cache: RefCell::new(None),
         }
     }
 
@@ -282,13 +293,28 @@ impl EditorState {
     }
 
     pub fn display_snapshot(&self) -> DisplaySnapshot {
-        let rows = self.build_display_rows();
-        let total_display_rows = rows.len();
-        let start = self.viewport.first_visible_row.min(total_display_rows);
-        let end = min(
-            start.saturating_add(self.viewport.visible_row_count),
-            total_display_rows,
-        );
+        let generation = self.display_generation;
+        let (total_display_rows, visible_rows) = {
+            let mut cache = self.display_cache.borrow_mut();
+            let rebuild_needed = cache
+                .as_ref()
+                .is_none_or(|entry| entry.generation != generation);
+            if rebuild_needed {
+                *cache = Some(DisplayCacheEntry {
+                    generation,
+                    rows: self.build_display_rows(),
+                });
+            }
+
+            let rows = &cache.as_ref().expect("display cache populated").rows;
+            let total_display_rows = rows.len();
+            let start = self.viewport.first_visible_row.min(total_display_rows);
+            let end = min(
+                start.saturating_add(self.viewport.visible_row_count),
+                total_display_rows,
+            );
+            (total_display_rows, rows[start..end].to_vec())
+        };
 
         DisplaySnapshot {
             viewport: self.viewport,
@@ -300,7 +326,7 @@ impl EditorState {
             selection_count: 1 + self.secondary_selections.len(),
             wrap_width: self.wrap_width,
             folded_region_count: self.folded_regions.len(),
-            visible_rows: rows[start..end].to_vec(),
+            visible_rows,
         }
     }
 
@@ -327,13 +353,24 @@ impl EditorState {
                 output.viewport_changed = true;
             }
             EditorCommand::SetWrapWidth(width) => {
-                self.wrap_width = width.filter(|width| *width > 0);
+                let next = width.filter(|width| *width > 0);
+                if self.wrap_width != next {
+                    self.wrap_width = next;
+                    self.invalidate_display_cache();
+                }
             }
             EditorCommand::SetTabWidth(width) => {
-                self.tab_width = width.max(1);
+                let next = width.max(1);
+                if self.tab_width != next {
+                    self.tab_width = next;
+                    self.invalidate_display_cache();
+                }
             }
             EditorCommand::SetShowWhitespace(show_whitespace) => {
-                self.show_whitespace = show_whitespace;
+                if self.show_whitespace != show_whitespace {
+                    self.show_whitespace = show_whitespace;
+                    self.invalidate_display_cache();
+                }
             }
             EditorCommand::SetSelection(selection) => {
                 self.primary_selection = self.clamp_selection(selection);
@@ -347,10 +384,17 @@ impl EditorState {
                 self.parse_status = parse_status;
             }
             EditorCommand::SetSearchQuery(query) => {
-                self.search_query = query.filter(|query| !query.is_empty());
+                let next = query.filter(|query| !query.is_empty());
+                if self.search_query != next {
+                    self.search_query = next;
+                    self.invalidate_display_cache();
+                }
             }
             EditorCommand::SetOverlays(overlays) => {
-                self.overlays = overlays;
+                if self.overlays != overlays {
+                    self.overlays = overlays;
+                    self.invalidate_display_cache();
+                }
             }
             EditorCommand::SetDiagnostics(diagnostics) => {
                 self.diagnostics = diagnostics;
@@ -367,11 +411,16 @@ impl EditorState {
                 {
                     self.folded_regions.push(region);
                     self.folded_regions.sort_by_key(|region| region.start_line);
+                    self.invalidate_display_cache();
                 }
             }
             EditorCommand::UnfoldAtLine { line } => {
+                let previous_len = self.folded_regions.len();
                 self.folded_regions
                     .retain(|region| !region.contains_line(line));
+                if self.folded_regions.len() != previous_len {
+                    self.invalidate_display_cache();
+                }
             }
             EditorCommand::RequestHover(request) => {
                 self.pending_hover_request = Some(request);
@@ -398,6 +447,7 @@ impl EditorState {
                 self.buffer.set_text(&text);
                 self.primary_selection = Selection::caret(TextPosition::default());
                 self.folded_regions.clear();
+                self.invalidate_display_cache();
                 output.document_changed = true;
                 output.selection_changed = true;
             }
@@ -470,6 +520,7 @@ impl EditorState {
         if output.document_changed {
             self.clamp_after_document_change();
             self.clear_language_intelligence();
+            self.invalidate_display_cache();
         }
         self.update_dirty();
         output
@@ -496,6 +547,11 @@ impl EditorState {
         self.pending_hover_request = None;
         self.pending_definition_request = None;
         self.pending_completion_request = None;
+    }
+
+    fn invalidate_display_cache(&mut self) {
+        self.display_generation = self.display_generation.saturating_add(1);
+        self.display_cache.borrow_mut().take();
     }
 
     fn clamp_selection(&self, selection: Selection) -> Selection {

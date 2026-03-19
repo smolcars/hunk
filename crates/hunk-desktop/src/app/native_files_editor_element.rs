@@ -1,10 +1,10 @@
 use gpui::*;
 
 use super::paint::{
-    LineNumberPaintParams, build_row_syntax_spans, build_text_runs_for_row, matching_bracket_pair,
-    paint_cursor, paint_fold_marker, paint_indent_guides, paint_line_number,
-    paint_matching_brackets, paint_overlays, paint_scope_highlight, paint_selection,
-    paint_whitespace_markers, selection_range_for_row,
+    LineNumberPaintParams, build_text_runs_for_row, matching_bracket_pair, paint_cursor,
+    paint_fold_marker, paint_indent_guides, paint_line_number, paint_matching_brackets,
+    paint_overlays, paint_scope_highlight, paint_selection, paint_whitespace_markers,
+    resolve_syntax_styles, selection_range_for_row,
 };
 use super::{EditorLayout, FilesEditorElement};
 
@@ -81,8 +81,8 @@ impl Element for FilesEditorElement {
             .state
             .borrow()
             .editor
-            .display_snapshot()
-            .line_count
+            .buffer()
+            .line_count()
             .max(1)
             .to_string()
             .len()
@@ -161,16 +161,13 @@ impl Element for FilesEditorElement {
                 self.palette.border,
             ));
 
-            let state = self.state.borrow();
+            let mut state = self.state.borrow_mut();
             let selection = state.editor.selection();
             let current_line = selection.head.line;
-            let snapshot = state.editor.buffer().snapshot();
-            let syntax_spans_by_row = build_row_syntax_spans(
-                &layout.display_snapshot.visible_rows,
-                &state.syntax_highlights,
-                &snapshot,
-            );
+            let syntax_spans_by_row = state.row_syntax_spans(&layout.display_snapshot.visible_rows);
+            let resolved_syntax_styles = resolve_syntax_styles(&syntax_spans_by_row, cx);
             let active_scope = state.active_scope();
+            let snapshot = state.editor.buffer().snapshot();
             let matching_brackets = matching_bracket_pair(&snapshot, selection.head);
             let mut row_origin = content_origin;
             for row in &layout.display_snapshot.visible_rows {
@@ -248,10 +245,10 @@ impl Element for FilesEditorElement {
                         .get(&row.row_index)
                         .map(Vec::as_slice)
                         .unwrap_or(&[]),
+                    &resolved_syntax_styles,
                     self.style.font(),
                     self.palette.default_foreground,
                     self.palette.muted_foreground,
-                    cx,
                 );
                 let line = window.text_system().shape_line(
                     row.text.clone().into(),
