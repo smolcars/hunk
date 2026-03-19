@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
@@ -284,6 +284,8 @@ jobs:
         shell: bash
 
       - name: List prepared release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mapfile -d '' files < <(find dist -type f -print0 | sort -z)
           if [[ ${#files[@]} -eq 0 ]]; then
