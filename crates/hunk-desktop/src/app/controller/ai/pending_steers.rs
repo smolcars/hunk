@@ -180,6 +180,9 @@ impl DiffViewer {
                     draft.local_images.push(image_path);
                 }
             }
+            if draft.prompt == pending.prompt {
+                draft.skill_bindings = pending.skill_bindings;
+            }
             touched.insert(target_key);
         }
 

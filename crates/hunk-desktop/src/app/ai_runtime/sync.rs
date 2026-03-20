@@ -271,10 +271,10 @@ impl AiWorkerRuntime {
                 .drain_and_apply_queued_notifications(&mut self.session);
         }
 
-        let account_changed =
-            self.sync_account_notifications(notifications.as_slice(), event_tx)?;
+        let session_changed =
+            self.sync_session_notifications(notifications.as_slice(), event_tx)?;
         let approvals_changed = self.sync_server_requests()?;
-        if captured == 0 && !approvals_changed && !account_changed {
+        if captured == 0 && !approvals_changed && !session_changed {
             return Ok(());
         }
 
@@ -291,21 +291,16 @@ impl AiWorkerRuntime {
         Ok(())
     }
 
-    fn sync_account_notifications(
+    fn sync_session_notifications(
         &mut self,
         notifications: &[ServerNotification],
         event_tx: &Sender<AiWorkerEvent>,
     ) -> Result<bool, CodexIntegrationError> {
+        let flags = notification_refresh_flags(notifications);
         let mut changed = false;
-        let mut refresh_account = false;
-        let mut refresh_rate_limits = false;
 
         for notification in notifications {
             match notification {
-                ServerNotification::AccountUpdated(_) => {
-                    refresh_account = true;
-                    refresh_rate_limits = true;
-                }
                 ServerNotification::AccountRateLimitsUpdated(update) => {
                     self.apply_rate_limits_snapshot(update.rate_limits.clone());
                     changed = true;
@@ -316,8 +311,6 @@ impl AiWorkerRuntime {
                         &mut self.pending_chatgpt_auth_url,
                         completed,
                     );
-                    refresh_account = true;
-                    refresh_rate_limits = true;
                     changed = true;
                     self.send_event(event_tx, AiWorkerEventPayload::Status(message));
                 }
@@ -325,12 +318,16 @@ impl AiWorkerRuntime {
             }
         }
 
-        if refresh_account {
+        if flags.refresh_account {
             self.refresh_account_state()?;
             changed = true;
         }
-        if refresh_rate_limits {
+        if flags.refresh_rate_limits {
             self.refresh_account_rate_limits()?;
+            changed = true;
+        }
+        if flags.refresh_skills {
+            self.refresh_skills()?;
             changed = true;
         }
         Ok(changed)
@@ -644,4 +641,34 @@ impl AiWorkerRuntime {
             })),
         );
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct NotificationRefreshFlags {
+    refresh_account: bool,
+    refresh_rate_limits: bool,
+    refresh_skills: bool,
+}
+
+fn notification_refresh_flags(notifications: &[ServerNotification]) -> NotificationRefreshFlags {
+    let mut flags = NotificationRefreshFlags::default();
+
+    for notification in notifications {
+        match notification {
+            ServerNotification::AccountUpdated(_) => {
+                flags.refresh_account = true;
+                flags.refresh_rate_limits = true;
+            }
+            ServerNotification::AccountLoginCompleted(_) => {
+                flags.refresh_account = true;
+                flags.refresh_rate_limits = true;
+            }
+            ServerNotification::SkillsChanged(_) => {
+                flags.refresh_skills = true;
+            }
+            _ => {}
+        }
+    }
+
+    flags
 }

@@ -297,9 +297,18 @@ impl DiffViewer {
     fn validated_current_ai_prompt(
         &mut self,
         cx: &mut Context<Self>,
-    ) -> Option<(String, Vec<PathBuf>)> {
-        let prompt = self.ai_composer_input_state.read(cx).value().trim().to_string();
+    ) -> Option<AiValidatedPrompt> {
+        let prompt = self.ai_composer_input_state.read(cx).value().to_string();
         let local_image_paths = self.current_ai_composer_local_images();
+        let raw_skill_bindings = self.current_ai_composer_skill_bindings();
+        let (prompt, skill_bindings) = crate::app::ai_composer_completion::trim_prompt_with_skill_bindings(
+            prompt.as_str(),
+            raw_skill_bindings.as_slice(),
+        );
+        let selected_skills = crate::app::ai_composer_completion::selected_skills_from_bindings(
+            skill_bindings.as_slice(),
+            self.ai_skills.as_slice(),
+        );
         if prompt.is_empty() && local_image_paths.is_empty() {
             self.set_current_ai_composer_status("Prompt cannot be empty.");
             cx.notify();
@@ -312,13 +321,24 @@ impl DiffViewer {
             cx.notify();
             return None;
         }
-        Some((prompt, local_image_paths))
+        Some(AiValidatedPrompt {
+            prompt,
+            local_images: local_image_paths,
+            selected_skills,
+            skill_bindings,
+        })
     }
 
     fn send_current_ai_prompt(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some((prompt, local_image_paths)) = self.validated_current_ai_prompt(cx) else {
+        let Some(validated) = self.validated_current_ai_prompt(cx) else {
             return false;
         };
+        let AiValidatedPrompt {
+            prompt,
+            local_images: local_image_paths,
+            selected_skills,
+            skill_bindings,
+        } = validated;
         if self.ai_command_tx.is_none() {
             self.ensure_ai_runtime_started(cx);
         }
@@ -343,6 +363,8 @@ impl DiffViewer {
                     thread_id,
                     prompt,
                     local_image_paths,
+                    selected_skills,
+                    skill_bindings,
                     session_overrides,
                 },
                 cx,
@@ -358,6 +380,7 @@ impl DiffViewer {
                 workspace_key,
                 prompt: prompt.clone().unwrap_or_default(),
                 local_images: local_image_paths.clone(),
+                skill_bindings: skill_bindings.clone(),
                 started_at: Instant::now(),
                 start_mode: self.ai_new_thread_start_mode,
                 thread_id: None,
@@ -366,6 +389,8 @@ impl DiffViewer {
         let started = self.prepare_workspace_and_start_ai_thread(
             prompt,
             local_image_paths,
+            selected_skills,
+            skill_bindings,
             session_overrides,
             cx,
         );
@@ -380,6 +405,8 @@ impl DiffViewer {
         &mut self,
         prompt: Option<String>,
         local_image_paths: Vec<PathBuf>,
+        selected_skills: Vec<crate::app::AiPromptSkillReference>,
+        skill_bindings: Vec<crate::app::AiComposerSkillBinding>,
         session_overrides: AiTurnSessionOverrides,
         cx: &mut Context<Self>,
     ) -> bool {
@@ -406,6 +433,8 @@ impl DiffViewer {
         self.git_action_task = cx.spawn(async move |this, cx| {
             let prompt_for_start = prompt.clone();
             let image_paths_for_start = local_image_paths.clone();
+            let selected_skills_for_start = selected_skills.clone();
+            let skill_bindings_for_start = skill_bindings.clone();
             let image_paths_for_rename = local_image_paths.clone();
             let prompt_seed_for_rename = prompt_seed.clone();
             let session_overrides_for_start = session_overrides.clone();
@@ -468,6 +497,8 @@ impl DiffViewer {
                                 AiWorkerCommand::StartThread {
                                     prompt: prompt_for_start.clone(),
                                     local_image_paths: image_paths_for_start.clone(),
+                                    selected_skills: selected_skills_for_start.clone(),
+                                    skill_bindings: skill_bindings_for_start.clone(),
                                     session_overrides: session_overrides_for_start.clone(),
                                 },
                                 cx,
@@ -792,6 +823,7 @@ impl DiffViewer {
         if let Some(draft) = self.current_ai_composer_draft_mut() {
             draft.prompt.clear();
             draft.local_images.clear();
+            draft.skill_bindings.clear();
         }
         self.ai_composer_input_state.update(cx, |state, cx| {
             state.set_value("", window, cx);

@@ -317,6 +317,9 @@ impl DiffViewer {
                     draft.local_images.push(image_path);
                 }
             }
+            if draft.prompt == queued.prompt {
+                draft.skill_bindings = queued.skill_bindings;
+            }
             touched.insert(target_key);
         }
 
@@ -343,11 +346,15 @@ impl DiffViewer {
         thread_id: String,
         prompt: String,
         local_images: Vec<PathBuf>,
+        selected_skills: Vec<crate::app::AiPromptSkillReference>,
+        skill_bindings: Vec<crate::app::AiComposerSkillBinding>,
     ) {
         self.ai_queued_messages.push(AiQueuedUserMessage {
             thread_id,
             prompt,
             local_images,
+            selected_skills,
+            skill_bindings,
             queued_at: Instant::now(),
             status: AiQueuedUserMessageStatus::Queued,
         });
@@ -389,6 +396,8 @@ impl DiffViewer {
                     thread_id: queued.thread_id.clone(),
                     prompt,
                     local_image_paths: queued.local_images.clone(),
+                    selected_skills: queued.selected_skills.clone(),
+                    skill_bindings: queued.skill_bindings.clone(),
                     session_overrides: self.current_ai_turn_session_overrides(),
                 },
                 false,

@@ -225,6 +225,7 @@ impl DiffViewer {
         if let Some(draft) = self.current_ai_composer_draft_mut() {
             draft.prompt.clear();
             draft.local_images.clear();
+            draft.skill_bindings.clear();
         }
         if let Err(error) = Self::update_any_window(cx, |window, cx| {
             ai_composer_state.update(cx, |state, cx| {
@@ -281,11 +282,23 @@ impl DiffViewer {
             return;
         }
 
-        let Some((prompt, local_images)) = self.validated_current_ai_prompt(cx) else {
+        let Some(validated) = self.validated_current_ai_prompt(cx) else {
             return;
         };
+        let AiValidatedPrompt {
+            prompt,
+            local_images,
+            selected_skills,
+            skill_bindings,
+        } = validated;
 
-        self.queue_current_ai_prompt_for_thread(thread_id.clone(), prompt, local_images);
+        self.queue_current_ai_prompt_for_thread(
+            thread_id.clone(),
+            prompt,
+            local_images,
+            selected_skills,
+            skill_bindings,
+        );
         self.clear_ai_composer_input(window, cx);
         let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
         reset_ai_timeline_list_measurements(self, visible_row_ids.len());
@@ -316,6 +329,7 @@ impl DiffViewer {
         if let Some(draft) = self.current_ai_composer_draft_mut() {
             draft.prompt = queued.prompt.clone();
             draft.local_images = queued.local_images.clone();
+            draft.skill_bindings = queued.skill_bindings.clone();
         }
         self.ai_composer_input_state.update(cx, |state, cx| {
             state.set_value(queued.prompt, window, cx);

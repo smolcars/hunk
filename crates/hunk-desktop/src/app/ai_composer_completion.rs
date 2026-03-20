@@ -16,6 +16,8 @@ use lsp_types::{
     InsertReplaceEdit, Range as LspRange,
 };
 
+use crate::app::{AiComposerSkillBinding, AiPromptSkillReference};
+
 use super::fuzzy_match::{is_match_boundary, subsequence_match_score};
 use super::repo_file_search::RepoFileSearchProvider;
 
@@ -38,6 +40,7 @@ pub(crate) struct AiComposerFileCompletionMenuState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AiComposerSkillCompletionItem {
     pub(crate) name: String,
+    pub(crate) path: PathBuf,
     pub(crate) display_name: Option<String>,
     pub(crate) description: Option<String>,
 }
@@ -221,28 +224,191 @@ pub(crate) fn ai_composer_inserted_skill_text(skill_name: &str) -> String {
     format!("${skill_name} ")
 }
 
-pub(crate) fn referenced_skills_in_prompt(
-    text: &str,
+pub(crate) fn ai_composer_inserted_skill_binding(
+    skill_name: &str,
+    path: PathBuf,
+    replace_range: Range<usize>,
+) -> AiComposerSkillBinding {
+    let token = format!("${skill_name}");
+    let start = replace_range.start;
+    let end = start + token.len();
+    AiComposerSkillBinding {
+        token,
+        range: start..end,
+        reference: AiPromptSkillReference {
+            name: skill_name.to_string(),
+            path,
+        },
+    }
+}
+
+pub(crate) fn reconcile_ai_composer_skill_bindings(
+    previous_prompt: &str,
+    previous_bindings: &[AiComposerSkillBinding],
+    next_prompt: &str,
+) -> Vec<AiComposerSkillBinding> {
+    if previous_bindings.is_empty() {
+        return Vec::new();
+    }
+    if previous_prompt == next_prompt {
+        return previous_bindings.to_vec();
+    }
+
+    let Some(edit) = prompt_edit_diff(previous_prompt, next_prompt) else {
+        return previous_bindings
+            .iter()
+            .filter(|binding| binding_token_matches_prompt(binding, next_prompt))
+            .cloned()
+            .collect();
+    };
+
+    previous_bindings
+        .iter()
+        .filter_map(|binding| binding_after_prompt_edit(binding, next_prompt, &edit))
+        .collect()
+}
+
+pub(crate) fn selected_skills_from_bindings(
+    bindings: &[AiComposerSkillBinding],
     skills: &[SkillMetadata],
-) -> Vec<SkillMetadata> {
-    let resolved_skills = preferred_enabled_skills_by_name(skills);
-    if resolved_skills.is_empty() {
+) -> Vec<AiPromptSkillReference> {
+    if bindings.is_empty() || skills.is_empty() {
         return Vec::new();
     }
 
     let mut seen_paths = BTreeSet::new();
     let mut resolved = Vec::new();
 
-    for name in scan_skill_reference_names(text) {
-        let Some(skill) = resolved_skills.get(name.as_str()) else {
+    for binding in bindings {
+        if !skills.iter().any(|skill| {
+            skill.enabled
+                && skill.name == binding.reference.name
+                && skill.path == binding.reference.path
+        }) {
             continue;
-        };
-        if seen_paths.insert(skill.path.clone()) {
-            resolved.push(skill.clone());
+        }
+        if seen_paths.insert(binding.reference.path.clone()) {
+            resolved.push(binding.reference.clone());
         }
     }
 
     resolved
+}
+
+pub(crate) fn trim_prompt_with_skill_bindings(
+    prompt: &str,
+    bindings: &[AiComposerSkillBinding],
+) -> (String, Vec<AiComposerSkillBinding>) {
+    let trim_start = prompt
+        .chars()
+        .take_while(|ch| ch.is_whitespace())
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let trim_end = prompt.len().saturating_sub(
+        prompt[trim_start..]
+            .chars()
+            .rev()
+            .take_while(|ch| ch.is_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>(),
+    );
+    let trimmed = prompt[trim_start..trim_end].to_string();
+    if bindings.is_empty() {
+        return (trimmed, Vec::new());
+    }
+
+    let trimmed_bindings = bindings
+        .iter()
+        .filter_map(|binding| {
+            if binding.range.start < trim_start || binding.range.end > trim_end {
+                return None;
+            }
+            let shifted = AiComposerSkillBinding {
+                range: (binding.range.start - trim_start)..(binding.range.end - trim_start),
+                ..binding.clone()
+            };
+            binding_token_matches_prompt(&shifted, trimmed.as_str()).then_some(shifted)
+        })
+        .collect();
+
+    (trimmed, trimmed_bindings)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PromptEditDiff {
+    previous_range: Range<usize>,
+    next_range: Range<usize>,
+}
+
+fn binding_after_prompt_edit(
+    binding: &AiComposerSkillBinding,
+    next_prompt: &str,
+    edit: &PromptEditDiff,
+) -> Option<AiComposerSkillBinding> {
+    let previous_start = binding.range.start;
+    let previous_end = binding.range.end;
+    let edited_start = edit.previous_range.start;
+    let edited_end = edit.previous_range.end;
+
+    let next_range = if previous_end <= edited_start {
+        binding.range.clone()
+    } else if previous_start >= edited_end {
+        let shifted_start = edit
+            .next_range
+            .end
+            .checked_add(previous_start.saturating_sub(edited_end))?;
+        let shifted_end = shifted_start.checked_add(binding.token.len())?;
+        shifted_start..shifted_end
+    } else {
+        return None;
+    };
+
+    let next_binding = AiComposerSkillBinding {
+        range: next_range,
+        ..binding.clone()
+    };
+    binding_token_matches_prompt(&next_binding, next_prompt).then_some(next_binding)
+}
+
+fn binding_token_matches_prompt(binding: &AiComposerSkillBinding, prompt: &str) -> bool {
+    prompt
+        .get(binding.range.clone())
+        .is_some_and(|slice| slice == binding.token)
+}
+
+fn prompt_edit_diff(previous_prompt: &str, next_prompt: &str) -> Option<PromptEditDiff> {
+    let prefix = common_prefix_len(previous_prompt, next_prompt);
+    let previous_suffix = &previous_prompt[prefix..];
+    let next_suffix = &next_prompt[prefix..];
+    let suffix = common_suffix_len(previous_suffix, next_suffix);
+
+    let previous_end = previous_prompt.len().saturating_sub(suffix);
+    let next_end = next_prompt.len().saturating_sub(suffix);
+    if prefix > previous_end || prefix > next_end {
+        return None;
+    }
+
+    Some(PromptEditDiff {
+        previous_range: prefix..previous_end,
+        next_range: prefix..next_end,
+    })
+}
+
+fn common_prefix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .zip(right.chars())
+        .take_while(|(left, right)| left == right)
+        .map(|(ch, _)| ch.len_utf8())
+        .sum()
+}
+
+fn common_suffix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .rev()
+        .zip(right.chars().rev())
+        .take_while(|(left, right)| left == right)
+        .map(|(ch, _)| ch.len_utf8())
+        .sum()
 }
 
 fn current_prefixed_token(
@@ -382,6 +548,7 @@ fn matched_skills(
             let description = skill_summary(&ranked.skill);
             AiComposerSkillCompletionItem {
                 name: ranked.skill.name,
+                path: ranked.skill.path,
                 display_name: ranked
                     .skill
                     .interface
@@ -576,58 +743,18 @@ fn normalize_skill_match_key(value: &str) -> String {
     value.trim().to_lowercase()
 }
 
-fn scan_skill_reference_names(text: &str) -> Vec<String> {
-    let mut names = Vec::new();
-
-    for (offset, ch) in text.char_indices() {
-        if ch != '$' {
-            continue;
-        }
-
-        let boundary = text[..offset]
-            .chars()
-            .next_back()
-            .map(is_skill_reference_boundary)
-            .unwrap_or(true);
-        if !boundary {
-            continue;
-        }
-
-        let mut end = offset + ch.len_utf8();
-        let mut saw_name_char = false;
-        for next in text[end..].chars() {
-            if !is_skill_reference_char(next) {
-                break;
-            }
-            saw_name_char = true;
-            end += next.len_utf8();
-        }
-
-        if saw_name_char {
-            names.push(text[offset + 1..end].to_string());
-        }
-    }
-
-    names
-}
-
-fn is_skill_reference_boundary(ch: char) -> bool {
-    ch.is_whitespace() || matches!(ch, '(' | '[' | '{' | '"' | '\'' | '`')
-}
-
-fn is_skill_reference_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
+    use crate::app::{AiComposerSkillBinding, AiPromptSkillReference};
     use codex_app_server_protocol::{SkillInterface, SkillMetadata, SkillScope};
 
     use super::{
         ActivePrefixedToken, active_file_completion_token, active_skill_completion_token,
-        inserted_path_text, referenced_skills_in_prompt, skill_completion_menu_state,
+        ai_composer_inserted_skill_binding, inserted_path_text,
+        reconcile_ai_composer_skill_bindings, selected_skills_from_bindings,
+        skill_completion_menu_state,
     };
 
     fn token(text: &str, cursor_offset: usize) -> Option<ActivePrefixedToken> {
@@ -648,6 +775,21 @@ mod tests {
             path: PathBuf::from(format!("/skills/{name}/SKILL.md")),
             scope: SkillScope::Repo,
             enabled: true,
+        }
+    }
+
+    fn selected_skill(name: &str) -> AiPromptSkillReference {
+        AiPromptSkillReference {
+            name: name.to_string(),
+            path: PathBuf::from(format!("/skills/{name}/SKILL.md")),
+        }
+    }
+
+    fn binding(name: &str, start: usize) -> AiComposerSkillBinding {
+        AiComposerSkillBinding {
+            token: format!("${name}"),
+            range: start..start + name.len() + 1,
+            reference: selected_skill(name),
         }
     }
 
@@ -811,24 +953,82 @@ mod tests {
     }
 
     #[test]
-    fn referenced_skills_in_prompt_resolves_unique_enabled_skills() {
+    fn ai_composer_inserted_skill_binding_tracks_token_range() {
+        let binding = ai_composer_inserted_skill_binding(
+            "gpui",
+            PathBuf::from("/skills/gpui/SKILL.md"),
+            4..9,
+        );
+
+        assert_eq!(binding.token, "$gpui");
+        assert_eq!(binding.range, 4..9);
+        assert_eq!(binding.reference, selected_skill("gpui"));
+    }
+
+    #[test]
+    fn reconcile_skill_bindings_shifts_ranges_after_prefix_insert() {
+        let bindings = vec![binding("gpui", 4)];
+
+        let reconciled = reconcile_ai_composer_skill_bindings(
+            "Use $gpui now",
+            bindings.as_slice(),
+            "Please use $gpui now",
+        );
+
+        assert_eq!(reconciled, vec![binding("gpui", 11)]);
+    }
+
+    #[test]
+    fn reconcile_skill_bindings_drops_binding_when_token_is_edited() {
+        let bindings = vec![binding("gpui", 4)];
+
+        let reconciled = reconcile_ai_composer_skill_bindings(
+            "Use $gpui now",
+            bindings.as_slice(),
+            "Use $gpux now",
+        );
+
+        assert!(reconciled.is_empty());
+    }
+
+    #[test]
+    fn selected_skills_from_bindings_uses_only_matching_enabled_skills() {
         let mut repo_gpui = skill("gpui");
         repo_gpui.scope = SkillScope::Repo;
         repo_gpui.path = PathBuf::from("/repo/.codex/skills/gpui/SKILL.md");
 
-        let mut user_gpui = skill("gpui");
-        user_gpui.scope = SkillScope::User;
-        user_gpui.path = PathBuf::from("/user/.codex/skills/gpui/SKILL.md");
-
         let mut installer = skill("skill-installer");
         installer.enabled = false;
 
-        let referenced = referenced_skills_in_prompt(
-            "Use $gpui then $gpui again and ignore $skill-installer.",
-            &[user_gpui, repo_gpui.clone(), installer],
-        );
+        let bindings = vec![
+            AiComposerSkillBinding {
+                token: "$gpui".to_string(),
+                range: 0..5,
+                reference: AiPromptSkillReference {
+                    name: "gpui".to_string(),
+                    path: repo_gpui.path.clone(),
+                },
+            },
+            AiComposerSkillBinding {
+                token: "$skill-installer".to_string(),
+                range: 10..26,
+                reference: AiPromptSkillReference {
+                    name: "skill-installer".to_string(),
+                    path: installer.path.clone(),
+                },
+            },
+        ];
 
-        assert_eq!(referenced, vec![repo_gpui]);
+        let selected =
+            selected_skills_from_bindings(bindings.as_slice(), &[repo_gpui.clone(), installer]);
+
+        assert_eq!(
+            selected,
+            vec![AiPromptSkillReference {
+                name: "gpui".to_string(),
+                path: repo_gpui.path,
+            }]
+        );
     }
 
     #[test]

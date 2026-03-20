@@ -3,6 +3,8 @@ fn queued_message(thread_id: &str, prompt: &str) -> AiQueuedUserMessage {
         thread_id: thread_id.to_string(),
         prompt: prompt.to_string(),
         local_images: Vec::new(),
+        selected_skills: Vec::new(),
+        skill_bindings: Vec::new(),
         queued_at: Instant::now(),
         status: AiQueuedUserMessageStatus::Queued,
     }
@@ -17,6 +19,8 @@ fn pending_queued_message(
         thread_id: thread_id.to_string(),
         prompt: prompt.to_string(),
         local_images: Vec::new(),
+        selected_skills: Vec::new(),
+        skill_bindings: Vec::new(),
         queued_at: Instant::now(),
         status: AiQueuedUserMessageStatus::PendingConfirmation {
             accepted_after_sequence,

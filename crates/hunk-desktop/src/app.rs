@@ -54,7 +54,7 @@ use hunk_git::worktree::WorkspaceTargetSummary;
 use ai_composer_completion::{
     ActivePrefixedToken, AiComposerFileCompletionMenuState, AiComposerFileCompletionProvider,
     AiComposerSkillCompletionMenuState, ai_composer_inserted_path_text,
-    ai_composer_inserted_skill_text, skill_completion_menu_state,
+    skill_completion_menu_state,
 };
 use ai_git_progress::{
     AiGitProgressAction, AiGitProgressState, AiGitProgressStep, ai_commit_and_push_progress_steps,

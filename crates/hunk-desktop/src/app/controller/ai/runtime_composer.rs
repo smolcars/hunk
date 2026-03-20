@@ -30,6 +30,14 @@ impl DiffViewer {
             .unwrap_or_default()
     }
 
+    pub(crate) fn current_ai_composer_skill_bindings(
+        &self,
+    ) -> Vec<crate::app::AiComposerSkillBinding> {
+        self.current_ai_composer_draft()
+            .map(|draft| draft.skill_bindings.clone())
+            .unwrap_or_default()
+    }
+
     fn composer_status_message_for_target(
         &self,
         target_key: Option<&AiComposerDraftKey>,
@@ -80,6 +88,11 @@ impl DiffViewer {
     fn sync_ai_visible_composer_prompt_to_draft(&mut self, cx: &Context<Self>) {
         let prompt = self.ai_composer_input_state.read(cx).value().to_string();
         if let Some(draft) = self.current_ai_composer_draft_mut() {
+            draft.skill_bindings = crate::app::ai_composer_completion::reconcile_ai_composer_skill_bindings(
+                draft.prompt.as_str(),
+                draft.skill_bindings.as_slice(),
+                prompt.as_str(),
+            );
             draft.prompt = prompt;
         }
     }
@@ -147,6 +160,7 @@ impl DiffViewer {
             let draft = self.ai_composer_drafts.entry(target_key).or_default();
             draft.prompt = pending.prompt;
             draft.local_images = pending.local_images;
+            draft.skill_bindings = pending.skill_bindings;
         }
         self.restore_ai_visible_composer_from_current_draft(cx);
     }

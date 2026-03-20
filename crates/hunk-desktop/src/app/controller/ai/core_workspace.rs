@@ -873,6 +873,8 @@ impl DiffViewer {
                         thread_id: queued.thread_id.clone(),
                         prompt,
                         local_image_paths: queued.local_images.clone(),
+                        selected_skills: queued.selected_skills.clone(),
+                        skill_bindings: queued.skill_bindings.clone(),
                         session_overrides,
                     },
                     false,

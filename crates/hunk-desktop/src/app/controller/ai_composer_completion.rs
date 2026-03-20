@@ -300,10 +300,29 @@ impl DiffViewer {
             return false;
         };
 
-        let inserted_text = ai_composer_inserted_skill_text(skill.name.as_str());
+        let current_text = self.ai_composer_input_state.read(cx).value().to_string();
+        let inserted_text =
+            crate::app::ai_composer_completion::ai_composer_inserted_skill_text(skill.name.as_str());
+        let mut next_prompt = current_text.clone();
+        next_prompt.replace_range(menu.replace_range.clone(), inserted_text.as_str());
+        let next_binding = crate::app::ai_composer_completion::ai_composer_inserted_skill_binding(
+            skill.name.as_str(),
+            skill.path.clone(),
+            menu.replace_range.clone(),
+        );
         let utf16_range = self.ai_composer_input_state.read(cx).text();
         let utf16_range = utf16_range.offset_to_offset_utf16(menu.replace_range.start)
             ..utf16_range.offset_to_offset_utf16(menu.replace_range.end);
+
+        if let Some(draft) = self.current_ai_composer_draft_mut() {
+            draft.skill_bindings = crate::app::ai_composer_completion::reconcile_ai_composer_skill_bindings(
+                draft.prompt.as_str(),
+                draft.skill_bindings.as_slice(),
+                next_prompt.as_str(),
+            );
+            draft.prompt = next_prompt;
+            draft.skill_bindings.push(next_binding);
+        }
 
         self.ai_composer_input_state.update(cx, |state, cx| {
             state.replace_text_in_range(Some(utf16_range), inserted_text.as_str(), window, cx);
