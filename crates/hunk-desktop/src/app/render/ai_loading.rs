@@ -13,6 +13,23 @@ fn ai_loading_skeleton_block(
         .into_any_element()
 }
 
+fn ai_timeline_transient_user_row_lane(row: AnyElement) -> AnyElement {
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .justify_center()
+        .child(
+            div()
+                .w_full()
+                .max_w(px(AI_TIMELINE_USER_CONTENT_LANE_MAX_WIDTH))
+                .min_w_0()
+                .px_1()
+                .py_1p5()
+                .child(row),
+        )
+        .into_any_element()
+}
+
 fn render_ai_global_loading_overlay(
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
@@ -353,7 +370,8 @@ fn render_ai_pending_thread_start(
     };
     let attachment_status = attachment_summary.unwrap_or_else(|| "No attachments".to_string());
 
-    h_flex()
+    ai_timeline_transient_user_row_lane(
+        h_flex()
         .w_full()
         .min_w_0()
         .justify_end()
@@ -426,7 +444,8 @@ fn render_ai_pending_thread_start(
                         ),
                 ),
         )
-        .into_any_element()
+        .into_any_element(),
+    )
 }
 
 fn render_ai_pending_steer(
@@ -447,7 +466,8 @@ fn render_ai_pending_steer(
         pending.prompt.clone()
     };
 
-    h_flex()
+    ai_timeline_transient_user_row_lane(
+        h_flex()
         .w_full()
         .min_w_0()
         .justify_end()
@@ -515,7 +535,8 @@ fn render_ai_pending_steer(
                         ),
                 ),
         )
-        .into_any_element()
+        .into_any_element(),
+    )
 }
 
 fn render_ai_queued_message(
@@ -536,7 +557,8 @@ fn render_ai_queued_message(
         queued.prompt.clone()
     };
 
-    h_flex()
+    ai_timeline_transient_user_row_lane(
+        h_flex()
         .w_full()
         .min_w_0()
         .justify_end()
@@ -583,5 +605,6 @@ fn render_ai_queued_message(
                         ),
                 ),
         )
-        .into_any_element()
+        .into_any_element(),
+    )
 }

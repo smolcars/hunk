@@ -11,6 +11,7 @@ enum AiTimelineItemRole {
 }
 
 const AI_TIMELINE_CONTENT_LANE_MAX_WIDTH: f32 = 960.0;
+const AI_TIMELINE_USER_CONTENT_LANE_MAX_WIDTH: f32 = 1104.0;
 
 struct AiCommandExecutionDisplayDetails {
     command: String,
@@ -140,7 +141,9 @@ fn ai_command_execution_display_details(
             .map(|items| {
                 items
                     .iter()
-                    .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+                    .filter_map(|value| value.as_str().map(str::trim))
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default(),
@@ -546,8 +549,10 @@ fn ai_tool_detail_section(
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let surface_id = surface_id.into();
+    let scroll_region_id = format!("{surface_id}-scroll");
     let container = div()
         .w_full()
+        .max_w_full()
         .min_w_0()
         .rounded(px(8.0))
         .border_1()
@@ -559,6 +564,8 @@ fn ai_tool_detail_section(
 
     let mut text = div()
         .w_full()
+        .max_w_full()
+        .min_w_full()
         .min_w_0()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
@@ -572,6 +579,8 @@ fn ai_tool_detail_section(
     text = text.child(
         div()
             .w_full()
+            .max_w_full()
+            .min_w_full()
             .min_w_0()
             .child(ai_render_selectable_styled_text(
                 this,
@@ -588,25 +597,32 @@ fn ai_tool_detail_section(
 
     let content = match (max_height, scroll_x) {
         (Some(max_height), true) => div()
+            .id(scroll_region_id.clone())
             .w_full()
+            .max_w_full()
             .min_w_0()
             .max_h(max_height)
-            .overflow_scrollbar()
+            .overflow_scroll()
             .occlude()
             .child(text)
             .into_any_element(),
         (Some(max_height), false) => div()
+            .id(scroll_region_id.clone())
             .w_full()
+            .max_w_full()
             .min_w_0()
             .max_h(max_height)
-            .overflow_y_scrollbar()
+            .overflow_y_scroll()
             .occlude()
             .child(text)
             .into_any_element(),
         (None, true) => div()
+            .id(scroll_region_id)
             .w_full()
+            .max_w_full()
             .min_w_0()
-            .overflow_x_scrollbar()
+            .overflow_x_scroll()
+            .occlude()
             .child(text)
             .into_any_element(),
         (None, false) => text.into_any_element(),
@@ -615,12 +631,14 @@ fn ai_tool_detail_section(
 
     v_flex()
         .w_full()
+        .max_w_full()
         .min_w_0()
         .items_stretch()
         .gap_1()
         .child(
             div()
                 .w_full()
+                .max_w_full()
                 .min_w_0()
                 .text_xs()
                 .font_semibold()
@@ -1074,7 +1092,16 @@ fn render_ai_chat_timeline_row_for_view(
                                     ))
                                 }),
                         );
-                    ai_timeline_row_with_animation(this, row.id.as_str(), row_element)
+                    if is_user {
+                        ai_timeline_row_with_animation_in_lane(
+                            this,
+                            row.id.as_str(),
+                            row_element,
+                            AI_TIMELINE_USER_CONTENT_LANE_MAX_WIDTH,
+                        )
+                    } else {
+                        ai_timeline_row_with_animation(this, row.id.as_str(), row_element)
+                    }
                 }
                 AiTimelineItemRole::Tool => {
                     render_ai_tool_item_row(
@@ -1113,6 +1140,15 @@ fn ai_timeline_row_with_animation(
     row_id: &str,
     row: gpui::Div,
 ) -> AnyElement {
+    ai_timeline_row_with_animation_in_lane(this, row_id, row, AI_TIMELINE_CONTENT_LANE_MAX_WIDTH)
+}
+
+fn ai_timeline_row_with_animation_in_lane(
+    this: &DiffViewer,
+    row_id: &str,
+    row: gpui::Div,
+    lane_max_width: f32,
+) -> AnyElement {
     let row = h_flex()
         .w_full()
         .min_w_0()
@@ -1120,7 +1156,7 @@ fn ai_timeline_row_with_animation(
         .child(
             div()
                 .w_full()
-                .max_w(px(AI_TIMELINE_CONTENT_LANE_MAX_WIDTH))
+                .max_w(px(lane_max_width))
                 .min_w_0()
                 .px_1()
                 .py_1p5()
