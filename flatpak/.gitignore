@@ -1,4 +1,5 @@
 build/
 repo/
 vendor/
+patches/
 cargo-config.toml
