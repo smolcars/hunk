@@ -44,6 +44,17 @@ fn queued_thread(
     }
 }
 
+fn skill_binding(token: &str, path: &str) -> AiComposerSkillBinding {
+    AiComposerSkillBinding {
+        token: token.to_string(),
+        range: 0..token.len(),
+        reference: AiPromptSkillReference {
+            name: token.trim_start_matches('$').to_string(),
+            path: PathBuf::from(path),
+        },
+    }
+}
+
 #[test]
 fn take_last_editable_ai_queued_message_for_thread_uses_lifo_order() {
     let mut queued_messages = vec![
@@ -247,4 +258,73 @@ fn reconcile_ai_queued_messages_after_snapshot_restores_messages_after_interrupt
     assert_eq!(queued_messages.len(), 1);
     assert_eq!(queued_messages[0].thread_id, "thread-b");
     assert!(interrupt_restore_thread_ids.is_empty());
+}
+
+#[test]
+fn queued_restore_rebases_skill_bindings_into_non_empty_draft() {
+    let mut draft = AiComposerDraft {
+        prompt: "Existing draft context".to_string(),
+        local_images: Vec::new(),
+        skill_bindings: Vec::new(),
+    };
+    let queued_prompt = "$gpui review this";
+    let queued_binding = skill_binding("$gpui", "/skills/gpui/SKILL.md");
+
+    let restored_prompt_offset = merge_restored_ai_prompt(&mut draft.prompt, queued_prompt);
+    merge_rebased_ai_composer_skill_bindings(
+        &mut draft.skill_bindings,
+        std::slice::from_ref(&queued_binding),
+        restored_prompt_offset,
+        draft.prompt.as_str(),
+    );
+
+    let inserted_at = "Existing draft context\n\n".len();
+    assert_eq!(draft.prompt, "Existing draft context\n\n$gpui review this");
+    assert_eq!(
+        draft.skill_bindings,
+        vec![AiComposerSkillBinding {
+            range: inserted_at..(inserted_at + "$gpui".len()),
+            ..queued_binding
+        }]
+    );
+}
+
+#[test]
+fn pending_restore_rebases_skill_bindings_into_non_empty_draft() {
+    let mut draft = AiComposerDraft {
+        prompt: "$existing Existing steer draft".to_string(),
+        local_images: Vec::new(),
+        skill_bindings: vec![AiComposerSkillBinding {
+            token: "$existing".to_string(),
+            range: 0.."$existing".len(),
+            reference: AiPromptSkillReference {
+                name: "existing".to_string(),
+                path: PathBuf::from("/skills/existing/SKILL.md"),
+            },
+        }],
+    };
+    let pending_prompt = "$gpui follow up";
+    let pending_binding = skill_binding("$gpui", "/skills/gpui/SKILL.md");
+
+    let restored_prompt_offset = merge_restored_ai_prompt(&mut draft.prompt, pending_prompt);
+    merge_rebased_ai_composer_skill_bindings(
+        &mut draft.skill_bindings,
+        std::slice::from_ref(&pending_binding),
+        restored_prompt_offset,
+        draft.prompt.as_str(),
+    );
+
+    let inserted_at = "$existing Existing steer draft\n\n".len();
+    assert_eq!(
+        draft.prompt,
+        "$existing Existing steer draft\n\n$gpui follow up"
+    );
+    assert_eq!(draft.skill_bindings.len(), 2);
+    assert_eq!(
+        draft.skill_bindings[1],
+        AiComposerSkillBinding {
+            range: inserted_at..(inserted_at + "$gpui".len()),
+            ..pending_binding
+        }
+    );
 }

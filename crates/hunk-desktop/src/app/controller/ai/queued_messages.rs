@@ -311,15 +311,19 @@ impl DiffViewer {
         for queued in queued_messages {
             let target_key = AiComposerDraftKey::Thread(queued.thread_id.clone());
             let draft = self.ai_composer_drafts.entry(target_key.clone()).or_default();
-            merge_restored_ai_prompt(&mut draft.prompt, queued.prompt.as_str());
+            let restored_prompt_offset =
+                merge_restored_ai_prompt(&mut draft.prompt, queued.prompt.as_str());
             for image_path in queued.local_images {
                 if !draft.local_images.contains(&image_path) {
                     draft.local_images.push(image_path);
                 }
             }
-            if draft.prompt == queued.prompt {
-                draft.skill_bindings = queued.skill_bindings;
-            }
+            crate::app::ai_composer_completion::merge_rebased_ai_composer_skill_bindings(
+                &mut draft.skill_bindings,
+                queued.skill_bindings.as_slice(),
+                restored_prompt_offset,
+                draft.prompt.as_str(),
+            );
             touched.insert(target_key);
         }
 

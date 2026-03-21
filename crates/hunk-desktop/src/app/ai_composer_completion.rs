@@ -334,6 +334,56 @@ pub(crate) fn trim_prompt_with_skill_bindings(
     (trimmed, trimmed_bindings)
 }
 
+pub(crate) fn merge_rebased_ai_composer_skill_bindings(
+    existing_bindings: &mut Vec<AiComposerSkillBinding>,
+    restored_bindings: &[AiComposerSkillBinding],
+    restored_prompt_offset: Option<usize>,
+    prompt: &str,
+) {
+    let Some(offset) = restored_prompt_offset else {
+        return;
+    };
+    if restored_bindings.is_empty() {
+        return;
+    }
+
+    let mut merged_any = false;
+    for binding in restored_bindings {
+        let Some(start) = offset.checked_add(binding.range.start) else {
+            continue;
+        };
+        let Some(end) = offset.checked_add(binding.range.end) else {
+            continue;
+        };
+        let rebased = AiComposerSkillBinding {
+            range: start..end,
+            ..binding.clone()
+        };
+        if !binding_token_matches_prompt(&rebased, prompt) {
+            continue;
+        }
+        if existing_bindings
+            .iter()
+            .any(|existing| existing == &rebased)
+        {
+            continue;
+        }
+        existing_bindings.push(rebased);
+        merged_any = true;
+    }
+
+    if merged_any {
+        existing_bindings.sort_by(|left, right| {
+            left.range
+                .start
+                .cmp(&right.range.start)
+                .then_with(|| left.range.end.cmp(&right.range.end))
+                .then_with(|| left.token.cmp(&right.token))
+                .then_with(|| left.reference.path.cmp(&right.reference.path))
+        });
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PromptEditDiff {
     previous_range: Range<usize>,
