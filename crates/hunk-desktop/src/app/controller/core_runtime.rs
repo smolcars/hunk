@@ -122,6 +122,225 @@ impl DiffViewer {
         roots
     }
 
+    fn uses_selective_repo_watch() -> bool {
+        cfg!(target_os = "linux")
+    }
+
+    fn should_descend_into_repo_watch_dir(
+        path: &std::path::Path,
+        repo_root: &std::path::Path,
+        ignore_matcher: Option<&hunk_git::git::RepoIgnoreMatcher>,
+    ) -> bool {
+        let Ok(relative_path) = path.strip_prefix(repo_root) else {
+            return false;
+        };
+        if relative_path.as_os_str().is_empty() {
+            return true;
+        }
+
+        let first_component = relative_path.components().next();
+        if relative_path.components().any(|component| component.as_os_str() == ".git")
+            && first_component.is_none_or(|component| component.as_os_str() != ".git")
+        {
+            return false;
+        }
+
+        if Self::should_ignore_repo_watch_path(path, repo_root) {
+            return false;
+        }
+
+        let relative_path = relative_path.to_string_lossy().replace('\\', "/");
+        match ignore_matcher {
+            Some(ignore_matcher) => match ignore_matcher.is_path_ignored(relative_path.as_str(), true) {
+                Ok(is_ignored) => !is_ignored,
+                Err(err) => {
+                    warn!(
+                        "failed to evaluate repo watch directory ignore rules for {} in {}: {err:#}",
+                        relative_path,
+                        repo_root.display()
+                    );
+                    true
+                }
+            },
+            None => true,
+        }
+    }
+
+    fn repo_watch_directories_for_root(
+        repo_root: &std::path::Path,
+        start_dir: &std::path::Path,
+        ignore_matcher: Option<&hunk_git::git::RepoIgnoreMatcher>,
+    ) -> Vec<std::path::PathBuf> {
+        let mut pending = vec![start_dir.to_path_buf()];
+        let mut directories = BTreeSet::new();
+
+        while let Some(dir) = pending.pop() {
+            if !directories.insert(dir.clone()) {
+                continue;
+            }
+
+            let entries = match std::fs::read_dir(dir.as_path()) {
+                Ok(entries) => entries,
+                Err(err) => {
+                    warn!(
+                        "failed to enumerate repo watch directory {}: {err:#}",
+                        dir.display()
+                    );
+                    continue;
+                }
+            };
+
+            for entry_result in entries {
+                let entry = match entry_result {
+                    Ok(entry) => entry,
+                    Err(err) => {
+                        warn!(
+                            "failed to read repo watch directory entry under {}: {err:#}",
+                            dir.display()
+                        );
+                        continue;
+                    }
+                };
+                let file_type = match entry.file_type() {
+                    Ok(file_type) => file_type,
+                    Err(err) => {
+                        warn!(
+                            "failed to read repo watch entry type for {}: {err:#}",
+                            entry.path().display()
+                        );
+                        continue;
+                    }
+                };
+                if !file_type.is_dir() {
+                    continue;
+                }
+
+                let child_path = entry.path();
+                if !Self::should_descend_into_repo_watch_dir(
+                    child_path.as_path(),
+                    repo_root,
+                    ignore_matcher,
+                ) {
+                    continue;
+                }
+                pending.push(child_path);
+            }
+        }
+
+        directories.into_iter().collect()
+    }
+
+    fn watch_repo_directories(
+        watcher: &mut notify::RecommendedWatcher,
+        directories: &[std::path::PathBuf],
+        watched_directories: &mut BTreeSet<std::path::PathBuf>,
+    ) -> notify::Result<()> {
+        for directory in directories {
+            if watched_directories.insert(directory.clone()) {
+                watcher.watch(directory, notify::RecursiveMode::NonRecursive)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn register_repo_watch_root(
+        watcher: &mut notify::RecommendedWatcher,
+        watch_root: &std::path::Path,
+        ignore_matcher: Option<&hunk_git::git::RepoIgnoreMatcher>,
+        watched_directories: &mut BTreeSet<std::path::PathBuf>,
+    ) -> notify::Result<()> {
+        if Self::uses_selective_repo_watch() {
+            let directories =
+                Self::repo_watch_directories_for_root(watch_root, watch_root, ignore_matcher);
+            return Self::watch_repo_directories(
+                watcher,
+                directories.as_slice(),
+                watched_directories,
+            );
+        }
+
+        watcher.watch(watch_root, notify::RecursiveMode::Recursive)
+    }
+
+    fn register_repo_watch_directories_from_event(
+        watcher: &mut notify::RecommendedWatcher,
+        event_paths: &[std::path::PathBuf],
+        repo_root: Option<&std::path::Path>,
+        ignore_matcher: Option<&hunk_git::git::RepoIgnoreMatcher>,
+        watched_directories: &mut BTreeSet<std::path::PathBuf>,
+    ) {
+        if !Self::uses_selective_repo_watch() {
+            return;
+        }
+
+        let Some(repo_root) = repo_root else {
+            return;
+        };
+
+        for event_path in event_paths {
+            let metadata = match std::fs::symlink_metadata(event_path) {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            if !metadata.is_dir() || !event_path.starts_with(repo_root) {
+                continue;
+            }
+            if !Self::should_descend_into_repo_watch_dir(
+                event_path.as_path(),
+                repo_root,
+                ignore_matcher,
+            ) {
+                continue;
+            }
+
+            let directories = Self::repo_watch_directories_for_root(
+                repo_root,
+                event_path.as_path(),
+                ignore_matcher,
+            );
+            if let Err(err) = Self::watch_repo_directories(
+                watcher,
+                directories.as_slice(),
+                watched_directories,
+            ) {
+                warn!(
+                    "failed to extend file watch from {} under {}: {err}",
+                    event_path.display(),
+                    repo_root.display()
+                );
+            }
+        }
+    }
+
+    fn unregister_repo_watch_directories_from_event(
+        event: &notify::Event,
+        watched_directories: &mut BTreeSet<std::path::PathBuf>,
+    ) {
+        if !Self::uses_selective_repo_watch() {
+            return;
+        }
+
+        let removed_roots = match event.kind {
+            notify::EventKind::Remove(_) => event.paths.clone(),
+            notify::EventKind::Modify(notify::event::ModifyKind::Name(
+                notify::event::RenameMode::From,
+            )) => event.paths.first().cloned().into_iter().collect(),
+            notify::EventKind::Modify(notify::event::ModifyKind::Name(
+                notify::event::RenameMode::Both,
+            )) => event.paths.first().cloned().into_iter().collect(),
+            _ => Vec::new(),
+        };
+        if removed_roots.is_empty() {
+            return;
+        }
+
+        watched_directories.retain(|watched_directory| {
+            removed_roots.iter().all(|removed_root| {
+                watched_directory != removed_root && !watched_directory.starts_with(removed_root)
+            })
+        });
+    }
+
     fn should_ignore_repo_watch_path(path: &std::path::Path, repo_root: &std::path::Path) -> bool {
         let Ok(relative_path) = path.strip_prefix(repo_root) else {
             return false;
@@ -341,13 +560,6 @@ impl DiffViewer {
             }
         };
 
-        for watch_root in &watch_roots {
-            if let Err(err) = watcher.watch(watch_root, notify::RecursiveMode::Recursive) {
-                error!("failed to watch repository at {}: {err}", watch_root.display());
-                return;
-            }
-        }
-
         let primary_ignore_matcher = primary_root.as_ref().and_then(|root| {
             hunk_git::git::RepoIgnoreMatcher::open(root.as_path())
                 .map_err(|err| {
@@ -371,6 +583,26 @@ impl DiffViewer {
                     })
                     .ok()
             });
+        let mut watched_directories = BTreeSet::new();
+
+        for watch_root in &watch_roots {
+            let ignore_matcher = if primary_root.as_deref() == Some(watch_root.as_path()) {
+                primary_ignore_matcher.as_ref()
+            } else if git_workspace_root.as_deref() == Some(watch_root.as_path()) {
+                git_workspace_ignore_matcher.as_ref()
+            } else {
+                None
+            };
+            if let Err(err) = Self::register_repo_watch_root(
+                &mut watcher,
+                watch_root,
+                ignore_matcher,
+                &mut watched_directories,
+            ) {
+                error!("failed to watch repository at {}: {err}", watch_root.display());
+                return;
+            }
+        }
 
         self.repo_watch_task = cx.spawn(async move |this, cx| {
             while let Some(event) = event_rx.next().await {
@@ -381,6 +613,25 @@ impl DiffViewer {
                 if event.paths.is_empty() {
                     continue;
                 }
+
+                Self::unregister_repo_watch_directories_from_event(
+                    &event,
+                    &mut watched_directories,
+                );
+                Self::register_repo_watch_directories_from_event(
+                    &mut watcher,
+                    event.paths.as_slice(),
+                    primary_root.as_deref(),
+                    primary_ignore_matcher.as_ref(),
+                    &mut watched_directories,
+                );
+                Self::register_repo_watch_directories_from_event(
+                    &mut watcher,
+                    event.paths.as_slice(),
+                    git_workspace_root.as_deref(),
+                    git_workspace_ignore_matcher.as_ref(),
+                    &mut watched_directories,
+                );
 
                 let metadata_changed =
                     Self::repo_watch_metadata_changed(event.paths.as_slice(), primary_root.as_deref());
@@ -595,10 +846,21 @@ impl DiffViewer {
 #[cfg(test)]
 mod tests {
     use super::DiffViewer;
+    use git2::Repository;
+    use std::fs;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn fixture_repo_root() -> PathBuf {
         std::env::temp_dir().join("hunk-watch-path-tests")
+    }
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("hunk-{label}-{}-{nanos}", std::process::id()))
     }
 
     #[test]
@@ -706,6 +968,68 @@ mod tests {
             DiffViewer::repo_watch_roots(Some(repo_root.as_path()), Some(worktree_root.as_path())),
             vec![repo_root]
         );
+    }
+
+    #[test]
+    fn selective_repo_watch_skips_gitignored_directories() {
+        let repo_root = unique_temp_dir("watch-ignore");
+        fs::create_dir_all(repo_root.as_path()).expect("create repo root");
+        let repo = Repository::init(repo_root.as_path()).expect("init repo");
+        let repo_root = repo
+            .workdir()
+            .expect("repo workdir")
+            .to_path_buf();
+
+        fs::write(repo_root.join(".gitignore"), "target-shared/\n").expect("write gitignore");
+        fs::create_dir_all(repo_root.join("src/nested")).expect("create source directories");
+        fs::create_dir_all(repo_root.join("target-shared/dist/runtime"))
+            .expect("create ignored directories");
+
+        let ignore_matcher =
+            hunk_git::git::RepoIgnoreMatcher::open(repo_root.as_path()).expect("open matcher");
+        let watched = DiffViewer::repo_watch_directories_for_root(
+            repo_root.as_path(),
+            repo_root.as_path(),
+            Some(&ignore_matcher),
+        );
+        drop(repo);
+
+        assert!(watched.contains(&repo_root));
+        assert!(watched.contains(&repo_root.join("src")));
+        assert!(watched.contains(&repo_root.join("src/nested")));
+        assert!(!watched.contains(&repo_root.join("target-shared")));
+        assert!(!watched.contains(&repo_root.join("target-shared/dist")));
+
+        fs::remove_dir_all(repo_root).expect("remove temp repo");
+    }
+
+    #[test]
+    fn selective_repo_watch_skips_nested_git_directories() {
+        let repo_root = unique_temp_dir("watch-nested-git");
+        fs::create_dir_all(repo_root.as_path()).expect("create repo root");
+        let repo = Repository::init(repo_root.as_path()).expect("init repo");
+        let repo_root = repo
+            .workdir()
+            .expect("repo workdir")
+            .to_path_buf();
+
+        fs::create_dir_all(repo_root.join("vendor/example/.git/objects"))
+            .expect("create nested git directory");
+
+        let watched = DiffViewer::repo_watch_directories_for_root(
+            repo_root.as_path(),
+            repo_root.as_path(),
+            None,
+        );
+        drop(repo);
+
+        assert!(watched.contains(&repo_root.join(".git")));
+        assert!(watched.contains(&repo_root.join("vendor")));
+        assert!(watched.contains(&repo_root.join("vendor/example")));
+        assert!(!watched.contains(&repo_root.join("vendor/example/.git")));
+        assert!(!watched.contains(&repo_root.join("vendor/example/.git/objects")));
+
+        fs::remove_dir_all(repo_root).expect("remove temp repo");
     }
 
     #[test]
