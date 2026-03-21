@@ -143,7 +143,7 @@ These produce:
 - Linux x86_64: `Hunk-<version>-linux-x86_64.AppImage`, fallback `Hunk-<version>-linux-x86_64.tar.gz`, `hunk-desktop_<version>-1_amd64.deb`, and `hunk-desktop-<rpm-version>-1.x86_64.rpm`
 - Windows x86_64: `Hunk-<version>-windows-x86_64.msi`
 
-Linux release packaging is custom and does not use `cargo packager`. Install Ubuntu build deps with `just install-linux-packaging-deps-ubuntu`, then use:
+Linux release packaging is custom and does not use `cargo packager`. On Ubuntu hosts you can either enter `nix develop` to get the packaging toolchain from the flake, or install host deps with `just install-linux-packaging-deps-ubuntu`, then use:
 
 ```bash
 just package-linux-release

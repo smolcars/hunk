@@ -18,9 +18,8 @@ run_hunk() {
 run_hunk_x11() {
   (
     cd "$ROOT_DIR"
-    env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
-      XDG_SESSION_TYPE=x11 \
-      DISPLAY="${DISPLAY:-:0}" \
+    env \
+      WAYLAND_DISPLAY='' \
       cargo run -p hunk-desktop "$@"
   )
 }
@@ -31,7 +30,7 @@ wayland_launch_failed() {
   rg -Fq "Protocol error 7 on object @0:" "$log_path" \
     || rg -Fq "failed to open window: Surface reports no supported texture formats" "$log_path" \
     || rg -Fq "failed to import supplied dmabufs" "$log_path" \
-    || rg -Fq "Server-side decorations requested, but the Wayland server does not support them. Falling back to client-side decorations." "$log_path" \
+    || rg -Fq "NoWaylandLib" "$log_path" \
     || rg -Fq "ERROR_SURFACE_LOST_KHR" "$log_path"
 }
 

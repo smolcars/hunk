@@ -4,16 +4,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REAL_BINARY_NAME="${HUNK_LINUX_REAL_BINARY_NAME:-hunk_desktop_bin}"
 REAL_BINARY_PATH="$SCRIPT_DIR/$REAL_BINARY_NAME"
+PRIVATE_LIB_DIR="$SCRIPT_DIR/lib"
 
 run_hunk() {
-  "$REAL_BINARY_PATH" "$@"
+  env LD_LIBRARY_PATH="$PRIVATE_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    "$REAL_BINARY_PATH" "$@"
 }
 
 run_hunk_x11() {
-  env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET \
-    XDG_SESSION_TYPE=x11 \
-    DISPLAY="${DISPLAY:-:0}" \
+  env \
+    LD_LIBRARY_PATH="$PRIVATE_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    WAYLAND_DISPLAY='' \
     "$REAL_BINARY_PATH" "$@"
+}
+
+print_launch_debug() {
+  if [[ -n "${HUNK_LINUX_LAUNCH_DEBUG:-}" ]]; then
+    echo "$1" >&2
+  fi
 }
 
 wayland_launch_failed() {
@@ -22,8 +30,19 @@ wayland_launch_failed() {
   grep -Fq "Protocol error 7 on object @0:" "$log_path" \
     || grep -Fq "failed to open window: Surface reports no supported texture formats" "$log_path" \
     || grep -Fq "failed to import supplied dmabufs" "$log_path" \
-    || grep -Fq "Server-side decorations requested, but the Wayland server does not support them. Falling back to client-side decorations." "$log_path" \
+    || grep -Fq "NoWaylandLib" "$log_path" \
     || grep -Fq "ERROR_SURFACE_LOST_KHR" "$log_path"
+}
+
+launch_with_log_capture() {
+  local log_path="$1"
+  shift
+
+  if [[ -n "${HUNK_LINUX_LAUNCH_DEBUG:-}" ]]; then
+    "$@" > >(tee -a "$log_path") 2> >(tee -a "$log_path" >&2) &
+  else
+    "$@" >>"$log_path" 2>&1 &
+  fi
 }
 
 kill_run_tree() {
@@ -47,20 +66,26 @@ if [[ "$(uname -s)" != "Linux" ]]; then
 fi
 
 if [[ -n "${HUNK_FORCE_X11:-}" ]]; then
+  print_launch_debug "Launching hunk-desktop with explicit X11 override."
+  run_hunk_x11 "$@"
+  exit $?
+fi
+
+if [[ -n "${DISPLAY:-}" && -n "${WAYLAND_DISPLAY:-}" && -z "${HUNK_PREFER_WAYLAND:-}" ]]; then
+  print_launch_debug "Launching hunk-desktop via X11 by default; set HUNK_PREFER_WAYLAND=1 to opt into native Wayland."
   run_hunk_x11 "$@"
   exit $?
 fi
 
 if [[ -z "${WAYLAND_DISPLAY:-}" || -z "${DISPLAY:-}" ]]; then
+  print_launch_debug "Launching hunk-desktop without dual-display fallback."
   run_hunk "$@"
   exit $?
 fi
 
 log_path="$(mktemp "${TMPDIR:-/tmp}/hunk-linux-release-run.XXXXXX.log")"
 
-run_hunk "$@" \
-  > >(tee -a "$log_path") \
-  2> >(tee -a "$log_path" >&2) &
+launch_with_log_capture "$log_path" run_hunk "$@"
 wayland_pid=$!
 
 while kill -0 "$wayland_pid" 2>/dev/null; do

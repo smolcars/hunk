@@ -42,6 +42,8 @@ SYSTEM_DESKTOP_ENTRY_PATH=""
 SYSTEM_ICON_DIR=""
 SYSTEM_ICON_PATH=""
 SYSTEM_ICON_ALIAS_PATH=""
+SYSTEM_PIXMAP_DIR=""
+SYSTEM_PIXMAP_PATH=""
 SYSTEM_WRAPPER_PATH=""
 SYSTEM_WRAPPER_ALIAS_PATH=""
 DEB_BUILD_ROOT=""
@@ -55,6 +57,7 @@ RPM_PATH=""
 BINARY_SOURCE_PATH=""
 REAL_BINARY_NAME="hunk_desktop_bin"
 LAUNCHER_SOURCE_PATH="$ROOT_DIR/scripts/linux_gui_binary_launcher.sh"
+LINUX_ICON_SOURCE_PATH="$ROOT_DIR/assets/icons/hunk_linux_512.png"
 PACKAGED_BINARY_PATH=""
 PACKAGED_LAUNCHER_PATH=""
 PACKAGE_LIB_DIR=""
@@ -65,6 +68,14 @@ APPIMAGE_APPRUN_PATH="$APPIMAGE_TOOL_CACHE_DIR/AppRun-x86_64"
 APPIMAGE_PLUGIN_PATH="$APPIMAGE_TOOL_CACHE_DIR/linuxdeploy-plugin-appimage.AppImage"
 APPIMAGE_TOOL_EXTRACT_DIR=""
 APPIMAGE_TOOL_PATH=""
+EXTRA_LINUX_RUNTIME_LIBS=(
+  "libX11.so.6"
+  "libEGL.so.1"
+  "libvulkan.so.1"
+  "libwayland-client.so.0"
+  "libwayland-cursor.so.0"
+  "libwayland-egl.so.1"
+)
 
 linux_target_arch() {
   printf '%s\n' "${TARGET_TRIPLE%%-*}"
@@ -143,7 +154,7 @@ init_linux_release_paths() {
   APPIMAGE_PATH="$DIST_DIR/${PRODUCT_NAME}-${VERSION_LABEL}-linux-$ARCH_LABEL.AppImage"
   APPDIR_PATH="$WORK_DIR/appimage/${PRODUCT_NAME}.AppDir"
   APP_DESKTOP_ENTRY_PATH="$APPDIR_PATH/usr/share/applications/hunk_desktop.desktop"
-  APP_ICON_PATH="$APPDIR_PATH/usr/share/icons/hicolor/1024x1024/apps/hunk_desktop.png"
+  APP_ICON_PATH="$APPDIR_PATH/usr/share/icons/hicolor/512x512/apps/hunk_desktop.png"
   APPDIR_REAL_BINARY_PATH="$APPDIR_PATH/usr/bin/$REAL_BINARY_NAME"
   APPDIR_LAUNCHER_PATH="$APPDIR_PATH/usr/bin/hunk_desktop"
   SYSTEM_INSTALL_ROOT="$WORK_DIR/system-root"
@@ -154,9 +165,11 @@ init_linux_release_paths() {
   SYSTEM_LAUNCHER_PATH="$SYSTEM_LIB_DIR/$PACKAGE_NAME"
   SYSTEM_RUNTIME_PATH="$SYSTEM_LIB_DIR/codex-runtime/linux/codex"
   SYSTEM_DESKTOP_ENTRY_PATH="$SYSTEM_INSTALL_ROOT/usr/share/applications/$PACKAGE_NAME.desktop"
-  SYSTEM_ICON_DIR="$SYSTEM_INSTALL_ROOT/usr/share/icons/hicolor/1024x1024/apps"
+  SYSTEM_ICON_DIR="$SYSTEM_INSTALL_ROOT/usr/share/icons/hicolor/512x512/apps"
   SYSTEM_ICON_PATH="$SYSTEM_ICON_DIR/$PACKAGE_NAME.png"
   SYSTEM_ICON_ALIAS_PATH="$SYSTEM_ICON_DIR/${PACKAGE_NAME//-/_}.png"
+  SYSTEM_PIXMAP_DIR="$SYSTEM_INSTALL_ROOT/usr/share/pixmaps"
+  SYSTEM_PIXMAP_PATH="$SYSTEM_PIXMAP_DIR/$PACKAGE_NAME.png"
   SYSTEM_WRAPPER_PATH="$SYSTEM_BIN_DIR/$PACKAGE_NAME"
   SYSTEM_WRAPPER_ALIAS_PATH="$SYSTEM_BIN_DIR/${PACKAGE_NAME//-/_}"
   DEB_BUILD_ROOT="$WORK_DIR/deb-root"
@@ -183,6 +196,51 @@ require_linux_tool() {
     echo "error: required Linux packaging tool '$tool_name' is not installed" >&2
     exit 1
   fi
+}
+
+find_linux_library_path_by_name() {
+  local library_name="$1"
+  local search_path_var
+
+  for search_path_var in "${LD_LIBRARY_PATH:-}" "${LIBRARY_PATH:-}"; do
+    [[ -n "$search_path_var" ]] || continue
+
+    local search_dir
+    while IFS= read -r search_dir; do
+      [[ -n "$search_dir" && -d "$search_dir" ]] || continue
+
+      local candidate_path="$search_dir/$library_name"
+      if [[ -f "$candidate_path" ]]; then
+        printf '%s\n' "$candidate_path"
+        return 0
+      fi
+    done < <(tr ':' '\n' <<<"$search_path_var")
+  done
+
+  if command -v ldconfig >/dev/null 2>&1; then
+    local ldconfig_path
+    ldconfig_path="$(
+      ldconfig -p 2>/dev/null \
+        | awk -v name="$library_name" '$1 == name { print $NF; exit }'
+    )"
+    if [[ -n "$ldconfig_path" && -f "$ldconfig_path" ]]; then
+      printf '%s\n' "$ldconfig_path"
+      return 0
+    fi
+  fi
+
+  local search_root
+  for search_root in /lib /usr/lib /usr/lib64 /usr/local/lib /nix/store; do
+    [[ -d "$search_root" ]] || continue
+    local match
+    match="$(find "$search_root" -path "*/$library_name" -type f 2>/dev/null | head -n 1)"
+    if [[ -n "$match" ]]; then
+      printf '%s\n' "$match"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 download_cached_appimage_tool() {
@@ -310,6 +368,28 @@ bundle_linux_runtime_dependencies() {
   done
 }
 
+bundle_linux_extra_runtime_libraries() {
+  local destination_dir="$1"
+  local library_name
+
+  for library_name in "${EXTRA_LINUX_RUNTIME_LIBS[@]}"; do
+    if [[ -f "$destination_dir/$library_name" ]]; then
+      continue
+    fi
+
+    local source_path
+    source_path="$(find_linux_library_path_by_name "$library_name" || true)"
+    if [[ -z "$source_path" ]]; then
+      echo "warning: optional Linux runtime library '$library_name' was not found on this host" >&2
+      continue
+    fi
+
+    echo "Bundling extra Linux runtime library $library_name from $source_path" >&2
+    cp -L "$source_path" "$destination_dir/$library_name"
+    chmod 755 "$destination_dir/$library_name"
+    bundle_linux_runtime_dependencies "$source_path" "$destination_dir"
+  done
+}
 patch_linux_runtime_paths() {
   local binary_path="$1"
   local libs_dir="$2"
@@ -365,6 +445,7 @@ prepare_linux_release_bundle() {
 
   echo "Bundling Linux shared libraries into release bundle..." >&2
   bundle_linux_runtime_dependencies "$BINARY_SOURCE_PATH" "$PACKAGE_LIB_DIR"
+  bundle_linux_extra_runtime_libraries "$PACKAGE_LIB_DIR"
   patch_linux_runtime_paths "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR" '$ORIGIN/lib'
   validate_linux_runtime_bundle "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR"
   "$ROOT_DIR/scripts/validate_release_bundle_layout.sh" linux-package "$PACKAGE_DIR"
@@ -375,7 +456,7 @@ create_linux_appdir() {
   mkdir -p "$APPDIR_PATH/usr/bin"
   mkdir -p "$APPDIR_PATH/usr/lib"
   mkdir -p "$APPDIR_PATH/usr/share/applications"
-  mkdir -p "$APPDIR_PATH/usr/share/icons/hicolor/1024x1024/apps"
+  mkdir -p "$APPDIR_PATH/usr/share/icons/hicolor/512x512/apps"
   mkdir -p "$APPDIR_PATH/usr/lib/hunk_desktop/codex-runtime/linux"
 
   cp "$APPIMAGE_APPRUN_PATH" "$APPDIR_PATH/AppRun"
@@ -403,9 +484,9 @@ Terminal=false
 Type=Application
 EOF
 
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$APP_ICON_PATH"
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$APPDIR_PATH/.DirIcon"
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$APPDIR_PATH/hunk_desktop.png"
+  cp "$LINUX_ICON_SOURCE_PATH" "$APP_ICON_PATH"
+  cp "$LINUX_ICON_SOURCE_PATH" "$APPDIR_PATH/.DirIcon"
+  cp "$LINUX_ICON_SOURCE_PATH" "$APPDIR_PATH/hunk_desktop.png"
   ln -sf "usr/share/applications/hunk_desktop.desktop" "$APPDIR_PATH/hunk_desktop.desktop"
 }
 
@@ -435,7 +516,7 @@ write_linux_system_desktop_entry() {
 Categories=Development;
 Comment=$PACKAGE_SUMMARY
 Exec=$PACKAGE_NAME
-Icon=$PACKAGE_NAME
+Icon=/usr/share/pixmaps/$PACKAGE_NAME.png
 Name=$PRODUCT_NAME
 StartupNotify=true
 StartupWMClass=hunk_desktop
@@ -446,7 +527,7 @@ EOF
 
 prepare_linux_system_install_root() {
   rm -rf "$SYSTEM_INSTALL_ROOT"
-  mkdir -p "$SYSTEM_BIN_DIR" "$SYSTEM_PRIVATE_LIB_DIR" "$(dirname "$SYSTEM_RUNTIME_PATH")" "$SYSTEM_ICON_DIR" "$(dirname "$SYSTEM_DESKTOP_ENTRY_PATH")"
+  mkdir -p "$SYSTEM_BIN_DIR" "$SYSTEM_PRIVATE_LIB_DIR" "$(dirname "$SYSTEM_RUNTIME_PATH")" "$SYSTEM_ICON_DIR" "$SYSTEM_PIXMAP_DIR" "$(dirname "$SYSTEM_DESKTOP_ENTRY_PATH")"
 
   cp "$PACKAGED_BINARY_PATH" "$SYSTEM_REAL_BINARY_PATH"
   cp "$PACKAGED_LAUNCHER_PATH" "$SYSTEM_LAUNCHER_PATH"
@@ -461,8 +542,9 @@ prepare_linux_system_install_root() {
   write_linux_system_wrapper "$SYSTEM_WRAPPER_ALIAS_PATH" "/usr/lib/$PACKAGE_NAME/$PACKAGE_NAME"
   write_linux_system_desktop_entry
 
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$SYSTEM_ICON_PATH"
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$SYSTEM_ICON_ALIAS_PATH"
+  cp "$LINUX_ICON_SOURCE_PATH" "$SYSTEM_ICON_PATH"
+  cp "$LINUX_ICON_SOURCE_PATH" "$SYSTEM_ICON_ALIAS_PATH"
+  cp "$LINUX_ICON_SOURCE_PATH" "$SYSTEM_PIXMAP_PATH"
 
   "$ROOT_DIR/scripts/validate_release_bundle_layout.sh" linux-install-root "$SYSTEM_INSTALL_ROOT"
 }
@@ -539,8 +621,9 @@ write_linux_rpm_spec() {
     printf '/usr/bin/%s\n' "${PACKAGE_NAME//-/_}"
     printf '/usr/lib/%s\n' "$PACKAGE_NAME"
     printf '/usr/share/applications/%s.desktop\n' "$PACKAGE_NAME"
-    printf '/usr/share/icons/hicolor/1024x1024/apps/%s.png\n' "$PACKAGE_NAME"
-    printf '/usr/share/icons/hicolor/1024x1024/apps/%s.png\n' "${PACKAGE_NAME//-/_}"
+    printf '/usr/share/icons/hicolor/512x512/apps/%s.png\n' "$PACKAGE_NAME"
+    printf '/usr/share/icons/hicolor/512x512/apps/%s.png\n' "${PACKAGE_NAME//-/_}"
+    printf '/usr/share/pixmaps/%s.png\n' "$PACKAGE_NAME"
     printf '\n'
     printf '%%changelog\n'
     printf '* %s %s - %s-%s\n' "$(linux_rpm_changelog_date)" "$PACKAGE_MAINTAINER" "$RPM_VERSION" "$PACKAGE_RELEASE"

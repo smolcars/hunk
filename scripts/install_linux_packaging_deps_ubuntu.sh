@@ -24,12 +24,18 @@ sudo apt-get install -y \
   clang \
   cmake \
   libasound2-dev \
+  libegl1 \
+  libffi-dev \
   libfontconfig-dev \
   libgit2-dev \
   libglib2.0-dev \
   libssl-dev \
   libvulkan1 \
+  libwayland-client0 \
+  libwayland-cursor0 \
   libwayland-dev \
+  libwayland-egl1 \
+  libx11-dev \
   libx11-xcb-dev \
   libxkbcommon-x11-dev \
   libzstd-dev \

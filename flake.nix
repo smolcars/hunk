@@ -56,6 +56,14 @@
               zlib
               zstd
             ];
+          linuxPackagingTools =
+            with pkgs;
+            [
+              curl
+              dpkg
+              file
+              rpm
+            ];
         in
         {
           default = pkgs.mkShell {
@@ -85,7 +93,8 @@
                 libxkbcommon
                 zstd
                 patchelf
-              ];
+              ]
+              ++ lib.optionals stdenv.isLinux linuxPackagingTools;
 
             RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
             LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux (

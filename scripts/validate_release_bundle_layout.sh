@@ -88,7 +88,8 @@ validate_linux_install_root() {
     "Linux installed bundled Codex runtime"
   require_path "$install_root/usr/lib/hunk-desktop/lib" "Linux installed shared library directory"
   require_path "$install_root/usr/share/applications/hunk-desktop.desktop" "Linux desktop entry"
-  require_path "$install_root/usr/share/icons/hicolor/1024x1024/apps/hunk-desktop.png" "Linux desktop icon"
+  require_path "$install_root/usr/share/icons/hicolor/512x512/apps/hunk-desktop.png" "Linux desktop icon"
+  require_path "$install_root/usr/share/pixmaps/hunk-desktop.png" "Linux desktop pixmap icon"
   forbid_helix_paths "$install_root"
 }
 
