@@ -5,6 +5,10 @@ const AI_TERMINAL_MAX_HEIGHT_PX: f32 = 420.0;
 const AI_TERMINAL_HEIGHT_STEP_PX: f32 = 56.0;
 
 impl DiffViewer {
+    pub(crate) fn ai_terminal_is_running(&self) -> bool {
+        self.ai_terminal_session.status == AiTerminalSessionStatus::Running
+    }
+
     fn focus_ai_terminal_surface(&mut self, cx: &mut Context<Self>) {
         let focus_handle = self.ai_terminal_focus_handle.clone();
         if let Err(error) = Self::update_any_window(cx, move |window, cx| {
@@ -15,7 +19,7 @@ impl DiffViewer {
     }
 
     fn focus_ai_terminal_interaction(&mut self, cx: &mut Context<Self>) {
-        if self.ai_terminal_runtime.is_some() {
+        if self.ai_terminal_is_running() {
             self.focus_ai_terminal_surface(cx);
         } else {
             self.focus_ai_terminal_input(cx);
@@ -121,17 +125,24 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_clear_terminal_session_action(&mut self, cx: &mut Context<Self>) {
+        if !self.ai_terminal_is_running() {
+            self.stop_ai_terminal_runtime("clearing terminal session");
+        }
         self.ai_terminal_session.transcript.clear();
         self.ai_terminal_session.screen = None;
         self.ai_terminal_session.status_message = None;
         self.ai_terminal_session.exit_code = None;
-        if self.ai_terminal_runtime.is_none() {
+        self.ai_terminal_follow_output = true;
+        if !self.ai_terminal_is_running() {
             self.ai_terminal_session.status = AiTerminalSessionStatus::Idle;
         }
         cx.notify();
     }
 
     pub(super) fn ai_stop_terminal_command_action(&mut self, cx: &mut Context<Self>) {
+        if !self.ai_terminal_is_running() {
+            return;
+        }
         let Some(runtime) = self.ai_terminal_runtime.as_ref() else {
             return;
         };
@@ -150,6 +161,7 @@ impl DiffViewer {
         self.ai_terminal_stop_requested = false;
         self.ai_terminal_event_task = Task::ready(());
         if let Some(runtime) = self.ai_terminal_runtime.take()
+            && self.ai_terminal_is_running()
             && let Err(error) = runtime.handle.kill()
         {
             error!("failed to stop AI terminal runtime during {reason}: {error:#}");
@@ -168,7 +180,7 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_submit_terminal_input_action(&mut self, cx: &mut Context<Self>) {
-        if self.ai_terminal_runtime.is_some() {
+        if self.ai_terminal_is_running() {
             self.ai_send_terminal_input_action(cx);
         } else {
             self.ai_run_terminal_command_action(cx);
@@ -191,6 +203,14 @@ impl DiffViewer {
             return false;
         }
 
+        if let Some(scroll) = ai_terminal_viewport_scroll_for_keystroke(keystroke) {
+            return self.ai_scroll_terminal_viewport(scroll, cx);
+        }
+
+        if !self.ai_terminal_is_running() {
+            return false;
+        }
+
         if ai_terminal_uses_desktop_clipboard_shortcut(keystroke) {
             if keystroke.key == "v" {
                 return self.ai_paste_terminal_from_clipboard(cx);
@@ -204,7 +224,70 @@ impl DiffViewer {
         self.ai_write_terminal_bytes(bytes.as_slice(), cx)
     }
 
+    pub(super) fn ai_terminal_surface_scroll_wheel(
+        &mut self,
+        event: &gpui::ScrollWheelEvent,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.ai_terminal_runtime.is_none()
+            || self
+                .ai_terminal_session
+                .screen
+                .as_ref()
+                .is_some_and(|screen| screen.mode.alt_screen)
+        {
+            return false;
+        }
+
+        let line_height = px(16.0);
+        let Some((direction, line_count)) =
+            crate::app::native_files_editor::scroll_direction_and_count(event, line_height)
+        else {
+            return false;
+        };
+
+        let delta = match direction {
+            crate::app::native_files_editor::ScrollDirection::Forward => -(line_count as i32),
+            crate::app::native_files_editor::ScrollDirection::Backward => line_count as i32,
+        };
+        self.ai_scroll_terminal_viewport(TerminalScroll::Delta(delta), cx)
+    }
+
+    pub(super) fn ai_scroll_terminal_to_bottom_action(&mut self, cx: &mut Context<Self>) {
+        let _ = self.ai_scroll_terminal_viewport(TerminalScroll::Bottom, cx);
+    }
+
+    fn ai_scroll_terminal_viewport(
+        &mut self,
+        scroll: TerminalScroll,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(runtime) = self.ai_terminal_runtime.as_ref() else {
+            return false;
+        };
+        if self
+            .ai_terminal_session
+            .screen
+            .as_ref()
+            .is_some_and(|screen| screen.mode.alt_screen)
+        {
+            return false;
+        }
+
+        if let Err(error) = runtime.handle.scroll_display(scroll) {
+            self.ai_terminal_session.status_message = Some(error.to_string());
+            self.ai_terminal_session.status = AiTerminalSessionStatus::Failed;
+            cx.notify();
+            return true;
+        }
+
+        true
+    }
+
     fn ai_write_terminal_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) -> bool {
+        if !self.ai_terminal_is_running() {
+            return false;
+        }
         let Some(runtime) = self.ai_terminal_runtime.as_ref() else {
             return false;
         };
@@ -239,8 +322,11 @@ impl DiffViewer {
 
     pub(super) fn ai_send_terminal_input_action(&mut self, cx: &mut Context<Self>) {
         self.sync_ai_visible_terminal_input_to_state(cx);
-        let Some(runtime) = self.ai_terminal_runtime.as_ref() else {
+        if !self.ai_terminal_is_running() {
             self.ai_run_terminal_command_action(cx);
+            return;
+        }
+        let Some(runtime) = self.ai_terminal_runtime.as_ref() else {
             return;
         };
 
@@ -296,6 +382,7 @@ impl DiffViewer {
                 self.ai_terminal_session.status = AiTerminalSessionStatus::Running;
                 self.ai_terminal_session.exit_code = None;
                 self.ai_terminal_session.screen = None;
+                self.ai_terminal_follow_output = true;
                 self.ai_terminal_session.status_message = Some("Running command...".to_string());
                 append_ai_terminal_transcript(
                     &mut self.ai_terminal_session.transcript,
@@ -381,12 +468,12 @@ impl DiffViewer {
                 append_ai_terminal_transcript(&mut self.ai_terminal_session.transcript, sanitized);
             }
             TerminalEvent::Screen(screen) => {
+                self.ai_terminal_follow_output = screen.display_offset == 0;
                 self.ai_terminal_session.screen = Some(screen);
             }
             TerminalEvent::Exit { exit_code } => {
                 let stopped = self.ai_terminal_stop_requested;
                 self.ai_terminal_stop_requested = false;
-                self.ai_terminal_runtime = None;
                 self.ai_terminal_session.exit_code = exit_code;
                 if stopped {
                     self.ai_terminal_session.status = AiTerminalSessionStatus::Stopped;
@@ -416,7 +503,6 @@ impl DiffViewer {
                 }
             }
             TerminalEvent::Failed(message) => {
-                self.ai_terminal_runtime = None;
                 self.ai_terminal_stop_requested = false;
                 self.ai_terminal_session.status = AiTerminalSessionStatus::Failed;
                 self.ai_terminal_session.status_message = Some(message.clone());
@@ -546,6 +632,25 @@ fn ai_terminal_paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
     }
 }
 
+fn ai_terminal_viewport_scroll_for_keystroke(keystroke: &gpui::Keystroke) -> Option<TerminalScroll> {
+    if !keystroke.modifiers.shift
+        || keystroke.modifiers.alt
+        || keystroke.modifiers.control
+        || keystroke.modifiers.platform
+        || keystroke.modifiers.function
+    {
+        return None;
+    }
+
+    match keystroke.key.as_str() {
+        "pageup" => Some(TerminalScroll::PageUp),
+        "pagedown" => Some(TerminalScroll::PageDown),
+        "home" => Some(TerminalScroll::Top),
+        "end" => Some(TerminalScroll::Bottom),
+        _ => None,
+    }
+}
+
 fn ai_terminal_input_bytes_for_keystroke(keystroke: &gpui::Keystroke) -> Option<Vec<u8>> {
     if keystroke.modifiers.platform || keystroke.modifiers.function {
         return None;
@@ -644,10 +749,11 @@ fn ai_terminal_uses_desktop_clipboard_shortcut(keystroke: &gpui::Keystroke) -> b
 mod terminal_tests {
     use super::{
         ai_terminal_input_bytes_for_keystroke, ai_terminal_paste_bytes,
-        ai_terminal_uses_desktop_clipboard_shortcut, sanitize_ai_terminal_output,
-        strip_ansi_sequences,
+        ai_terminal_uses_desktop_clipboard_shortcut, ai_terminal_viewport_scroll_for_keystroke,
+        sanitize_ai_terminal_output, strip_ansi_sequences,
     };
     use gpui::Keystroke;
+    use hunk_terminal::TerminalScroll;
 
     #[test]
     fn strips_basic_ansi_sequences() {
@@ -723,5 +829,27 @@ mod terminal_tests {
                 &Keystroke::parse("ctrl-c").expect("valid ctrl-c keystroke")
             ));
         }
+    }
+
+    #[test]
+    fn terminal_viewport_scroll_shortcuts_use_shift_navigation_keys() {
+        assert_eq!(
+            ai_terminal_viewport_scroll_for_keystroke(
+                &Keystroke::parse("shift-pageup").expect("valid shift-pageup keystroke")
+            ),
+            Some(TerminalScroll::PageUp)
+        );
+        assert_eq!(
+            ai_terminal_viewport_scroll_for_keystroke(
+                &Keystroke::parse("shift-end").expect("valid shift-end keystroke")
+            ),
+            Some(TerminalScroll::Bottom)
+        );
+        assert_eq!(
+            ai_terminal_viewport_scroll_for_keystroke(
+                &Keystroke::parse("pageup").expect("valid pageup keystroke")
+            ),
+            None
+        );
     }
 }

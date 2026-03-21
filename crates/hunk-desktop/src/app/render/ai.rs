@@ -10,6 +10,7 @@ struct AiTerminalPanelState {
     status_message: Option<String>,
     running: bool,
     screen: Option<Arc<TerminalScreenSnapshot>>,
+    display_offset: usize,
     has_transcript: bool,
     has_output: bool,
     has_last_command: bool,
@@ -181,7 +182,7 @@ impl DiffViewer {
         };
         let terminal_state = AiTerminalPanelState {
             open: self.ai_terminal_open,
-            accepts_input: self.current_ai_terminal_can_run() || self.ai_terminal_runtime.is_some(),
+            accepts_input: self.current_ai_terminal_can_run() || self.ai_terminal_is_running(),
             cwd_label: self
                 .ai_terminal_session
                 .cwd
@@ -191,15 +192,21 @@ impl DiffViewer {
                 .unwrap_or_else(|| "No workspace selected".to_string()),
             status_label: self.ai_terminal_status_label(),
             status_message: self.ai_terminal_session.status_message.clone(),
-            running: self.ai_terminal_runtime.is_some(),
+            running: self.ai_terminal_is_running(),
             screen: self.ai_terminal_session.screen.clone(),
+            display_offset: self
+                .ai_terminal_session
+                .screen
+                .as_ref()
+                .map(|screen| screen.display_offset)
+                .unwrap_or(0),
             has_transcript: !self.ai_terminal_session.transcript.trim().is_empty(),
             has_output: self.ai_terminal_session.screen.is_some()
                 || !self.ai_terminal_session.transcript.trim().is_empty(),
             has_last_command: self.ai_terminal_session.last_command.is_some(),
             transcript: self.ai_terminal_session.transcript.clone(),
             height_px: self.ai_terminal_height_px,
-            submit_label: if self.ai_terminal_runtime.is_some() {
+            submit_label: if self.ai_terminal_is_running() {
                 "Send"
             } else {
                 "Run"

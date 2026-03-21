@@ -5,7 +5,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hunk_terminal::{
-    TerminalEvent, TerminalScreenSnapshot, TerminalSpawnRequest, spawn_terminal_session,
+    TerminalEvent, TerminalScreenSnapshot, TerminalScroll, TerminalSpawnRequest,
+    spawn_terminal_session,
 };
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(3);
@@ -57,6 +58,44 @@ fn terminal_session_emits_updated_screen_snapshot_after_resize() {
     };
     assert_eq!(screen.rows, 40);
     assert_eq!(screen.cols, 140);
+
+    handle.kill().expect("kill should succeed");
+}
+
+#[test]
+fn terminal_session_supports_scrollback_after_output() {
+    let mut request = TerminalSpawnRequest::new(
+        repo_root(),
+        "for i in $(seq 1 12); do printf 'line %s\\n' \"$i\"; done; sleep 1".to_string(),
+    );
+    request.rows = 5;
+    request.cols = 80;
+
+    let (handle, event_rx) =
+        spawn_terminal_session(request).expect("terminal session should start");
+
+    let _ = collect_until(&event_rx, |event| match event {
+        TerminalEvent::Screen(screen) => screen_text(screen).contains("line 12"),
+        _ => false,
+    })
+    .expect("expected screen snapshot containing generated output");
+
+    handle
+        .scroll_display(TerminalScroll::PageUp)
+        .expect("page up should succeed");
+
+    let scrolled = collect_until(&event_rx, |event| match event {
+        TerminalEvent::Screen(screen) => {
+            screen.display_offset > 0 && screen_text(screen).contains("line 8")
+        }
+        _ => false,
+    })
+    .expect("expected scrolled screen snapshot");
+
+    let TerminalEvent::Screen(screen) = scrolled else {
+        panic!("expected a screen event");
+    };
+    assert!(screen.display_offset > 0);
 
     handle.kill().expect("kill should succeed");
 }

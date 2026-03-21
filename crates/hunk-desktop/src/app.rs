@@ -51,8 +51,8 @@ use hunk_git::history::{
 };
 use hunk_git::worktree::WorkspaceTargetSummary;
 use hunk_terminal::{
-    TerminalEvent, TerminalScreenSnapshot, TerminalSessionHandle, TerminalSpawnRequest,
-    spawn_terminal_session,
+    TerminalEvent, TerminalScreenSnapshot, TerminalScroll, TerminalSessionHandle,
+    TerminalSpawnRequest, spawn_terminal_session,
 };
 
 use ai_composer_completion::{

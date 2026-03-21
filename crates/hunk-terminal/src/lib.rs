@@ -7,5 +7,5 @@ pub use session::{
 pub use vt::{
     TerminalCellSnapshot, TerminalColorSnapshot, TerminalCursorShapeSnapshot,
     TerminalCursorSnapshot, TerminalDamageLineSnapshot, TerminalDamageSnapshot,
-    TerminalModeSnapshot, TerminalNamedColorSnapshot, TerminalScreenSnapshot,
+    TerminalModeSnapshot, TerminalNamedColorSnapshot, TerminalScreenSnapshot, TerminalScroll,
 };

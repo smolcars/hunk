@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
-use crate::vt::{TerminalScreenSnapshot, TerminalVt};
+use crate::vt::{TerminalScreenSnapshot, TerminalScroll, TerminalVt};
 
 const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const READ_BUFFER_BYTES: usize = 8192;
@@ -44,6 +44,7 @@ pub enum TerminalEvent {
 enum TerminalControl {
     Kill,
     Resize { rows: u16, cols: u16 },
+    Scroll(TerminalScroll),
     WriteInput(Vec<u8>),
 }
 
@@ -68,6 +69,12 @@ impl TerminalSessionHandle {
         self.control_tx
             .send(TerminalControl::WriteInput(input.to_vec()))
             .context("send terminal input")
+    }
+
+    pub fn scroll_display(&self, scroll: TerminalScroll) -> Result<()> {
+        self.control_tx
+            .send(TerminalControl::Scroll(scroll))
+            .context("send terminal scroll")
     }
 }
 
@@ -140,9 +147,13 @@ pub fn spawn_terminal_session(
     let control_vt = Arc::clone(&vt);
     thread::spawn(move || {
         let master = pair.master;
+        let mut child_exit_reported = false;
         loop {
             match control_rx.recv_timeout(CONTROL_POLL_INTERVAL) {
                 Ok(TerminalControl::Kill) => {
+                    if child_exit_reported {
+                        break;
+                    }
                     if let Err(error) = child.kill() {
                         let _ = event_tx.send(TerminalEvent::Failed(format!(
                             "Failed to stop terminal command: {error}"
@@ -163,7 +174,15 @@ pub fn spawn_terminal_session(
                         let _ = event_tx.send(TerminalEvent::Screen(vt.resize(rows, cols)));
                     }
                 }
+                Ok(TerminalControl::Scroll(scroll)) => {
+                    if let Ok(mut vt) = control_vt.lock() {
+                        let _ = event_tx.send(TerminalEvent::Screen(vt.scroll_display(scroll)));
+                    }
+                }
                 Ok(TerminalControl::WriteInput(input)) => {
+                    if child_exit_reported {
+                        continue;
+                    }
                     if let Err(error) = writer.write_all(input.as_slice()) {
                         let _ = event_tx.send(TerminalEvent::Failed(format!(
                             "Failed to write terminal input: {error}"
@@ -176,15 +195,22 @@ pub fn spawn_terminal_session(
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    if child_exit_reported {
+                        break;
+                    }
+                    let _ = child.kill();
+                }
             }
 
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    let _ = event_tx.send(TerminalEvent::Exit {
-                        exit_code: i32::try_from(status.exit_code()).ok(),
-                    });
-                    break;
+                    if !child_exit_reported {
+                        child_exit_reported = true;
+                        let _ = event_tx.send(TerminalEvent::Exit {
+                            exit_code: i32::try_from(status.exit_code()).ok(),
+                        });
+                    }
                 }
                 Ok(None) => {}
                 Err(error) => {

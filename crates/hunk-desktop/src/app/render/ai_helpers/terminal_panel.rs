@@ -172,7 +172,6 @@ impl DiffViewer {
                                     0.44,
                                     0.34,
                                 ))
-                                .overflow_y_scrollbar()
                                 .key_context("AiTerminal")
                                 .track_focus(&self.ai_terminal_focus_handle)
                                 .on_mouse_down(MouseButton::Left, {
@@ -192,6 +191,17 @@ impl DiffViewer {
                                                 window,
                                                 cx,
                                             )
+                                        });
+                                        if handled {
+                                            cx.stop_propagation();
+                                        }
+                                    }
+                                })
+                                .on_scroll_wheel({
+                                    let view = view.clone();
+                                    move |event, _, cx| {
+                                        let handled = view.update(cx, |this, cx| {
+                                            this.ai_terminal_surface_scroll_wheel(event, cx)
                                         });
                                         if handled {
                                             cx.stop_propagation();
@@ -242,10 +252,26 @@ impl DiffViewer {
                                             .min_w_0()
                                             .text_xs()
                                             .text_color(cx.theme().muted_foreground)
-                                            .child(
-                                                "Terminal is live. Click the surface to focus and type directly.",
-                                            ),
+                                            .child(if state.display_offset > 0 {
+                                                "Viewing scrollback. Use the mouse wheel or Shift+PageUp/PageDown to move, or jump to Bottom."
+                                            } else {
+                                                "Terminal is live. Click the surface to focus and type directly."
+                                            }),
                                     )
+                                })
+                                .child({
+                                    let view = view.clone();
+                                    Button::new("ai-terminal-bottom")
+                                        .compact()
+                                        .ghost()
+                                        .rounded(px(8.0))
+                                        .label("Bottom")
+                                        .disabled(state.display_offset == 0)
+                                        .on_click(move |_, _, cx| {
+                                            view.update(cx, |this, cx| {
+                                                this.ai_scroll_terminal_to_bottom_action(cx);
+                                            });
+                                        })
                                 })
                                 .child({
                                     let view = view.clone();

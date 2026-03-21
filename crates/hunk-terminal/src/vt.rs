@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use alacritty_terminal::event::VoidListener;
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{
     Config, RenderableContent, RenderableCursor, Term, TermDamage, TermMode,
@@ -102,6 +102,15 @@ pub enum TerminalCursorShapeSnapshot {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalScroll {
+    Delta(i32),
+    PageUp,
+    PageDown,
+    Top,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalCursorSnapshot {
     pub line: i32,
     pub column: usize,
@@ -184,6 +193,17 @@ impl TerminalVt {
     pub fn resize(&mut self, rows: u16, cols: u16) -> Arc<TerminalScreenSnapshot> {
         self.dimensions.resize(rows, cols);
         self.term.resize(self.dimensions);
+        self.snapshot()
+    }
+
+    pub fn scroll_display(&mut self, scroll: TerminalScroll) -> Arc<TerminalScreenSnapshot> {
+        self.term.scroll_display(match scroll {
+            TerminalScroll::Delta(count) => Scroll::Delta(count),
+            TerminalScroll::PageUp => Scroll::PageUp,
+            TerminalScroll::PageDown => Scroll::PageDown,
+            TerminalScroll::Top => Scroll::Top,
+            TerminalScroll::Bottom => Scroll::Bottom,
+        });
         self.snapshot()
     }
 }
