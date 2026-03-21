@@ -5,3 +5,5 @@ assets/codex-runtime/linux
 assets/codex-runtime/windows
 .DS_Store
 target-shared/
+flatpak/cargo-config.toml
+flatpak/vendor/

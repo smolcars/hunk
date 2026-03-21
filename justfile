@@ -28,6 +28,15 @@ build-linux:
 build-windows:
     ./scripts/build_windows.sh
 
+flatpak-vendor:
+    ./scripts/prepare_flatpak_vendor.sh
+
+flatpak-build:
+    ./scripts/build_flatpak.sh
+
+flatpak-run:
+    ./scripts/run_flatpak.sh
+
 bundle:
     CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --release --locked
     cd crates/hunk-desktop && \

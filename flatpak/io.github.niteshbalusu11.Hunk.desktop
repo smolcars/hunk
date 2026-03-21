@@ -1,0 +1,10 @@
+[Desktop Entry]
+Categories=Development;RevisionControl;
+Comment=Fast Git diff review and Codex orchestration.
+Exec=hunk_desktop
+Icon=io.github.niteshbalusu11.Hunk
+Name=Hunk
+StartupNotify=true
+StartupWMClass=hunk_desktop
+Terminal=false
+Type=Application

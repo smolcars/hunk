@@ -91,43 +91,7 @@ pub(crate) fn resolve_markdown_link_target(
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn open_url_in_browser(url: &str) -> anyhow::Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .context("failed to launch macOS browser opener")?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .context("failed to launch Linux browser opener")?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt as _;
-
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-        let mut command = std::process::Command::new("cmd");
-        command.args(["/C", "start", "", url]);
-        command.creation_flags(CREATE_NO_WINDOW);
-        command
-            .spawn()
-            .context("failed to launch Windows browser opener")?;
-        return Ok(());
-    }
-
-    #[allow(unreachable_code)]
-    Err(anyhow::anyhow!(
-        "opening URLs is not supported on this platform"
-    ))
+    super::url_open::open_url_in_browser(url).context("failed to open browser URL")
 }
 
 fn push_markdown_link_range(

@@ -153,6 +153,7 @@ mod notifications;
 mod render;
 mod repo_file_search;
 mod theme;
+mod url_open;
 mod workspace_view;
 
 actions!(

@@ -275,6 +275,7 @@ dependencies = [
  "getrandom 0.4.2",
  "serde",
  "serde_repr",
+ "tokio",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -4252,6 +4253,7 @@ version = "0.0.1-alpha.11"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "ashpd",
  "codex-app-server-protocol",
  "codex-protocol",
  "ctrlc",
@@ -4270,6 +4272,7 @@ dependencies = [
  "hunk-text",
  "lsp-types 0.97.0",
  "notify 8.2.0",
+ "pollster 0.4.0",
  "serde_json",
  "time",
  "toml 0.9.12+spec-1.1.0",
@@ -8687,8 +8690,10 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -11120,6 +11125,7 @@ dependencies = [
  "rustix 1.1.4",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",
