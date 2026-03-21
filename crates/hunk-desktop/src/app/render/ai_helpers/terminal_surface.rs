@@ -129,6 +129,7 @@ impl DiffViewer {
             screen,
             &text_style,
             self.ai_terminal_surface_focused,
+            self.ai_terminal_cursor_blink_visible,
             is_dark,
             cx,
         );
@@ -540,12 +541,18 @@ fn ai_terminal_paint_lines(
     screen: &TerminalScreenSnapshot,
     text_style: &gpui::TextStyle,
     surface_focused: bool,
+    cursor_blink_visible: bool,
     is_dark: bool,
     cx: &App,
 ) -> Vec<AiTerminalPaintLine> {
     let cursor_render = AiTerminalCursorRenderContext {
         cursor_shape: screen.cursor.shape,
         surface_focused,
+        cursor_visible: crate::app::terminal_cursor::ai_terminal_cursor_visible_for_paint(
+            screen.cursor.shape,
+            surface_focused,
+            cursor_blink_visible,
+        ),
         default_foreground: ai_terminal_snapshot_color(
             TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
             is_dark,

@@ -15,6 +15,7 @@ struct AiTerminalCursorOverlay {
 struct AiTerminalCursorRenderContext {
     cursor_shape: TerminalCursorShapeSnapshot,
     surface_focused: bool,
+    cursor_visible: bool,
     default_foreground: gpui::Hsla,
     default_background: gpui::Hsla,
     is_dark: bool,
@@ -46,7 +47,7 @@ fn ai_terminal_cell_style(
         });
     }
 
-    if cell.cursor {
+    if cell.cursor && render.cursor_visible {
         let cursor_color = ai_terminal_snapshot_color(
             TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Cursor),
             render.is_dark,

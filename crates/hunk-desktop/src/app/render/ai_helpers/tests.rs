@@ -26,6 +26,8 @@ mod ai_helper_tests {
     use super::ai_timeline_item_is_renderable;
     use super::ai_truncate_multiline_content;
     use super::ai_terminal_supports_text_selection;
+    use crate::app::terminal_cursor::ai_terminal_cursor_shape_blinks;
+    use crate::app::terminal_cursor::ai_terminal_cursor_visible_for_paint;
     use super::AiCommandExecutionDisplayDetails;
     use crate::app::markdown_links::markdown_inline_text_and_link_ranges;
     use hunk_terminal::TerminalCellSnapshot;
@@ -320,6 +322,32 @@ mod ai_helper_tests {
         assert_eq!(ranges[0].raw_target, "https://example.com");
         assert_eq!(ranges[1].raw_target, "src/main.rs:12");
         assert_eq!(ranges[2].raw_target, "/tmp/log.txt");
+    }
+
+    #[test]
+    fn terminal_cursor_blink_visibility_depends_on_focus_and_shape() {
+        assert!(ai_terminal_cursor_shape_blinks(
+            TerminalCursorShapeSnapshot::Block
+        ));
+        assert!(!ai_terminal_cursor_shape_blinks(
+            TerminalCursorShapeSnapshot::Hidden
+        ));
+
+        assert!(ai_terminal_cursor_visible_for_paint(
+            TerminalCursorShapeSnapshot::Block,
+            false,
+            false,
+        ));
+        assert!(ai_terminal_cursor_visible_for_paint(
+            TerminalCursorShapeSnapshot::Underline,
+            true,
+            true,
+        ));
+        assert!(!ai_terminal_cursor_visible_for_paint(
+            TerminalCursorShapeSnapshot::Beam,
+            true,
+            false,
+        ));
     }
 
     #[test]

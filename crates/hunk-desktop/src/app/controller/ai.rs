@@ -5,6 +5,7 @@ include!("ai/catalog.rs");
 include!("ai/runtime_path.rs");
 include!("ai/helpers.rs");
 include!("ai/terminal_protocol.rs");
+include!("ai/terminal_cursor.rs");
 include!("ai/terminal.rs");
 include!("ai/pending_steers.rs");
 include!("ai/queued_messages.rs");

@@ -94,6 +94,11 @@ impl DiffViewer {
         self.ai_terminal_session = state.session;
         self.ai_terminal_pending_input = state.pending_input;
         self.ai_terminal_surface_focused = false;
+        self.ai_terminal_cursor_blink_generation =
+            self.ai_terminal_cursor_blink_generation.saturating_add(1);
+        self.ai_terminal_cursor_blink_visible = true;
+        self.ai_terminal_cursor_blink_active = false;
+        self.ai_terminal_cursor_blink_task = Task::ready(());
         self.ai_terminal_grid_size = self
             .ai_terminal_session
             .screen
@@ -164,6 +169,7 @@ impl DiffViewer {
             self.ai_terminal_surface_focused = false;
         }
 
+        self.ai_sync_terminal_cursor_blink(cx);
         cx.notify();
     }
 
@@ -182,6 +188,7 @@ impl DiffViewer {
             self.stop_ai_terminal_runtime(reason);
             self.ai_terminal_open = false;
             self.ai_terminal_surface_focused = false;
+            self.ai_terminal_cursor_blink_visible = true;
             self.ai_terminal_follow_output = true;
             self.ai_terminal_pending_input = None;
             self.ai_terminal_input_draft.clear();
@@ -189,6 +196,8 @@ impl DiffViewer {
             self.ai_terminal_grid_size = None;
             self.defer_ai_composer_focus(cx);
         }
+
+        self.ai_sync_terminal_cursor_blink(cx);
 
         self.ai_terminal_states_by_thread
             .retain(|thread_id, _| retained_thread_ids.contains(thread_id));
@@ -235,6 +244,7 @@ impl DiffViewer {
             self.ai_terminal_surface_focused = false;
             self.defer_ai_composer_focus(cx);
         }
+        self.ai_sync_terminal_cursor_blink(cx);
         cx.notify();
     }
 
@@ -283,6 +293,7 @@ impl DiffViewer {
         if self.ai_terminal_open {
             self.ensure_ai_terminal_session(cx);
         }
+        self.ai_sync_terminal_cursor_blink(cx);
         cx.notify();
     }
 
@@ -343,6 +354,7 @@ impl DiffViewer {
             self.ai_terminal_surface_focused = true;
             cx.notify();
         }
+        self.ai_sync_terminal_cursor_blink(cx);
         self.ai_report_terminal_focus_change(true, cx);
     }
 
@@ -351,6 +363,7 @@ impl DiffViewer {
             self.ai_terminal_surface_focused = false;
             cx.notify();
         }
+        self.ai_sync_terminal_cursor_blink(cx);
         self.ai_report_terminal_focus_change(false, cx);
     }
 
@@ -698,6 +711,7 @@ impl DiffViewer {
                 self.ai_terminal_session.screen = None;
                 self.ai_terminal_follow_output = true;
                 self.ai_terminal_session.status_message = None;
+                self.ai_sync_terminal_cursor_blink(cx);
                 let generation = self.next_ai_terminal_runtime_generation();
                 self.ai_terminal_runtime = Some(AiTerminalRuntimeHandle {
                     thread_id: thread_id.clone(),
@@ -715,6 +729,7 @@ impl DiffViewer {
                 self.ai_terminal_session.screen = None;
                 self.ai_terminal_session.status_message =
                     Some("Failed to start terminal shell.".to_string());
+                self.ai_sync_terminal_cursor_blink(cx);
                 append_ai_terminal_transcript(
                     &mut self.ai_terminal_session.transcript,
                     format!("[terminal error] {error}\n"),
@@ -804,6 +819,7 @@ impl DiffViewer {
                 }
                 self.ai_terminal_follow_output = screen.display_offset == 0;
                 self.ai_terminal_session.screen = Some(screen);
+                self.ai_sync_terminal_cursor_blink(cx);
                 self.flush_ai_terminal_pending_input(cx);
             }
             TerminalEvent::Exit { exit_code } => {
@@ -824,6 +840,7 @@ impl DiffViewer {
                 self.ai_terminal_stop_requested = false;
                 self.ai_terminal_session.status = AiTerminalSessionStatus::Failed;
                 self.ai_terminal_session.status_message = Some(message.clone());
+                self.ai_sync_terminal_cursor_blink(cx);
                 append_ai_terminal_transcript(
                     &mut self.ai_terminal_session.transcript,
                     format!("[terminal error] {message}\n"),
@@ -936,10 +953,12 @@ impl DiffViewer {
     fn ai_close_terminal_after_exit(&mut self, cx: &mut Context<Self>) {
         self.ai_terminal_open = false;
         self.ai_terminal_surface_focused = false;
+        self.ai_terminal_cursor_blink_visible = true;
         self.ai_terminal_follow_output = true;
         self.ai_terminal_pending_input = None;
         self.ai_terminal_input_draft.clear();
         self.ai_terminal_session = AiTerminalSessionState::default();
+        self.ai_sync_terminal_cursor_blink(cx);
         self.defer_ai_composer_focus(cx);
         cx.notify();
     }
