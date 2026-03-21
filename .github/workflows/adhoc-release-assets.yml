@@ -122,7 +122,7 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Linux x86_64 AppImage
+    name: Linux x86_64 AppImage, DEB, RPM
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 
@@ -153,10 +153,6 @@ jobs:
           echo "HUNK_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
         shell: bash
 
-      - name: Install cargo-packager
-        run: cargo install cargo-packager --locked --version 0.11.8
-        shell: bash
-
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
@@ -175,7 +171,8 @@ jobs:
             libxkbcommon-x11-dev \
             libzstd-dev \
             patchelf \
-            pkg-config
+            pkg-config \
+            rpm
         shell: bash
 
       - name: Package Linux release artifact
@@ -194,6 +191,20 @@ jobs:
         with:
           name: hunk-linux-x86_64-tarball
           path: ${{ env.CARGO_TARGET_DIR }}/dist/Hunk-${{ env.HUNK_RELEASE_VERSION }}-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+      - name: Upload Linux Debian release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-linux-x86_64-deb
+          path: ${{ env.CARGO_TARGET_DIR }}/dist/hunk-desktop_${{ env.HUNK_RELEASE_VERSION }}-1_amd64.deb
+          if-no-files-found: error
+
+      - name: Upload Linux RPM release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-linux-x86_64-rpm
+          path: ${{ env.CARGO_TARGET_DIR }}/dist/*.rpm
           if-no-files-found: error
 
   windows:

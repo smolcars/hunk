@@ -44,6 +44,27 @@ package-macos-release:
 package-linux-release:
     ./scripts/package_linux_release.sh
 
+package-linux-appimage-release:
+    ./scripts/package_linux_release.sh --formats appimage,tarball
+
+package-linux-deb-release:
+    ./scripts/package_linux_release.sh --formats deb
+
+package-linux-rpm-release:
+    ./scripts/package_linux_release.sh --formats rpm
+
+install-linux-packaging-deps-ubuntu:
+    ./scripts/install_linux_packaging_deps_ubuntu.sh
+
+install-linux-deb-local:
+    sudo apt-get install -y "$(./scripts/package_linux_release.sh --formats deb | tail -n 1)"
+
+smoke-test-linux-deb:
+    ./scripts/smoke_test_linux_system_package.sh deb
+
+smoke-test-linux-rpm:
+    ./scripts/smoke_test_linux_system_package.sh rpm
+
 package-windows-release:
     pwsh ./scripts/package_windows_release.ps1
 

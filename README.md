@@ -136,10 +136,20 @@ pwsh ./scripts/package_windows_release.ps1
 These produce:
 
 - macOS ARM64: `Hunk-<version>-macos-arm64.dmg`, signed/notarized when Apple secrets are configured
-- Linux x86_64: `Hunk-<version>-linux-x86_64.AppImage` plus fallback `Hunk-<version>-linux-x86_64.tar.gz`
+- Linux x86_64: `Hunk-<version>-linux-x86_64.AppImage`, fallback `Hunk-<version>-linux-x86_64.tar.gz`, `hunk-desktop_<version>-1_amd64.deb`, and `hunk-desktop-<rpm-version>-1.x86_64.rpm`
 - Windows x86_64: `Hunk-<version>-windows-x86_64.msi`
 
-Linux release packaging requires `patchelf` for the tarball fallback bundle.
+Linux release packaging is custom and does not use `cargo packager`. Install Ubuntu build deps with `just install-linux-packaging-deps-ubuntu`, then use:
+
+```bash
+just package-linux-release
+just package-linux-deb-release
+just package-linux-rpm-release
+just smoke-test-linux-deb
+just smoke-test-linux-rpm
+```
+
+The Debian smoke test installs the package in an Ubuntu container. The RPM smoke test installs it in a Fedora container.
 
 ## Prepare Bundled Codex Runtime
 
@@ -196,7 +206,7 @@ just bundle
 ## GitHub Actions Release Flow
 
 - `.github/workflows/pr-build.yml` stays as the main PR CI workflow.
-- `.github/workflows/release.yml` builds DMG/MSI/AppImage artifacts and publishes them to a GitHub Release when you push a `v*` tag.
+- `.github/workflows/release.yml` builds DMG/MSI/AppImage/DEB/RPM artifacts and publishes them to a GitHub Release when you push a `v*` tag.
 
 The release workflows no longer bundle the old Helix runtime. The editor now uses the curated Tree-sitter language set compiled into `hunk-language`.
 
