@@ -162,16 +162,10 @@ impl DiffViewer {
                             div()
                                 .flex_1()
                                 .min_h_0()
-                                .rounded(px(10.0))
+                                .rounded(px(6.0))
                                 .border_1()
-                                .border_color(hunk_opacity(cx.theme().border, is_dark, 0.72, 0.58))
-                                .bg(hunk_blend(
-                                    cx.theme().background,
-                                    cx.theme().secondary,
-                                    is_dark,
-                                    0.44,
-                                    0.34,
-                                ))
+                                .border_color(hunk_opacity(cx.theme().border, is_dark, 0.82, 0.68))
+                                .bg(hunk_editor_chrome_colors(cx.theme(), is_dark).background)
                                 .key_context("AiTerminal")
                                 .track_focus(&self.ai_terminal_focus_handle)
                                 .on_mouse_down(MouseButton::Left, {
@@ -208,7 +202,7 @@ impl DiffViewer {
                                         }
                                     }
                                 })
-                                .p_3()
+                                .p_2()
                                 .child(self.render_ai_terminal_surface(state, is_dark, cx)),
                         )
                         .child(

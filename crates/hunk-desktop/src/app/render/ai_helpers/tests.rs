@@ -19,6 +19,7 @@ mod ai_helper_tests {
     use super::ai_reasoning_effort_label;
     use super::ai_rate_limit_summary;
     use super::ai_terminal_selection_surfaces;
+    use super::ai_terminal_selection_columns;
     use super::ai_turn_diff_summary;
     use super::ai_tool_header_label;
     use super::ai_timeline_item_is_renderable;
@@ -239,13 +240,21 @@ mod ai_helper_tests {
     fn terminal_selection_surfaces_insert_newline_separators_between_rows() {
         let surfaces = ai_terminal_selection_surfaces(
             &[
-                super::AiTerminalRenderableLine {
+                super::AiTerminalPaintLine {
+                    surface_id: "surface-a".into(),
                     text: "hello".into(),
-                    highlights: Vec::new(),
+                    column_byte_offsets: vec![0, 1, 2, 3, 4, 5].into(),
+                    background_rects: Vec::<super::AiTerminalBackgroundRect>::new().into(),
+                    text_runs: Vec::<gpui::TextRun>::new().into(),
+                    selection_range: None,
                 },
-                super::AiTerminalRenderableLine {
+                super::AiTerminalPaintLine {
+                    surface_id: "surface-b".into(),
                     text: "world".into(),
-                    highlights: Vec::new(),
+                    column_byte_offsets: vec![0, 1, 2, 3, 4, 5].into(),
+                    background_rects: Vec::<super::AiTerminalBackgroundRect>::new().into(),
+                    text_runs: Vec::<gpui::TextRun>::new().into(),
+                    selection_range: None,
                 },
             ],
         );
@@ -281,6 +290,19 @@ mod ai_helper_tests {
         screen.mode.alt_screen = false;
         screen.mode.mouse_mode = true;
         assert!(!ai_terminal_supports_text_selection(&screen));
+    }
+
+    #[test]
+    fn terminal_selection_columns_follow_byte_boundaries() {
+        assert_eq!(
+            ai_terminal_selection_columns(&[0, 1, 5, 6], &(1..5)),
+            Some((1, 2))
+        );
+        assert_eq!(
+            ai_terminal_selection_columns(&[0, 1, 5, 6], &(0..6)),
+            Some((0, 3))
+        );
+        assert_eq!(ai_terminal_selection_columns(&[0, 1, 5, 6], &(5..5)), None);
     }
 
     #[test]

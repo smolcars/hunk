@@ -4,6 +4,7 @@ use super::data::{
 use super::theme::*;
 use super::*;
 use crate::app::markdown_links::{MarkdownLinkRange, markdown_inline_text_and_link_ranges};
+use gpui::{Hsla, fill, size};
 use gpui_component::Disableable as _;
 use gpui_component::Sizable as _;
 use gpui_component::animation::cubic_bezier;
