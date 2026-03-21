@@ -37,7 +37,6 @@ modules:
       - install -Dm644 assets/icons/io.github.BlixtWallet.Hunk-128.png /app/share/icons/hicolor/128x128/apps/io.github.BlixtWallet.Hunk.png
       - install -Dm644 assets/icons/io.github.BlixtWallet.Hunk-256.png /app/share/icons/hicolor/256x256/apps/io.github.BlixtWallet.Hunk.png
       - install -Dm644 assets/icons/io.github.BlixtWallet.Hunk-512.png /app/share/icons/hicolor/512x512/apps/io.github.BlixtWallet.Hunk.png
-      - install -Dm644 assets/icons/hunk_new.png /app/share/icons/hicolor/1024x1024/apps/io.github.BlixtWallet.Hunk.png
     sources:
       - type: dir
         path: ..
