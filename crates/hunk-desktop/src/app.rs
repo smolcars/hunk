@@ -49,10 +49,10 @@ use hunk_git::git::{ChangedFile, FileStatus, LineStats, LocalBranch, RepoSnapsho
 use hunk_git::history::{
     DEFAULT_RECENT_AUTHORED_COMMIT_LIMIT, RecentCommitSummary, RecentCommitsFingerprint,
 };
+use hunk_git::worktree::WorkspaceTargetSummary;
 use hunk_terminal::{
     TerminalEvent, TerminalSessionHandle, TerminalSpawnRequest, spawn_terminal_session,
 };
-use hunk_git::worktree::WorkspaceTargetSummary;
 
 use ai_composer_completion::{
     ActivePrefixedToken, AiComposerFileCompletionMenuState, AiComposerFileCompletionProvider,

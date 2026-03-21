@@ -86,7 +86,7 @@ impl DiffViewer {
                                             is_dark,
                                             cx,
                                         ))
-                                        .child(sections.composer_panel),
+                                        .child(sections.composer_panel)
                                         .when_some(sections.terminal_panel, |this, terminal_panel| {
                                             this.child(terminal_panel)
                                         }),
