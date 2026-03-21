@@ -123,7 +123,7 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Linux x86_64 Packages
+    name: Linux x86_64 AppImage, DEB, RPM
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 

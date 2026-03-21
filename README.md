@@ -206,7 +206,7 @@ just bundle
 ## GitHub Actions Release Flow
 
 - `.github/workflows/pr-build.yml` stays as the main PR CI workflow.
-- `.github/workflows/release.yml` builds DMG/MSI/AppImage artifacts and publishes them to a GitHub Release when you push a `v*` tag.
+- `.github/workflows/release.yml` builds DMG/MSI/AppImage/DEB/RPM artifacts and publishes them to a GitHub Release when you push a `v*` tag.
 
 The release workflows no longer bundle the old Helix runtime. The editor now uses the curated Tree-sitter language set compiled into `hunk-language`.
 

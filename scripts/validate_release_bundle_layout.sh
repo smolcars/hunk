@@ -79,15 +79,16 @@ validate_linux_appdir() {
 validate_linux_install_root() {
   local install_root="$1"
 
-  require_executable "$install_root/usr/bin/hunk-desktop" "Linux system wrapper"
+  require_executable "$install_root/usr/bin/hunk-desktop" "Linux installed launcher wrapper"
+  require_executable "$install_root/usr/bin/hunk_desktop" "Linux installed launcher alias"
   require_executable "$install_root/usr/lib/hunk-desktop/hunk_desktop_bin" "Linux installed binary"
-  require_executable "$install_root/usr/lib/hunk-desktop/hunk-desktop" "Linux installed launcher"
+  require_executable "$install_root/usr/lib/hunk-desktop/hunk-desktop" "Linux installed private launcher"
   require_executable \
     "$install_root/usr/lib/hunk-desktop/codex-runtime/linux/codex" \
-    "Linux installed Codex runtime"
+    "Linux installed bundled Codex runtime"
   require_path "$install_root/usr/lib/hunk-desktop/lib" "Linux installed shared library directory"
   require_path "$install_root/usr/share/applications/hunk-desktop.desktop" "Linux desktop entry"
-  require_path "$install_root/usr/share/icons/hicolor/1024x1024/apps/hunk-desktop.png" "Linux application icon"
+  require_path "$install_root/usr/share/icons/hicolor/1024x1024/apps/hunk-desktop.png" "Linux desktop icon"
   forbid_helix_paths "$install_root"
 }
 

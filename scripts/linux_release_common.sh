@@ -237,7 +237,6 @@ find_linux_library_path_by_name() {
 
   return 1
 }
-
 download_cached_appimage_tool() {
   local url="$1"
   local destination="$2"
@@ -385,7 +384,6 @@ bundle_linux_extra_runtime_libraries() {
     bundle_linux_runtime_dependencies "$source_path" "$destination_dir"
   done
 }
-
 patch_linux_runtime_paths() {
   local binary_path="$1"
   local libs_dir="$2"
