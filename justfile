@@ -28,6 +28,9 @@ build-linux:
 build-windows:
     ./scripts/build_windows.sh
 
+build-linux-icon:
+    ./scripts/build_linux_icon.sh
+
 bundle:
     CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --release --locked
     cd crates/hunk-desktop && \

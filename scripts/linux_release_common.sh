@@ -42,6 +42,8 @@ SYSTEM_DESKTOP_ENTRY_PATH=""
 SYSTEM_ICON_DIR=""
 SYSTEM_ICON_PATH=""
 SYSTEM_ICON_ALIAS_PATH=""
+SYSTEM_PIXMAP_DIR=""
+SYSTEM_PIXMAP_PATH=""
 SYSTEM_WRAPPER_PATH=""
 SYSTEM_WRAPPER_ALIAS_PATH=""
 DEB_BUILD_ROOT=""
@@ -55,6 +57,7 @@ RPM_PATH=""
 BINARY_SOURCE_PATH=""
 REAL_BINARY_NAME="hunk_desktop_bin"
 LAUNCHER_SOURCE_PATH="$ROOT_DIR/scripts/linux_gui_binary_launcher.sh"
+LINUX_ICON_SOURCE_PATH="$ROOT_DIR/assets/icons/hunk_linux_512.png"
 PACKAGED_BINARY_PATH=""
 PACKAGED_LAUNCHER_PATH=""
 PACKAGE_LIB_DIR=""
@@ -151,7 +154,7 @@ init_linux_release_paths() {
   APPIMAGE_PATH="$DIST_DIR/${PRODUCT_NAME}-${VERSION_LABEL}-linux-$ARCH_LABEL.AppImage"
   APPDIR_PATH="$WORK_DIR/appimage/${PRODUCT_NAME}.AppDir"
   APP_DESKTOP_ENTRY_PATH="$APPDIR_PATH/usr/share/applications/hunk_desktop.desktop"
-  APP_ICON_PATH="$APPDIR_PATH/usr/share/icons/hicolor/1024x1024/apps/hunk_desktop.png"
+  APP_ICON_PATH="$APPDIR_PATH/usr/share/icons/hicolor/512x512/apps/hunk_desktop.png"
   APPDIR_REAL_BINARY_PATH="$APPDIR_PATH/usr/bin/$REAL_BINARY_NAME"
   APPDIR_LAUNCHER_PATH="$APPDIR_PATH/usr/bin/hunk_desktop"
   SYSTEM_INSTALL_ROOT="$WORK_DIR/system-root"
@@ -162,9 +165,11 @@ init_linux_release_paths() {
   SYSTEM_LAUNCHER_PATH="$SYSTEM_LIB_DIR/$PACKAGE_NAME"
   SYSTEM_RUNTIME_PATH="$SYSTEM_LIB_DIR/codex-runtime/linux/codex"
   SYSTEM_DESKTOP_ENTRY_PATH="$SYSTEM_INSTALL_ROOT/usr/share/applications/$PACKAGE_NAME.desktop"
-  SYSTEM_ICON_DIR="$SYSTEM_INSTALL_ROOT/usr/share/icons/hicolor/1024x1024/apps"
+  SYSTEM_ICON_DIR="$SYSTEM_INSTALL_ROOT/usr/share/icons/hicolor/512x512/apps"
   SYSTEM_ICON_PATH="$SYSTEM_ICON_DIR/$PACKAGE_NAME.png"
   SYSTEM_ICON_ALIAS_PATH="$SYSTEM_ICON_DIR/${PACKAGE_NAME//-/_}.png"
+  SYSTEM_PIXMAP_DIR="$SYSTEM_INSTALL_ROOT/usr/share/pixmaps"
+  SYSTEM_PIXMAP_PATH="$SYSTEM_PIXMAP_DIR/$PACKAGE_NAME.png"
   SYSTEM_WRAPPER_PATH="$SYSTEM_BIN_DIR/$PACKAGE_NAME"
   SYSTEM_WRAPPER_ALIAS_PATH="$SYSTEM_BIN_DIR/${PACKAGE_NAME//-/_}"
   DEB_BUILD_ROOT="$WORK_DIR/deb-root"
@@ -451,7 +456,7 @@ create_linux_appdir() {
   mkdir -p "$APPDIR_PATH/usr/bin"
   mkdir -p "$APPDIR_PATH/usr/lib"
   mkdir -p "$APPDIR_PATH/usr/share/applications"
-  mkdir -p "$APPDIR_PATH/usr/share/icons/hicolor/1024x1024/apps"
+  mkdir -p "$APPDIR_PATH/usr/share/icons/hicolor/512x512/apps"
   mkdir -p "$APPDIR_PATH/usr/lib/hunk_desktop/codex-runtime/linux"
 
   cp "$APPIMAGE_APPRUN_PATH" "$APPDIR_PATH/AppRun"
@@ -479,9 +484,9 @@ Terminal=false
 Type=Application
 EOF
 
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$APP_ICON_PATH"
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$APPDIR_PATH/.DirIcon"
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$APPDIR_PATH/hunk_desktop.png"
+  cp "$LINUX_ICON_SOURCE_PATH" "$APP_ICON_PATH"
+  cp "$LINUX_ICON_SOURCE_PATH" "$APPDIR_PATH/.DirIcon"
+  cp "$LINUX_ICON_SOURCE_PATH" "$APPDIR_PATH/hunk_desktop.png"
   ln -sf "usr/share/applications/hunk_desktop.desktop" "$APPDIR_PATH/hunk_desktop.desktop"
 }
 
@@ -511,7 +516,7 @@ write_linux_system_desktop_entry() {
 Categories=Development;
 Comment=$PACKAGE_SUMMARY
 Exec=$PACKAGE_NAME
-Icon=$PACKAGE_NAME
+Icon=/usr/share/pixmaps/$PACKAGE_NAME.png
 Name=$PRODUCT_NAME
 StartupNotify=true
 StartupWMClass=hunk_desktop
@@ -522,7 +527,7 @@ EOF
 
 prepare_linux_system_install_root() {
   rm -rf "$SYSTEM_INSTALL_ROOT"
-  mkdir -p "$SYSTEM_BIN_DIR" "$SYSTEM_PRIVATE_LIB_DIR" "$(dirname "$SYSTEM_RUNTIME_PATH")" "$SYSTEM_ICON_DIR" "$(dirname "$SYSTEM_DESKTOP_ENTRY_PATH")"
+  mkdir -p "$SYSTEM_BIN_DIR" "$SYSTEM_PRIVATE_LIB_DIR" "$(dirname "$SYSTEM_RUNTIME_PATH")" "$SYSTEM_ICON_DIR" "$SYSTEM_PIXMAP_DIR" "$(dirname "$SYSTEM_DESKTOP_ENTRY_PATH")"
 
   cp "$PACKAGED_BINARY_PATH" "$SYSTEM_REAL_BINARY_PATH"
   cp "$PACKAGED_LAUNCHER_PATH" "$SYSTEM_LAUNCHER_PATH"
@@ -537,8 +542,9 @@ prepare_linux_system_install_root() {
   write_linux_system_wrapper "$SYSTEM_WRAPPER_ALIAS_PATH" "/usr/lib/$PACKAGE_NAME/$PACKAGE_NAME"
   write_linux_system_desktop_entry
 
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$SYSTEM_ICON_PATH"
-  cp "$ROOT_DIR/assets/icons/hunk_new.png" "$SYSTEM_ICON_ALIAS_PATH"
+  cp "$LINUX_ICON_SOURCE_PATH" "$SYSTEM_ICON_PATH"
+  cp "$LINUX_ICON_SOURCE_PATH" "$SYSTEM_ICON_ALIAS_PATH"
+  cp "$LINUX_ICON_SOURCE_PATH" "$SYSTEM_PIXMAP_PATH"
 
   "$ROOT_DIR/scripts/validate_release_bundle_layout.sh" linux-install-root "$SYSTEM_INSTALL_ROOT"
 }
@@ -615,8 +621,9 @@ write_linux_rpm_spec() {
     printf '/usr/bin/%s\n' "${PACKAGE_NAME//-/_}"
     printf '/usr/lib/%s\n' "$PACKAGE_NAME"
     printf '/usr/share/applications/%s.desktop\n' "$PACKAGE_NAME"
-    printf '/usr/share/icons/hicolor/1024x1024/apps/%s.png\n' "$PACKAGE_NAME"
-    printf '/usr/share/icons/hicolor/1024x1024/apps/%s.png\n' "${PACKAGE_NAME//-/_}"
+    printf '/usr/share/icons/hicolor/512x512/apps/%s.png\n' "$PACKAGE_NAME"
+    printf '/usr/share/icons/hicolor/512x512/apps/%s.png\n' "${PACKAGE_NAME//-/_}"
+    printf '/usr/share/pixmaps/%s.png\n' "$PACKAGE_NAME"
     printf '\n'
     printf '%%changelog\n'
     printf '* %s %s - %s-%s\n' "$(linux_rpm_changelog_date)" "$PACKAGE_MAINTAINER" "$RPM_VERSION" "$PACKAGE_RELEASE"
