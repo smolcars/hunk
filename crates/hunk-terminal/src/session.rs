@@ -31,6 +31,10 @@ impl TerminalSpawnRequest {
             cols: 120,
         }
     }
+
+    pub fn shell(cwd: PathBuf) -> Self {
+        Self::new(cwd, String::new())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -232,15 +236,21 @@ fn shell_command_builder(command: &str, cwd: &Path) -> CommandBuilder {
         let shell = windows_shell_program();
         let is_cmd = shell_is_cmd(shell.as_os_str());
         let mut builder = CommandBuilder::new(shell);
-        if is_cmd {
-            builder.arg("/D");
-            builder.arg("/C");
+        if command.trim().is_empty() {
+            if !is_cmd {
+                builder.arg("-NoLogo");
+            }
         } else {
-            builder.arg("-NoLogo");
-            builder.arg("-NoProfile");
-            builder.arg("-Command");
+            if is_cmd {
+                builder.arg("/D");
+                builder.arg("/C");
+            } else {
+                builder.arg("-NoLogo");
+                builder.arg("-NoProfile");
+                builder.arg("-Command");
+            }
+            builder.arg(command);
         }
-        builder.arg(command);
         builder.cwd(cwd.as_os_str());
         builder
     }
@@ -249,8 +259,12 @@ fn shell_command_builder(command: &str, cwd: &Path) -> CommandBuilder {
     {
         let shell = std::env::var_os("SHELL").unwrap_or_else(|| OsString::from("/bin/bash"));
         let mut builder = CommandBuilder::new(shell);
-        builder.arg("-lc");
-        builder.arg(command);
+        if command.trim().is_empty() {
+            builder.arg("-i");
+        } else {
+            builder.arg("-lc");
+            builder.arg(command);
+        }
         builder.cwd(cwd.as_os_str());
         builder
     }

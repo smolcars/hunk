@@ -17,6 +17,17 @@ impl DiffViewer {
             AiTerminalSessionStatus::Failed => cx.theme().danger,
             AiTerminalSessionStatus::Stopped => cx.theme().warning,
         };
+        let shell_colors = hunk_git_workspace(cx.theme(), is_dark).shell;
+        let chrome = hunk_editor_chrome_colors(cx.theme(), is_dark);
+        let has_session = state.screen.is_some() || state.has_transcript;
+        let show_inline_prompt = !state.running && state.accepts_input;
+        let status_text = state.status_message.clone().or_else(|| {
+            if state.display_offset > 0 {
+                Some("Viewing scrollback".to_string())
+            } else {
+                None
+            }
+        });
 
         Some(
             v_flex()
@@ -24,118 +35,155 @@ impl DiffViewer {
                 .h(px(state.height_px))
                 .min_h(px(160.0))
                 .border_t_1()
-                .border_color(hunk_opacity(cx.theme().border, is_dark, 0.86, 0.72))
-                .bg(hunk_blend(
-                    cx.theme().background,
-                    cx.theme().secondary,
-                    is_dark,
-                    0.18,
-                    0.14,
-                ))
+                .border_color(shell_colors.border)
+                .bg(shell_colors.background)
                 .child(
                     v_flex()
                         .w_full()
                         .flex_1()
                         .min_h_0()
-                        .gap_2()
-                        .px_4()
-                        .pt_3()
-                        .pb_3()
                         .child(
                             h_flex()
                                 .w_full()
                                 .items_center()
                                 .justify_between()
-                                .gap_2()
+                                .gap_3()
+                                .px_3()
+                                .py_2()
+                                .border_b_1()
+                                .border_color(hunk_opacity(shell_colors.border, is_dark, 0.92, 0.78))
                                 .child(
-                                    v_flex()
+                                    h_flex()
                                         .min_w_0()
-                                        .gap_0p5()
+                                        .items_center()
+                                        .gap_2()
                                         .child(
-                                            h_flex()
-                                                .items_center()
-                                                .gap_2()
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .font_semibold()
-                                                        .child("Terminal"),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .rounded(px(999.0))
-                                                        .border_1()
-                                                        .border_color(hunk_opacity(
-                                                            status_color,
-                                                            is_dark,
-                                                            0.80,
-                                                            0.68,
-                                                        ))
-                                                        .bg(hunk_opacity(
-                                                            status_color,
-                                                            is_dark,
-                                                            0.12,
-                                                            0.08,
-                                                        ))
-                                                        .px_1p5()
-                                                        .py_0p5()
-                                                        .text_xs()
-                                                        .text_color(status_color)
-                                                        .child(state.status_label),
-                                                ),
+                                            div()
+                                                .text_sm()
+                                                .font_semibold()
+                                                .text_color(cx.theme().foreground)
+                                                .child("Terminal"),
                                         )
                                         .child(
                                             div()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
+                                                .text_sm()
                                                 .font_family(cx.theme().mono_font_family.clone())
-                                                .truncate()
-                                                .child(state.cwd_label.clone()),
-                                        ),
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(state.shell_label.clone()),
+                                        )
+                                        .child(
+                                            div()
+                                                .w(px(6.0))
+                                                .h(px(6.0))
+                                                .rounded(px(999.0))
+                                                .bg(hunk_opacity(status_color, is_dark, 0.95, 0.90)),
+                                        )
+                                        .when_some(status_text, |this, status_text| {
+                                            this.child(
+                                                div()
+                                                    .min_w_0()
+                                                    .text_xs()
+                                                    .text_color(if self.ai_terminal_session.status
+                                                        == AiTerminalSessionStatus::Failed
+                                                    {
+                                                        cx.theme().danger
+                                                    } else {
+                                                        cx.theme().muted_foreground
+                                                    })
+                                                    .truncate()
+                                                    .child(status_text),
+                                            )
+                                        }),
                                 )
                                 .child(
                                     h_flex()
                                         .flex_none()
                                         .items_center()
                                         .gap_1()
-                                        .child({
-                                            let view = view.clone();
-                                            Button::new("ai-terminal-smaller")
-                                                .compact()
-                                                .ghost()
-                                                .rounded(px(8.0))
-                                                .with_size(gpui_component::Size::Small)
-                                                .label("-")
-                                                .tooltip("Reduce terminal height")
-                                                .on_click(move |_, _, cx| {
-                                                    view.update(cx, |this, cx| {
-                                                        this.ai_decrease_terminal_height_action(cx);
-                                                    });
-                                                })
+                                        .child(
+                                            div()
+                                                .max_w(px(460.0))
+                                                .truncate()
+                                                .text_xs()
+                                                .font_family(cx.theme().mono_font_family.clone())
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(state.cwd_label.clone()),
+                                        )
+                                        .when(state.display_offset > 0, |this| {
+                                            this.child({
+                                                let view = view.clone();
+                                                Button::new("ai-terminal-bottom")
+                                                    .compact()
+                                                    .ghost()
+                                                    .with_size(gpui_component::Size::Small)
+                                                    .rounded(px(8.0))
+                                                    .label("Bottom")
+                                                    .on_click(move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            this.ai_scroll_terminal_to_bottom_action(cx);
+                                                        });
+                                                    })
+                                            })
                                         })
-                                        .child({
-                                            let view = view.clone();
-                                            Button::new("ai-terminal-larger")
-                                                .compact()
-                                                .ghost()
-                                                .rounded(px(8.0))
-                                                .with_size(gpui_component::Size::Small)
-                                                .label("+")
-                                                .tooltip("Increase terminal height")
-                                                .on_click(move |_, _, cx| {
-                                                    view.update(cx, |this, cx| {
-                                                        this.ai_increase_terminal_height_action(cx);
-                                                    });
-                                                })
+                                        .when(state.running, |this| {
+                                            this.child({
+                                                let view = view.clone();
+                                                Button::new("ai-terminal-stop")
+                                                    .compact()
+                                                    .ghost()
+                                                    .with_size(gpui_component::Size::Small)
+                                                    .rounded(px(8.0))
+                                                    .label("Stop")
+                                                    .on_click(move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            this.ai_stop_terminal_command_action(cx);
+                                                        });
+                                                    })
+                                            })
+                                        })
+                                        .when(!state.running && state.has_last_command, |this| {
+                                            this.child({
+                                                let view = view.clone();
+                                                Button::new("ai-terminal-rerun")
+                                                    .compact()
+                                                    .ghost()
+                                                    .with_size(gpui_component::Size::Small)
+                                                    .rounded(px(8.0))
+                                                    .icon(Icon::new(IconName::Undo2).size(px(12.0)))
+                                                    .tooltip("Rerun last command")
+                                                    .on_click(move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            this.ai_rerun_terminal_command_action(cx);
+                                                        });
+                                                    })
+                                            })
+                                        })
+                                        .when(!state.running && state.has_output, |this| {
+                                            this.child({
+                                                let view = view.clone();
+                                                Button::new("ai-terminal-clear")
+                                                    .compact()
+                                                    .ghost()
+                                                    .with_size(gpui_component::Size::Small)
+                                                    .rounded(px(8.0))
+                                                    .icon(Icon::new(IconName::Delete).size(px(12.0)))
+                                                    .tooltip("Clear terminal session")
+                                                    .on_click(move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            this.ai_clear_terminal_session_action(cx);
+                                                        });
+                                                    })
+                                            })
                                         })
                                         .child({
                                             let view = view.clone();
                                             Button::new("ai-terminal-hide")
                                                 .compact()
                                                 .ghost()
-                                                .rounded(px(8.0))
                                                 .with_size(gpui_component::Size::Small)
-                                                .label("Hide")
+                                                .rounded(px(8.0))
+                                                .icon(Icon::new(IconName::Close).size(px(14.0)))
+                                                .tooltip("Hide terminal")
                                                 .on_click(move |_, _, cx| {
                                                     view.update(cx, |this, cx| {
                                                         this.ai_toggle_terminal_drawer_action(cx);
@@ -144,28 +192,12 @@ impl DiffViewer {
                                         }),
                                 ),
                         )
-                        .when_some(state.status_message.clone(), |this, status_message| {
-                            this.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(if self.ai_terminal_session.status
-                                        == AiTerminalSessionStatus::Failed
-                                    {
-                                        cx.theme().danger
-                                    } else {
-                                        cx.theme().muted_foreground
-                                    })
-                                    .child(status_message),
-                            )
-                        })
                         .child(
                             div()
+                                .w_full()
                                 .flex_1()
                                 .min_h_0()
-                                .rounded(px(6.0))
-                                .border_1()
-                                .border_color(hunk_opacity(cx.theme().border, is_dark, 0.82, 0.68))
-                                .bg(hunk_editor_chrome_colors(cx.theme(), is_dark).background)
+                                .bg(chrome.background)
                                 .key_context("AiTerminal")
                                 .track_focus(&self.ai_terminal_focus_handle)
                                 .on_mouse_down(MouseButton::Left, {
@@ -191,114 +223,54 @@ impl DiffViewer {
                                         }
                                     }
                                 })
-                                .p_2()
+                                .px_3()
+                                .pt_2()
+                                .pb_2()
+                                .when(state.surface_focused, |this| {
+                                    this.border_1()
+                                        .border_color(hunk_opacity(status_color, is_dark, 0.82, 0.68))
+                                })
+                                .when(!state.surface_focused, |this| this.border_1().border_color(chrome.background))
                                 .child(self.render_ai_terminal_surface(state, is_dark, cx)),
                         )
-                        .child(
-                            h_flex()
-                                .w_full()
-                                .items_center()
-                                .gap_2()
-                                .when(!state.running, |this| {
-                                    this.child(
+                        .when(show_inline_prompt, |this| {
+                            this.child(
+                                h_flex()
+                                    .w_full()
+                                    .items_center()
+                                    .gap_2()
+                                    .px_3()
+                                    .py_1p5()
+                                    .border_t_1()
+                                    .border_color(hunk_opacity(shell_colors.border, is_dark, 0.92, 0.78))
+                                    .bg(hunk_blend(chrome.background, shell_colors.background, is_dark, 0.08, 0.12))
+                                    .child(
+                                        div()
+                                            .flex_none()
+                                            .text_sm()
+                                            .font_family(cx.theme().mono_font_family.clone())
+                                            .text_color(if has_session {
+                                                cx.theme().muted_foreground
+                                            } else {
+                                                status_color
+                                            })
+                                            .child(if cfg!(target_os = "windows") { ">" } else { "$" }),
+                                    )
+                                    .child(
                                         div()
                                             .flex_1()
                                             .min_w_0()
                                             .child(
                                                 Input::new(&self.ai_terminal_input_state)
                                                     .appearance(false)
-                                                    .bordered(true)
-                                                    .focus_bordered(true)
+                                                    .bordered(false)
+                                                    .focus_bordered(false)
                                                     .w_full()
                                                     .disabled(!state.accepts_input),
                                             ),
-                                    )
-                                    .child({
-                                        let view = view.clone();
-                                        Button::new("ai-terminal-run")
-                                            .compact()
-                                            .outline()
-                                            .rounded(px(8.0))
-                                            .label(state.submit_label)
-                                            .disabled(!state.accepts_input)
-                                            .on_click(move |_, _, cx| {
-                                                view.update(cx, |this, cx| {
-                                                    this.ai_submit_terminal_input_action(cx);
-                                                });
-                                            })
-                                    })
-                                })
-                                .when(state.running, |this| {
-                                    this.child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(if state.display_offset > 0 {
-                                                "Viewing scrollback. Use the mouse wheel or Shift+PageUp/PageDown to move, or jump to Bottom."
-                                            } else {
-                                                "Terminal is live. Click the surface to focus and type directly."
-                                            }),
-                                    )
-                                })
-                                .child({
-                                    let view = view.clone();
-                                    Button::new("ai-terminal-bottom")
-                                        .compact()
-                                        .ghost()
-                                        .rounded(px(8.0))
-                                        .label("Bottom")
-                                        .disabled(state.display_offset == 0)
-                                        .on_click(move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.ai_scroll_terminal_to_bottom_action(cx);
-                                            });
-                                        })
-                                })
-                                .child({
-                                    let view = view.clone();
-                                    Button::new("ai-terminal-stop")
-                                        .compact()
-                                        .ghost()
-                                        .rounded(px(8.0))
-                                        .label("Stop")
-                                        .disabled(!state.running)
-                                        .on_click(move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.ai_stop_terminal_command_action(cx);
-                                            });
-                                        })
-                                })
-                                .child({
-                                    let view = view.clone();
-                                    Button::new("ai-terminal-rerun")
-                                        .compact()
-                                        .ghost()
-                                        .rounded(px(8.0))
-                                        .label("Rerun")
-                                        .disabled(!state.has_last_command || state.running)
-                                        .on_click(move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.ai_rerun_terminal_command_action(cx);
-                                            });
-                                        })
-                                })
-                                .child({
-                                    let view = view.clone();
-                                    Button::new("ai-terminal-clear")
-                                        .compact()
-                                        .ghost()
-                                        .rounded(px(8.0))
-                                        .label("Clear")
-                                        .disabled(!state.has_output)
-                                        .on_click(move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.ai_clear_terminal_session_action(cx);
-                                            });
-                                        })
-                                }),
-                        ),
+                                    ),
+                            )
+                        }),
                 )
                 .into_any_element(),
         )

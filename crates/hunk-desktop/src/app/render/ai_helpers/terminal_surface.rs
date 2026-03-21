@@ -110,7 +110,11 @@ impl DiffViewer {
             .text_xs()
             .font_family(cx.theme().mono_font_family.clone())
             .text_color(cx.theme().muted_foreground)
-            .child("Run a command to start a terminal session.")
+            .child(if state.accepts_input {
+                "Starting shell..."
+            } else {
+                "Open a workspace to start a terminal session."
+            })
             .into_any_element()
     }
 

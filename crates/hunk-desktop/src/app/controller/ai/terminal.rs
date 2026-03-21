@@ -1,8 +1,5 @@
 const AI_TERMINAL_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(33);
 const AI_TERMINAL_MAX_TRANSCRIPT_BYTES: usize = 256 * 1024;
-const AI_TERMINAL_MIN_HEIGHT_PX: f32 = 160.0;
-const AI_TERMINAL_MAX_HEIGHT_PX: f32 = 420.0;
-const AI_TERMINAL_HEIGHT_STEP_PX: f32 = 56.0;
 
 impl DiffViewer {
     pub(crate) fn ai_terminal_is_running(&self) -> bool {
@@ -81,21 +78,14 @@ impl DiffViewer {
         self.ai_workspace_cwd().is_some()
     }
 
-    pub(crate) fn ai_terminal_status_label(&self) -> &'static str {
-        match self.ai_terminal_session.status {
-            AiTerminalSessionStatus::Idle => "Idle",
-            AiTerminalSessionStatus::Running => "Running",
-            AiTerminalSessionStatus::Completed => "Completed",
-            AiTerminalSessionStatus::Failed => "Failed",
-            AiTerminalSessionStatus::Stopped => "Stopped",
-        }
-    }
-
     fn ai_terminal_set_open(&mut self, open: bool, cx: &mut Context<Self>) {
         if self.ai_terminal_open == open {
             return;
         }
         self.ai_terminal_open = open;
+        if !open {
+            self.ai_terminal_surface_focused = false;
+        }
         cx.notify();
     }
 
@@ -103,6 +93,7 @@ impl DiffViewer {
         let next_open = !self.ai_terminal_open;
         self.ai_terminal_set_open(next_open, cx);
         if next_open {
+            self.ensure_ai_terminal_session(cx);
             self.focus_ai_terminal_interaction(cx);
         }
     }
@@ -116,6 +107,7 @@ impl DiffViewer {
         if self.workspace_view_mode != WorkspaceViewMode::Ai {
             self.activate_ai_workspace(window, cx);
             self.ai_terminal_set_open(true, cx);
+            self.ensure_ai_terminal_session(cx);
             self.focus_ai_terminal_interaction(cx);
             return;
         }
@@ -124,18 +116,6 @@ impl DiffViewer {
 
     pub(super) fn ai_toggle_terminal_drawer_action(&mut self, cx: &mut Context<Self>) {
         self.toggle_ai_terminal_drawer(cx);
-    }
-
-    pub(super) fn ai_increase_terminal_height_action(&mut self, cx: &mut Context<Self>) {
-        self.ai_terminal_height_px = (self.ai_terminal_height_px + AI_TERMINAL_HEIGHT_STEP_PX)
-            .clamp(AI_TERMINAL_MIN_HEIGHT_PX, AI_TERMINAL_MAX_HEIGHT_PX);
-        cx.notify();
-    }
-
-    pub(super) fn ai_decrease_terminal_height_action(&mut self, cx: &mut Context<Self>) {
-        self.ai_terminal_height_px = (self.ai_terminal_height_px - AI_TERMINAL_HEIGHT_STEP_PX)
-            .clamp(AI_TERMINAL_MIN_HEIGHT_PX, AI_TERMINAL_MAX_HEIGHT_PX);
-        cx.notify();
     }
 
     pub(super) fn ai_clear_terminal_session_action(&mut self, cx: &mut Context<Self>) {
@@ -150,7 +130,22 @@ impl DiffViewer {
         if !self.ai_terminal_is_running() {
             self.ai_terminal_session.status = AiTerminalSessionStatus::Idle;
         }
+        if self.ai_terminal_open {
+            self.ensure_ai_terminal_session(cx);
+        }
         cx.notify();
+    }
+
+    fn ensure_ai_terminal_session(&mut self, cx: &mut Context<Self>) {
+        if self.ai_terminal_runtime.is_some() || self.ai_terminal_session.screen.is_some() {
+            return;
+        }
+
+        let Some(cwd) = self.ai_workspace_cwd() else {
+            return;
+        };
+
+        self.start_default_ai_terminal_session(cwd, cx);
     }
 
     pub(super) fn ai_stop_terminal_command_action(&mut self, cx: &mut Context<Self>) {
@@ -208,10 +203,18 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_terminal_surface_focus_in(&mut self, cx: &mut Context<Self>) {
+        if !self.ai_terminal_surface_focused {
+            self.ai_terminal_surface_focused = true;
+            cx.notify();
+        }
         self.ai_report_terminal_focus_change(true, cx);
     }
 
     pub(super) fn ai_terminal_surface_focus_out(&mut self, cx: &mut Context<Self>) {
+        if self.ai_terminal_surface_focused {
+            self.ai_terminal_surface_focused = false;
+            cx.notify();
+        }
         self.ai_report_terminal_focus_change(false, cx);
     }
 
@@ -463,7 +466,7 @@ impl DiffViewer {
             return;
         }
 
-        self.ai_terminal_session.status_message = Some("Sent input to terminal.".to_string());
+        self.ai_terminal_session.status_message = None;
         self.ai_terminal_input_draft.clear();
         self.restore_ai_visible_terminal_input(cx);
         cx.notify();
@@ -487,6 +490,56 @@ impl DiffViewer {
             return;
         };
 
+        self.start_ai_terminal_command_session(cwd, command, cx);
+    }
+
+    fn start_default_ai_terminal_session(&mut self, cwd: PathBuf, cx: &mut Context<Self>) {
+        self.stop_ai_terminal_runtime("starting default terminal shell");
+
+        let workspace_key = cwd.to_string_lossy().to_string();
+        let request = TerminalSpawnRequest::shell(cwd.clone());
+        match spawn_terminal_session(request) {
+            Ok((handle, event_rx)) => {
+                self.ai_terminal_open = true;
+                self.ai_terminal_stop_requested = false;
+                self.ai_terminal_session.cwd = Some(cwd);
+                self.ai_terminal_session.last_command = None;
+                self.ai_terminal_session.status = AiTerminalSessionStatus::Running;
+                self.ai_terminal_session.exit_code = None;
+                self.ai_terminal_session.screen = None;
+                self.ai_terminal_follow_output = true;
+                self.ai_terminal_session.status_message = None;
+                let generation = self.next_ai_terminal_runtime_generation();
+                self.ai_terminal_runtime = Some(AiTerminalRuntimeHandle {
+                    workspace_key: workspace_key.clone(),
+                    handle,
+                    generation,
+                });
+                self.start_ai_terminal_event_listener(event_rx, workspace_key, generation, cx);
+                self.focus_ai_terminal_surface(cx);
+            }
+            Err(error) => {
+                self.ai_terminal_open = true;
+                self.ai_terminal_session.cwd = Some(cwd);
+                self.ai_terminal_session.status = AiTerminalSessionStatus::Failed;
+                self.ai_terminal_session.exit_code = None;
+                self.ai_terminal_session.screen = None;
+                self.ai_terminal_session.status_message =
+                    Some("Failed to start terminal shell.".to_string());
+                append_ai_terminal_transcript(
+                    &mut self.ai_terminal_session.transcript,
+                    format!("[terminal error] {error}\n"),
+                );
+            }
+        }
+    }
+
+    fn start_ai_terminal_command_session(
+        &mut self,
+        cwd: PathBuf,
+        command: String,
+        cx: &mut Context<Self>,
+    ) {
         self.stop_ai_terminal_runtime("starting terminal command");
 
         let workspace_key = cwd.to_string_lossy().to_string();
@@ -501,7 +554,7 @@ impl DiffViewer {
                 self.ai_terminal_session.exit_code = None;
                 self.ai_terminal_session.screen = None;
                 self.ai_terminal_follow_output = true;
-                self.ai_terminal_session.status_message = Some("Running command...".to_string());
+                self.ai_terminal_session.status_message = None;
                 append_ai_terminal_transcript(
                     &mut self.ai_terminal_session.transcript,
                     format!("$ {command}\n"),

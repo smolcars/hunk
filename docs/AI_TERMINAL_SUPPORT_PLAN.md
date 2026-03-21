@@ -79,7 +79,8 @@ Implemented today:
 - `crates/hunk-terminal` exists and owns PTY spawning, process lifecycle, resize hooks, and output streaming.
 - The AI workspace has a native bottom terminal drawer instead of a floating card.
 - Terminal state is captured and restored with AI workspace state.
-- The drawer supports run, stop, rerun, clear, and height adjustment.
+- Opening the drawer now starts an interactive shell session by default when a workspace is available.
+- The drawer supports run, stop, rerun, and clear flows, while presenting the UI as a shell-first bottom pane instead of a boxed command form.
 - The drawer supports live PTY input forwarding for running sessions.
 - The drawer can be toggled with `cmd-j` on macOS and `ctrl-j` on Linux/Windows.
 - Output is bounded and now rendered through a VT-backed GPUI cell surface with transcript fallback for empty and failure states.
@@ -95,6 +96,7 @@ Implemented today:
 Not implemented yet:
 
 - terminal hyperlink detection plus further cursor polish
+- restored drawer height controls or drag-resize affordances
 - command-row affordances from the AI timeline
 - persisted terminal state across full app relaunch
 
@@ -552,7 +554,7 @@ Exit criteria:
 - [x] Add terminal toolbar and command entry.
 - [x] Add transcript output rendering.
 - [x] Add stop, rerun, and clear actions.
-- [x] Add drawer height controls.
+- [ ] Add drawer height controls.
 - [x] Replace transcript rendering with a VT cell surface.
 - [x] Add terminal keyboard input routing into the live PTY session.
 - [x] Replace command-line style input routing with terminal-surface keystroke routing.

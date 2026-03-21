@@ -6,9 +6,10 @@ struct AiTerminalPanelState {
     open: bool,
     accepts_input: bool,
     cwd_label: String,
-    status_label: &'static str,
+    shell_label: String,
     status_message: Option<String>,
     running: bool,
+    surface_focused: bool,
     screen: Option<Arc<TerminalScreenSnapshot>>,
     display_offset: usize,
     has_transcript: bool,
@@ -16,7 +17,20 @@ struct AiTerminalPanelState {
     has_last_command: bool,
     transcript: String,
     height_px: f32,
-    submit_label: &'static str,
+}
+
+fn ai_terminal_shell_label() -> String {
+    #[cfg(target_os = "windows")]
+    let shell = std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into());
+
+    #[cfg(not(target_os = "windows"))]
+    let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/bash".into());
+
+    std::path::Path::new(&shell)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("shell")
+        .to_string()
 }
 
 impl DiffViewer {
@@ -190,9 +204,10 @@ impl DiffViewer {
                 .or_else(|| self.ai_workspace_cwd())
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|| "No workspace selected".to_string()),
-            status_label: self.ai_terminal_status_label(),
+            shell_label: ai_terminal_shell_label(),
             status_message: self.ai_terminal_session.status_message.clone(),
             running: self.ai_terminal_is_running(),
+            surface_focused: self.ai_terminal_surface_focused,
             screen: self.ai_terminal_session.screen.clone(),
             display_offset: self
                 .ai_terminal_session
@@ -206,11 +221,6 @@ impl DiffViewer {
             has_last_command: self.ai_terminal_session.last_command.is_some(),
             transcript: self.ai_terminal_session.transcript.clone(),
             height_px: self.ai_terminal_height_px,
-            submit_label: if self.ai_terminal_is_running() {
-                "Send"
-            } else {
-                "Run"
-            },
         };
 
         let composer_panel =
