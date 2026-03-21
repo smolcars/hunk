@@ -3,6 +3,7 @@
   <id>io.github.BlixtWallet.Hunk</id>
   <name>Hunk</name>
   <summary>Fast Git diff review desktop app</summary>
+  <icon type="stock">io.github.BlixtWallet.Hunk</icon>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>LicenseRef-proprietary</project_license>
   <developer id="io.github.BlixtWallet">
