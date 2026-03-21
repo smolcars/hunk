@@ -91,11 +91,12 @@ Implemented today:
 - The terminal now reports focus in/out, mouse button presses, mouse motion, and wheel events back into the PTY using the active VT mouse protocol, including SGR/UTF-8 mouse formats and alternate-scroll mode.
 - Shift now bypasses terminal mouse reporting so scrollback selection still works outside alternate-screen TUIs, while the terminal owns wheel events whenever alternate-screen content is active.
 - The VT surface is now painted as a terminal grid with cell backgrounds and cursor-aware text runs, instead of being rendered as ordinary styled text rows.
+- Cursor rendering now respects terminal focus state, using a beam caret for focused beam cursors and hollow outlines for unfocused block-style cursors.
 - Workspace-wide validation already passes for the current slice.
 
 Not implemented yet:
 
-- terminal hyperlink detection plus further cursor polish
+- terminal hyperlink detection and any remaining cursor blink polish
 - restored drawer height controls or drag-resize affordances
 - command-row affordances from the AI timeline
 - persisted terminal state across full app relaunch

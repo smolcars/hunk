@@ -35,6 +35,7 @@ struct AiTerminalPaintLine {
     text: SharedString,
     column_byte_offsets: Arc<[usize]>,
     background_rects: Arc<[AiTerminalBackgroundRect]>,
+    cursor_overlays: Arc<[AiTerminalCursorOverlay]>,
     text_runs: Arc<[gpui::TextRun]>,
     selection_range: Option<Range<usize>>,
 }
@@ -126,7 +127,14 @@ impl DiffViewer {
     ) -> AnyElement {
         let selection_enabled = ai_terminal_supports_text_selection(screen);
         let text_style = ai_terminal_surface_text_style(is_dark, cx);
-        let lines = ai_terminal_paint_lines(self, screen, &text_style, is_dark, cx);
+        let lines = ai_terminal_paint_lines(
+            self,
+            screen,
+            &text_style,
+            self.ai_terminal_surface_focused,
+            is_dark,
+            cx,
+        );
         let selection_surfaces = ai_terminal_selection_surfaces(lines.as_slice());
 
         AiTerminalSurfaceElement {
@@ -434,6 +442,14 @@ impl gpui::Element for AiTerminalSurfaceElement {
                     window,
                     cx,
                 );
+
+                ai_terminal_paint_cursor_overlays(
+                    line.cursor_overlays.as_ref(),
+                    row_origin,
+                    layout.cell_width,
+                    layout.line_height,
+                    window,
+                );
             }
         });
     }
@@ -458,14 +474,31 @@ fn ai_terminal_paint_lines(
     this: &DiffViewer,
     screen: &TerminalScreenSnapshot,
     text_style: &gpui::TextStyle,
+    surface_focused: bool,
     is_dark: bool,
     cx: &App,
 ) -> Vec<AiTerminalPaintLine> {
+    let cursor_render = AiTerminalCursorRenderContext {
+        cursor_shape: screen.cursor.shape,
+        surface_focused,
+        default_foreground: ai_terminal_snapshot_color(
+            TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
+            is_dark,
+            cx,
+        ),
+        default_background: ai_terminal_snapshot_color(
+            TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Background),
+            is_dark,
+            cx,
+        ),
+        is_dark,
+    };
+
     ai_terminal_screen_grid(screen)
         .into_iter()
         .enumerate()
         .map(|(row_index, row)| {
-            ai_terminal_paint_line(this, row_index, &row, screen, text_style, is_dark, cx)
+            ai_terminal_paint_line(this, row_index, &row, text_style, cursor_render, cx)
         })
         .collect()
 }
@@ -474,49 +507,39 @@ fn ai_terminal_paint_line(
     this: &DiffViewer,
     row_index: usize,
     row: &[AiTerminalRenderCell],
-    screen: &TerminalScreenSnapshot,
     text_style: &gpui::TextStyle,
-    is_dark: bool,
+    cursor_render: AiTerminalCursorRenderContext,
     cx: &App,
 ) -> AiTerminalPaintLine {
-    let default_foreground = ai_terminal_snapshot_color(
-        TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
-        is_dark,
-        cx,
-    );
-    let default_background = ai_terminal_snapshot_color(
-        TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Background),
-        is_dark,
-        cx,
-    );
-
     let surface_id = ai_terminal_text_surface_id(row_index);
     let mut text = String::with_capacity(row.len());
     let mut column_byte_offsets = Vec::with_capacity(row.len() + 1);
     let mut background_rects = Vec::new();
+    let mut cursor_overlays = Vec::new();
     let mut text_runs = Vec::new();
     let mut active_run_style: Option<AiTerminalTextRunStyle> = None;
     let mut active_run_start = 0usize;
 
     column_byte_offsets.push(0);
 
-    for cell in row {
+    for (column, cell) in row.iter().enumerate() {
         let start = text.len();
         text.push(cell.character);
         text.push_str(cell.zerowidth.as_str());
         let end = text.len();
         column_byte_offsets.push(end);
 
-        let style = ai_terminal_cell_style(
+        let (style, cursor_overlay) = ai_terminal_cell_style(
             cell,
-            screen.cursor.shape,
-            default_foreground,
-            default_background,
-            is_dark,
+            column,
+            cursor_render,
             cx,
         );
+        if let Some(cursor_overlay) = cursor_overlay {
+            cursor_overlays.push(cursor_overlay);
+        }
 
-        if style.background != default_background {
+        if style.background != cursor_render.default_background {
             ai_terminal_push_background_rect(
                 &mut background_rects,
                 column_byte_offsets.len().saturating_sub(2),
@@ -559,6 +582,7 @@ fn ai_terminal_paint_line(
         text: text.into(),
         column_byte_offsets: column_byte_offsets.into(),
         background_rects: background_rects.into(),
+        cursor_overlays: cursor_overlays.into(),
         text_runs: text_runs.into(),
         selection_range: this.ai_text_selection_range_for_surface(surface_id.as_str()),
     }
@@ -771,60 +795,6 @@ fn ai_terminal_screen_grid(screen: &TerminalScreenSnapshot) -> Vec<Vec<AiTermina
     }
 
     grid
-}
-
-fn ai_terminal_cell_style(
-    cell: &AiTerminalRenderCell,
-    cursor_shape: TerminalCursorShapeSnapshot,
-    default_foreground: gpui::Hsla,
-    default_background: gpui::Hsla,
-    is_dark: bool,
-    cx: &App,
-) -> AiTerminalCellStyle {
-    let mut style = AiTerminalCellStyle {
-        color: ai_terminal_snapshot_color(cell.fg, is_dark, cx),
-        background: ai_terminal_snapshot_color(cell.bg, is_dark, cx),
-        underline: None,
-    };
-
-    if cell.cursor {
-        let cursor_color = ai_terminal_snapshot_color(
-            TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Cursor),
-            is_dark,
-            cx,
-        );
-
-        match cursor_shape {
-            TerminalCursorShapeSnapshot::Hidden => {}
-            TerminalCursorShapeSnapshot::Underline => {
-                style.underline = Some(gpui::UnderlineStyle {
-                    thickness: px(1.5),
-                    color: Some(cursor_color),
-                    wavy: false,
-                });
-            }
-            TerminalCursorShapeSnapshot::Beam => {
-                style.background = hunk_opacity(cursor_color, is_dark, 0.32, 0.18);
-            }
-            TerminalCursorShapeSnapshot::Block | TerminalCursorShapeSnapshot::HollowBlock => {
-                style.color = default_background;
-                style.background = cursor_color;
-            }
-        }
-    }
-
-    if style.color == default_foreground
-        && style.background == default_background
-        && style.underline.is_none()
-    {
-        return AiTerminalCellStyle {
-            color: default_foreground,
-            background: default_background,
-            underline: None,
-        };
-    }
-
-    style
 }
 
 fn ai_terminal_render_character(character: char) -> char {

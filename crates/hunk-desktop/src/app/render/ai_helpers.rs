@@ -4,6 +4,7 @@ include!("ai_helpers/core.rs");
 include!("ai_helpers/pending_inputs.rs");
 include!("ai_helpers/session_panels.rs");
 include!("ai_helpers/terminal_surface.rs");
+include!("ai_helpers/terminal_surface_cursor.rs");
 include!("ai_helpers/terminal_panel.rs");
 include!("ai_helpers/selectable_text.rs");
 include!("ai_helpers/timeline_group_rows.rs");
