@@ -48,8 +48,10 @@ if [[ ! -f "$source_binary" ]]; then
 fi
 
 mkdir -p "$(dirname "$destination")"
-cp "$source_binary" "$destination"
-chmod +x "$destination"
+staged_destination="$(mktemp "$destination.XXXXXX")"
+cp "$source_binary" "$staged_destination"
+chmod +x "$staged_destination"
+mv -f "$staged_destination" "$destination"
 
 echo "Prepared bundled Codex runtime at $destination" >&2
 
