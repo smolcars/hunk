@@ -766,6 +766,11 @@ impl DiffViewer {
             selected_collaboration_mode: current_state.selected_collaboration_mode,
             selected_service_tier: current_state.selected_service_tier,
             mad_max_mode: current_state.mad_max_mode,
+            terminal_open: current_state.terminal_open,
+            terminal_follow_output: current_state.terminal_follow_output,
+            terminal_height_px: current_state.terminal_height_px,
+            terminal_input_draft: current_state.terminal_input_draft.clone(),
+            terminal_session: current_state.terminal_session.clone(),
         }
     }
 

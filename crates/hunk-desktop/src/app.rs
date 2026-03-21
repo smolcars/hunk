@@ -49,6 +49,9 @@ use hunk_git::git::{ChangedFile, FileStatus, LineStats, LocalBranch, RepoSnapsho
 use hunk_git::history::{
     DEFAULT_RECENT_AUTHORED_COMMIT_LIMIT, RecentCommitSummary, RecentCommitsFingerprint,
 };
+use hunk_terminal::{
+    TerminalEvent, TerminalSessionHandle, TerminalSpawnRequest, spawn_terminal_session,
+};
 use hunk_git::worktree::WorkspaceTargetSummary;
 
 use ai_composer_completion::{
@@ -929,6 +932,16 @@ struct DiffViewer {
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_worker_workspace_key: Option<String>,
     ai_draft_workspace_target_id: Option<String>,
+    ai_terminal_open: bool,
+    ai_terminal_follow_output: bool,
+    ai_terminal_height_px: f32,
+    ai_terminal_input_draft: String,
+    ai_terminal_session: AiTerminalSessionState,
+    ai_terminal_input_state: Entity<InputState>,
+    ai_terminal_event_task: Task<()>,
+    ai_terminal_runtime: Option<AiTerminalRuntimeHandle>,
+    ai_terminal_runtime_generation: usize,
+    ai_terminal_stop_requested: bool,
     repo_file_search_provider: Rc<RepoFileSearchProvider>,
     repo_file_search_reload_task: Task<()>,
     repo_file_search_loading: bool,
@@ -1075,6 +1088,7 @@ struct DiffViewer {
 impl Drop for DiffViewer {
     fn drop(&mut self) {
         self.files_editor.borrow_mut().shutdown();
+        self.stop_ai_terminal_runtime("dropping app");
         self.shutdown_ai_worker_blocking();
     }
 }

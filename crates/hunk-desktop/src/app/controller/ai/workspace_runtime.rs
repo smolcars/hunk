@@ -70,6 +70,7 @@ impl DiffViewer {
         }
 
         self.sync_ai_visible_composer_prompt_to_draft(cx);
+        self.sync_ai_visible_terminal_input_to_state(cx);
         let previous_workspace_is_in_current_project = previous_workspace_key
             .as_deref()
             .is_some_and(|workspace_key| {
@@ -86,12 +87,14 @@ impl DiffViewer {
         } else {
             self.clear_ai_state_outside_current_project();
         }
+        self.stop_ai_terminal_runtime("workspace changed");
         self.restore_ai_workspace_state_for_key(next_workspace_key.as_deref());
         self.sync_ai_worktree_base_branch_picker_state(cx);
         self.ai_composer_skill_completion_menu = None;
         self.ai_composer_skill_completion_selected_ix = 0;
         self.ai_composer_skill_completion_dismissed_token = None;
         self.restore_ai_visible_composer_from_current_draft(cx);
+        self.restore_ai_visible_terminal_input(cx);
         // Some callers update the visible thread/draft selection after this returns, so reload the
         // composer completion source from the destination workspace instead of the stale one.
         self.request_ai_composer_file_completion_reload_for_workspace(

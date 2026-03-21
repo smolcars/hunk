@@ -46,6 +46,7 @@ struct AiWorkspaceContentSections<'a> {
     header: &'a AiWorkspaceHeaderState,
     sidebar: &'a AiThreadSidebarState,
     timeline: &'a AiTimelinePanelState,
+    terminal_panel: Option<AnyElement>,
     composer_panel: AnyElement,
 }
 
@@ -86,6 +87,9 @@ impl DiffViewer {
                                             cx,
                                         ))
                                         .child(sections.composer_panel),
+                                        .when_some(sections.terminal_panel, |this, terminal_panel| {
+                                            this.child(terminal_panel)
+                                        }),
                                 ),
                             ),
                     ),
@@ -514,6 +518,25 @@ impl DiffViewer {
                             .text_color(cx.theme().muted_foreground)
                             .child(format!("Branch: {}", state.active_branch)),
                     )
+                    .child({
+                        let view = view.clone();
+                        Button::new("ai-toggle-terminal")
+                            .compact()
+                            .outline()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .label(if self.ai_terminal_open {
+                                "Hide Terminal"
+                            } else {
+                                "Show Terminal"
+                            })
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.ai_toggle_terminal_drawer_action(cx);
+                                });
+                            })
+                            .into_any_element()
+                    })
                     .child({
                         let view = view.clone();
                         let push_label = format!("Commit and Push to {}", state.active_branch);

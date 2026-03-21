@@ -54,6 +54,7 @@ time = { version = "0.3", features = ["formatting", "local-offset"] }
 hunk-domain = { path = "../hunk-domain" }
 hunk-git = { path = "../hunk-git" }
 hunk-codex = { path = "../hunk-codex" }
+hunk-terminal = { path = "../hunk-terminal" }
 hunk-editor = { path = "../hunk-editor" }
 hunk-language = { path = "../hunk-language" }
 hunk-text = { path = "../hunk-text" }

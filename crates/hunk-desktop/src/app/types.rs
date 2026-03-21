@@ -113,6 +113,26 @@ pub(crate) struct AiPromptSkillReference {
     pub(crate) path: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum AiTerminalSessionStatus {
+    #[default]
+    Idle,
+    Running,
+    Completed,
+    Failed,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AiTerminalSessionState {
+    cwd: Option<PathBuf>,
+    transcript: String,
+    last_command: Option<String>,
+    status: AiTerminalSessionStatus,
+    exit_code: Option<i32>,
+    status_message: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiComposerSkillBinding {
     token: String,
@@ -200,6 +220,11 @@ struct AiWorkspaceState {
     selected_collaboration_mode: AiCollaborationModeSelection,
     selected_service_tier: AiServiceTierSelection,
     mad_max_mode: bool,
+    terminal_open: bool,
+    terminal_follow_output: bool,
+    terminal_height_px: f32,
+    terminal_input_draft: String,
+    terminal_session: AiTerminalSessionState,
 }
 
 impl Default for AiWorkspaceState {
@@ -242,6 +267,11 @@ impl Default for AiWorkspaceState {
             selected_collaboration_mode: AiCollaborationModeSelection::Default,
             selected_service_tier: AiServiceTierSelection::Standard,
             mad_max_mode: false,
+            terminal_open: false,
+            terminal_follow_output: true,
+            terminal_height_px: 220.0,
+            terminal_input_draft: String::new(),
+            terminal_session: AiTerminalSessionState::default(),
         }
     }
 }
@@ -250,6 +280,12 @@ struct AiHiddenRuntimeHandle {
     command_tx: mpsc::Sender<AiWorkerCommand>,
     worker_thread: JoinHandle<()>,
     event_task: Task<()>,
+    generation: usize,
+}
+
+struct AiTerminalRuntimeHandle {
+    workspace_key: String,
+    handle: TerminalSessionHandle,
     generation: usize,
 }
 
