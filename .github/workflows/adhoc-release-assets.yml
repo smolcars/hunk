@@ -1,0 +1,289 @@
+name: Adhoc Release Assets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  macos:
+    name: macOS ARM64 DMG
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_NOTARY_API_KEY_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_BASE64 }}
+      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          clean: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve shared cargo target dir
+        run: echo "CARGO_TARGET_DIR=$(./scripts/resolve_cargo_target_dir.sh "$GITHUB_WORKSPACE")" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Cache cargo registry and Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ runner.os }}-desktop
+          workspaces: |
+            . -> target-shared
+          cache-on-failure: "true"
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        shell: bash
+
+      - name: Resolve release version
+        run: |
+          version="$(./scripts/resolve_hunk_version.sh)"
+          echo "HUNK_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Detect Apple signing configuration
+        run: |
+          if [[ -n "${APPLE_CERTIFICATE_P12_BASE64:-}" \
+             && -n "${APPLE_CERTIFICATE_PASSWORD:-}" \
+             && -n "${APPLE_SIGNING_IDENTITY:-}" \
+             && -n "${APPLE_NOTARY_API_KEY_BASE64:-}" \
+             && -n "${APPLE_NOTARY_KEY_ID:-}" \
+             && -n "${APPLE_NOTARY_ISSUER:-}" ]]; then
+            echo "MACOS_SIGNING_ENABLED=true" >> "$GITHUB_ENV"
+          else
+            echo "MACOS_SIGNING_ENABLED=false" >> "$GITHUB_ENV"
+            echo "Apple signing secrets unavailable; packaging unsigned macOS artifact for workflow validation." >&2
+          fi
+        shell: bash
+
+      - name: Assert Apple signing secrets are configured
+        if: env.MACOS_SIGNING_ENABLED == 'true'
+        run: |
+          : "${APPLE_CERTIFICATE_P12_BASE64:?missing APPLE_CERTIFICATE_P12_BASE64}"
+          : "${APPLE_CERTIFICATE_PASSWORD:?missing APPLE_CERTIFICATE_PASSWORD}"
+          : "${APPLE_SIGNING_IDENTITY:?missing APPLE_SIGNING_IDENTITY}"
+          : "${APPLE_NOTARY_API_KEY_BASE64:?missing APPLE_NOTARY_API_KEY_BASE64}"
+          : "${APPLE_NOTARY_KEY_ID:?missing APPLE_NOTARY_KEY_ID}"
+          : "${APPLE_NOTARY_ISSUER:?missing APPLE_NOTARY_ISSUER}"
+        shell: bash
+
+      - name: Import Apple signing certificate
+        if: env.MACOS_SIGNING_ENABLED == 'true'
+        run: |
+          KEYCHAIN_PASSWORD="$RUNNER_TEMP/hunk-release-keychain"
+          CERT_PATH="$RUNNER_TEMP/hunk-signing-cert.p12"
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import "$CERT_PATH" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+        shell: bash
+
+      - name: Prepare Apple notary API key
+        if: env.MACOS_SIGNING_ENABLED == 'true'
+        run: |
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+          echo "$APPLE_NOTARY_API_KEY_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APPLE_NOTARY_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Package macOS release artifact
+        id: package
+        run: |
+          artifact_path="$(./scripts/package_macos_release.sh | tail -n 1)"
+          echo "artifact_path=$artifact_path" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Upload macOS release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-macos-arm64-dmg
+          path: ${{ steps.package.outputs.artifact_path }}
+          if-no-files-found: error
+
+  linux:
+    name: Linux x86_64 AppImage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          clean: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve shared cargo target dir
+        run: echo "CARGO_TARGET_DIR=$(./scripts/resolve_cargo_target_dir.sh "$GITHUB_WORKSPACE")" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Cache cargo registry and Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ runner.os }}-desktop
+          workspaces: |
+            . -> target-shared
+          cache-on-failure: "true"
+
+      - name: Resolve release version
+        run: |
+          version="$(./scripts/resolve_hunk_version.sh)"
+          echo "HUNK_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        shell: bash
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            cmake \
+            libasound2-dev \
+            libfontconfig-dev \
+            libgit2-dev \
+            libglib2.0-dev \
+            libssl-dev \
+            libvulkan1 \
+            libwayland-dev \
+            libx11-xcb-dev \
+            libxkbcommon-x11-dev \
+            libzstd-dev \
+            patchelf \
+            pkg-config
+        shell: bash
+
+      - name: Package Linux release artifact
+        run: ./scripts/package_linux_release.sh
+        shell: bash
+
+      - name: Upload Linux AppImage release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-linux-x86_64-appimage
+          path: ${{ env.CARGO_TARGET_DIR }}/dist/Hunk-${{ env.HUNK_RELEASE_VERSION }}-linux-x86_64.AppImage
+          if-no-files-found: error
+
+      - name: Upload Linux tarball fallback release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-linux-x86_64-tarball
+          path: ${{ env.CARGO_TARGET_DIR }}/dist/Hunk-${{ env.HUNK_RELEASE_VERSION }}-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows x86_64 MSI
+    runs-on: windows-2022
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          clean: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve shared cargo target dir
+        run: |
+          $targetDir = (pwsh ./scripts/resolve_cargo_target_dir.ps1).Trim()
+          "CARGO_TARGET_DIR=$targetDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Cache cargo registry and Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ runner.os }}-desktop
+          workspaces: |
+            . -> target-shared
+          cache-on-failure: "true"
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked --version 0.11.8
+        shell: pwsh
+
+      - name: Resolve release version
+        run: |
+          $version = (bash ./scripts/resolve_hunk_version.sh).Trim()
+          "HUNK_RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Package Windows release artifact
+        id: package
+        run: |
+          $artifactPath = (pwsh ./scripts/package_windows_release.ps1 | Select-Object -Last 1).Trim()
+          "artifact_path=$artifactPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Upload Windows release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-windows-x86_64-msi
+          path: ${{ steps.package.outputs.artifact_path }}
+          if-no-files-found: error
+
+  bundle:
+    name: Bundle Release Artifacts
+    needs:
+      - macos
+      - linux
+      - windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+        shell: bash
+
+      - name: Upload bundled release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-adhoc-release-assets
+          path: dist
+          if-no-files-found: error
+
+      - name: List prepared release artifacts
+        run: |
+          mapfile -d '' files < <(find dist -type f -print0 | sort -z)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "error: no release artifacts were downloaded" >&2
+            exit 1
+          fi
+
+          printf 'Prepared release artifacts:\n'
+          printf ' - %s\n' "${files[@]}"
+        shell: bash
