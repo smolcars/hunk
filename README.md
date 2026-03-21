@@ -2,6 +2,10 @@
 
 A cross-platform Git diff viewer and Codex orchestrator built with `gpui` + `gpui-component`.
 
+## License
+
+Hunk is licensed under the GNU General Public License v3.0 or later. See [`LICENSE`](./LICENSE).
+
 ## Why?
 
 Nobody writes code anymore, people just review code. So we need the best diff viewer possible so that vibe engineers can review code and tell AI what to fix.

@@ -11,6 +11,9 @@ members = [
 default-members = ["crates/hunk-desktop"]
 resolver = "2"
 
+[workspace.package]
+license = "GPL-3.0-or-later"
+
 [profile.ci]
 inherits = "dev"
 debug = 0
