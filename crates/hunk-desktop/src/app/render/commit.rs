@@ -180,6 +180,7 @@ impl DiffViewer {
         let create_commit_loading = self.git_action_loading_named("Create commit");
         let push_loading = self.git_action_loading_named("Push branch");
         let git_controls_busy = self.git_rail_controls_busy();
+        let push_button_colors = hunk_action_ready_button(cx.theme(), is_dark, HunkAccentTone::Accent);
         let push_available = self.can_push_current_branch_for_ui() || push_loading;
         let push_disabled = !push_available || (git_controls_busy && !push_loading);
         let push_tooltip = if !self.can_run_active_branch_actions_for_ui() {
@@ -299,7 +300,7 @@ impl DiffViewer {
                     })
                     .child({
                         let view = view.clone();
-                        Button::new("push-branch-v3")
+                        let mut button = Button::new("push-branch-v3")
                             .outline()
                             .rounded(px(8.0))
                             .loading(push_loading)
@@ -310,7 +311,14 @@ impl DiffViewer {
                                 view.update(cx, |this, cx| {
                                     this.push_current_branch(cx);
                                 });
-                            })
+                            });
+                        if !push_disabled {
+                            button = button
+                                .bg(push_button_colors.background)
+                                .border_color(push_button_colors.border)
+                                .text_color(push_button_colors.text);
+                        }
+                        button
                     }),
             )
             .child(

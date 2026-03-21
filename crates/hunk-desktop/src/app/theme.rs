@@ -292,6 +292,29 @@ pub(crate) fn hunk_tinted_button(
     }
 }
 
+pub(crate) fn hunk_action_ready_button(
+    theme: &Theme,
+    is_dark: bool,
+    tone: HunkAccentTone,
+) -> HunkButtonColors {
+    let accent = match tone {
+        HunkAccentTone::Accent => theme.accent,
+        HunkAccentTone::Success => theme.success,
+        HunkAccentTone::Warning => theme.warning,
+        HunkAccentTone::Neutral => theme.secondary,
+    };
+
+    HunkButtonColors {
+        background: hunk_blend(theme.background, accent, is_dark, 0.18, 0.08),
+        border: hunk_opacity(accent, is_dark, 0.88, 0.62),
+        text: if matches!(tone, HunkAccentTone::Neutral) {
+            theme.foreground
+        } else {
+            hunk_tone(accent, is_dark, 0.22, 0.40)
+        },
+    }
+}
+
 pub(crate) fn hunk_dropdown_fill(theme: &Theme, is_dark: bool) -> Hsla {
     hunk_opacity(theme.secondary, is_dark, 0.52, 0.70)
 }
