@@ -1,5 +1,7 @@
 const AI_TERMINAL_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(33);
 const AI_TERMINAL_MAX_TRANSCRIPT_BYTES: usize = 256 * 1024;
+const AI_TERMINAL_MIN_HEIGHT_PX: f32 = 140.0;
+const AI_TERMINAL_MAX_HEIGHT_PX: f32 = 520.0;
 
 impl DiffViewer {
     pub(crate) fn ai_terminal_is_running(&self) -> bool {
@@ -29,22 +31,44 @@ impl DiffViewer {
         }
     }
 
-    fn focus_ai_terminal_interaction(&mut self, cx: &mut Context<Self>) {
-        if self.ai_terminal_is_running() {
-            self.focus_ai_terminal_surface(cx);
-        } else {
-            self.focus_ai_terminal_input(cx);
-        }
+    fn defer_ai_terminal_interaction_focus(&self, cx: &mut Context<Self>) {
+        let window_handle = self.window_handle;
+        let focus_surface = self.ai_terminal_is_running();
+        let terminal_focus_handle = self.ai_terminal_focus_handle.clone();
+        let terminal_input_state = self.ai_terminal_input_state.clone();
+        cx.defer(move |cx| {
+            let result = cx.update_window(window_handle, |_, window, cx| {
+                if focus_surface {
+                    terminal_focus_handle.focus(window, cx);
+                } else {
+                    terminal_input_state.update(cx, |state, cx| {
+                        state.focus(window, cx);
+                    });
+                }
+            });
+            if let Err(err) = result
+                && !Self::is_window_not_found_error(&err)
+            {
+                error!("failed to defer AI terminal focus: {err:#}");
+            }
+        });
     }
 
-    fn focus_ai_terminal_input(&mut self, cx: &mut Context<Self>) {
-        let input_state = self.ai_terminal_input_state.clone();
-        if let Err(error) = Self::update_any_window(cx, move |window, cx| {
-            let focus_handle = gpui::Focusable::focus_handle(input_state.read(cx), cx);
-            focus_handle.focus(window, cx);
-        }) {
-            error!("failed to focus AI terminal input: {error:#}");
-        }
+    fn defer_ai_composer_focus(&self, cx: &mut Context<Self>) {
+        let window_handle = self.window_handle;
+        let composer_input_state = self.ai_composer_input_state.clone();
+        cx.defer(move |cx| {
+            let result = cx.update_window(window_handle, |_, window, cx| {
+                composer_input_state.update(cx, |state, cx| {
+                    state.focus(window, cx);
+                });
+            });
+            if let Err(err) = result
+                && !Self::is_window_not_found_error(&err)
+            {
+                error!("failed to defer AI composer focus: {err:#}");
+            }
+        });
     }
 
     fn sync_ai_visible_terminal_input_to_state(&mut self, cx: &Context<Self>) {
@@ -85,6 +109,7 @@ impl DiffViewer {
         self.ai_terminal_open = open;
         if !open {
             self.ai_terminal_surface_focused = false;
+            self.defer_ai_composer_focus(cx);
         }
         cx.notify();
     }
@@ -94,7 +119,7 @@ impl DiffViewer {
         self.ai_terminal_set_open(next_open, cx);
         if next_open {
             self.ensure_ai_terminal_session(cx);
-            self.focus_ai_terminal_interaction(cx);
+            self.defer_ai_terminal_interaction_focus(cx);
         }
     }
 
@@ -108,7 +133,7 @@ impl DiffViewer {
             self.activate_ai_workspace(window, cx);
             self.ai_terminal_set_open(true, cx);
             self.ensure_ai_terminal_session(cx);
-            self.focus_ai_terminal_interaction(cx);
+            self.defer_ai_terminal_interaction_focus(cx);
             return;
         }
         self.toggle_ai_terminal_drawer(cx);
@@ -146,24 +171,6 @@ impl DiffViewer {
         };
 
         self.start_default_ai_terminal_session(cwd, cx);
-    }
-
-    pub(super) fn ai_stop_terminal_command_action(&mut self, cx: &mut Context<Self>) {
-        if !self.ai_terminal_is_running() {
-            return;
-        }
-        let Some(runtime) = self.ai_terminal_runtime.as_ref() else {
-            return;
-        };
-        if let Err(error) = runtime.handle.kill() {
-            self.ai_terminal_session.status = AiTerminalSessionStatus::Failed;
-            self.ai_terminal_session.status_message = Some(error.to_string());
-            cx.notify();
-            return;
-        }
-        self.ai_terminal_stop_requested = true;
-        self.ai_terminal_session.status_message = Some("Stopping command...".to_string());
-        cx.notify();
     }
 
     pub(crate) fn stop_ai_terminal_runtime(&mut self, reason: &str) {
@@ -352,6 +359,67 @@ impl DiffViewer {
         let _ = self.ai_scroll_terminal_viewport(TerminalScroll::Bottom, cx);
     }
 
+    pub(super) fn ai_update_terminal_panel_bounds(
+        &mut self,
+        bounds: Bounds<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let bounds_changed = self.ai_terminal_panel_bounds.is_none_or(|current| {
+            (current.origin.x - bounds.origin.x).abs() > px(0.5)
+                || (current.origin.y - bounds.origin.y).abs() > px(0.5)
+                || (current.size.width - bounds.size.width).abs() > px(0.5)
+                || (current.size.height - bounds.size.height).abs() > px(0.5)
+        });
+        if !bounds_changed {
+            return;
+        }
+        self.ai_terminal_panel_bounds = Some(bounds);
+        cx.notify();
+    }
+
+    pub(super) fn ai_resize_terminal_height_from_position(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(bounds) = self.ai_terminal_panel_bounds else {
+            return;
+        };
+        let next_height = (bounds.bottom() - position.y).max(px(AI_TERMINAL_MIN_HEIGHT_PX));
+        let clamped_height = next_height
+            .min(px(AI_TERMINAL_MAX_HEIGHT_PX))
+            .max(px(AI_TERMINAL_MIN_HEIGHT_PX));
+        let next_height_px: f32 = clamped_height.into();
+        if (next_height_px - self.ai_terminal_height_px).abs() <= 0.5 {
+            return;
+        }
+        self.ai_terminal_height_px = next_height_px;
+        cx.notify();
+    }
+
+    pub(super) fn ai_resize_terminal_surface(
+        &mut self,
+        rows: u16,
+        cols: u16,
+        cx: &mut Context<Self>,
+    ) {
+        let rows = rows.max(1);
+        let cols = cols.max(1);
+        if self.ai_terminal_grid_size == Some((rows, cols)) {
+            return;
+        }
+        self.ai_terminal_grid_size = Some((rows, cols));
+
+        let Some(runtime) = self.ai_terminal_runtime.as_ref() else {
+            return;
+        };
+        if let Err(error) = runtime.handle.resize(rows, cols) {
+            self.ai_terminal_session.status_message = Some(error.to_string());
+            self.ai_terminal_session.status = AiTerminalSessionStatus::Failed;
+            cx.notify();
+        }
+    }
+
     fn ai_scroll_terminal_viewport(
         &mut self,
         scroll: TerminalScroll,
@@ -516,7 +584,7 @@ impl DiffViewer {
                     generation,
                 });
                 self.start_ai_terminal_event_listener(event_rx, workspace_key, generation, cx);
-                self.focus_ai_terminal_surface(cx);
+                self.defer_ai_terminal_interaction_focus(cx);
             }
             Err(error) => {
                 self.ai_terminal_open = true;
@@ -566,7 +634,7 @@ impl DiffViewer {
                     generation,
                 });
                 self.start_ai_terminal_event_listener(event_rx, workspace_key, generation, cx);
-                self.focus_ai_terminal_surface(cx);
+                self.defer_ai_terminal_interaction_focus(cx);
                 cx.notify();
             }
             Err(error) => {

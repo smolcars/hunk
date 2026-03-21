@@ -1,3 +1,12 @@
+#[derive(Clone)]
+struct AiTerminalResizeDrag(EntityId);
+
+impl Render for AiTerminalResizeDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
+}
+
 impl DiffViewer {
     fn render_ai_terminal_panel(
         &self,
@@ -21,6 +30,7 @@ impl DiffViewer {
         let chrome = hunk_editor_chrome_colors(cx.theme(), is_dark);
         let has_session = state.screen.is_some() || state.has_transcript;
         let show_inline_prompt = !state.running && state.accepts_input;
+        let entity_id = cx.entity_id();
         let status_text = state.status_message.clone().or_else(|| {
             if state.display_offset > 0 {
                 Some("Viewing scrollback".to_string())
@@ -34,9 +44,25 @@ impl DiffViewer {
                 .w_full()
                 .h(px(state.height_px))
                 .min_h(px(160.0))
+                .relative()
                 .border_t_1()
                 .border_color(shell_colors.border)
                 .bg(shell_colors.background)
+                .child(
+                    canvas(
+                        {
+                            let view = view.clone();
+                            move |bounds, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.ai_update_terminal_panel_bounds(bounds, cx);
+                                });
+                            }
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
                 .child(
                     v_flex()
                         .w_full()
@@ -44,29 +70,65 @@ impl DiffViewer {
                         .min_h_0()
                         .child(
                             h_flex()
+                                .id("ai-terminal-resize-handle")
+                                .w_full()
+                                .h(px(6.0))
+                                .flex_none()
+                                .cursor_row_resize()
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                    cx.stop_propagation();
+                                })
+                                .on_drag(AiTerminalResizeDrag(entity_id), |drag, _, _, cx| {
+                                    cx.stop_propagation();
+                                    cx.new(|_| drag.clone())
+                                })
+                                .on_drag_move(cx.listener(
+                                    move |this,
+                                          event: &DragMoveEvent<AiTerminalResizeDrag>,
+                                          _,
+                                          cx| {
+                                        if event.drag(cx).0 != entity_id {
+                                            return;
+                                        }
+                                        this.ai_resize_terminal_height_from_position(
+                                            event.event.position,
+                                            cx,
+                                        );
+                                    },
+                                ))
+                                .child(
+                                    div()
+                                        .mt(px(2.0))
+                                        .h(px(1.0))
+                                        .w_full()
+                                        .bg(hunk_opacity(shell_colors.border, is_dark, 0.72, 0.58)),
+                                ),
+                        )
+                        .child(
+                            h_flex()
                                 .w_full()
                                 .items_center()
                                 .justify_between()
-                                .gap_3()
+                                .gap_2()
                                 .px_3()
-                                .py_2()
+                                .py_1()
                                 .border_b_1()
-                                .border_color(hunk_opacity(shell_colors.border, is_dark, 0.92, 0.78))
+                                .border_color(hunk_opacity(shell_colors.border, is_dark, 0.90, 0.74))
                                 .child(
                                     h_flex()
                                         .min_w_0()
                                         .items_center()
-                                        .gap_2()
+                                        .gap_1p5()
                                         .child(
                                             div()
-                                                .text_sm()
+                                                .text_xs()
                                                 .font_semibold()
                                                 .text_color(cx.theme().foreground)
                                                 .child("Terminal"),
                                         )
                                         .child(
                                             div()
-                                                .text_sm()
+                                                .text_xs()
                                                 .font_family(cx.theme().mono_font_family.clone())
                                                 .text_color(cx.theme().muted_foreground)
                                                 .child(state.shell_label.clone()),
@@ -121,22 +183,6 @@ impl DiffViewer {
                                                     .on_click(move |_, _, cx| {
                                                         view.update(cx, |this, cx| {
                                                             this.ai_scroll_terminal_to_bottom_action(cx);
-                                                        });
-                                                    })
-                                            })
-                                        })
-                                        .when(state.running, |this| {
-                                            this.child({
-                                                let view = view.clone();
-                                                Button::new("ai-terminal-stop")
-                                                    .compact()
-                                                    .ghost()
-                                                    .with_size(gpui_component::Size::Small)
-                                                    .rounded(px(8.0))
-                                                    .label("Stop")
-                                                    .on_click(move |_, _, cx| {
-                                                        view.update(cx, |this, cx| {
-                                                            this.ai_stop_terminal_command_action(cx);
                                                         });
                                                     })
                                             })

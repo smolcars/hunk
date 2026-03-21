@@ -92,12 +92,15 @@ Implemented today:
 - Shift now bypasses terminal mouse reporting so scrollback selection still works outside alternate-screen TUIs, while the terminal owns wheel events whenever alternate-screen content is active.
 - The VT surface is now painted as a terminal grid with cell backgrounds and cursor-aware text runs, instead of being rendered as ordinary styled text rows.
 - Cursor rendering now respects terminal focus state, using a beam caret for focused beam cursors and hollow outlines for unfocused block-style cursors.
+- Opening the terminal now defers focus into the terminal surface, and hiding it restores focus to the AI composer.
+- The terminal pane header was reduced to slimmer editor-style chrome and the standalone stop control was removed.
+- The terminal pane is now vertically resizable from a drag handle along its top border.
+- The VT surface now resizes the PTY and terminal grid to the actual rendered panel size, which restores correct prompt placement, auto-follow behavior, and scroll reachability for long output.
 - Workspace-wide validation already passes for the current slice.
 
 Not implemented yet:
 
 - terminal hyperlink detection and any remaining cursor blink polish
-- restored drawer height controls or drag-resize affordances
 - command-row affordances from the AI timeline
 - persisted terminal state across full app relaunch
 
@@ -193,13 +196,12 @@ This mirrors how users already think about “chat plus command execution” and
 ### V1 Controls
 
 - toggle terminal drawer
-- command input box
-- run button
-- stop button while a process is active
+- shell-first terminal surface
+- drawer hide action
 - rerun last command
 - clear terminal output
-- quick actions for common commands
 - cwd label with the current workspace target path
+- drag-resize for the terminal drawer height
 
 ### Quick Action Seeds
 

@@ -191,7 +191,7 @@ impl gpui::Element for AiTerminalSurfaceElement {
         bounds: gpui::Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         window: &mut Window,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> Self::PrepaintState {
         let font = self.text_style.font();
         let font_id = window.text_system().resolve_font(&font);
@@ -202,6 +202,11 @@ impl gpui::Element for AiTerminalSurfaceElement {
             .advance(font_id, font_size, 'm')
             .map(|advance| advance.width)
             .unwrap_or_else(|_| px(8.0));
+        let rows = ((bounds.size.height / line_height).floor() as u16).max(1);
+        let cols = ((bounds.size.width / cell_width).floor() as u16).max(1);
+        self.view.update(cx, |this, cx| {
+            this.ai_resize_terminal_surface(rows, cols, cx);
+        });
 
         AiTerminalSurfaceLayout {
             hitbox: window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal),
