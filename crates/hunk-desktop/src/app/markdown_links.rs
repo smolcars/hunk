@@ -1,6 +1,7 @@
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 
+#[cfg(not(test))]
 use anyhow::Context as _;
 use hunk_domain::markdown_preview::MarkdownInlineSpan;
 
@@ -91,7 +92,16 @@ pub(crate) fn resolve_markdown_link_target(
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn open_url_in_browser(url: &str) -> anyhow::Result<()> {
-    super::url_open::open_url_in_browser(url).context("failed to open browser URL")
+    #[cfg(test)]
+    {
+        let _ = url;
+        Ok(())
+    }
+
+    #[cfg(not(test))]
+    {
+        super::url_open::open_url_in_browser(url).context("failed to open browser URL")
+    }
 }
 
 fn push_markdown_link_range(

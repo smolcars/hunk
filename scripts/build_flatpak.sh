@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_ID="io.github.niteshbalusu11.Hunk"
+APP_ID="io.github.BlixtWallet.Hunk"
 MANIFEST_PATH="$ROOT_DIR/flatpak/$APP_ID.yaml"
 TARGET_DIR="$("$ROOT_DIR/scripts/resolve_cargo_target_dir.sh" "$ROOT_DIR")"
 BUILD_DIR="$TARGET_DIR/flatpak/build"

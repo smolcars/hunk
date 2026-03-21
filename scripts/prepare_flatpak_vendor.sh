@@ -14,7 +14,7 @@ vendor_config="$(
 )"
 
 {
-  printf '%s\n' "$vendor_config"
+  printf '%s\n' "$vendor_config" | sed "s|$VENDOR_DIR|flatpak/vendor|g"
   printf '\n[net]\noffline = true\n'
 } >"$CONFIG_PATH"
 

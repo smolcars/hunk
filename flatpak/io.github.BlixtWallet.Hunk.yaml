@@ -1,4 +1,4 @@
-app-id: io.github.niteshbalusu11.Hunk
+app-id: io.github.BlixtWallet.Hunk
 runtime: org.freedesktop.Platform
 runtime-version: "25.08"
 sdk: org.freedesktop.Sdk
@@ -32,9 +32,9 @@ modules:
       - cargo build --offline --frozen --release -p hunk-desktop
       - install -Dm755 /run/build/hunk-flatpak/target/release/hunk_desktop /app/bin/hunk_desktop
       - install -Dm755 assets/codex-runtime/linux/codex /app/bin/codex-runtime/linux/codex
-      - install -Dm644 flatpak/io.github.niteshbalusu11.Hunk.desktop /app/share/applications/io.github.niteshbalusu11.Hunk.desktop
-      - install -Dm644 flatpak/io.github.niteshbalusu11.Hunk.metainfo.xml /app/share/metainfo/io.github.niteshbalusu11.Hunk.metainfo.xml
-      - install -Dm644 assets/icons/hunk_new.png /app/share/icons/hicolor/1024x1024/apps/io.github.niteshbalusu11.Hunk.png
+      - install -Dm644 flatpak/io.github.BlixtWallet.Hunk.desktop /app/share/applications/io.github.BlixtWallet.Hunk.desktop
+      - install -Dm644 flatpak/io.github.BlixtWallet.Hunk.metainfo.xml /app/share/metainfo/io.github.BlixtWallet.Hunk.metainfo.xml
+      - install -Dm644 assets/icons/hunk_new.png /app/share/icons/hicolor/1024x1024/apps/io.github.BlixtWallet.Hunk.png
     sources:
       - type: dir
         path: ..
