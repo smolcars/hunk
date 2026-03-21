@@ -7,3 +7,4 @@ assets/codex-runtime/windows
 target-shared/
 flatpak/cargo-config.toml
 flatpak/vendor/
+.flatpak-builder/
