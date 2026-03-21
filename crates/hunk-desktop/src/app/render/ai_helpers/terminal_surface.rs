@@ -47,6 +47,14 @@ struct AiTerminalTextRunStyle {
     underline: Option<gpui::UnderlineStyle>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AiTerminalSurfacePaintOptions {
+    surface_focused: bool,
+    cursor_blink_visible: bool,
+    cursor_output_suppressed: bool,
+    is_dark: bool,
+}
+
 #[derive(Clone)]
 struct AiTerminalSurfaceElement {
     element_id: gpui::ElementId,
@@ -124,13 +132,17 @@ impl DiffViewer {
     ) -> AnyElement {
         let selection_enabled = ai_terminal_supports_text_selection(screen);
         let text_style = ai_terminal_surface_text_style(is_dark, cx);
+        let paint = AiTerminalSurfacePaintOptions {
+            surface_focused: self.ai_terminal_surface_focused,
+            cursor_blink_visible: self.ai_terminal_cursor_blink_visible,
+            cursor_output_suppressed: self.ai_terminal_cursor_output_suppressed,
+            is_dark,
+        };
         let lines = ai_terminal_paint_lines(
             self,
             screen,
             &text_style,
-            self.ai_terminal_surface_focused,
-            self.ai_terminal_cursor_blink_visible,
-            is_dark,
+            paint,
             cx,
         );
         let selection_surfaces = ai_terminal_selection_surfaces(lines.as_slice());
@@ -540,30 +552,33 @@ fn ai_terminal_paint_lines(
     this: &DiffViewer,
     screen: &TerminalScreenSnapshot,
     text_style: &gpui::TextStyle,
-    surface_focused: bool,
-    cursor_blink_visible: bool,
-    is_dark: bool,
+    paint: AiTerminalSurfacePaintOptions,
     cx: &App,
 ) -> Vec<AiTerminalPaintLine> {
     let cursor_render = AiTerminalCursorRenderContext {
-        cursor_shape: screen.cursor.shape,
-        surface_focused,
+        cursor_shape: crate::app::terminal_cursor::ai_terminal_effective_cursor_shape(
+            screen.cursor.shape,
+            paint.surface_focused,
+            screen.mode.alt_screen,
+        ),
+        surface_focused: paint.surface_focused,
         cursor_visible: crate::app::terminal_cursor::ai_terminal_cursor_visible_for_paint(
             screen.cursor.shape,
-            surface_focused,
-            cursor_blink_visible,
+            paint.surface_focused,
+            paint.cursor_blink_visible,
+            paint.cursor_output_suppressed,
         ),
         default_foreground: ai_terminal_snapshot_color(
             TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
-            is_dark,
+            paint.is_dark,
             cx,
         ),
         default_background: ai_terminal_snapshot_color(
             TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Background),
-            is_dark,
+            paint.is_dark,
             cx,
         ),
-        is_dark,
+        is_dark: paint.is_dark,
     };
 
     ai_terminal_screen_grid(screen)

@@ -104,6 +104,8 @@ Implemented today:
 - Hidden terminal runtimes and saved per-thread terminal state are now pruned when archived or deleted threads disappear from the visible or background AI workspace model.
 - The VT surface now detects URL and file-style terminal spans, underlines them, shows a link cursor on hover, and reuses the existing Hunk link-opening path on click.
 - The terminal cursor now blinks while the terminal surface is focused, using UI-side timer state that follows thread switches, shell startup, shell exit, and focus/open changes without affecting PTY behavior.
+- Terminal shell reopen now clears stale grid-size state before spawning the next PTY, which restores correct auto-follow and scroll reachability after exiting and reopening the terminal.
+- The focused shell cursor now renders as a slimmer text caret in the normal screen, common word-navigation shortcuts are translated for the PTY, and active command output temporarily suppresses the cursor so long-running commands do not blink while streaming.
 - Workspace-wide validation already passes for the current slice.
 
 Not implemented yet:

@@ -26,6 +26,7 @@ mod ai_helper_tests {
     use super::ai_timeline_item_is_renderable;
     use super::ai_truncate_multiline_content;
     use super::ai_terminal_supports_text_selection;
+    use crate::app::terminal_cursor::ai_terminal_effective_cursor_shape;
     use crate::app::terminal_cursor::ai_terminal_cursor_shape_blinks;
     use crate::app::terminal_cursor::ai_terminal_cursor_visible_for_paint;
     use super::AiCommandExecutionDisplayDetails;
@@ -337,17 +338,34 @@ mod ai_helper_tests {
             TerminalCursorShapeSnapshot::Block,
             false,
             false,
+            false,
         ));
         assert!(ai_terminal_cursor_visible_for_paint(
             TerminalCursorShapeSnapshot::Underline,
             true,
             true,
+            false,
         ));
         assert!(!ai_terminal_cursor_visible_for_paint(
             TerminalCursorShapeSnapshot::Beam,
             true,
             false,
+            false,
         ));
+        assert!(!ai_terminal_cursor_visible_for_paint(
+            TerminalCursorShapeSnapshot::Beam,
+            true,
+            true,
+            true,
+        ));
+        assert_eq!(
+            ai_terminal_effective_cursor_shape(
+                TerminalCursorShapeSnapshot::Block,
+                true,
+                false,
+            ),
+            TerminalCursorShapeSnapshot::Beam,
+        );
     }
 
     #[test]

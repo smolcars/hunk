@@ -329,6 +329,9 @@ fn ai_terminal_input_bytes_for_keystroke(
                 vec![b'\t']
             });
         }
+        "backspace" if keystroke.modifiers.alt && !keystroke.modifiers.control => {
+            return Some(vec![0x1b, 0x7f])
+        }
         "backspace" => return Some(vec![0x7f]),
         "escape" => return Some(vec![0x1b]),
         "home"
@@ -407,6 +410,20 @@ fn ai_terminal_input_bytes_for_keystroke(
                 b"\x1b[D".to_vec()
             })
         }
+        "left"
+            if !keystroke.modifiers.shift
+                && ((keystroke.modifiers.alt && !keystroke.modifiers.control)
+                    || (keystroke.modifiers.control && !keystroke.modifiers.alt)) =>
+        {
+            return Some(b"\x1bb".to_vec())
+        }
+        "right"
+            if !keystroke.modifiers.shift
+                && ((keystroke.modifiers.alt && !keystroke.modifiers.control)
+                    || (keystroke.modifiers.control && !keystroke.modifiers.alt)) =>
+        {
+            return Some(b"\x1bf".to_vec())
+        }
         "home"
             if !keystroke.modifiers.control
                 && !keystroke.modifiers.alt
@@ -437,6 +454,9 @@ fn ai_terminal_input_bytes_for_keystroke(
         "end" => return Some(b"\x1b[F".to_vec()),
         "pageup" => return Some(b"\x1b[5~".to_vec()),
         "pagedown" => return Some(b"\x1b[6~".to_vec()),
+        "delete" if keystroke.modifiers.control && !keystroke.modifiers.alt => {
+            return Some(b"\x1bd".to_vec())
+        }
         "delete" => return Some(b"\x1b[3~".to_vec()),
         "space" => {
             if keystroke.modifiers.control {
@@ -555,6 +575,13 @@ mod terminal_protocol_tests {
             ),
             Some(vec![0x00])
         );
+        assert_eq!(
+            ai_terminal_input_bytes_for_keystroke(
+                &Keystroke::parse("ctrl-z").expect("valid ctrl-z keystroke"),
+                None,
+            ),
+            Some(vec![0x1a])
+        );
     }
 
     #[test]
@@ -600,6 +627,31 @@ mod terminal_protocol_tests {
                 Some(mode),
             ),
             Some(b"\x1b[1;2F".to_vec())
+        );
+    }
+
+    #[test]
+    fn terminal_keystroke_translation_maps_common_word_navigation_shortcuts() {
+        assert_eq!(
+            ai_terminal_input_bytes_for_keystroke(
+                &Keystroke::parse("alt-left").expect("valid alt-left keystroke"),
+                None,
+            ),
+            Some(b"\x1bb".to_vec())
+        );
+        assert_eq!(
+            ai_terminal_input_bytes_for_keystroke(
+                &Keystroke::parse("ctrl-right").expect("valid ctrl-right keystroke"),
+                None,
+            ),
+            Some(b"\x1bf".to_vec())
+        );
+        assert_eq!(
+            ai_terminal_input_bytes_for_keystroke(
+                &Keystroke::parse("alt-backspace").expect("valid alt-backspace keystroke"),
+                None,
+            ),
+            Some(vec![0x1b, 0x7f])
         );
     }
 

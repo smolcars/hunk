@@ -120,7 +120,7 @@ fn ai_terminal_paint_cursor_overlays(
     for overlay in overlays {
         match overlay.kind {
             AiTerminalCursorOverlayKind::Beam => {
-                let beam_width = (cell_width * 0.14).max(px(2.0));
+                let beam_width = (cell_width * 0.08).max(px(1.5));
                 window.paint_quad(fill(
                     Bounds {
                         origin: point(
