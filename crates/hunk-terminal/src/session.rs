@@ -230,8 +230,9 @@ fn shell_command_builder(command: &str, cwd: &Path) -> CommandBuilder {
     #[cfg(target_os = "windows")]
     {
         let shell = windows_shell_program();
+        let is_cmd = shell_is_cmd(shell.as_os_str());
         let mut builder = CommandBuilder::new(shell);
-        if shell_is_cmd(shell.as_os_str()) {
+        if is_cmd {
             builder.arg("/D");
             builder.arg("/C");
         } else {
