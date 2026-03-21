@@ -29,7 +29,7 @@ modules:
       - test -x assets/codex-runtime/linux/codex || (echo "missing assets/codex-runtime/linux/codex; run ./scripts/download_codex_runtime_unix.sh linux first" >&2 && exit 1)
       - mkdir -p .cargo
       - cp flatpak/cargo-config.toml .cargo/config.toml
-      - cargo build --offline --frozen --release -p hunk-desktop
+      - cargo build --offline --release -p hunk-desktop
       - install -Dm755 /run/build/hunk-flatpak/target/release/hunk_desktop /app/bin/hunk_desktop
       - install -Dm755 assets/codex-runtime/linux/codex /app/bin/codex-runtime/linux/codex
       - install -Dm644 flatpak/io.github.BlixtWallet.Hunk.desktop /app/share/applications/io.github.BlixtWallet.Hunk.desktop
