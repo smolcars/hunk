@@ -49,6 +49,7 @@ struct AiTerminalTextRunStyle {
 struct AiTerminalSurfaceElement {
     element_id: gpui::ElementId,
     view: Entity<DiffViewer>,
+    screen: Arc<TerminalScreenSnapshot>,
     lines: Arc<[AiTerminalPaintLine]>,
     selection_surfaces: Arc<[AiTextSelectionSurfaceSpec]>,
     selection_enabled: bool,
@@ -115,7 +116,7 @@ impl DiffViewer {
 
     fn render_ai_terminal_vt_surface(
         &self,
-        screen: &TerminalScreenSnapshot,
+        screen: &Arc<TerminalScreenSnapshot>,
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -127,6 +128,7 @@ impl DiffViewer {
         AiTerminalSurfaceElement {
             element_id: "ai-terminal-surface".into(),
             view: cx.entity(),
+            screen: screen.clone(),
             lines: lines.into(),
             selection_surfaces,
             selection_enabled,
@@ -210,9 +212,11 @@ impl gpui::Element for AiTerminalSurfaceElement {
         let hitbox_for_mouse_down = layout.hitbox.clone();
         let hitbox_for_mouse_move = layout.hitbox.clone();
         let hitbox_for_mouse_up = layout.hitbox.clone();
+        let hitbox_for_scroll = layout.hitbox.clone();
         let lines_for_mouse = self.lines.clone();
         let surfaces_for_mouse = self.selection_surfaces.clone();
         let view = self.view.clone();
+        let screen = self.screen.clone();
         let cell_width = layout.cell_width;
         let line_height = layout.line_height;
         let bounds_origin = bounds.origin;
@@ -224,6 +228,21 @@ impl gpui::Element for AiTerminalSurfaceElement {
                 || event.button != MouseButton::Left
                 || !hitbox_for_mouse_down.is_hovered(window)
             {
+                return;
+            }
+
+            let (line, column) = ai_terminal_surface_grid_point_from_position(
+                screen.as_ref(),
+                bounds_origin,
+                event.position,
+                cell_width,
+                line_height,
+            );
+            let handled = view.update(cx, |this, cx| {
+                this.ai_terminal_surface_mouse_down(event, line, column, cx)
+            });
+            if handled {
+                cx.stop_propagation();
                 return;
             }
 
@@ -251,11 +270,28 @@ impl gpui::Element for AiTerminalSurfaceElement {
 
         let lines_for_mouse = self.lines.clone();
         let view = self.view.clone();
+        let screen = self.screen.clone();
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
-            if !selection_enabled
-                || phase != gpui::DispatchPhase::Bubble
-                || !hitbox_for_mouse_move.is_hovered(window)
-            {
+            if phase != gpui::DispatchPhase::Bubble || !hitbox_for_mouse_move.is_hovered(window) {
+                return;
+            }
+
+            let (line, column) = ai_terminal_surface_grid_point_from_position(
+                screen.as_ref(),
+                bounds_origin,
+                event.position,
+                cell_width,
+                line_height,
+            );
+            let handled = view.update(cx, |this, cx| {
+                this.ai_terminal_surface_mouse_move(event, line, column, cx)
+            });
+            if handled {
+                cx.stop_propagation();
+                return;
+            }
+
+            if !selection_enabled {
                 return;
             }
 
@@ -285,12 +321,28 @@ impl gpui::Element for AiTerminalSurfaceElement {
         });
 
         let view = self.view.clone();
+        let screen = self.screen.clone();
         window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
-            if !selection_enabled
-                || phase != gpui::DispatchPhase::Bubble
-                || event.button != MouseButton::Left
-                || !hitbox_for_mouse_up.is_hovered(window)
-            {
+            if phase != gpui::DispatchPhase::Bubble || !hitbox_for_mouse_up.is_hovered(window) {
+                return;
+            }
+
+            let (line, column) = ai_terminal_surface_grid_point_from_position(
+                screen.as_ref(),
+                bounds_origin,
+                event.position,
+                cell_width,
+                line_height,
+            );
+            let handled = view.update(cx, |this, cx| {
+                this.ai_terminal_surface_mouse_up(event, line, column, cx)
+            });
+            if handled {
+                cx.stop_propagation();
+                return;
+            }
+
+            if !selection_enabled || event.button != MouseButton::Left {
                 return;
             }
 
@@ -299,8 +351,37 @@ impl gpui::Element for AiTerminalSurfaceElement {
             });
         });
 
-        if self.selection_enabled && layout.hitbox.is_hovered(window) {
-            window.set_cursor_style(gpui::CursorStyle::IBeam, &layout.hitbox);
+        let view = self.view.clone();
+        let screen = self.screen.clone();
+        window.on_mouse_event(move |event: &gpui::ScrollWheelEvent, phase, window, cx| {
+            if phase != gpui::DispatchPhase::Bubble || !hitbox_for_scroll.is_hovered(window) {
+                return;
+            }
+
+            let (line, column) = ai_terminal_surface_grid_point_from_position(
+                screen.as_ref(),
+                bounds_origin,
+                event.position,
+                cell_width,
+                line_height,
+            );
+            let handled = view.update(cx, |this, cx| {
+                this.ai_terminal_surface_scroll_wheel(event, line, column, cx)
+            });
+            if handled {
+                cx.stop_propagation();
+            }
+        });
+
+        if layout.hitbox.is_hovered(window) {
+            let cursor_style = if self.screen.mode.mouse_mode {
+                gpui::CursorStyle::Arrow
+            } else if self.selection_enabled {
+                gpui::CursorStyle::IBeam
+            } else {
+                gpui::CursorStyle::Arrow
+            };
+            window.set_cursor_style(cursor_style, &layout.hitbox);
         }
 
         window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
@@ -355,7 +436,7 @@ impl gpui::Element for AiTerminalSurfaceElement {
 }
 
 fn ai_terminal_supports_text_selection(screen: &TerminalScreenSnapshot) -> bool {
-    !screen.mode.alt_screen && !screen.mode.mouse_mode
+    !screen.mode.alt_screen
 }
 
 fn ai_terminal_surface_text_style(is_dark: bool, cx: &App) -> gpui::TextStyle {
@@ -565,6 +646,22 @@ fn ai_terminal_hit_test(
         surface_id: line.surface_id.clone(),
         index: line.column_byte_offsets[column],
     })
+}
+
+fn ai_terminal_surface_grid_point_from_position(
+    screen: &TerminalScreenSnapshot,
+    origin: Point<Pixels>,
+    position: Point<Pixels>,
+    cell_width: Pixels,
+    line_height: Pixels,
+) -> (i32, usize) {
+    let max_column = usize::from(screen.cols.saturating_sub(1));
+    let max_visible_line = i32::from(screen.rows.saturating_sub(1));
+    let relative_x = (position.x - origin.x).max(px(0.0));
+    let relative_y = (position.y - origin.y).max(px(0.0));
+    let column = ((relative_x / cell_width) as usize).min(max_column);
+    let visible_line = ((relative_y / line_height) as i32).clamp(0, max_visible_line);
+    (visible_line - screen.display_offset as i32, column)
 }
 
 fn ai_terminal_paint_selection(

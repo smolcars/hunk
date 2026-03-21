@@ -191,17 +191,6 @@ impl DiffViewer {
                                         }
                                     }
                                 })
-                                .on_scroll_wheel({
-                                    let view = view.clone();
-                                    move |event, _, cx| {
-                                        let handled = view.update(cx, |this, cx| {
-                                            this.ai_terminal_surface_scroll_wheel(event, cx)
-                                        });
-                                        if handled {
-                                            cx.stop_propagation();
-                                        }
-                                    }
-                                })
                                 .p_2()
                                 .child(self.render_ai_terminal_surface(state, is_dark, cx)),
                         )

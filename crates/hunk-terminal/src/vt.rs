@@ -127,6 +127,11 @@ pub struct TerminalModeSnapshot {
     pub bracketed_paste: bool,
     pub focus_in_out: bool,
     pub mouse_mode: bool,
+    pub mouse_motion: bool,
+    pub mouse_drag: bool,
+    pub sgr_mouse: bool,
+    pub utf8_mouse: bool,
+    pub alternate_scroll: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -345,5 +350,10 @@ fn snapshot_mode(mode: TermMode) -> TerminalModeSnapshot {
         bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
         focus_in_out: mode.contains(TermMode::FOCUS_IN_OUT),
         mouse_mode: mode.intersects(TermMode::MOUSE_MODE),
+        mouse_motion: mode.contains(TermMode::MOUSE_MOTION),
+        mouse_drag: mode.contains(TermMode::MOUSE_DRAG),
+        sgr_mouse: mode.contains(TermMode::SGR_MOUSE),
+        utf8_mouse: mode.contains(TermMode::UTF8_MOUSE),
+        alternate_scroll: mode.contains(TermMode::ALTERNATE_SCROLL),
     }
 }

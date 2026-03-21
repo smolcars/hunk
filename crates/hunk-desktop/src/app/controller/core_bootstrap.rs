@@ -662,6 +662,16 @@ impl DiffViewer {
         })
         .detach();
 
+        let ai_terminal_focus_handle = view.ai_terminal_focus_handle.clone();
+        cx.on_focus_in(&ai_terminal_focus_handle, window, |this, _, cx| {
+            this.ai_terminal_surface_focus_in(cx);
+        })
+        .detach();
+        cx.on_focus_out(&ai_terminal_focus_handle, window, |this, _, _, cx| {
+            this.ai_terminal_surface_focus_out(cx);
+        })
+        .detach();
+
         let file_quick_open_state = view.file_quick_open_input_state.clone();
         cx.subscribe(&file_quick_open_state, |this, _, event, cx| {
             if matches!(event, InputEvent::Change) {

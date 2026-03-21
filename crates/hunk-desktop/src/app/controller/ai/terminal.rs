@@ -207,6 +207,65 @@ impl DiffViewer {
         }
     }
 
+    pub(super) fn ai_terminal_surface_focus_in(&mut self, cx: &mut Context<Self>) {
+        self.ai_report_terminal_focus_change(true, cx);
+    }
+
+    pub(super) fn ai_terminal_surface_focus_out(&mut self, cx: &mut Context<Self>) {
+        self.ai_report_terminal_focus_change(false, cx);
+    }
+
+    pub(super) fn ai_terminal_surface_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        line: i32,
+        column: usize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mode = self.ai_terminal_session.screen.as_ref().map(|screen| screen.mode);
+        let point = AiTerminalGridPoint { line, column };
+        let Some(bytes) =
+            ai_terminal_mouse_button_bytes(point, event.button, event.modifiers, true, mode)
+        else {
+            return false;
+        };
+        self.ai_write_terminal_bytes(bytes.as_slice(), cx)
+    }
+
+    pub(super) fn ai_terminal_surface_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        line: i32,
+        column: usize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mode = self.ai_terminal_session.screen.as_ref().map(|screen| screen.mode);
+        let point = AiTerminalGridPoint { line, column };
+        let Some(bytes) =
+            ai_terminal_mouse_move_bytes(point, event.pressed_button, event.modifiers, mode)
+        else {
+            return false;
+        };
+        self.ai_write_terminal_bytes(bytes.as_slice(), cx)
+    }
+
+    pub(super) fn ai_terminal_surface_mouse_up(
+        &mut self,
+        event: &MouseUpEvent,
+        line: i32,
+        column: usize,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mode = self.ai_terminal_session.screen.as_ref().map(|screen| screen.mode);
+        let point = AiTerminalGridPoint { line, column };
+        let Some(bytes) =
+            ai_terminal_mouse_button_bytes(point, event.button, event.modifiers, false, mode)
+        else {
+            return false;
+        };
+        self.ai_write_terminal_bytes(bytes.as_slice(), cx)
+    }
+
     pub(super) fn ai_terminal_surface_key_down(
         &mut self,
         keystroke: &gpui::Keystroke,
@@ -247,15 +306,11 @@ impl DiffViewer {
     pub(super) fn ai_terminal_surface_scroll_wheel(
         &mut self,
         event: &gpui::ScrollWheelEvent,
+        line: i32,
+        column: usize,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.ai_terminal_runtime.is_none()
-            || self
-                .ai_terminal_session
-                .screen
-                .as_ref()
-                .is_some_and(|screen| screen.mode.alt_screen)
-        {
+        if self.ai_terminal_runtime.is_none() {
             return false;
         }
 
@@ -270,6 +325,23 @@ impl DiffViewer {
             crate::app::native_files_editor::ScrollDirection::Forward => -(line_count as i32),
             crate::app::native_files_editor::ScrollDirection::Backward => line_count as i32,
         };
+
+        let mode = self.ai_terminal_session.screen.as_ref().map(|screen| screen.mode);
+        let point = AiTerminalGridPoint { line, column };
+        if let Some(reports) =
+            ai_terminal_mouse_scroll_bytes(point, delta, event.modifiers, mode)
+        {
+            return self.ai_write_terminal_report_chunks(reports, cx);
+        }
+
+        if let Some(bytes) = ai_terminal_alt_scroll_bytes(delta, mode) {
+            return self.ai_write_terminal_bytes(bytes.as_slice(), cx);
+        }
+
+        if mode.is_some_and(|mode| mode.alt_screen) {
+            return true;
+        }
+
         self.ai_scroll_terminal_viewport(TerminalScroll::Delta(delta), cx)
     }
 
@@ -324,6 +396,29 @@ impl DiffViewer {
 
         self.ai_terminal_session.status_message = None;
         true
+    }
+
+    fn ai_write_terminal_report_chunks(
+        &mut self,
+        reports: Vec<Vec<u8>>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mut handled = false;
+        for report in reports {
+            handled = self.ai_write_terminal_bytes(report.as_slice(), cx) || handled;
+            if self.ai_terminal_session.status == AiTerminalSessionStatus::Failed {
+                break;
+            }
+        }
+        handled
+    }
+
+    fn ai_report_terminal_focus_change(&mut self, focused: bool, cx: &mut Context<Self>) {
+        let mode = self.ai_terminal_session.screen.as_ref().map(|screen| screen.mode);
+        let Some(bytes) = ai_terminal_focus_bytes(focused, mode) else {
+            return;
+        };
+        let _ = self.ai_write_terminal_bytes(bytes, cx);
     }
 
     fn ai_paste_terminal_from_clipboard(&mut self, cx: &mut Context<Self>) -> bool {
@@ -646,248 +741,9 @@ fn skip_ansi_sequence(bytes: &[u8], start: usize) -> usize {
     start.saturating_add(2)
 }
 
-fn ai_terminal_paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
-    if bracketed {
-        let mut bytes = Vec::with_capacity(text.len() + 12);
-        bytes.extend_from_slice(b"\x1b[200~");
-        bytes.extend_from_slice(text.as_bytes());
-        bytes.extend_from_slice(b"\x1b[201~");
-        bytes
-    } else {
-        text.as_bytes().to_vec()
-    }
-}
-
-fn ai_terminal_viewport_scroll_for_keystroke(
-    keystroke: &gpui::Keystroke,
-    mode: Option<hunk_terminal::TerminalModeSnapshot>,
-) -> Option<TerminalScroll> {
-    if mode.is_some_and(|mode| mode.alt_screen) {
-        return None;
-    }
-
-    if !keystroke.modifiers.shift
-        || keystroke.modifiers.alt
-        || keystroke.modifiers.control
-        || keystroke.modifiers.platform
-        || keystroke.modifiers.function
-    {
-        return None;
-    }
-
-    match keystroke.key.as_str() {
-        "pageup" => Some(TerminalScroll::PageUp),
-        "pagedown" => Some(TerminalScroll::PageDown),
-        "home" => Some(TerminalScroll::Top),
-        "end" => Some(TerminalScroll::Bottom),
-        _ => None,
-    }
-}
-
-fn ai_terminal_uses_copy_shortcut(keystroke: &gpui::Keystroke) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        keystroke.modifiers.platform
-            && !keystroke.modifiers.control
-            && !keystroke.modifiers.alt
-            && !keystroke.modifiers.shift
-            && !keystroke.modifiers.function
-            && keystroke.key == "c"
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        keystroke.modifiers.control
-            && keystroke.modifiers.shift
-            && !keystroke.modifiers.alt
-            && !keystroke.modifiers.function
-            && keystroke.key == "c"
-    }
-}
-
-fn ai_terminal_input_bytes_for_keystroke(
-    keystroke: &gpui::Keystroke,
-    mode: Option<hunk_terminal::TerminalModeSnapshot>,
-) -> Option<Vec<u8>> {
-    if keystroke.modifiers.platform || keystroke.modifiers.function {
-        return None;
-    }
-
-    let mode = mode.unwrap_or_default();
-
-    match keystroke.key.as_str() {
-        "enter" => return Some(vec![b'\r']),
-        "tab" => {
-            return Some(if keystroke.modifiers.shift {
-                b"\x1b[Z".to_vec()
-            } else {
-                vec![b'\t']
-            });
-        }
-        "backspace" => return Some(vec![0x7f]),
-        "escape" => return Some(vec![0x1b]),
-        "home"
-            if keystroke.modifiers.shift
-                && !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && mode.alt_screen =>
-        {
-            return Some(b"\x1b[1;2H".to_vec())
-        }
-        "end"
-            if keystroke.modifiers.shift
-                && !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && mode.alt_screen =>
-        {
-            return Some(b"\x1b[1;2F".to_vec())
-        }
-        "pageup"
-            if keystroke.modifiers.shift
-                && !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && mode.alt_screen =>
-        {
-            return Some(b"\x1b[5;2~".to_vec())
-        }
-        "pagedown"
-            if keystroke.modifiers.shift
-                && !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && mode.alt_screen =>
-        {
-            return Some(b"\x1b[6;2~".to_vec())
-        }
-        "up" if !keystroke.modifiers.control && !keystroke.modifiers.alt && !keystroke.modifiers.shift => {
-            return Some(if mode.app_cursor {
-                b"\x1bOA".to_vec()
-            } else {
-                b"\x1b[A".to_vec()
-            })
-        }
-        "down" if !keystroke.modifiers.control && !keystroke.modifiers.alt && !keystroke.modifiers.shift => {
-            return Some(if mode.app_cursor {
-                b"\x1bOB".to_vec()
-            } else {
-                b"\x1b[B".to_vec()
-            })
-        }
-        "right" if !keystroke.modifiers.control && !keystroke.modifiers.alt && !keystroke.modifiers.shift => {
-            return Some(if mode.app_cursor {
-                b"\x1bOC".to_vec()
-            } else {
-                b"\x1b[C".to_vec()
-            })
-        }
-        "left" if !keystroke.modifiers.control && !keystroke.modifiers.alt && !keystroke.modifiers.shift => {
-            return Some(if mode.app_cursor {
-                b"\x1bOD".to_vec()
-            } else {
-                b"\x1b[D".to_vec()
-            })
-        }
-        "home" if !keystroke.modifiers.control && !keystroke.modifiers.alt && !keystroke.modifiers.shift => {
-            return Some(if mode.app_cursor {
-                b"\x1bOH".to_vec()
-            } else {
-                b"\x1b[H".to_vec()
-            })
-        }
-        "end" if !keystroke.modifiers.control && !keystroke.modifiers.alt && !keystroke.modifiers.shift => {
-            return Some(if mode.app_cursor {
-                b"\x1bOF".to_vec()
-            } else {
-                b"\x1b[F".to_vec()
-            })
-        }
-        "up" => return Some(b"\x1b[A".to_vec()),
-        "down" => return Some(b"\x1b[B".to_vec()),
-        "right" => return Some(b"\x1b[C".to_vec()),
-        "left" => return Some(b"\x1b[D".to_vec()),
-        "home" => return Some(b"\x1b[H".to_vec()),
-        "end" => return Some(b"\x1b[F".to_vec()),
-        "pageup" => return Some(b"\x1b[5~".to_vec()),
-        "pagedown" => return Some(b"\x1b[6~".to_vec()),
-        "delete" => return Some(b"\x1b[3~".to_vec()),
-        "space" => {
-            if keystroke.modifiers.control {
-                return Some(vec![0x00]);
-            }
-        }
-        _ => {}
-    }
-
-    if keystroke.modifiers.control
-        && !keystroke.modifiers.alt
-        && !keystroke.modifiers.shift
-        && let Some(control) = ai_terminal_control_byte(keystroke.key.as_str())
-    {
-        return Some(vec![control]);
-    }
-
-    let text = keystroke
-        .key_char
-        .as_deref()
-        .unwrap_or(keystroke.key.as_str());
-    if text.is_empty() {
-        return None;
-    }
-
-    let mut bytes = Vec::with_capacity(text.len() + usize::from(keystroke.modifiers.alt));
-    if keystroke.modifiers.alt {
-        bytes.push(0x1b);
-    }
-    bytes.extend_from_slice(text.as_bytes());
-    Some(bytes)
-}
-
-fn ai_terminal_control_byte(key: &str) -> Option<u8> {
-    if key.len() == 1 {
-        let byte = key.as_bytes()[0];
-        return match byte.to_ascii_lowercase() {
-            b'a'..=b'z' => Some((byte.to_ascii_lowercase() - b'a') + 1),
-            b'[' => Some(0x1b),
-            b'\\' => Some(0x1c),
-            b']' => Some(0x1d),
-            b'^' => Some(0x1e),
-            b'_' => Some(0x1f),
-            _ => None,
-        };
-    }
-
-    None
-}
-
-fn ai_terminal_uses_desktop_clipboard_shortcut(keystroke: &gpui::Keystroke) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        keystroke.modifiers.platform
-            && !keystroke.modifiers.control
-            && !keystroke.modifiers.alt
-            && !keystroke.modifiers.function
-            && matches!(keystroke.key.as_str(), "c" | "x" | "v")
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        keystroke.modifiers.control
-            && keystroke.modifiers.shift
-            && !keystroke.modifiers.alt
-            && !keystroke.modifiers.function
-            && matches!(keystroke.key.as_str(), "c" | "x" | "v")
-    }
-}
-
 #[cfg(test)]
-mod terminal_tests {
-    use super::{
-        ai_terminal_input_bytes_for_keystroke, ai_terminal_paste_bytes,
-        ai_terminal_uses_copy_shortcut, ai_terminal_uses_desktop_clipboard_shortcut,
-        ai_terminal_viewport_scroll_for_keystroke, sanitize_ai_terminal_output,
-        strip_ansi_sequences,
-    };
-    use gpui::Keystroke;
-    use hunk_terminal::{TerminalModeSnapshot, TerminalScroll};
+mod terminal_output_tests {
+    use super::{sanitize_ai_terminal_output, strip_ansi_sequences};
 
     #[test]
     fn strips_basic_ansi_sequences() {
@@ -899,183 +755,5 @@ mod terminal_tests {
     fn normalizes_carriage_returns() {
         let value = sanitize_ai_terminal_output(b"hello\rworld\r\nnext");
         assert_eq!(value, "hello\nworld\nnext");
-    }
-
-    #[test]
-    fn terminal_keystroke_translation_handles_enter_and_arrows() {
-        assert_eq!(
-            ai_terminal_input_bytes_for_keystroke(
-                &Keystroke::parse("enter").expect("valid enter keystroke"),
-                None,
-            ),
-            Some(vec![b'\r'])
-        );
-        assert_eq!(
-            ai_terminal_input_bytes_for_keystroke(
-                &Keystroke::parse("up").expect("valid up keystroke"),
-                None,
-            ),
-            Some(b"\x1b[A".to_vec())
-        );
-    }
-
-    #[test]
-    fn terminal_keystroke_translation_maps_control_shortcuts() {
-        assert_eq!(
-            ai_terminal_input_bytes_for_keystroke(
-                &Keystroke::parse("ctrl-c").expect("valid ctrl-c keystroke"),
-                None,
-            ),
-            Some(vec![0x03])
-        );
-        assert_eq!(
-            ai_terminal_input_bytes_for_keystroke(
-                &Keystroke::parse("ctrl-space").expect("valid ctrl-space keystroke"),
-                None,
-            ),
-            Some(vec![0x00])
-        );
-    }
-
-    #[test]
-    fn terminal_keystroke_translation_respects_app_cursor_mode() {
-        let mode = TerminalModeSnapshot {
-            app_cursor: true,
-            ..TerminalModeSnapshot::default()
-        };
-
-        assert_eq!(
-            ai_terminal_input_bytes_for_keystroke(
-                &Keystroke::parse("up").expect("valid up keystroke"),
-                Some(mode),
-            ),
-            Some(b"\x1bOA".to_vec())
-        );
-        assert_eq!(
-            ai_terminal_input_bytes_for_keystroke(
-                &Keystroke::parse("home").expect("valid home keystroke"),
-                Some(mode),
-            ),
-            Some(b"\x1bOH".to_vec())
-        );
-    }
-
-    #[test]
-    fn terminal_keystroke_translation_preserves_alt_screen_navigation_input() {
-        let mode = TerminalModeSnapshot {
-            alt_screen: true,
-            ..TerminalModeSnapshot::default()
-        };
-
-        assert_eq!(
-            ai_terminal_input_bytes_for_keystroke(
-                &Keystroke::parse("shift-pageup").expect("valid shift-pageup keystroke"),
-                Some(mode),
-            ),
-            Some(b"\x1b[5;2~".to_vec())
-        );
-        assert_eq!(
-            ai_terminal_input_bytes_for_keystroke(
-                &Keystroke::parse("shift-end").expect("valid shift-end keystroke"),
-                Some(mode),
-            ),
-            Some(b"\x1b[1;2F".to_vec())
-        );
-    }
-
-    #[test]
-    fn terminal_paste_bytes_wrap_bracketed_paste_when_requested() {
-        assert_eq!(
-            ai_terminal_paste_bytes("echo hi", true),
-            b"\x1b[200~echo hi\x1b[201~".to_vec()
-        );
-        assert_eq!(ai_terminal_paste_bytes("echo hi", false), b"echo hi".to_vec());
-    }
-
-    #[test]
-    fn terminal_clipboard_shortcuts_match_platform_conventions() {
-        #[cfg(target_os = "macos")]
-        {
-            assert!(ai_terminal_uses_desktop_clipboard_shortcut(
-                &Keystroke::parse("cmd-v").expect("valid cmd-v keystroke")
-            ));
-            assert!(!ai_terminal_uses_desktop_clipboard_shortcut(
-                &Keystroke::parse("ctrl-c").expect("valid ctrl-c keystroke")
-            ));
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            assert!(ai_terminal_uses_desktop_clipboard_shortcut(
-                &Keystroke::parse("ctrl-shift-v").expect("valid ctrl-shift-v keystroke")
-            ));
-            assert!(!ai_terminal_uses_desktop_clipboard_shortcut(
-                &Keystroke::parse("ctrl-c").expect("valid ctrl-c keystroke")
-            ));
-        }
-    }
-
-    #[test]
-    fn terminal_viewport_scroll_shortcuts_use_shift_navigation_keys() {
-        assert_eq!(
-            ai_terminal_viewport_scroll_for_keystroke(
-                &Keystroke::parse("shift-pageup").expect("valid shift-pageup keystroke"),
-                None,
-            ),
-            Some(TerminalScroll::PageUp)
-        );
-        assert_eq!(
-            ai_terminal_viewport_scroll_for_keystroke(
-                &Keystroke::parse("shift-end").expect("valid shift-end keystroke"),
-                None,
-            ),
-            Some(TerminalScroll::Bottom)
-        );
-        assert_eq!(
-            ai_terminal_viewport_scroll_for_keystroke(
-                &Keystroke::parse("pageup").expect("valid pageup keystroke"),
-                None,
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn terminal_viewport_scroll_shortcuts_are_disabled_in_alt_screen() {
-        let mode = TerminalModeSnapshot {
-            alt_screen: true,
-            ..TerminalModeSnapshot::default()
-        };
-
-        assert_eq!(
-            ai_terminal_viewport_scroll_for_keystroke(
-                &Keystroke::parse("shift-pageup").expect("valid shift-pageup keystroke"),
-                Some(mode),
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn terminal_copy_shortcuts_match_terminal_platform_conventions() {
-        #[cfg(target_os = "macos")]
-        {
-            assert!(ai_terminal_uses_copy_shortcut(
-                &Keystroke::parse("cmd-c").expect("valid cmd-c keystroke")
-            ));
-            assert!(!ai_terminal_uses_copy_shortcut(
-                &Keystroke::parse("ctrl-c").expect("valid ctrl-c keystroke")
-            ));
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            assert!(ai_terminal_uses_copy_shortcut(
-                &Keystroke::parse("ctrl-shift-c").expect("valid ctrl-shift-c keystroke")
-            ));
-            assert!(!ai_terminal_uses_copy_shortcut(
-                &Keystroke::parse("ctrl-c").expect("valid ctrl-c keystroke")
-            ));
-        }
     }
 }

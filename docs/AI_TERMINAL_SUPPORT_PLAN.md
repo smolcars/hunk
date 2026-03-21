@@ -87,14 +87,14 @@ Implemented today:
 - VT scrollback now stays interactive after process exit, with mouse-wheel scrolling plus `Shift+PageUp/PageDown/Home/End` viewport controls.
 - The VT surface now supports mouse text selection plus terminal-style copy shortcuts (`cmd-c` on macOS, `ctrl-shift-c` on Linux/Windows) when a terminal selection is active.
 - Terminal key translation is now mode-aware for TUIs, including app-cursor arrow/home/end sequences and alternate-screen `Shift+PageUp/PageDown/Home/End` input.
-- Text selection is now disabled while the terminal is in alternate-screen or mouse-reporting modes so full-screen TUIs are not treated like normal text rows.
+- The terminal now reports focus in/out, mouse button presses, mouse motion, and wheel events back into the PTY using the active VT mouse protocol, including SGR/UTF-8 mouse formats and alternate-scroll mode.
+- Shift now bypasses terminal mouse reporting so scrollback selection still works outside alternate-screen TUIs, while the terminal owns wheel events whenever alternate-screen content is active.
 - The VT surface is now painted as a terminal grid with cell backgrounds and cursor-aware text runs, instead of being rendered as ordinary styled text rows.
 - Workspace-wide validation already passes for the current slice.
 
 Not implemented yet:
 
 - terminal hyperlink detection plus further cursor polish
-- full alternate-screen mouse/focus reporting and TUI compatibility
 - command-row affordances from the AI timeline
 - persisted terminal state across full app relaunch
 

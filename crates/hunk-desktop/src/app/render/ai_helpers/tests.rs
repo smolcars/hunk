@@ -267,7 +267,7 @@ mod ai_helper_tests {
     }
 
     #[test]
-    fn terminal_text_selection_is_disabled_for_alt_screen_and_mouse_modes() {
+    fn terminal_text_selection_is_disabled_only_for_alt_screen() {
         let mut screen = TerminalScreenSnapshot {
             rows: 1,
             cols: 1,
@@ -289,7 +289,7 @@ mod ai_helper_tests {
 
         screen.mode.alt_screen = false;
         screen.mode.mouse_mode = true;
-        assert!(!ai_terminal_supports_text_selection(&screen));
+        assert!(ai_terminal_supports_text_selection(&screen));
     }
 
     #[test]
