@@ -438,6 +438,7 @@ impl DiffViewer {
             models: self.ai_models.clone(),
             experimental_features: self.ai_experimental_features.clone(),
             collaboration_modes: self.ai_collaboration_modes.clone(),
+            skills: self.ai_skills.clone(),
             include_hidden_models: self.ai_include_hidden_models,
             selected_model: self.ai_selected_model.clone(),
             selected_effort: self.ai_selected_effort.clone(),
@@ -487,6 +488,7 @@ impl DiffViewer {
         self.ai_models = state.models;
         self.ai_experimental_features = state.experimental_features;
         self.ai_collaboration_modes = state.collaboration_modes;
+        self.ai_skills = state.skills;
         self.ai_include_hidden_models = state.include_hidden_models;
         self.ai_selected_model = state.selected_model;
         self.ai_selected_effort = state.selected_effort;
@@ -643,6 +645,7 @@ impl DiffViewer {
             models,
             experimental_features,
             collaboration_modes,
+            skills,
             include_hidden_models,
             mad_max_mode,
         } = snapshot;
@@ -661,6 +664,7 @@ impl DiffViewer {
         state.models = models;
         state.experimental_features = experimental_features;
         state.collaboration_modes = collaboration_modes;
+        state.skills = skills;
         state.include_hidden_models = include_hidden_models;
         state.mad_max_mode = mad_max_mode;
         state.connection_state = AiConnectionState::Ready;
@@ -740,6 +744,7 @@ impl DiffViewer {
         state.models.clear();
         state.experimental_features.clear();
         state.collaboration_modes.clear();
+        state.skills.clear();
         state.pending_approvals.clear();
         state.pending_user_inputs.clear();
         state.pending_user_input_answers.clear();
@@ -868,6 +873,8 @@ impl DiffViewer {
                         thread_id: queued.thread_id.clone(),
                         prompt,
                         local_image_paths: queued.local_images.clone(),
+                        selected_skills: queued.selected_skills.clone(),
+                        skill_bindings: queued.skill_bindings.clone(),
                         session_overrides,
                     },
                     false,

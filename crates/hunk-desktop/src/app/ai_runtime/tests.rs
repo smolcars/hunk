@@ -15,8 +15,11 @@ mod ai_tests {
     use codex_app_server_protocol::RequestId;
     use codex_app_server_protocol::SandboxMode;
     use codex_app_server_protocol::SandboxPolicy;
+    use codex_app_server_protocol::ServerNotification;
+    use codex_app_server_protocol::SkillsChangedNotification;
     use codex_app_server_protocol::ThreadStartParams;
     use codex_app_server_protocol::TurnStartParams;
+    use codex_app_server_protocol::UserInput;
     use codex_protocol::config_types::ServiceTier;
     use git2::IndexAddOption;
     use git2::Repository;
@@ -27,6 +30,8 @@ mod ai_tests {
     use hunk_codex::state::ReducerEvent;
     use hunk_codex::state::StreamEvent;
     use hunk_domain::state::AiServiceTierSelection;
+
+    use crate::app::AiPromptSkillReference;
 
     use super::AiApprovalDecision;
     use super::AiWorkerCommand;
@@ -44,8 +49,10 @@ mod ai_tests {
     use super::is_missing_thread_rollout_error;
     use super::map_command_approval_decision;
     use super::map_file_change_approval_decision;
+    use super::notification_refresh_flags;
     use super::panic_payload_message;
     use super::pending_steer_with_state_baseline;
+    use super::prompt_user_input_items;
     use super::preferred_rate_limit_snapshot;
     use super::request_id_key;
     use super::retry_transient_rollout_load;
@@ -156,6 +163,8 @@ mod ai_tests {
             "turn-1".to_string(),
             Some("same follow-up"),
             &[],
+            &[],
+            &[],
         );
 
         assert_eq!(pending.accepted_after_sequence, 12);
@@ -237,6 +246,60 @@ mod ai_tests {
         );
     }
 
+    #[test]
+    fn notification_refresh_flags_reload_skills_on_skills_changed() {
+        let flags = notification_refresh_flags(&[ServerNotification::SkillsChanged(
+            SkillsChangedNotification {},
+        )]);
+
+        assert!(flags.refresh_skills);
+        assert!(!flags.refresh_account);
+        assert!(!flags.refresh_rate_limits);
+    }
+
+    #[test]
+    fn prompt_user_input_items_appends_structured_skills_after_text() {
+        let inputs = prompt_user_input_items(
+            Some("Use $gpui and $gpui-component"),
+            &[PathBuf::from("/tmp/diagram.png")],
+            &[selected_skill("gpui"), selected_skill("gpui-component")],
+        );
+
+        assert_eq!(
+            inputs,
+            vec![
+                UserInput::LocalImage {
+                    path: PathBuf::from("/tmp/diagram.png"),
+                },
+                UserInput::Text {
+                    text: "Use $gpui and $gpui-component".to_string(),
+                    text_elements: Vec::new(),
+                },
+                UserInput::Skill {
+                    name: "gpui".to_string(),
+                    path: PathBuf::from("/skills/gpui/SKILL.md"),
+                },
+                UserInput::Skill {
+                    name: "gpui-component".to_string(),
+                    path: PathBuf::from("/skills/gpui-component/SKILL.md"),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn prompt_user_input_items_leaves_unresolved_skill_text_alone() {
+        let inputs = prompt_user_input_items(Some("Use $missing"), &[], &[]);
+
+        assert_eq!(
+            inputs,
+            vec![UserInput::Text {
+                text: "Use $missing".to_string(),
+                text_elements: Vec::new(),
+            }]
+        );
+    }
+
     fn rate_limit_snapshot(limit_id: Option<&str>, used_percent: i32) -> RateLimitSnapshot {
         RateLimitSnapshot {
             limit_id: limit_id.map(ToOwned::to_owned),
@@ -253,6 +316,13 @@ mod ai_tests {
             }),
             credits: None,
             plan_type: None,
+        }
+    }
+
+    fn selected_skill(name: &str) -> AiPromptSkillReference {
+        AiPromptSkillReference {
+            name: name.to_string(),
+            path: PathBuf::from(format!("/skills/{name}/SKILL.md")),
         }
     }
 
@@ -679,6 +749,8 @@ mod ai_tests {
                 thread_id: "thread-1".to_string(),
                 prompt: Some("continue".to_string()),
                 local_image_paths: Vec::new(),
+                selected_skills: Vec::new(),
+                skill_bindings: Vec::new(),
                 session_overrides: AiTurnSessionOverrides::default(),
             }
         ));

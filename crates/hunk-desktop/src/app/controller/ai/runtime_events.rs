@@ -134,6 +134,10 @@ impl DiffViewer {
         self.ai_models.clear();
         self.ai_experimental_features.clear();
         self.ai_collaboration_modes.clear();
+        self.ai_skills.clear();
+        self.ai_composer_skill_completion_menu = None;
+        self.ai_composer_skill_completion_selected_ix = 0;
+        self.ai_composer_skill_completion_dismissed_token = None;
         self.ai_bootstrap_loading = false;
         self.ai_connection_state = AiConnectionState::Failed;
         if self

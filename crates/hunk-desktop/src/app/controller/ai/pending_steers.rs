@@ -131,19 +131,28 @@ fn take_all_ai_pending_steers(pending_steers: &mut Vec<AiPendingSteer>) -> Vec<A
     std::mem::take(pending_steers)
 }
 
-fn merge_restored_ai_prompt(existing: &mut String, prompt: &str) {
+fn merge_restored_ai_prompt(existing: &mut String, prompt: &str) -> Option<usize> {
     let prompt = prompt.trim();
-    if prompt.is_empty() || existing.contains(prompt) {
-        return;
+    if prompt.is_empty() {
+        return None;
     }
 
     if existing.trim().is_empty() {
         *existing = prompt.to_string();
-        return;
+        return Some(0);
     }
 
+    let mut existing_matches = existing.match_indices(prompt).map(|(offset, _)| offset);
+    match (existing_matches.next(), existing_matches.next()) {
+        (Some(offset), None) => return Some(offset),
+        (Some(_), Some(_)) => return None,
+        (None, _) => {}
+    }
+
+    let insertion_offset = existing.len() + 2;
     existing.push_str("\n\n");
     existing.push_str(prompt);
+    Some(insertion_offset)
 }
 
 impl DiffViewer {
@@ -174,12 +183,19 @@ impl DiffViewer {
         for pending in pending_steers {
             let target_key = AiComposerDraftKey::Thread(pending.thread_id.clone());
             let draft = self.ai_composer_drafts.entry(target_key.clone()).or_default();
-            merge_restored_ai_prompt(&mut draft.prompt, pending.prompt.as_str());
+            let restored_prompt_offset =
+                merge_restored_ai_prompt(&mut draft.prompt, pending.prompt.as_str());
             for image_path in pending.local_images {
                 if !draft.local_images.contains(&image_path) {
                     draft.local_images.push(image_path);
                 }
             }
+            crate::app::ai_composer_completion::merge_rebased_ai_composer_skill_bindings(
+                &mut draft.skill_bindings,
+                pending.skill_bindings.as_slice(),
+                restored_prompt_offset,
+                draft.prompt.as_str(),
+            );
             touched.insert(target_key);
         }
 

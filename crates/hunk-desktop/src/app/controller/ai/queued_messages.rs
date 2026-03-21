@@ -311,12 +311,19 @@ impl DiffViewer {
         for queued in queued_messages {
             let target_key = AiComposerDraftKey::Thread(queued.thread_id.clone());
             let draft = self.ai_composer_drafts.entry(target_key.clone()).or_default();
-            merge_restored_ai_prompt(&mut draft.prompt, queued.prompt.as_str());
+            let restored_prompt_offset =
+                merge_restored_ai_prompt(&mut draft.prompt, queued.prompt.as_str());
             for image_path in queued.local_images {
                 if !draft.local_images.contains(&image_path) {
                     draft.local_images.push(image_path);
                 }
             }
+            crate::app::ai_composer_completion::merge_rebased_ai_composer_skill_bindings(
+                &mut draft.skill_bindings,
+                queued.skill_bindings.as_slice(),
+                restored_prompt_offset,
+                draft.prompt.as_str(),
+            );
             touched.insert(target_key);
         }
 
@@ -343,11 +350,15 @@ impl DiffViewer {
         thread_id: String,
         prompt: String,
         local_images: Vec<PathBuf>,
+        selected_skills: Vec<crate::app::AiPromptSkillReference>,
+        skill_bindings: Vec<crate::app::AiComposerSkillBinding>,
     ) {
         self.ai_queued_messages.push(AiQueuedUserMessage {
             thread_id,
             prompt,
             local_images,
+            selected_skills,
+            skill_bindings,
             queued_at: Instant::now(),
             status: AiQueuedUserMessageStatus::Queued,
         });
@@ -389,6 +400,8 @@ impl DiffViewer {
                     thread_id: queued.thread_id.clone(),
                     prompt,
                     local_image_paths: queued.local_images.clone(),
+                    selected_skills: queued.selected_skills.clone(),
+                    skill_bindings: queued.skill_bindings.clone(),
                     session_overrides: self.current_ai_turn_session_overrides(),
                 },
                 false,

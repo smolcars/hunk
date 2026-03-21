@@ -169,6 +169,19 @@ impl DiffViewer {
                                                 ),
                                             )
                                         },
+                                    )
+                                    .when_some(
+                                        self.ai_composer_skill_completion_menu.clone(),
+                                        |this, menu| {
+                                            this.child(
+                                                self.render_ai_composer_skill_completion_menu(
+                                                    view.clone(),
+                                                    menu,
+                                                    is_dark,
+                                                    cx,
+                                                ),
+                                            )
+                                        },
                                     ),
                             )
                             .child(
@@ -475,6 +488,174 @@ impl DiffViewer {
                                             )
                                         }),
                                 )
+                        })),
+                ),
+            )
+            .into_any_element()
+    }
+
+    fn render_ai_composer_skill_completion_menu(
+        &self,
+        view: Entity<Self>,
+        menu: AiComposerSkillCompletionMenuState,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let anchor_range = menu.replace_range.start..menu.replace_range.start.saturating_add(1);
+        let Some(anchor_position) = self
+            .ai_composer_input_state
+            .read(cx)
+            .offset_range_bounds(&anchor_range)
+            .map(|bounds| point(bounds.left(), bounds.top()))
+        else {
+            return div().into_any_element();
+        };
+
+        let selected_ix = self
+            .ai_composer_skill_completion_selected_ix
+            .min(menu.items.len().saturating_sub(1));
+
+        deferred(
+            anchored()
+                .position_mode(AnchoredPositionMode::Window)
+                .position(anchor_position)
+                .offset(point(
+                    px(0.),
+                    -px(AI_COMPOSER_FILE_COMPLETION_MENU_GAP_Y),
+                ))
+                .anchor(Corner::BottomLeft)
+                .snap_to_window_with_margin(px(8.0))
+                .child(
+                    div()
+                        .id("ai-composer-skill-completion-menu")
+                        .min_w(px(320.0))
+                        .max_w(px(460.0))
+                        .max_h(px(280.0))
+                        .overflow_y_scrollbar()
+                        .rounded(px(18.0))
+                        .border_1()
+                        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.78, 0.62))
+                        .bg(cx.theme().popover)
+                        .shadow_lg()
+                        .p_1()
+                        .children(menu.items.iter().enumerate().map(|(ix, item)| {
+                            let select_view = view.clone();
+                            let select_name = item.name.clone();
+                            let selected = ix == selected_ix;
+                            let title = item.display_name.as_deref().unwrap_or(item.name.as_str());
+                            let show_name = item.display_name.as_deref() != Some(item.name.as_str());
+
+                            h_flex()
+                                .id(("ai-composer-skill-completion-item", ix))
+                                .w_full()
+                                .min_w_0()
+                                .items_center()
+                                .gap_2()
+                                .rounded(px(12.0))
+                                .px_2()
+                                .py_1p5()
+                                .text_sm()
+                                .hover(|style| {
+                                    style.bg(hunk_opacity(
+                                        cx.theme().accent,
+                                        is_dark,
+                                        0.22,
+                                        0.14,
+                                    ))
+                                })
+                                .when(selected, |this| {
+                                    this.bg(hunk_opacity(
+                                        cx.theme().accent,
+                                        is_dark,
+                                        0.28,
+                                        0.18,
+                                    ))
+                                    .border_1()
+                                    .border_color(hunk_opacity(
+                                        cx.theme().accent,
+                                        is_dark,
+                                        0.68,
+                                        0.58,
+                                    ))
+                                })
+                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                    select_view.update(cx, |this, cx| {
+                                        this.ai_accept_composer_skill_completion_name(
+                                            select_name.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                    cx.stop_propagation();
+                                })
+                                .child(
+                                    Icon::new(IconName::Settings)
+                                        .size(px(12.0))
+                                        .mt_0p5()
+                                        .text_color(if selected {
+                                            cx.theme().accent
+                                        } else {
+                                            hunk_opacity(
+                                                cx.theme().muted_foreground,
+                                                is_dark,
+                                                0.86,
+                                                0.96,
+                                            )
+                                        }),
+                                )
+                                .child(
+                                    v_flex()
+                                        .min_w_0()
+                                        .gap_0p5()
+                                        .child(
+                                            div()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_color(if selected {
+                                                    cx.theme().foreground
+                                                } else {
+                                                    hunk_opacity(
+                                                        cx.theme().foreground,
+                                                        is_dark,
+                                                        0.96,
+                                                        0.98,
+                                                    )
+                                                })
+                                                .child(title.to_string()),
+                                        )
+                                        .when(show_name, |this| {
+                                            this.child(
+                                                div()
+                                                    .min_w_0()
+                                                    .truncate()
+                                                    .text_xs()
+                                                    .font_family(cx.theme().mono_font_family.clone())
+                                                    .text_color(hunk_opacity(
+                                                        cx.theme().muted_foreground,
+                                                        is_dark,
+                                                        0.90,
+                                                        0.94,
+                                                    ))
+                                                    .child(format!("${}", item.name)),
+                                            )
+                                        })
+                                        .when_some(item.description.clone(), |this, description| {
+                                            this.child(
+                                                div()
+                                                    .min_w_0()
+                                                    .text_xs()
+                                                    .whitespace_normal()
+                                                    .text_color(hunk_opacity(
+                                                        cx.theme().muted_foreground,
+                                                        is_dark,
+                                                        0.92,
+                                                        0.96,
+                                                    ))
+                                                    .child(description),
+                                            )
+                                        }),
+                                )
+                                .into_any_element()
                         })),
                 ),
         )

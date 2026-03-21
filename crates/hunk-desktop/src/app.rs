@@ -7,6 +7,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use codex_app_server_protocol::SkillMetadata;
 use gpui::{
     AnchoredPositionMode, Animation, AnimationExt as _, AnyElement, AnyWindowHandle, App,
     AppContext as _, Bounds, ClipboardItem, Context, Corner, DragMoveEvent, Empty, Entity,
@@ -52,7 +53,8 @@ use hunk_git::worktree::WorkspaceTargetSummary;
 
 use ai_composer_completion::{
     ActivePrefixedToken, AiComposerFileCompletionMenuState, AiComposerFileCompletionProvider,
-    ai_composer_inserted_path_text,
+    AiComposerSkillCompletionMenuState, ai_composer_inserted_path_text,
+    skill_completion_menu_state,
 };
 use ai_git_progress::{
     AiGitProgressAction, AiGitProgressState, AiGitProgressStep, ai_commit_and_push_progress_steps,
@@ -909,6 +911,7 @@ struct DiffViewer {
     ai_models: Vec<codex_app_server_protocol::Model>,
     ai_experimental_features: Vec<codex_app_server_protocol::ExperimentalFeature>,
     ai_collaboration_modes: Vec<codex_app_server_protocol::CollaborationModeMask>,
+    ai_skills: Vec<SkillMetadata>,
     ai_include_hidden_models: bool,
     ai_selected_model: Option<String>,
     ai_selected_effort: Option<String>,
@@ -934,6 +937,9 @@ struct DiffViewer {
     ai_composer_file_completion_menu: Option<AiComposerFileCompletionMenuState>,
     ai_composer_file_completion_selected_ix: usize,
     ai_composer_file_completion_dismissed_token: Option<ActivePrefixedToken>,
+    ai_composer_skill_completion_menu: Option<AiComposerSkillCompletionMenuState>,
+    ai_composer_skill_completion_selected_ix: usize,
+    ai_composer_skill_completion_dismissed_token: Option<ActivePrefixedToken>,
     ai_worktree_base_branch_picker_state: Entity<SelectState<BranchPickerDelegate>>,
     ai_composer_input_state: Entity<InputState>,
     ai_composer_drafts: BTreeMap<AiComposerDraftKey, AiComposerDraft>,

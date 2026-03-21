@@ -88,6 +88,9 @@ impl DiffViewer {
         }
         self.restore_ai_workspace_state_for_key(next_workspace_key.as_deref());
         self.sync_ai_worktree_base_branch_picker_state(cx);
+        self.ai_composer_skill_completion_menu = None;
+        self.ai_composer_skill_completion_selected_ix = 0;
+        self.ai_composer_skill_completion_dismissed_token = None;
         self.restore_ai_visible_composer_from_current_draft(cx);
         // Some callers update the visible thread/draft selection after this returns, so reload the
         // composer completion source from the destination workspace instead of the stale one.

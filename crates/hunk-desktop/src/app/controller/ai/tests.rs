@@ -34,6 +34,7 @@ mod ai_tests {
     use super::drain_ai_worker_events;
     use super::group_ai_timeline_rows_for_thread;
     use super::item_status_chip;
+    use super::merge_restored_ai_prompt;
     use super::is_supported_ai_image_path;
     use super::is_command_name_without_path;
     use super::normalized_thread_session_state;
@@ -72,11 +73,13 @@ mod ai_tests {
     use super::take_restorable_ai_pending_steers;
     use crate::app::AiComposerDraft;
     use crate::app::AiComposerDraftKey;
+    use crate::app::AiComposerSkillBinding;
     use crate::app::AiNewThreadStartMode;
     use crate::app::AiQueuedUserMessage;
     use crate::app::AiQueuedUserMessageStatus;
     use crate::app::AiPendingSteer;
     use crate::app::AiPendingThreadStart;
+    use crate::app::AiPromptSkillReference;
     use crate::app::AiThreadTitleRefreshState;
     use crate::app::AiTextSelection;
     use crate::app::AiTextSelectionSurfaceSpec;
@@ -84,6 +87,7 @@ mod ai_tests {
     use crate::app::AiTimelineRowSource;
     use crate::app::AiWorkspaceState;
     use crate::app::DiffViewer;
+    use crate::app::ai_composer_completion::merge_rebased_ai_composer_skill_bindings;
     use crate::app::ai_runtime::AiWorkspaceThreadCatalog;
     use crate::app::ai_runtime::AiPendingUserInputQuestion;
     use crate::app::ai_runtime::AiPendingUserInputQuestionOption;

@@ -96,6 +96,28 @@ impl AiNewThreadStartMode {
 struct AiComposerDraft {
     prompt: String,
     local_images: Vec<PathBuf>,
+    skill_bindings: Vec<AiComposerSkillBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiValidatedPrompt {
+    prompt: String,
+    local_images: Vec<PathBuf>,
+    selected_skills: Vec<AiPromptSkillReference>,
+    skill_bindings: Vec<AiComposerSkillBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AiPromptSkillReference {
+    pub(crate) name: String,
+    pub(crate) path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiComposerSkillBinding {
+    token: String,
+    range: Range<usize>,
+    reference: AiPromptSkillReference,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +125,7 @@ struct AiPendingThreadStart {
     workspace_key: String,
     prompt: String,
     local_images: Vec<PathBuf>,
+    skill_bindings: Vec<AiComposerSkillBinding>,
     started_at: Instant,
     start_mode: AiNewThreadStartMode,
     thread_id: Option<String>,
@@ -114,6 +137,8 @@ pub(crate) struct AiPendingSteer {
     turn_id: String,
     prompt: String,
     local_images: Vec<PathBuf>,
+    selected_skills: Vec<AiPromptSkillReference>,
+    skill_bindings: Vec<AiComposerSkillBinding>,
     accepted_after_sequence: u64,
     started_at: Instant,
 }
@@ -130,6 +155,8 @@ pub(crate) struct AiQueuedUserMessage {
     thread_id: String,
     prompt: String,
     local_images: Vec<PathBuf>,
+    selected_skills: Vec<AiPromptSkillReference>,
+    skill_bindings: Vec<AiComposerSkillBinding>,
     queued_at: Instant,
     status: AiQueuedUserMessageStatus,
 }
@@ -166,6 +193,7 @@ struct AiWorkspaceState {
     models: Vec<codex_app_server_protocol::Model>,
     experimental_features: Vec<codex_app_server_protocol::ExperimentalFeature>,
     collaboration_modes: Vec<codex_app_server_protocol::CollaborationModeMask>,
+    skills: Vec<codex_app_server_protocol::SkillMetadata>,
     include_hidden_models: bool,
     selected_model: Option<String>,
     selected_effort: Option<String>,
@@ -207,6 +235,7 @@ impl Default for AiWorkspaceState {
             models: Vec::new(),
             experimental_features: Vec::new(),
             collaboration_modes: Vec::new(),
+            skills: Vec::new(),
             include_hidden_models: true,
             selected_model: None,
             selected_effort: None,

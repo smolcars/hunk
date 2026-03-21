@@ -29,6 +29,7 @@ use codex_app_server_protocol::RateLimitSnapshot;
 use codex_app_server_protocol::ReadOnlyAccess;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewStartParams;
+use codex_app_server_protocol::SkillMetadata;
 use codex_app_server_protocol::ReviewTarget;
 use codex_app_server_protocol::SandboxMode;
 use codex_app_server_protocol::SandboxPolicy;
@@ -68,6 +69,8 @@ use hunk_codex::ws_client::WebSocketEndpoint;
 use crate::app::ai_paths::default_codex_home_path;
 use crate::app::ai_rollout_fallback::find_rollout_path_for_thread;
 use crate::app::ai_rollout_fallback::parse_rollout_fallback;
+use crate::app::AiComposerSkillBinding;
+use crate::app::AiPromptSkillReference;
 
 const HOST_START_TIMEOUT: Duration = Duration::from_secs(10);
 const COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -163,6 +166,7 @@ pub struct AiSnapshot {
     pub models: Vec<Model>,
     pub experimental_features: Vec<ExperimentalFeature>,
     pub collaboration_modes: Vec<CollaborationModeMask>,
+    pub skills: Vec<SkillMetadata>,
     pub include_hidden_models: bool,
     pub mad_max_mode: bool,
 }
@@ -209,6 +213,8 @@ pub enum AiWorkerCommand {
     StartThread {
         prompt: Option<String>,
         local_image_paths: Vec<PathBuf>,
+        selected_skills: Vec<AiPromptSkillReference>,
+        skill_bindings: Vec<AiComposerSkillBinding>,
         session_overrides: AiTurnSessionOverrides,
     },
     SelectThread {
@@ -221,6 +227,8 @@ pub enum AiWorkerCommand {
         thread_id: String,
         prompt: Option<String>,
         local_image_paths: Vec<PathBuf>,
+        selected_skills: Vec<AiPromptSkillReference>,
+        skill_bindings: Vec<AiComposerSkillBinding>,
         session_overrides: AiTurnSessionOverrides,
     },
     InterruptTurn {
@@ -358,6 +366,7 @@ struct AiWorkerRuntime {
     models: Vec<Model>,
     experimental_features: Vec<ExperimentalFeature>,
     collaboration_modes: Vec<CollaborationModeMask>,
+    skills: Vec<SkillMetadata>,
     include_hidden_models: bool,
     tool_registry: DynamicToolRegistry,
     pending_approvals: BTreeMap<String, PendingApproval>,
@@ -438,6 +447,7 @@ impl AiWorkerRuntime {
             models: Vec::new(),
             experimental_features: Vec::new(),
             collaboration_modes: Vec::new(),
+            skills: Vec::new(),
             include_hidden_models: config.include_hidden_models,
             tool_registry: DynamicToolRegistry::new(),
             pending_approvals: BTreeMap::new(),
@@ -485,6 +495,8 @@ impl AiWorkerRuntime {
             AiWorkerCommand::StartThread {
                 prompt,
                 local_image_paths,
+                selected_skills,
+                skill_bindings,
                 session_overrides,
             } => {
                 let mut params = ThreadStartParams {
@@ -516,6 +528,8 @@ impl AiWorkerRuntime {
                         response.thread.id,
                         prompt,
                         local_image_paths,
+                        selected_skills,
+                        skill_bindings,
                         session_overrides,
                     )? {
                         self.send_event(
@@ -551,10 +565,19 @@ impl AiWorkerRuntime {
                 thread_id,
                 prompt,
                 local_image_paths,
+                selected_skills,
+                skill_bindings,
                 session_overrides,
             } => {
                 if let Some(pending_steer) =
-                    self.send_prompt(thread_id, prompt, local_image_paths, session_overrides)?
+                    self.send_prompt(
+                        thread_id,
+                        prompt,
+                        local_image_paths,
+                        selected_skills,
+                        skill_bindings,
+                        session_overrides,
+                    )?
                 {
                     self.send_event(event_tx, AiWorkerEventPayload::SteerAccepted(pending_steer));
                 }
@@ -699,27 +722,19 @@ impl AiWorkerRuntime {
         thread_id: String,
         prompt: Option<String>,
         local_image_paths: Vec<PathBuf>,
+        selected_skills: Vec<AiPromptSkillReference>,
+        skill_bindings: Vec<AiComposerSkillBinding>,
         session_overrides: AiTurnSessionOverrides,
     ) -> Result<Option<AiPendingSteer>, CodexIntegrationError> {
         let trimmed = prompt.as_deref().map(str::trim).filter(|text| !text.is_empty());
-        if trimmed.is_none() && local_image_paths.is_empty() {
+        if trimmed.is_none() && local_image_paths.is_empty() && selected_skills.is_empty() {
             return Ok(None);
         }
         self.service
             .state_mut()
             .set_active_thread_for_cwd(self.workspace_key.clone(), thread_id.clone());
 
-        let mut input = local_image_paths
-            .iter()
-            .cloned()
-            .map(|path| UserInput::LocalImage { path })
-            .collect::<Vec<_>>();
-        if let Some(text) = trimmed {
-            input.push(UserInput::Text {
-                text: text.to_string(),
-                text_elements: Vec::new(),
-            });
-        }
+        let input = prompt_user_input_items(trimmed, local_image_paths.as_slice(), &selected_skills);
         if let Some(in_progress_turn_id) = self.in_progress_turn_id(thread_id.as_str()) {
             let pending_steer = pending_steer_with_state_baseline(
                 self.service.state(),
@@ -727,6 +742,8 @@ impl AiWorkerRuntime {
                 in_progress_turn_id.clone(),
                 trimmed,
                 &local_image_paths,
+                &selected_skills,
+                &skill_bindings,
             );
             let steer_result = self.service.steer_turn(
                 &mut self.session,
@@ -754,6 +771,8 @@ impl AiWorkerRuntime {
                             refreshed_turn_id.clone(),
                             trimmed,
                             &local_image_paths,
+                            &selected_skills,
+                            &skill_bindings,
                         );
                         self.service.steer_turn(
                             &mut self.session,
@@ -993,4 +1012,27 @@ impl AiWorkerRuntime {
             .or_else(|| self.models.first())
             .map(|model| model.id.clone())
     }
+}
+
+fn prompt_user_input_items(
+    trimmed_prompt: Option<&str>,
+    local_image_paths: &[PathBuf],
+    selected_skills: &[AiPromptSkillReference],
+) -> Vec<UserInput> {
+    let mut input = local_image_paths
+        .iter()
+        .cloned()
+        .map(|path| UserInput::LocalImage { path })
+        .collect::<Vec<_>>();
+    if let Some(text) = trimmed_prompt {
+        input.push(UserInput::Text {
+            text: text.to_string(),
+            text_elements: Vec::new(),
+        });
+    }
+    input.extend(selected_skills.iter().cloned().map(|skill| UserInput::Skill {
+        name: skill.name,
+        path: skill.path,
+    }));
+    input
 }

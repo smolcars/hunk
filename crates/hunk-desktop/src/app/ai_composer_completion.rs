@@ -1,8 +1,11 @@
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::Result;
+use codex_app_server_protocol::{SkillMetadata, SkillScope};
 use gpui::{Context, Task, Window};
 use gpui_component::{
     Rope, RopeExt,
@@ -13,9 +16,13 @@ use lsp_types::{
     InsertReplaceEdit, Range as LspRange,
 };
 
+use crate::app::{AiComposerSkillBinding, AiPromptSkillReference};
+
+use super::fuzzy_match::{is_match_boundary, subsequence_match_score};
 use super::repo_file_search::RepoFileSearchProvider;
 
 const AI_COMPOSER_FILE_COMPLETION_LIMIT: usize = 5;
+const AI_COMPOSER_SKILL_COMPLETION_LIMIT: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActivePrefixedToken {
@@ -28,6 +35,21 @@ pub(crate) struct AiComposerFileCompletionMenuState {
     pub(crate) query: String,
     pub(crate) replace_range: Range<usize>,
     pub(crate) items: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AiComposerSkillCompletionItem {
+    pub(crate) name: String,
+    pub(crate) path: PathBuf,
+    pub(crate) display_name: Option<String>,
+    pub(crate) description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AiComposerSkillCompletionMenuState {
+    pub(crate) query: String,
+    pub(crate) replace_range: Range<usize>,
+    pub(crate) items: Vec<AiComposerSkillCompletionItem>,
 }
 
 pub(crate) struct AiComposerFileCompletionProvider {
@@ -169,6 +191,320 @@ pub(crate) fn active_file_completion_token(
     current_prefixed_token(text, cursor_offset, '@', false)
 }
 
+pub(crate) fn active_skill_completion_token(
+    text: &str,
+    cursor_offset: usize,
+) -> Option<ActivePrefixedToken> {
+    current_prefixed_token(text, cursor_offset, '$', true)
+}
+
+pub(crate) fn skill_completion_menu_state(
+    skills: &[SkillMetadata],
+    text: &str,
+    cursor_offset: usize,
+) -> Option<AiComposerSkillCompletionMenuState> {
+    let active_token = active_skill_completion_token(text, cursor_offset)?;
+    let items = matched_skills(
+        skills,
+        active_token.query.as_str(),
+        AI_COMPOSER_SKILL_COMPLETION_LIMIT,
+    );
+    if items.is_empty() {
+        return None;
+    }
+
+    Some(AiComposerSkillCompletionMenuState {
+        query: active_token.query,
+        replace_range: active_token.replace_range,
+        items,
+    })
+}
+
+pub(crate) fn ai_composer_inserted_skill_text(skill_name: &str) -> String {
+    format!("${skill_name} ")
+}
+
+pub(crate) fn ai_composer_inserted_skill_binding(
+    skill_name: &str,
+    path: PathBuf,
+    replace_range: Range<usize>,
+) -> AiComposerSkillBinding {
+    let token = format!("${skill_name}");
+    let start = replace_range.start;
+    let end = start + token.len();
+    AiComposerSkillBinding {
+        token,
+        range: start..end,
+        reference: AiPromptSkillReference {
+            name: skill_name.to_string(),
+            path,
+        },
+    }
+}
+
+pub(crate) fn reconcile_ai_composer_skill_bindings(
+    previous_prompt: &str,
+    previous_bindings: &[AiComposerSkillBinding],
+    next_prompt: &str,
+) -> Vec<AiComposerSkillBinding> {
+    if previous_bindings.is_empty() {
+        return Vec::new();
+    }
+    if previous_prompt == next_prompt {
+        return previous_bindings.to_vec();
+    }
+
+    let Some(edit) = prompt_edit_diff(previous_prompt, next_prompt) else {
+        return previous_bindings
+            .iter()
+            .filter(|binding| binding_token_matches_prompt(binding, next_prompt))
+            .cloned()
+            .collect();
+    };
+
+    previous_bindings
+        .iter()
+        .filter_map(|binding| binding_after_prompt_edit(binding, next_prompt, &edit))
+        .collect()
+}
+
+pub(crate) fn selected_skills_from_bindings(
+    bindings: &[AiComposerSkillBinding],
+    skills: &[SkillMetadata],
+) -> Vec<AiPromptSkillReference> {
+    if bindings.is_empty() || skills.is_empty() {
+        return Vec::new();
+    }
+
+    let mut seen_paths = BTreeSet::new();
+    let mut resolved = Vec::new();
+
+    for binding in bindings {
+        if !skills.iter().any(|skill| {
+            skill.enabled
+                && skill.name == binding.reference.name
+                && skill.path == binding.reference.path
+        }) {
+            continue;
+        }
+        if seen_paths.insert(binding.reference.path.clone()) {
+            resolved.push(binding.reference.clone());
+        }
+    }
+
+    resolved
+}
+
+pub(crate) fn trim_prompt_with_skill_bindings(
+    prompt: &str,
+    bindings: &[AiComposerSkillBinding],
+) -> (String, Vec<AiComposerSkillBinding>) {
+    let trim_start = prompt
+        .chars()
+        .take_while(|ch| ch.is_whitespace())
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let trim_end = prompt.len().saturating_sub(
+        prompt[trim_start..]
+            .chars()
+            .rev()
+            .take_while(|ch| ch.is_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>(),
+    );
+    let trimmed = prompt[trim_start..trim_end].to_string();
+    if bindings.is_empty() {
+        return (trimmed, Vec::new());
+    }
+
+    let trimmed_bindings = bindings
+        .iter()
+        .filter_map(|binding| {
+            if binding.range.start < trim_start || binding.range.end > trim_end {
+                return None;
+            }
+            let shifted = AiComposerSkillBinding {
+                range: (binding.range.start - trim_start)..(binding.range.end - trim_start),
+                ..binding.clone()
+            };
+            binding_token_matches_prompt(&shifted, trimmed.as_str()).then_some(shifted)
+        })
+        .collect();
+
+    (trimmed, trimmed_bindings)
+}
+
+pub(crate) fn merge_rebased_ai_composer_skill_bindings(
+    existing_bindings: &mut Vec<AiComposerSkillBinding>,
+    restored_bindings: &[AiComposerSkillBinding],
+    restored_prompt_offset: Option<usize>,
+    prompt: &str,
+) {
+    let Some(offset) = restored_prompt_offset else {
+        return;
+    };
+    if restored_bindings.is_empty() {
+        return;
+    }
+
+    let mut merged_any = false;
+    for binding in restored_bindings {
+        let Some(start) = offset.checked_add(binding.range.start) else {
+            continue;
+        };
+        let Some(end) = offset.checked_add(binding.range.end) else {
+            continue;
+        };
+        let rebased = AiComposerSkillBinding {
+            range: start..end,
+            ..binding.clone()
+        };
+        if !binding_token_matches_prompt(&rebased, prompt) {
+            continue;
+        }
+        if existing_bindings
+            .iter()
+            .any(|existing| existing == &rebased)
+        {
+            continue;
+        }
+        existing_bindings.push(rebased);
+        merged_any = true;
+    }
+
+    if merged_any {
+        existing_bindings.sort_by(|left, right| {
+            left.range
+                .start
+                .cmp(&right.range.start)
+                .then_with(|| left.range.end.cmp(&right.range.end))
+                .then_with(|| left.token.cmp(&right.token))
+                .then_with(|| left.reference.path.cmp(&right.reference.path))
+        });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PromptEditDiff {
+    previous_range: Range<usize>,
+    next_range: Range<usize>,
+}
+
+fn binding_after_prompt_edit(
+    binding: &AiComposerSkillBinding,
+    next_prompt: &str,
+    edit: &PromptEditDiff,
+) -> Option<AiComposerSkillBinding> {
+    let previous_start = binding.range.start;
+    let previous_end = binding.range.end;
+    let edited_start = edit.previous_range.start;
+    let edited_end = edit.previous_range.end;
+
+    let next_range = if previous_end <= edited_start {
+        binding.range.clone()
+    } else if previous_start >= edited_end {
+        let shifted_start = edit
+            .next_range
+            .end
+            .checked_add(previous_start.saturating_sub(edited_end))?;
+        let shifted_end = shifted_start.checked_add(binding.token.len())?;
+        shifted_start..shifted_end
+    } else {
+        return rebound_binding_after_overlap_edit(binding, next_prompt);
+    };
+
+    let next_binding = AiComposerSkillBinding {
+        range: next_range,
+        ..binding.clone()
+    };
+    binding_token_matches_prompt(&next_binding, next_prompt).then_some(next_binding)
+}
+
+fn binding_token_matches_prompt(binding: &AiComposerSkillBinding, prompt: &str) -> bool {
+    prompt.get(binding.range.clone()).is_some_and(|slice| {
+        slice == binding.token
+            && skill_token_has_boundaries(prompt, binding.range.start, binding.range.end)
+    })
+}
+
+fn rebound_binding_after_overlap_edit(
+    binding: &AiComposerSkillBinding,
+    next_prompt: &str,
+) -> Option<AiComposerSkillBinding> {
+    let mut matches =
+        exact_skill_token_match_ranges(next_prompt, binding.token.as_str()).into_iter();
+    let rebound_range = match (matches.next(), matches.next()) {
+        (Some(range), None) => range,
+        _ => return None,
+    };
+
+    Some(AiComposerSkillBinding {
+        range: rebound_range,
+        ..binding.clone()
+    })
+}
+
+fn exact_skill_token_match_ranges(prompt: &str, token: &str) -> Vec<Range<usize>> {
+    prompt
+        .match_indices(token)
+        .filter_map(|(start, _)| {
+            let end = start + token.len();
+            skill_token_has_boundaries(prompt, start, end).then_some(start..end)
+        })
+        .collect()
+}
+
+fn skill_token_has_boundaries(prompt: &str, start: usize, end: usize) -> bool {
+    let before_ok = prompt[..start]
+        .chars()
+        .next_back()
+        .is_none_or(|ch| !is_skill_token_continuation_char(ch));
+    let after_ok = prompt[end..]
+        .chars()
+        .next()
+        .is_none_or(|ch| !is_skill_token_continuation_char(ch));
+    before_ok && after_ok
+}
+
+fn is_skill_token_continuation_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '$')
+}
+
+fn prompt_edit_diff(previous_prompt: &str, next_prompt: &str) -> Option<PromptEditDiff> {
+    let prefix = common_prefix_len(previous_prompt, next_prompt);
+    let previous_suffix = &previous_prompt[prefix..];
+    let next_suffix = &next_prompt[prefix..];
+    let suffix = common_suffix_len(previous_suffix, next_suffix);
+
+    let previous_end = previous_prompt.len().saturating_sub(suffix);
+    let next_end = next_prompt.len().saturating_sub(suffix);
+    if prefix > previous_end || prefix > next_end {
+        return None;
+    }
+
+    Some(PromptEditDiff {
+        previous_range: prefix..previous_end,
+        next_range: prefix..next_end,
+    })
+}
+
+fn common_prefix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .zip(right.chars())
+        .take_while(|(left, right)| left == right)
+        .map(|(ch, _)| ch.len_utf8())
+        .sum()
+}
+
+fn common_suffix_len(left: &str, right: &str) -> usize {
+    left.chars()
+        .rev()
+        .zip(right.chars().rev())
+        .take_while(|(left, right)| left == right)
+        .map(|(ch, _)| ch.len_utf8())
+        .sum()
+}
+
 fn current_prefixed_token(
     text: &str,
     cursor_offset: usize,
@@ -286,12 +622,269 @@ fn clamp_to_char_boundary(text: &str, cursor_offset: usize) -> usize {
     safe_cursor
 }
 
+fn matched_skills(
+    skills: &[SkillMetadata],
+    query: &str,
+    limit: usize,
+) -> Vec<AiComposerSkillCompletionItem> {
+    let mut ranked = preferred_enabled_skills(skills)
+        .into_iter()
+        .filter_map(|skill| {
+            skill_match_score(query, &skill).map(|score| RankedSkill { skill, score })
+        })
+        .collect::<Vec<_>>();
+
+    ranked.sort_by(compare_ranked_skills);
+    ranked.truncate(limit);
+    ranked
+        .into_iter()
+        .map(|ranked| {
+            let description = skill_summary(&ranked.skill);
+            AiComposerSkillCompletionItem {
+                name: ranked.skill.name,
+                path: ranked.skill.path,
+                display_name: ranked
+                    .skill
+                    .interface
+                    .as_ref()
+                    .and_then(|interface| interface.display_name.clone()),
+                description,
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone)]
+struct RankedSkill {
+    skill: SkillMetadata,
+    score: i32,
+}
+
+fn compare_ranked_skills(left: &RankedSkill, right: &RankedSkill) -> Ordering {
+    right
+        .score
+        .cmp(&left.score)
+        .then_with(|| left.skill.name.len().cmp(&right.skill.name.len()))
+        .then_with(|| left.skill.name.cmp(&right.skill.name))
+        .then_with(|| left.skill.path.cmp(&right.skill.path))
+}
+
+fn skill_match_score(query: &str, skill: &SkillMetadata) -> Option<i32> {
+    let query = normalize_skill_match_key(query);
+    if query.is_empty() {
+        return Some(0);
+    }
+
+    let name = normalize_skill_match_key(skill.name.as_str());
+    let display_name = skill
+        .interface
+        .as_ref()
+        .and_then(|interface| interface.display_name.as_deref())
+        .map(normalize_skill_match_key);
+    let summary = skill_summary(skill).map(|value| normalize_skill_match_key(value.as_str()));
+
+    let mut best_score = None;
+    best_score = merge_score(
+        best_score,
+        primary_skill_match_score(name.as_str(), query.as_str(), 10_000, 8_900, 8_000, 2_000),
+    );
+    if let Some(display_name) = display_name.as_ref() {
+        best_score = merge_score(
+            best_score,
+            primary_skill_match_score(
+                display_name.as_str(),
+                query.as_str(),
+                9_600,
+                8_500,
+                7_600,
+                1_800,
+            ),
+        );
+    }
+    if let Some(summary) = summary.as_ref() {
+        best_score = merge_score(
+            best_score,
+            secondary_skill_match_score(summary.as_str(), query.as_str(), 5_800, 4_600),
+        );
+    }
+
+    best_score
+}
+
+fn primary_skill_match_score(
+    candidate: &str,
+    query: &str,
+    exact_score: i32,
+    starts_with_score: i32,
+    contains_score: i32,
+    subsequence_floor: i32,
+) -> Option<i32> {
+    if candidate.is_empty() {
+        return None;
+    }
+
+    let mut best_score = None;
+    if candidate == query {
+        best_score = Some(exact_score);
+    }
+
+    if candidate.starts_with(query) {
+        let score = starts_with_score - (candidate.len() as i32 - query.len() as i32).max(0);
+        best_score = merge_score(best_score, Some(score));
+    }
+
+    if let Some(position) = candidate.find(query) {
+        let boundary_bonus = if position == 0
+            || is_match_boundary(candidate.as_bytes()[position.saturating_sub(1)])
+        {
+            180
+        } else {
+            0
+        };
+        let score = contains_score + boundary_bonus
+            - (position as i32 * 10)
+            - (candidate.len() as i32 - query.len() as i32).max(0);
+        best_score = merge_score(best_score, Some(score));
+    }
+
+    if let Some(score) = subsequence_match_score(candidate, query) {
+        best_score = merge_score(best_score, Some(score.max(subsequence_floor)));
+    }
+
+    best_score
+}
+
+fn secondary_skill_match_score(
+    candidate: &str,
+    query: &str,
+    contains_score: i32,
+    subsequence_floor: i32,
+) -> Option<i32> {
+    if candidate.is_empty() {
+        return None;
+    }
+
+    let mut best_score = None;
+    if let Some(position) = candidate.find(query) {
+        let score = contains_score - (position as i32 * 4);
+        best_score = merge_score(best_score, Some(score));
+    }
+
+    if let Some(score) = subsequence_match_score(candidate, query) {
+        best_score = merge_score(best_score, Some(score.max(subsequence_floor)));
+    }
+
+    best_score
+}
+
+fn merge_score(current: Option<i32>, next: Option<i32>) -> Option<i32> {
+    match (current, next) {
+        (Some(current), Some(next)) => Some(current.max(next)),
+        (None, Some(next)) => Some(next),
+        (current, None) => current,
+    }
+}
+
+fn preferred_enabled_skills(skills: &[SkillMetadata]) -> Vec<SkillMetadata> {
+    preferred_enabled_skills_by_name(skills)
+        .into_values()
+        .collect::<Vec<_>>()
+}
+
+fn preferred_enabled_skills_by_name(skills: &[SkillMetadata]) -> BTreeMap<String, SkillMetadata> {
+    let mut preferred = BTreeMap::new();
+
+    for skill in skills.iter().filter(|skill| skill.enabled) {
+        match preferred.get(skill.name.as_str()) {
+            Some(existing) if compare_skill_preference(skill, existing) != Ordering::Less => {}
+            _ => {
+                preferred.insert(skill.name.clone(), skill.clone());
+            }
+        }
+    }
+
+    preferred
+}
+
+fn compare_skill_preference(left: &SkillMetadata, right: &SkillMetadata) -> Ordering {
+    skill_scope_rank(left.scope)
+        .cmp(&skill_scope_rank(right.scope))
+        .then_with(|| left.path.cmp(&right.path))
+}
+
+const fn skill_scope_rank(scope: SkillScope) -> u8 {
+    match scope {
+        SkillScope::Repo => 0,
+        SkillScope::User => 1,
+        SkillScope::System => 2,
+        SkillScope::Admin => 3,
+    }
+}
+
+fn skill_summary(skill: &SkillMetadata) -> Option<String> {
+    skill
+        .interface
+        .as_ref()
+        .and_then(|interface| interface.short_description.clone())
+        .or_else(|| skill.short_description.clone())
+        .or_else(|| {
+            let description = skill.description.trim();
+            (!description.is_empty()).then(|| description.to_string())
+        })
+}
+
+fn normalize_skill_match_key(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ActivePrefixedToken, active_file_completion_token, inserted_path_text};
+    use std::path::PathBuf;
+
+    use crate::app::{AiComposerSkillBinding, AiPromptSkillReference};
+    use codex_app_server_protocol::{SkillInterface, SkillMetadata, SkillScope};
+
+    use super::{
+        ActivePrefixedToken, active_file_completion_token, active_skill_completion_token,
+        ai_composer_inserted_skill_binding, inserted_path_text,
+        reconcile_ai_composer_skill_bindings, selected_skills_from_bindings,
+        skill_completion_menu_state,
+    };
 
     fn token(text: &str, cursor_offset: usize) -> Option<ActivePrefixedToken> {
         active_file_completion_token(text, cursor_offset)
+    }
+
+    fn skill_token(text: &str, cursor_offset: usize) -> Option<ActivePrefixedToken> {
+        active_skill_completion_token(text, cursor_offset)
+    }
+
+    fn skill(name: &str) -> SkillMetadata {
+        SkillMetadata {
+            name: name.to_string(),
+            description: format!("{name} skill"),
+            short_description: None,
+            interface: None,
+            dependencies: None,
+            path: PathBuf::from(format!("/skills/{name}/SKILL.md")),
+            scope: SkillScope::Repo,
+            enabled: true,
+        }
+    }
+
+    fn selected_skill(name: &str) -> AiPromptSkillReference {
+        AiPromptSkillReference {
+            name: name.to_string(),
+            path: PathBuf::from(format!("/skills/{name}/SKILL.md")),
+        }
+    }
+
+    fn binding(name: &str, start: usize) -> AiComposerSkillBinding {
+        AiComposerSkillBinding {
+            token: format!("${name}"),
+            range: start..start + name.len() + 1,
+            reference: selected_skill(name),
+        }
     }
 
     #[test]
@@ -377,6 +970,199 @@ mod tests {
     fn active_file_completion_token_ignores_mid_word_at() {
         assert_eq!(token("foo@bar", 7), None);
         assert_eq!(token("prefix foo@bar", 14), None);
+    }
+
+    #[test]
+    fn active_skill_completion_token_shows_bare_dollar() {
+        assert_eq!(
+            skill_token("$", 1),
+            Some(ActivePrefixedToken {
+                query: String::new(),
+                replace_range: 0..1,
+            })
+        );
+        assert_eq!(
+            skill_token("use $", 5),
+            Some(ActivePrefixedToken {
+                query: String::new(),
+                replace_range: 4..5,
+            })
+        );
+    }
+
+    #[test]
+    fn active_skill_completion_token_tracks_name_inside_token() {
+        let text = "use $gpui-component now";
+
+        assert_eq!(
+            skill_token(text, 7),
+            Some(ActivePrefixedToken {
+                query: "gpui-component".to_string(),
+                replace_range: 4..19,
+            })
+        );
+        assert_eq!(
+            skill_token(text, 15),
+            Some(ActivePrefixedToken {
+                query: "gpui-component".to_string(),
+                replace_range: 4..19,
+            })
+        );
+    }
+
+    #[test]
+    fn skill_completion_menu_ranks_name_matches_over_description_matches() {
+        let mut docs = skill("openai-docs");
+        docs.description = "Official OpenAI docs".to_string();
+        let mut creator = skill("skill-creator");
+        creator.description = "Create new skills".to_string();
+
+        let menu =
+            skill_completion_menu_state(&[creator, docs], "$skill", 6).expect("menu should exist");
+        assert_eq!(menu.items[0].name, "skill-creator");
+    }
+
+    #[test]
+    fn skill_completion_menu_uses_display_name_and_summary() {
+        let mut gpui = skill("gpui-component");
+        gpui.interface = Some(SkillInterface {
+            display_name: Some("GPUI Component".to_string()),
+            short_description: Some("Reusable GPUI UI components".to_string()),
+            icon_small: None,
+            icon_large: None,
+            brand_color: None,
+            default_prompt: None,
+        });
+
+        let menu = skill_completion_menu_state(&[gpui], "$", 1)
+            .expect("menu should exist for bare dollar");
+        assert_eq!(
+            menu.items[0].display_name.as_deref(),
+            Some("GPUI Component")
+        );
+        assert_eq!(
+            menu.items[0].description.as_deref(),
+            Some("Reusable GPUI UI components")
+        );
+    }
+
+    #[test]
+    fn ai_composer_inserted_skill_binding_tracks_token_range() {
+        let binding = ai_composer_inserted_skill_binding(
+            "gpui",
+            PathBuf::from("/skills/gpui/SKILL.md"),
+            4..9,
+        );
+
+        assert_eq!(binding.token, "$gpui");
+        assert_eq!(binding.range, 4..9);
+        assert_eq!(binding.reference, selected_skill("gpui"));
+    }
+
+    #[test]
+    fn reconcile_skill_bindings_shifts_ranges_after_prefix_insert() {
+        let bindings = vec![binding("gpui", 4)];
+
+        let reconciled = reconcile_ai_composer_skill_bindings(
+            "Use $gpui now",
+            bindings.as_slice(),
+            "Please use $gpui now",
+        );
+
+        assert_eq!(reconciled, vec![binding("gpui", 11)]);
+    }
+
+    #[test]
+    fn reconcile_skill_bindings_drops_binding_when_token_is_edited() {
+        let bindings = vec![binding("gpui", 4)];
+
+        let reconciled = reconcile_ai_composer_skill_bindings(
+            "Use $gpui now",
+            bindings.as_slice(),
+            "Use $gpux now",
+        );
+
+        assert!(reconciled.is_empty());
+    }
+
+    #[test]
+    fn reconcile_skill_bindings_rebinds_moved_token_when_match_is_unique() {
+        let bindings = vec![binding("gpui", 4)];
+        let next_prompt = "Now use this later: $gpui";
+
+        let reconciled =
+            reconcile_ai_composer_skill_bindings("Use $gpui now", bindings.as_slice(), next_prompt);
+
+        let rebound_start = next_prompt
+            .find("$gpui")
+            .expect("moved token should exist in the next prompt");
+        assert_eq!(reconciled, vec![binding("gpui", rebound_start)]);
+    }
+
+    #[test]
+    fn reconcile_skill_bindings_drops_binding_when_move_is_ambiguous() {
+        let bindings = vec![binding("gpui", 4)];
+
+        let reconciled = reconcile_ai_composer_skill_bindings(
+            "Use $gpui now",
+            bindings.as_slice(),
+            "$gpui and then $gpui",
+        );
+
+        assert!(reconciled.is_empty());
+    }
+
+    #[test]
+    fn reconcile_skill_bindings_does_not_rebind_inside_longer_skill_name() {
+        let bindings = vec![binding("gpui", 4)];
+
+        let reconciled = reconcile_ai_composer_skill_bindings(
+            "Use $gpui now",
+            bindings.as_slice(),
+            "Use $gpui-helper now",
+        );
+
+        assert!(reconciled.is_empty());
+    }
+
+    #[test]
+    fn selected_skills_from_bindings_uses_only_matching_enabled_skills() {
+        let mut repo_gpui = skill("gpui");
+        repo_gpui.scope = SkillScope::Repo;
+        repo_gpui.path = PathBuf::from("/repo/.codex/skills/gpui/SKILL.md");
+
+        let mut installer = skill("skill-installer");
+        installer.enabled = false;
+
+        let bindings = vec![
+            AiComposerSkillBinding {
+                token: "$gpui".to_string(),
+                range: 0..5,
+                reference: AiPromptSkillReference {
+                    name: "gpui".to_string(),
+                    path: repo_gpui.path.clone(),
+                },
+            },
+            AiComposerSkillBinding {
+                token: "$skill-installer".to_string(),
+                range: 10..26,
+                reference: AiPromptSkillReference {
+                    name: "skill-installer".to_string(),
+                    path: installer.path.clone(),
+                },
+            },
+        ];
+
+        let selected =
+            selected_skills_from_bindings(bindings.as_slice(), &[repo_gpui.clone(), installer]);
+
+        assert_eq!(
+            selected,
+            vec![AiPromptSkillReference {
+                name: "gpui".to_string(),
+                path: repo_gpui.path,
+            }]
+        );
     }
 
     #[test]
