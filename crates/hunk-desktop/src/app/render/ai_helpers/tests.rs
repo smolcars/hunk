@@ -7,6 +7,7 @@ mod ai_helper_tests {
     use super::ai_terminal_screen_grid;
     use super::ai_command_execution_display_details;
     use super::ai_command_execution_terminal_text;
+    use super::ai_command_execution_transcript_width;
     use super::ai_composer_status_tone;
     use super::ai_collaboration_picker_label;
     use super::ai_display_path_parts;
@@ -534,6 +535,14 @@ mod ai_helper_tests {
         assert!(text.contains("one\ntwo"));
         assert!(!text.contains("three\nfour"));
         assert!(text.contains("... output truncated to the first 2 lines ..."));
+    }
+
+    #[test]
+    fn command_execution_transcript_width_is_capped_for_extreme_lines() {
+        let wide_line = "x".repeat(20_000);
+        let width = ai_command_execution_transcript_width(wide_line.as_str());
+
+        assert_eq!(f32::from(width), 4096.0);
     }
 
     #[test]

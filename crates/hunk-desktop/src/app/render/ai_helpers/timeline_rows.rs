@@ -639,6 +639,7 @@ fn ai_tool_detail_section(
 const AI_COMMAND_PREVIEW_MAX_OUTPUT_LINES: usize = 40;
 const AI_COMMAND_EXECUTION_CARD_MAX_WIDTH: f32 = 940.0;
 const AI_COMMAND_EXECUTION_TRANSCRIPT_MIN_WIDTH: f32 = 860.0;
+const AI_COMMAND_EXECUTION_TRANSCRIPT_MAX_WIDTH: f32 = 4096.0;
 const AI_COMMAND_EXECUTION_MONO_CHAR_WIDTH: f32 = 8.0;
 
 fn ai_command_execution_status_color(
@@ -664,7 +665,13 @@ fn ai_command_execution_transcript_width(content: &str) -> gpui::Pixels {
         .unwrap_or(0) as f32;
     let estimated_width =
         (longest_line_chars * AI_COMMAND_EXECUTION_MONO_CHAR_WIDTH) + 24.0;
-    px(estimated_width.max(AI_COMMAND_EXECUTION_TRANSCRIPT_MIN_WIDTH))
+    px(
+        estimated_width
+            .clamp(
+                AI_COMMAND_EXECUTION_TRANSCRIPT_MIN_WIDTH,
+                AI_COMMAND_EXECUTION_TRANSCRIPT_MAX_WIDTH,
+            ),
+    )
 }
 
 fn ai_command_execution_terminal_text(
