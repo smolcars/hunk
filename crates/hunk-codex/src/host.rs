@@ -736,6 +736,7 @@ fn take_tracked_host_processes() -> Vec<u32> {
 #[cfg(unix)]
 fn cleanup_tracked_host_process(process_id: u32) {
     if !process_group_exists(process_id) {
+        let _ = reap_child_process(process_id);
         return;
     }
 
@@ -755,6 +756,7 @@ fn cleanup_tracked_host_process(process_id: u32) {
     {
         warn!("failed to kill tracked codex host process group {process_id}: {error}");
     }
+    let _ = wait_for_process_group_exit(process_id, STOP_TERM_GRACE_TIMEOUT);
 }
 
 #[cfg(unix)]
@@ -805,6 +807,13 @@ fn process_group_exists(process_id: u32) -> bool {
 fn wait_for_process_group_exit(process_id: u32, timeout: Duration) -> bool {
     let started_at = Instant::now();
     loop {
+        match reap_child_process(process_id) {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(error) => {
+                warn!("failed to reap tracked codex host process {process_id}: {error}");
+            }
+        }
         if !process_group_exists(process_id) {
             return true;
         }
@@ -813,4 +822,24 @@ fn wait_for_process_group_exit(process_id: u32, timeout: Duration) -> bool {
         }
         thread::sleep(STOP_TERM_POLL_INTERVAL);
     }
+}
+
+#[cfg(unix)]
+fn reap_child_process(process_id: u32) -> io::Result<bool> {
+    let process_id = i32::try_from(process_id)
+        .map_err(|_| io::Error::other(format!("process id {process_id} does not fit in i32")))?;
+    let mut status = 0;
+    let waited = unsafe { libc::waitpid(process_id, &mut status, libc::WNOHANG) };
+    if waited == process_id {
+        return Ok(true);
+    }
+    if waited == 0 {
+        return Ok(false);
+    }
+
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ECHILD) {
+        return Ok(true);
+    }
+    Err(error)
 }
