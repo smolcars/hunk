@@ -13,6 +13,7 @@ use crate::vt::{TerminalScreenSnapshot, TerminalScroll, TerminalVt};
 
 const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const READ_BUFFER_BYTES: usize = 8192;
+const TERMINAL_CURSOR_POSITION_QUERY: &[u8] = b"\x1b[6n";
 
 #[derive(Debug, Clone)]
 pub struct TerminalSpawnRequest {
@@ -51,6 +52,8 @@ enum TerminalControl {
     Scroll(TerminalScroll),
     WriteInput(Vec<u8>),
 }
+
+type SharedTerminalWriter = Arc<Mutex<Box<dyn std::io::Write + Send>>>;
 
 pub struct TerminalSessionHandle {
     control_tx: Sender<TerminalControl>,
@@ -107,7 +110,9 @@ pub fn spawn_terminal_session(
     drop(pair.slave);
 
     let mut reader = pair.master.try_clone_reader().context("clone PTY reader")?;
-    let mut writer = pair.master.take_writer().context("take PTY writer")?;
+    let writer: SharedTerminalWriter = Arc::new(Mutex::new(
+        pair.master.take_writer().context("take PTY writer")?,
+    ));
     let vt = Arc::new(Mutex::new(TerminalVt::new(request.rows, request.cols)));
     let (event_tx, event_rx) = mpsc::channel();
     let (control_tx, control_rx) = mpsc::channel();
@@ -118,8 +123,10 @@ pub fn spawn_terminal_session(
 
     let output_tx = event_tx.clone();
     let output_vt = Arc::clone(&vt);
+    let output_writer = Arc::clone(&writer);
     thread::spawn(move || {
         let mut buffer = [0_u8; READ_BUFFER_BYTES];
+        let mut query_responder = TerminalQueryResponder::default();
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
@@ -129,6 +136,20 @@ pub fn spawn_terminal_session(
                         Ok(mut vt) => Some(vt.advance(bytes.as_slice())),
                         Err(_) => None,
                     };
+                    if let Some(snapshot) = snapshot.as_ref() {
+                        // ConPTY can emit a cursor-position query during startup; answer it
+                        // from the current VT cursor so Windows shells don't stall on launch.
+                        for response in query_responder.responses(bytes.as_slice(), snapshot) {
+                            if let Err(error) =
+                                write_terminal_bytes(&output_writer, response.as_slice())
+                            {
+                                let _ = output_tx.send(TerminalEvent::Failed(format!(
+                                    "Failed to respond to terminal query: {error}"
+                                )));
+                                return;
+                            }
+                        }
+                    }
                     if output_tx.send(TerminalEvent::Output(bytes)).is_err() {
                         break;
                     }
@@ -149,6 +170,7 @@ pub fn spawn_terminal_session(
     });
 
     let control_vt = Arc::clone(&vt);
+    let control_writer = Arc::clone(&writer);
     thread::spawn(move || {
         let master = pair.master;
         let mut child_exit_reported = false;
@@ -187,14 +209,9 @@ pub fn spawn_terminal_session(
                     if child_exit_reported {
                         continue;
                     }
-                    if let Err(error) = writer.write_all(input.as_slice()) {
+                    if let Err(error) = write_terminal_bytes(&control_writer, input.as_slice()) {
                         let _ = event_tx.send(TerminalEvent::Failed(format!(
                             "Failed to write terminal input: {error}"
-                        )));
-                    }
-                    if let Err(error) = writer.flush() {
-                        let _ = event_tx.send(TerminalEvent::Failed(format!(
-                            "Failed to flush terminal input: {error}"
                         )));
                     }
                 }
@@ -230,12 +247,63 @@ pub fn spawn_terminal_session(
     Ok((TerminalSessionHandle { control_tx }, event_rx))
 }
 
+fn write_terminal_bytes(writer: &SharedTerminalWriter, input: &[u8]) -> Result<()> {
+    let mut writer = writer
+        .lock()
+        .map_err(|_| anyhow::anyhow!("terminal writer poisoned"))?;
+    writer.write_all(input).context("write terminal bytes")?;
+    writer.flush().context("flush terminal bytes")?;
+    Ok(())
+}
+
+#[derive(Default)]
+struct TerminalQueryResponder {
+    trailing_bytes: Vec<u8>,
+}
+
+impl TerminalQueryResponder {
+    fn responses(&mut self, bytes: &[u8], screen: &TerminalScreenSnapshot) -> Vec<Vec<u8>> {
+        let mut combined = Vec::with_capacity(self.trailing_bytes.len() + bytes.len());
+        combined.extend_from_slice(self.trailing_bytes.as_slice());
+        combined.extend_from_slice(bytes);
+
+        let mut responses = Vec::new();
+        let mut index = 0usize;
+        while index + TERMINAL_CURSOR_POSITION_QUERY.len() <= combined.len() {
+            if combined[index..].starts_with(TERMINAL_CURSOR_POSITION_QUERY) {
+                responses.push(terminal_cursor_position_response(screen));
+                index += TERMINAL_CURSOR_POSITION_QUERY.len();
+                continue;
+            }
+            index += 1;
+        }
+
+        let keep = combined
+            .len()
+            .min(TERMINAL_CURSOR_POSITION_QUERY.len().saturating_sub(1));
+        self.trailing_bytes.clear();
+        self.trailing_bytes
+            .extend_from_slice(&combined[combined.len().saturating_sub(keep)..]);
+
+        responses
+    }
+}
+
+fn terminal_cursor_position_response(screen: &TerminalScreenSnapshot) -> Vec<u8> {
+    let row = screen.cursor.line.max(0) as usize + 1;
+    let column = screen.cursor.column + 1;
+    format!("\x1b[{row};{column}R").into_bytes()
+}
+
 fn shell_command_builder(command: &str, cwd: &Path) -> CommandBuilder {
     #[cfg(target_os = "windows")]
     {
         let shell = windows_shell_program();
         let is_cmd = shell_is_cmd(shell.as_os_str());
         let mut builder = CommandBuilder::new(shell);
+        if is_cmd && std::env::var_os("PROMPT").is_none() {
+            builder.env("PROMPT", "$P$G$S");
+        }
         if command.trim().is_empty() {
             if !is_cmd {
                 builder.arg("-NoLogo");

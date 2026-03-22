@@ -930,12 +930,7 @@ fn render_ai_compact_diff_summary_row(
         .iter()
         .take(AI_TURN_DIFF_VISIBLE_FILE_LIMIT)
         .map(|file| {
-            let path = file.path.as_str();
-            let file_name = path.rsplit('/').next().unwrap_or(path).to_string();
-            let directory = path
-                .rsplit_once('/')
-                .map(|(prefix, _)| prefix.to_string())
-                .filter(|prefix| !prefix.is_empty());
+            let (file_name, directory) = ai_display_path_parts(file.path.as_str());
 
             h_flex()
                 .w_full()
@@ -1096,6 +1091,29 @@ fn render_ai_compact_diff_summary_row(
     } else {
         ai_timeline_row_with_animation(this, row_id_string.as_str(), wrapped_row)
     }
+}
+
+fn ai_display_path_parts(path: &str) -> (String, Option<String>) {
+    let normalized = path.trim().trim_end_matches(['/', '\\']);
+    if normalized.is_empty() {
+        return ("changes".to_string(), None);
+    }
+
+    let Some(separator_ix) = normalized.rfind(['/', '\\']) else {
+        return (normalized.to_string(), None);
+    };
+    let file_name = normalized[separator_ix + 1..].trim();
+    if file_name.is_empty() {
+        return (normalized.to_string(), None);
+    }
+
+    let directory = normalized[..separator_ix]
+        .trim()
+        .to_string();
+    (
+        file_name.to_string(),
+        (!directory.is_empty()).then_some(directory),
+    )
 }
 
 fn render_ai_turn_diff_row(

@@ -9,6 +9,7 @@ mod ai_helper_tests {
     use super::ai_command_execution_terminal_text;
     use super::ai_composer_status_tone;
     use super::ai_collaboration_picker_label;
+    use super::ai_display_path_parts;
     use super::ai_file_change_summary;
     use super::ai_should_show_no_turns_empty_state;
     use super::ai_tool_compact_summary;
@@ -633,6 +634,18 @@ diff --git a/crates/hunk-desktop/src/app/render/ai.rs b/crates/hunk-desktop/src/
         assert_eq!(summary.files[1].path, "docs/beta.md");
         assert_eq!(summary.files[1].added, 1);
         assert_eq!(summary.files[1].removed, 1);
+    }
+
+    #[test]
+    fn display_path_parts_split_windows_paths() {
+        let (file_name, directory) =
+            ai_display_path_parts(r"C:\Users\nites\Documents\hunk\src\main.rs");
+
+        assert_eq!(file_name, "main.rs");
+        assert_eq!(
+            directory.as_deref(),
+            Some(r"C:\Users\nites\Documents\hunk\src")
+        );
     }
 
     #[test]
