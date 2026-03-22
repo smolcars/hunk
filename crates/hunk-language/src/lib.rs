@@ -360,9 +360,11 @@ impl SyntaxSession {
 
         self.parse_status = ParseStatus::Parsing;
         let next_language_id = Some(language.id);
-        if self.language_id != next_language_id {
-            self.tree = None;
-        }
+        // Safe incremental reparsing requires applying a matching Tree::edit before
+        // reusing the previous tree. Until the editor feeds precise text edits into
+        // syntax sessions, always force a fresh parse to avoid handing tree-sitter
+        // a stale tree from an older document revision.
+        self.tree = None;
         self.parser.set_language(&language.language())?;
         let next_tree = self.parser.parse(source, self.tree.as_ref());
         self.tree = next_tree;
