@@ -128,6 +128,12 @@ impl DiffViewer {
         }) {
             self.ai_pending_thread_start = None;
         }
+        self.ai_handle_terminal_thread_change(
+            previous_selected_thread.clone(),
+            self.ai_selected_thread_id.clone(),
+            cx,
+        );
+        self.ai_prune_terminal_threads("applying AI snapshot", cx);
         if should_scroll_timeline_to_bottom_on_selection_change(
             previous_selected_thread.as_deref(),
             self.ai_selected_thread_id.as_deref(),
@@ -766,6 +772,11 @@ impl DiffViewer {
             selected_collaboration_mode: current_state.selected_collaboration_mode,
             selected_service_tier: current_state.selected_service_tier,
             mad_max_mode: current_state.mad_max_mode,
+            terminal_open: current_state.terminal_open,
+            terminal_follow_output: current_state.terminal_follow_output,
+            terminal_height_px: current_state.terminal_height_px,
+            terminal_input_draft: current_state.terminal_input_draft.clone(),
+            terminal_session: current_state.terminal_session.clone(),
         }
     }
 

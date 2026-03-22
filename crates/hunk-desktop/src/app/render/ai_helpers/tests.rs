@@ -4,10 +4,13 @@ mod ai_helper_tests {
     use super::ai_account_summary;
     use super::ai_markdown_code_block_text;
     use super::ai_markdown_code_block_text_and_highlights;
+    use super::ai_terminal_screen_grid;
     use super::ai_command_execution_display_details;
     use super::ai_command_execution_terminal_text;
+    use super::ai_command_execution_transcript_width;
     use super::ai_composer_status_tone;
     use super::ai_collaboration_picker_label;
+    use super::ai_display_path_parts;
     use super::ai_file_change_summary;
     use super::ai_should_show_no_turns_empty_state;
     use super::ai_tool_compact_summary;
@@ -17,12 +20,28 @@ mod ai_helper_tests {
     use super::ai_item_display_label;
     use super::ai_reasoning_effort_label;
     use super::ai_rate_limit_summary;
+    use super::ai_terminal_selection_surfaces;
+    use super::ai_terminal_selection_columns;
+    use super::ai_terminal_link_ranges;
+    use super::ai_terminal_normalize_file_target;
     use super::ai_turn_diff_summary;
     use super::ai_tool_header_label;
     use super::ai_timeline_item_is_renderable;
     use super::ai_truncate_multiline_content;
+    use super::ai_terminal_supports_text_selection;
+    use crate::app::terminal_cursor::ai_terminal_effective_cursor_shape;
+    use crate::app::terminal_cursor::ai_terminal_cursor_shape_blinks;
+    use crate::app::terminal_cursor::ai_terminal_cursor_visible_for_paint;
     use super::AiCommandExecutionDisplayDetails;
     use crate::app::markdown_links::markdown_inline_text_and_link_ranges;
+    use hunk_terminal::TerminalCellSnapshot;
+    use hunk_terminal::TerminalColorSnapshot;
+    use hunk_terminal::TerminalCursorShapeSnapshot;
+    use hunk_terminal::TerminalCursorSnapshot;
+    use hunk_terminal::TerminalDamageSnapshot;
+    use hunk_terminal::TerminalModeSnapshot;
+    use hunk_terminal::TerminalNamedColorSnapshot;
+    use hunk_terminal::TerminalScreenSnapshot;
     use hunk_codex::state::ItemDisplayMetadata;
     use hunk_codex::state::ItemStatus;
     use hunk_codex::state::ItemSummary;
@@ -146,6 +165,271 @@ mod ai_helper_tests {
         assert_eq!(
             ai_collaboration_picker_label(AiCollaborationModeSelection::Plan),
             "Plan"
+        );
+    }
+
+    #[test]
+    fn terminal_screen_grid_places_cells_and_cursor_in_visible_rows() {
+        let screen = TerminalScreenSnapshot {
+            rows: 2,
+            cols: 4,
+            display_offset: 0,
+            cursor: TerminalCursorSnapshot {
+                line: 1,
+                column: 2,
+                shape: TerminalCursorShapeSnapshot::Block,
+            },
+            mode: TerminalModeSnapshot {
+                show_cursor: true,
+                ..TerminalModeSnapshot::default()
+            },
+            damage: TerminalDamageSnapshot::Full,
+            cells: vec![
+                TerminalCellSnapshot {
+                    line: 0,
+                    column: 0,
+                    character: 'h',
+                    fg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
+                    bg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Background),
+                    flags: 0,
+                    zerowidth: Vec::new(),
+                },
+                TerminalCellSnapshot {
+                    line: 1,
+                    column: 1,
+                    character: 'i',
+                    fg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
+                    bg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Background),
+                    flags: 0,
+                    zerowidth: Vec::new(),
+                },
+            ],
+        };
+
+        let grid = ai_terminal_screen_grid(&screen);
+        assert_eq!(grid.len(), 2);
+        assert_eq!(grid[0].len(), 4);
+        assert_eq!(grid[0][0].character, 'h');
+        assert_eq!(grid[1][1].character, 'i');
+        assert!(grid[1][2].cursor);
+    }
+
+    #[test]
+    fn terminal_screen_grid_preserves_zero_width_marks() {
+        let screen = TerminalScreenSnapshot {
+            rows: 1,
+            cols: 2,
+            display_offset: 0,
+            cursor: TerminalCursorSnapshot {
+                line: 0,
+                column: 0,
+                shape: TerminalCursorShapeSnapshot::Block,
+            },
+            mode: TerminalModeSnapshot::default(),
+            damage: TerminalDamageSnapshot::Full,
+            cells: vec![TerminalCellSnapshot {
+                line: 0,
+                column: 0,
+                character: 'e',
+                fg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
+                bg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Background),
+                flags: 0,
+                zerowidth: vec!['\u{301}'],
+            }],
+        };
+
+        let grid = ai_terminal_screen_grid(&screen);
+        assert_eq!(grid[0][0].character, 'e');
+        assert_eq!(grid[0][0].zerowidth, "\u{301}");
+    }
+
+    #[test]
+    fn terminal_screen_grid_skips_wide_character_spacer_cells() {
+        let screen = TerminalScreenSnapshot {
+            rows: 1,
+            cols: 3,
+            display_offset: 0,
+            cursor: TerminalCursorSnapshot {
+                line: 0,
+                column: 2,
+                shape: TerminalCursorShapeSnapshot::Block,
+            },
+            mode: TerminalModeSnapshot {
+                show_cursor: true,
+                ..TerminalModeSnapshot::default()
+            },
+            damage: TerminalDamageSnapshot::Full,
+            cells: vec![
+                TerminalCellSnapshot {
+                    line: 0,
+                    column: 0,
+                    character: '好',
+                    fg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
+                    bg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Background),
+                    flags: 0b0000_0000_0010_0000,
+                    zerowidth: Vec::new(),
+                },
+                TerminalCellSnapshot {
+                    line: 0,
+                    column: 1,
+                    character: ' ',
+                    fg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
+                    bg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Background),
+                    flags: 0b0000_0000_0100_0000,
+                    zerowidth: Vec::new(),
+                },
+                TerminalCellSnapshot {
+                    line: 0,
+                    column: 2,
+                    character: 'x',
+                    fg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Foreground),
+                    bg: TerminalColorSnapshot::Named(TerminalNamedColorSnapshot::Background),
+                    flags: 0,
+                    zerowidth: Vec::new(),
+                },
+            ],
+        };
+
+        let grid = ai_terminal_screen_grid(&screen);
+        assert_eq!(grid[0][0].character, '好');
+        assert_eq!(grid[0][1].character, ' ');
+        assert_eq!(grid[0][2].character, 'x');
+        assert!(grid[0][2].cursor);
+    }
+
+    #[test]
+    fn terminal_selection_surfaces_insert_newline_separators_between_rows() {
+        let surfaces = ai_terminal_selection_surfaces(
+            &[
+                super::AiTerminalPaintLine {
+                    surface_id: "surface-a".into(),
+                    text: "hello".into(),
+                    column_byte_offsets: vec![0, 1, 2, 3, 4, 5].into(),
+                    link_ranges: Vec::new().into(),
+                    background_rects: Vec::<super::AiTerminalBackgroundRect>::new().into(),
+                    cursor_overlays: Vec::<super::AiTerminalCursorOverlay>::new().into(),
+                    text_runs: Vec::<gpui::TextRun>::new().into(),
+                    selection_range: None,
+                },
+                super::AiTerminalPaintLine {
+                    surface_id: "surface-b".into(),
+                    text: "world".into(),
+                    column_byte_offsets: vec![0, 1, 2, 3, 4, 5].into(),
+                    link_ranges: Vec::new().into(),
+                    background_rects: Vec::<super::AiTerminalBackgroundRect>::new().into(),
+                    cursor_overlays: Vec::<super::AiTerminalCursorOverlay>::new().into(),
+                    text_runs: Vec::<gpui::TextRun>::new().into(),
+                    selection_range: None,
+                },
+            ],
+        );
+
+        assert_eq!(surfaces.len(), 2);
+        assert_eq!(surfaces[0].separator_before, "");
+        assert_eq!(surfaces[1].separator_before, "\n");
+        assert_eq!(surfaces[0].text, "hello");
+        assert_eq!(surfaces[1].text, "world");
+    }
+
+    #[test]
+    fn terminal_text_selection_is_disabled_only_for_alt_screen() {
+        let mut screen = TerminalScreenSnapshot {
+            rows: 1,
+            cols: 1,
+            display_offset: 0,
+            cursor: TerminalCursorSnapshot {
+                line: 0,
+                column: 0,
+                shape: TerminalCursorShapeSnapshot::Block,
+            },
+            mode: TerminalModeSnapshot::default(),
+            damage: TerminalDamageSnapshot::Full,
+            cells: Vec::new(),
+        };
+
+        assert!(ai_terminal_supports_text_selection(&screen));
+
+        screen.mode.alt_screen = true;
+        assert!(!ai_terminal_supports_text_selection(&screen));
+
+        screen.mode.alt_screen = false;
+        screen.mode.mouse_mode = true;
+        assert!(ai_terminal_supports_text_selection(&screen));
+    }
+
+    #[test]
+    fn terminal_selection_columns_follow_byte_boundaries() {
+        assert_eq!(
+            ai_terminal_selection_columns(&[0, 1, 5, 6], &(1..5)),
+            Some((1, 2))
+        );
+        assert_eq!(
+            ai_terminal_selection_columns(&[0, 1, 5, 6], &(0..6)),
+            Some((0, 3))
+        );
+        assert_eq!(ai_terminal_selection_columns(&[0, 1, 5, 6], &(5..5)), None);
+    }
+
+    #[test]
+    fn terminal_link_ranges_detect_urls_and_file_style_paths() {
+        let ranges = ai_terminal_link_ranges(
+            "open https://example.com and src/main.rs:12:5 plus /tmp/log.txt.",
+        );
+
+        assert_eq!(ranges.len(), 3);
+        assert_eq!(ranges[0].raw_target, "https://example.com");
+        assert_eq!(ranges[1].raw_target, "src/main.rs:12");
+        assert_eq!(ranges[2].raw_target, "/tmp/log.txt");
+    }
+
+    #[test]
+    fn terminal_normalize_file_target_drops_column_suffixes() {
+        assert_eq!(
+            ai_terminal_normalize_file_target("src/main.rs:12:5"),
+            Some("src/main.rs:12".to_string())
+        );
+    }
+
+    #[test]
+    fn terminal_cursor_blink_visibility_depends_on_focus_and_shape() {
+        assert!(ai_terminal_cursor_shape_blinks(
+            TerminalCursorShapeSnapshot::Block
+        ));
+        assert!(!ai_terminal_cursor_shape_blinks(
+            TerminalCursorShapeSnapshot::Hidden
+        ));
+
+        assert!(ai_terminal_cursor_visible_for_paint(
+            TerminalCursorShapeSnapshot::Block,
+            false,
+            false,
+            false,
+        ));
+        assert!(ai_terminal_cursor_visible_for_paint(
+            TerminalCursorShapeSnapshot::Underline,
+            true,
+            true,
+            false,
+        ));
+        assert!(!ai_terminal_cursor_visible_for_paint(
+            TerminalCursorShapeSnapshot::Beam,
+            true,
+            false,
+            false,
+        ));
+        assert!(!ai_terminal_cursor_visible_for_paint(
+            TerminalCursorShapeSnapshot::Beam,
+            true,
+            true,
+            true,
+        ));
+        assert_eq!(
+            ai_terminal_effective_cursor_shape(
+                TerminalCursorShapeSnapshot::Block,
+                true,
+                false,
+            ),
+            TerminalCursorShapeSnapshot::Beam,
         );
     }
 
@@ -317,6 +601,14 @@ mod ai_helper_tests {
     }
 
     #[test]
+    fn command_execution_transcript_width_is_capped_for_extreme_lines() {
+        let wide_line = "x".repeat(20_000);
+        let width = ai_command_execution_transcript_width(wide_line.as_str());
+
+        assert_eq!(f32::from(width), 4096.0);
+    }
+
+    #[test]
     fn turn_diff_summary_groups_line_counts_by_file() {
         let diff = "\
 diff --git a/crates/hunk-desktop/src/app/render/ai_composer.rs b/crates/hunk-desktop/src/app/render/ai_composer.rs
@@ -414,6 +706,18 @@ diff --git a/crates/hunk-desktop/src/app/render/ai.rs b/crates/hunk-desktop/src/
         assert_eq!(summary.files[1].path, "docs/beta.md");
         assert_eq!(summary.files[1].added, 1);
         assert_eq!(summary.files[1].removed, 1);
+    }
+
+    #[test]
+    fn display_path_parts_split_windows_paths() {
+        let (file_name, directory) =
+            ai_display_path_parts(r"C:\Users\nites\Documents\hunk\src\main.rs");
+
+        assert_eq!(file_name, "main.rs");
+        assert_eq!(
+            directory.as_deref(),
+            Some(r"C:\Users\nites\Documents\hunk\src")
+        );
     }
 
     #[test]

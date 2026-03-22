@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -11,12 +11,12 @@ use codex_app_server_protocol::SkillMetadata;
 use gpui::{
     AnchoredPositionMode, Animation, AnimationExt as _, AnyElement, AnyWindowHandle, App,
     AppContext as _, Bounds, ClipboardItem, Context, Corner, DragMoveEvent, Empty, Entity,
-    EntityId, EntityInputHandler, FocusHandle, Hsla, InteractiveElement as _, IntoElement,
-    IsZero as _, KeyBinding, ListAlignment, ListOffset, ListSizingBehavior, ListState, Menu,
-    MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, OsAction,
-    ParentElement as _, PathPromptOptions, Pixels, Point, Render, ScrollHandle, ScrollWheelEvent,
-    SharedString, StatefulInteractiveElement as _, Styled as _, SystemMenuType, Task,
-    TitlebarOptions, Window, WindowOptions, actions, anchored, canvas, deferred, div, list, point,
+    EntityId, EntityInputHandler, FocusHandle, InteractiveElement as _, IntoElement, IsZero as _,
+    KeyBinding, ListAlignment, ListOffset, ListSizingBehavior, ListState, Menu, MenuItem,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, OsAction, ParentElement as _,
+    PathPromptOptions, Pixels, Point, Render, ScrollHandle, ScrollWheelEvent, SharedString,
+    StatefulInteractiveElement as _, Styled as _, SystemMenuType, Task, TitlebarOptions, Window,
+    WindowOptions, actions, anchored, canvas, deferred, div, list, point,
     prelude::FluentBuilder as _, px,
 };
 use gpui_component::{
@@ -50,6 +50,12 @@ use hunk_git::history::{
     DEFAULT_RECENT_AUTHORED_COMMIT_LIMIT, RecentCommitSummary, RecentCommitsFingerprint,
 };
 use hunk_git::worktree::WorkspaceTargetSummary;
+use hunk_terminal::{
+    TerminalEvent, TerminalScreenSnapshot, TerminalScroll, TerminalSessionHandle,
+    TerminalSpawnRequest, spawn_terminal_session,
+};
+
+const AI_TERMINAL_TEXT_SELECTION_ROW_ID: &str = "ai-terminal";
 
 use ai_composer_completion::{
     ActivePrefixedToken, AiComposerFileCompletionMenuState, AiComposerFileCompletionProvider,
@@ -152,6 +158,7 @@ mod native_files_editor;
 mod notifications;
 mod render;
 mod repo_file_search;
+mod terminal_cursor;
 mod theme;
 mod workspace_view;
 
@@ -174,6 +181,17 @@ actions!(
         SwitchToReviewView,
         SwitchToGitView,
         SwitchToAiView,
+        AiToggleTerminalDrawer,
+        AiTerminalSendCtrlC,
+        AiTerminalSendCtrlA,
+        AiTerminalSendTab,
+        AiTerminalSendBackTab,
+        AiTerminalSendUp,
+        AiTerminalSendDown,
+        AiTerminalSendLeft,
+        AiTerminalSendRight,
+        AiTerminalSendHome,
+        AiTerminalSendEnd,
         AiNewThread,
         AiNewWorktreeThread,
         AiQueuePrompt,
@@ -424,6 +442,58 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
             .iter()
             .map(|shortcut| KeyBinding::new(shortcut.as_str(), SwitchToAiView, None)),
     );
+    bindings.extend(
+        shortcuts
+            .toggle_ai_terminal_drawer
+            .iter()
+            .map(|shortcut| KeyBinding::new(shortcut.as_str(), AiToggleTerminalDrawer, None)),
+    );
+    bindings.push(KeyBinding::new(
+        "ctrl-c",
+        AiTerminalSendCtrlC,
+        Some("AiTerminal"),
+    ));
+    bindings.push(KeyBinding::new(
+        "ctrl-a",
+        AiTerminalSendCtrlA,
+        Some("AiTerminal"),
+    ));
+    bindings.push(KeyBinding::new(
+        "tab",
+        AiTerminalSendTab,
+        Some("AiTerminal"),
+    ));
+    bindings.push(KeyBinding::new(
+        "shift-tab",
+        AiTerminalSendBackTab,
+        Some("AiTerminal"),
+    ));
+    bindings.push(KeyBinding::new("up", AiTerminalSendUp, Some("AiTerminal")));
+    bindings.push(KeyBinding::new(
+        "down",
+        AiTerminalSendDown,
+        Some("AiTerminal"),
+    ));
+    bindings.push(KeyBinding::new(
+        "left",
+        AiTerminalSendLeft,
+        Some("AiTerminal"),
+    ));
+    bindings.push(KeyBinding::new(
+        "right",
+        AiTerminalSendRight,
+        Some("AiTerminal"),
+    ));
+    bindings.push(KeyBinding::new(
+        "home",
+        AiTerminalSendHome,
+        Some("AiTerminal"),
+    ));
+    bindings.push(KeyBinding::new(
+        "end",
+        AiTerminalSendEnd,
+        Some("AiTerminal"),
+    ));
     bindings.push(KeyBinding::new("cmd-n", AiNewThread, Some("DiffViewer")));
     bindings.push(KeyBinding::new("ctrl-n", AiNewThread, Some("DiffViewer")));
     bindings.push(KeyBinding::new(
@@ -929,6 +999,30 @@ struct DiffViewer {
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_worker_workspace_key: Option<String>,
     ai_draft_workspace_target_id: Option<String>,
+    ai_terminal_states_by_thread: BTreeMap<String, AiThreadTerminalState>,
+    ai_hidden_terminal_runtimes: BTreeMap<String, AiHiddenTerminalRuntimeHandle>,
+    ai_terminal_open: bool,
+    ai_terminal_follow_output: bool,
+    ai_terminal_height_px: f32,
+    ai_terminal_input_draft: String,
+    ai_terminal_session: AiTerminalSessionState,
+    ai_terminal_input_state: Entity<InputState>,
+    ai_terminal_focus_handle: FocusHandle,
+    ai_terminal_surface_focused: bool,
+    ai_terminal_cursor_blink_visible: bool,
+    ai_terminal_cursor_blink_active: bool,
+    ai_terminal_cursor_output_suppressed: bool,
+    ai_terminal_panel_bounds: Option<Bounds<Pixels>>,
+    ai_terminal_grid_size: Option<(u16, u16)>,
+    ai_terminal_pending_input: Option<String>,
+    ai_terminal_event_task: Task<()>,
+    ai_terminal_cursor_blink_task: Task<()>,
+    ai_terminal_cursor_output_task: Task<()>,
+    ai_terminal_runtime: Option<AiTerminalRuntimeHandle>,
+    ai_terminal_cursor_blink_generation: usize,
+    ai_terminal_cursor_output_generation: usize,
+    ai_terminal_runtime_generation: usize,
+    ai_terminal_stop_requested: bool,
     repo_file_search_provider: Rc<RepoFileSearchProvider>,
     repo_file_search_reload_task: Task<()>,
     repo_file_search_loading: bool,
@@ -1075,6 +1169,7 @@ struct DiffViewer {
 impl Drop for DiffViewer {
     fn drop(&mut self) {
         self.files_editor.borrow_mut().shutdown();
+        self.stop_all_ai_terminal_runtimes("dropping app");
         self.shutdown_ai_worker_blocking();
     }
 }

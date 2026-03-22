@@ -556,3 +556,34 @@ fn markdown_frontmatter_html_and_fences_keep_embedded_highlighting() {
             && div_offset < capture.byte_range.end
     }));
 }
+
+#[test]
+fn markdown_reparse_after_text_edits_keeps_highlighting_working() {
+    let registry = LanguageRegistry::builtin();
+    let mut session = SyntaxSession::new();
+    let mut source = "# Hunk\n\n- item\n\n```rust\nfn main() {}\n```\n".to_string();
+
+    for inserted in ["\n", "G", "\n    indented"] {
+        session
+            .parse_for_path(&registry, Path::new("README.md"), source.as_str())
+            .expect("parse markdown");
+        session
+            .highlight_visible_range(&registry, source.as_str(), 0..source.len())
+            .expect("markdown highlights before edit");
+
+        source.push_str(inserted);
+
+        session
+            .parse_for_path(&registry, Path::new("README.md"), source.as_str())
+            .expect("reparse markdown after edit");
+        let captures = session
+            .highlight_visible_range(&registry, source.as_str(), 0..source.len())
+            .expect("markdown highlights after edit");
+
+        assert!(
+            !captures.is_empty(),
+            "markdown highlights should remain available after inserting {:?}",
+            inserted
+        );
+    }
+}

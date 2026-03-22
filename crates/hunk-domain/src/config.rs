@@ -54,6 +54,7 @@ pub struct KeyboardShortcuts {
     #[serde(alias = "switch_to_graph_view")]
     pub switch_to_git_view: Vec<String>,
     pub switch_to_ai_view: Vec<String>,
+    pub toggle_ai_terminal_drawer: Vec<String>,
     pub open_project: Vec<String>,
     pub save_current_file: Vec<String>,
     pub open_settings: Vec<String>,
@@ -82,6 +83,7 @@ impl Default for KeyboardShortcuts {
             switch_to_review_view: vec!["cmd-2".into(), "ctrl-2".into()],
             switch_to_git_view: vec!["cmd-3".into(), "ctrl-3".into()],
             switch_to_ai_view: vec!["cmd-4".into(), "ctrl-4".into()],
+            toggle_ai_terminal_drawer: vec!["cmd-j".into(), "ctrl-j".into()],
             open_project: vec!["cmd-shift-o".into(), "ctrl-shift-o".into()],
             save_current_file: vec!["cmd-s".into(), "ctrl-s".into()],
             open_settings: vec!["cmd-,".into(), "ctrl-,".into()],

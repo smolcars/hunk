@@ -121,7 +121,7 @@ impl DiffViewer {
             .map(|path| path.to_string_lossy().to_string())
     }
 
-    fn ai_workspace_cwd(&self) -> Option<std::path::PathBuf> {
+    pub(crate) fn ai_workspace_cwd(&self) -> Option<std::path::PathBuf> {
         if self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection {
             return self.ai_draft_workspace_root();
         }
@@ -445,6 +445,11 @@ impl DiffViewer {
             selected_collaboration_mode: self.ai_selected_collaboration_mode,
             selected_service_tier: self.ai_selected_service_tier,
             mad_max_mode: self.ai_mad_max_mode,
+            terminal_open: self.ai_terminal_open,
+            terminal_follow_output: self.ai_terminal_follow_output,
+            terminal_height_px: self.ai_terminal_height_px,
+            terminal_input_draft: self.ai_terminal_input_draft.clone(),
+            terminal_session: self.ai_terminal_session.clone(),
         }
     }
 
@@ -495,6 +500,11 @@ impl DiffViewer {
         self.ai_selected_collaboration_mode = state.selected_collaboration_mode;
         self.ai_selected_service_tier = state.selected_service_tier;
         self.ai_mad_max_mode = state.mad_max_mode;
+        self.ai_terminal_open = state.terminal_open;
+        self.ai_terminal_follow_output = state.terminal_follow_output;
+        self.ai_terminal_height_px = state.terminal_height_px;
+        self.ai_terminal_input_draft = state.terminal_input_draft;
+        self.ai_terminal_session = state.terminal_session;
         self.ai_text_selection = None;
         self.rebuild_ai_timeline_indexes();
         self.sync_ai_in_progress_turn_started_at();
@@ -816,6 +826,9 @@ impl DiffViewer {
                 Self::apply_background_ai_workspace_fatal(state, message);
             }
         });
+        if reconcile_queued_after_snapshot {
+            self.ai_prune_terminal_threads("updating background AI workspace snapshot", cx);
+        }
         let _ = self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
         if reconcile_queued_after_snapshot {
             let mut ready_thread_ids = Vec::new();

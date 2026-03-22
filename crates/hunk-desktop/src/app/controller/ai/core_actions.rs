@@ -652,7 +652,13 @@ impl DiffViewer {
         self.ai_text_selection = None;
         self.ai_new_thread_draft_active = false;
         self.ai_pending_new_thread_selection = false;
+        let previous_terminal_thread_id = self.current_ai_thread_id();
         self.ai_selected_thread_id = Some(thread_id.clone());
+        self.ai_handle_terminal_thread_change(
+            previous_terminal_thread_id,
+            Some(thread_id.clone()),
+            cx,
+        );
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
         }

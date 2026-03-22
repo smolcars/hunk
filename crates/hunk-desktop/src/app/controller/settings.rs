@@ -49,6 +49,7 @@ fn validate_keyboard_shortcuts(shortcuts: &KeyboardShortcuts) -> Result<(), Stri
     validate_shortcut_list("Switch to Review View", &shortcuts.switch_to_review_view)?;
     validate_shortcut_list("Switch to Git View", &shortcuts.switch_to_git_view)?;
     validate_shortcut_list("Switch to AI View", &shortcuts.switch_to_ai_view)?;
+    validate_shortcut_list("Toggle AI Terminal", &shortcuts.toggle_ai_terminal_drawer)?;
     validate_shortcut_list("Open Project", &shortcuts.open_project)?;
     validate_shortcut_list("Save Current File", &shortcuts.save_current_file)?;
     validate_shortcut_list("Open Settings", &shortcuts.open_settings)?;
@@ -178,6 +179,12 @@ impl DiffViewer {
             switch_to_git_view: settings_shortcut_input(
                 &self.config.keyboard_shortcuts.switch_to_git_view,
                 "Comma-separated shortcuts, e.g. cmd-3, ctrl-3",
+                window,
+                cx,
+            ),
+            toggle_ai_terminal_drawer: settings_shortcut_input(
+                &self.config.keyboard_shortcuts.toggle_ai_terminal_drawer,
+                "Comma-separated shortcuts, e.g. cmd-j, ctrl-j",
                 window,
                 cx,
             ),
@@ -408,6 +415,10 @@ impl DiffViewer {
                     cx,
                 ),
                 switch_to_ai_view: self.config.keyboard_shortcuts.switch_to_ai_view.clone(),
+                toggle_ai_terminal_drawer: read_shortcut_input(
+                    &settings.shortcuts.toggle_ai_terminal_drawer,
+                    cx,
+                ),
                 open_project: read_shortcut_input(&settings.shortcuts.open_project, cx),
                 save_current_file: read_shortcut_input(
                     &settings.shortcuts.save_current_file,

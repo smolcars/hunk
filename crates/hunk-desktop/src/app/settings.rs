@@ -40,6 +40,7 @@ struct SettingsShortcutInputs {
     switch_to_files_view: Entity<InputState>,
     switch_to_review_view: Entity<InputState>,
     switch_to_git_view: Entity<InputState>,
+    toggle_ai_terminal_drawer: Entity<InputState>,
     open_project: Entity<InputState>,
     save_current_file: Entity<InputState>,
     open_settings: Entity<InputState>,
@@ -141,6 +142,12 @@ impl SettingsShortcutInputs {
                 label: "Switch to Git View",
                 hint: "Switches the workspace to the Git workflow view.",
                 input_state: self.switch_to_git_view.clone(),
+            },
+            SettingsShortcutRow {
+                id: "toggle-ai-terminal-drawer",
+                label: "Toggle AI Terminal",
+                hint: "Opens or closes the AI bottom terminal panel.",
+                input_state: self.toggle_ai_terminal_drawer.clone(),
             },
             SettingsShortcutRow {
                 id: "open-project",

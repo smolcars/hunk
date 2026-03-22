@@ -31,32 +31,10 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          clean: false
-
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-        shell: bash
-
   linux:
-    name: Linux
+    name: Linux Checks + Artifacts
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs:
-      - fmt
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -67,7 +45,7 @@ jobs:
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Resolve shared cargo target dir
         run: echo "CARGO_TARGET_DIR=$(./scripts/resolve_cargo_target_dir.sh "$GITHUB_WORKSPACE")" >> "$GITHUB_ENV"
@@ -89,45 +67,101 @@ jobs:
             clang \
             cmake \
             libasound2-dev \
+            libegl1 \
+            libffi-dev \
             libfontconfig-dev \
             libgit2-dev \
             libglib2.0-dev \
             libssl-dev \
             libvulkan1 \
+            libwayland-client0 \
+            libwayland-cursor0 \
             libwayland-dev \
+            libwayland-egl1 \
+            libx11-dev \
             libx11-xcb-dev \
             libxkbcommon-x11-dev \
             libzstd-dev \
-            pkg-config
+            patchelf \
+            pkg-config \
+            rpm
+        shell: bash
+
+      - name: Resolve release version
+        run: |
+          version="$(./scripts/resolve_hunk_version.sh)"
+          echo "HUNK_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Check formatting
+        run: cargo fmt --all --check
         shell: bash
 
       - name: Run clippy
-        run: cargo clippy -p hunk-desktop --locked --profile ci --no-deps -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
         shell: bash
 
-      - name: Build hunk-desktop
-        run: cargo build -p hunk-desktop --locked --profile ci
+      - name: Run tests
+        run: cargo test --workspace
         shell: bash
+
+      - name: Package Linux artifacts
+        run: ./scripts/package_linux_release.sh --formats appimage,tarball,deb,rpm
+        shell: bash
+
+      - name: Upload Linux AppImage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-linux-x86_64-appimage
+          path: ${{ env.CARGO_TARGET_DIR }}/dist/Hunk-${{ env.HUNK_RELEASE_VERSION }}-linux-x86_64.AppImage
+          if-no-files-found: error
+
+      - name: Upload Linux tarball artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-linux-x86_64-tarball
+          path: ${{ env.CARGO_TARGET_DIR }}/dist/Hunk-${{ env.HUNK_RELEASE_VERSION }}-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+      - name: Upload Linux Debian artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-linux-x86_64-deb
+          path: ${{ env.CARGO_TARGET_DIR }}/dist/hunk-desktop_${{ env.HUNK_RELEASE_VERSION }}-1_amd64.deb
+          if-no-files-found: error
+
+      - name: Upload Linux RPM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-linux-x86_64-rpm
+          path: ${{ env.CARGO_TARGET_DIR }}/dist/*.rpm
+          if-no-files-found: error
 
   build:
-    name: ${{ matrix.name }}
-    needs:
-      - fmt
+    name: ${{ matrix.name }} Artifacts
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: macOS
             os: macos-latest
+            install_packager: cargo install cargo-packager --locked --version 0.11.8
             resolve_target_dir: |
               echo "CARGO_TARGET_DIR=$(./scripts/resolve_cargo_target_dir.sh "$GITHUB_WORKSPACE")" >> "$GITHUB_ENV"
+            resolve_version: |
+              version="$(./scripts/resolve_hunk_version.sh)"
+              echo "HUNK_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
           - name: Windows
             os: windows-latest
+            install_packager: cargo install cargo-packager --locked --version 0.11.8
             resolve_target_dir: |
               $targetDir = bash ./scripts/resolve_cargo_target_dir.sh $env:GITHUB_WORKSPACE
               "CARGO_TARGET_DIR=$targetDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            resolve_version: |
+              $version = (bash ./scripts/resolve_hunk_version.sh).Trim()
+              "HUNK_RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     steps:
       - name: Checkout
@@ -156,12 +190,54 @@ jobs:
             . -> target-shared
           cache-on-failure: "true"
 
-      - name: Build hunk-desktop
+      - name: Resolve release version
         if: runner.os != 'Windows'
-        run: cargo build -p hunk-desktop --locked --profile ci
+        run: ${{ matrix.resolve_version }}
         shell: bash
 
-      - name: Build hunk-desktop
+      - name: Resolve release version
         if: runner.os == 'Windows'
-        run: cargo build -p hunk-desktop --locked --profile ci
+        run: ${{ matrix.resolve_version }}
         shell: pwsh
+
+      - name: Install cargo-packager
+        if: runner.os == 'macOS'
+        run: ${{ matrix.install_packager }}
+        shell: bash
+
+      - name: Install cargo-packager
+        if: runner.os == 'Windows'
+        run: ${{ matrix.install_packager }}
+        shell: pwsh
+
+      - name: Package macOS artifact
+        if: runner.os == 'macOS'
+        id: package_macos
+        run: |
+          artifact_path="$(./scripts/package_macos_release.sh | tail -n 1)"
+          echo "artifact_path=$artifact_path" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-macos-arm64-dmg
+          path: ${{ steps.package_macos.outputs.artifact_path }}
+          if-no-files-found: error
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        id: package_windows
+        run: |
+          $artifactPath = (pwsh ./scripts/package_windows_release.ps1 | Select-Object -Last 1).Trim()
+          "artifact_path=$artifactPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunk-windows-x86_64-msi
+          path: ${{ steps.package_windows.outputs.artifact_path }}
+          if-no-files-found: error

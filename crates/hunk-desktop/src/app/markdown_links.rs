@@ -156,7 +156,7 @@ fn is_external_markdown_url(raw_target: &str) -> bool {
         || normalized.starts_with("mailto:")
 }
 
-fn split_markdown_file_target(raw_target: &str) -> (&str, Option<usize>) {
+pub(crate) fn split_markdown_file_target(raw_target: &str) -> (&str, Option<usize>) {
     let trimmed = raw_target.trim();
     if let Some((path, fragment)) = trimmed.rsplit_once('#')
         && let Some(line) = parse_markdown_line_fragment(fragment)
@@ -185,6 +185,28 @@ fn parse_markdown_line_fragment(fragment: &str) -> Option<usize> {
 }
 
 fn parse_colon_line_suffix(raw_target: &str) -> Option<(&str, usize)> {
+    if let Some((path, line)) = parse_colon_line_column_suffix(raw_target) {
+        return Some((path, line));
+    }
+
+    parse_single_colon_line_suffix(raw_target)
+}
+
+fn parse_colon_line_column_suffix(raw_target: &str) -> Option<(&str, usize)> {
+    let (path_with_line, column_suffix) = raw_target.rsplit_once(':')?;
+    column_suffix
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .filter(|column| *column > 0)?;
+    let (path, line) = parse_single_colon_line_suffix(path_with_line)?;
+    if path.is_empty() {
+        return None;
+    }
+    Some((path, line))
+}
+
+fn parse_single_colon_line_suffix(raw_target: &str) -> Option<(&str, usize)> {
     let (path, suffix) = raw_target.rsplit_once(':')?;
     let line = suffix
         .trim()
@@ -263,4 +285,36 @@ fn pathbuf_to_workspace_relative(path: &Path) -> Option<String> {
         .collect::<Vec<_>>()
         .join("/");
     (!normalized.is_empty()).then_some(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MarkdownLinkTarget, resolve_markdown_link_target, split_markdown_file_target};
+
+    #[test]
+    fn split_markdown_file_target_accepts_line_and_column_suffixes() {
+        let (path, line) = split_markdown_file_target("src/main.rs:12:5");
+        assert_eq!(path, "src/main.rs");
+        assert_eq!(line, Some(12));
+    }
+
+    #[test]
+    fn resolve_markdown_link_target_accepts_line_and_column_suffixes() {
+        let workspace = tempfile::tempdir().expect("tempdir");
+        let file_path = workspace.path().join("src/main.rs");
+        std::fs::create_dir_all(file_path.parent().expect("parent")).expect("create dir");
+        std::fs::write(&file_path, "fn main() {}\n").expect("write file");
+
+        let target = resolve_markdown_link_target("src/main.rs:12:5", Some(workspace.path()), None);
+        assert_eq!(
+            target,
+            Some(MarkdownLinkTarget::WorkspaceFile(
+                super::MarkdownWorkspaceFileLink {
+                    raw_target: "src/main.rs:12:5".to_string(),
+                    normalized_path: "src/main.rs".to_string(),
+                    line: Some(12),
+                }
+            ))
+        );
+    }
 }

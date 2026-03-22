@@ -8,6 +8,7 @@ impl DiffViewer {
         self.prune_ai_workspace_states_for_thread_catalog(
             &known_workspace_keys,
             visible_workspace_key.as_deref(),
+            cx,
         );
         let refresh_epoch = self.next_ai_thread_catalog_refresh_epoch();
 
@@ -110,6 +111,7 @@ impl DiffViewer {
         &mut self,
         known_workspace_keys: &std::collections::BTreeSet<String>,
         visible_workspace_key: Option<&str>,
+        cx: &mut Context<Self>,
     ) {
         let hidden_workspace_keys = self
             .ai_hidden_runtimes
@@ -128,7 +130,7 @@ impl DiffViewer {
             .collect::<Vec<_>>();
 
         for workspace_key in removable_workspace_keys {
-            self.ai_forget_deleted_workspace_state(workspace_key.as_str());
+            self.ai_forget_deleted_workspace_state(workspace_key.as_str(), cx);
         }
     }
 }

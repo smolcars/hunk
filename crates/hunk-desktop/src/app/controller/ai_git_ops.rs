@@ -319,7 +319,7 @@ impl DiffViewer {
                             workspace_key
                         );
                         this.shutdown_ai_runtime_for_workspace_blocking(workspace_key.as_str());
-                        this.ai_forget_deleted_workspace_state(workspace_key.as_str());
+                        this.ai_forget_deleted_workspace_state(workspace_key.as_str(), cx);
                         this.refresh_workspace_targets_from_git_state(cx);
                         this.refresh_after_git_action("Delete Worktree", cx);
                         let message =
@@ -404,7 +404,7 @@ impl DiffViewer {
         }
     }
 
-    fn ai_forget_deleted_workspace_state(&mut self, workspace_key: &str) {
+    fn ai_forget_deleted_workspace_state(&mut self, workspace_key: &str, cx: &mut Context<Self>) {
         let removed_workspace_state = self.ai_workspace_states.remove(workspace_key);
         if let Some(removed_workspace_state) = removed_workspace_state {
             for thread_id in removed_workspace_state.state_snapshot.threads.keys() {
@@ -432,6 +432,10 @@ impl DiffViewer {
             .is_some();
         if state_changed {
             self.persist_state();
+        }
+
+        if self.workspace_view_mode == WorkspaceViewMode::Ai {
+            self.ai_prune_terminal_threads("forgetting deleted AI workspace state", cx);
         }
     }
 

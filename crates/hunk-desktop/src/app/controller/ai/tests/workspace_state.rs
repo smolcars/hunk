@@ -381,6 +381,50 @@
     }
 
     #[test]
+    fn visible_terminal_state_binds_to_first_selected_thread_after_pending_creation() {
+        let visible_state = AiThreadTerminalState {
+            open: true,
+            session: AiTerminalSessionState {
+                status: AiTerminalSessionStatus::Idle,
+                ..AiTerminalSessionState::default()
+            },
+            ..AiThreadTerminalState::default()
+        };
+
+        assert!(should_bind_visible_terminal_state_to_new_thread(
+            None,
+            Some("thread-1"),
+            false,
+            &visible_state,
+        ));
+    }
+
+    #[test]
+    fn visible_terminal_state_does_not_bind_when_target_thread_already_has_saved_state() {
+        let visible_state = AiThreadTerminalState {
+            open: true,
+            ..AiThreadTerminalState::default()
+        };
+
+        assert!(!should_bind_visible_terminal_state_to_new_thread(
+            None,
+            Some("thread-1"),
+            true,
+            &visible_state,
+        ));
+    }
+
+    #[test]
+    fn default_terminal_state_does_not_bind_to_new_thread() {
+        assert!(!should_bind_visible_terminal_state_to_new_thread(
+            None,
+            Some("thread-1"),
+            false,
+            &AiThreadTerminalState::default(),
+        ));
+    }
+
+    #[test]
     fn restore_ai_workspace_state_after_failure_reopens_pending_new_thread_draft() {
         let mut workspace_state = AiWorkspaceState {
             new_thread_draft_active: false,

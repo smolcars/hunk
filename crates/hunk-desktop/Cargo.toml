@@ -54,6 +54,7 @@ time = { version = "0.3", features = ["formatting", "local-offset"] }
 hunk-domain = { path = "../hunk-domain" }
 hunk-git = { path = "../hunk-git" }
 hunk-codex = { path = "../hunk-codex" }
+hunk-terminal = { path = "../hunk-terminal" }
 hunk-editor = { path = "../hunk-editor" }
 hunk-language = { path = "../hunk-language" }
 hunk-text = { path = "../hunk-text" }
@@ -62,6 +63,8 @@ codex-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.1
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 git2 = { version = "0.20", features = ["https", "ssh", "vendored-libgit2", "vendored-openssl"] }
+tempfile = "3.21"
 
 [target.'cfg(not(target_os = "macos"))'.dev-dependencies]
 git2 = { version = "0.20", features = ["https", "ssh"] }
+tempfile = "3.21"

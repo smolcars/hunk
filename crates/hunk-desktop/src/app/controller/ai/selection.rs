@@ -64,6 +64,7 @@ impl DiffViewer {
             surface_id,
             index,
         ));
+        self.ai_sync_primary_text_selection(cx);
         cx.notify();
     }
 
@@ -83,6 +84,7 @@ impl DiffViewer {
         let previous_range = selection.range();
         selection.set_head_for_surface(surface_id, index);
         if selection.range() != previous_range {
+            self.ai_sync_primary_text_selection(cx);
             cx.notify();
         }
     }
@@ -140,6 +142,7 @@ impl DiffViewer {
         }
 
         selection.select_all();
+        self.ai_sync_primary_text_selection(cx);
         cx.notify();
         true
     }
@@ -152,4 +155,20 @@ impl DiffViewer {
     ) {
         self.ai_copy_text_action(message, "Copied message.", window, cx);
     }
+
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn ai_sync_primary_text_selection(&self, cx: &mut Context<Self>) {
+        let Some(selection_text) = self
+            .ai_text_selection
+            .as_ref()
+            .and_then(AiTextSelection::selected_text)
+        else {
+            return;
+        };
+
+        cx.write_to_primary(ClipboardItem::new_string(selection_text));
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+    fn ai_sync_primary_text_selection(&self, _: &mut Context<Self>) {}
 }

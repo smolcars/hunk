@@ -639,6 +639,7 @@ fn ai_tool_detail_section(
 const AI_COMMAND_PREVIEW_MAX_OUTPUT_LINES: usize = 40;
 const AI_COMMAND_EXECUTION_CARD_MAX_WIDTH: f32 = 940.0;
 const AI_COMMAND_EXECUTION_TRANSCRIPT_MIN_WIDTH: f32 = 860.0;
+const AI_COMMAND_EXECUTION_TRANSCRIPT_MAX_WIDTH: f32 = 4096.0;
 const AI_COMMAND_EXECUTION_MONO_CHAR_WIDTH: f32 = 8.0;
 
 fn ai_command_execution_status_color(
@@ -664,7 +665,13 @@ fn ai_command_execution_transcript_width(content: &str) -> gpui::Pixels {
         .unwrap_or(0) as f32;
     let estimated_width =
         (longest_line_chars * AI_COMMAND_EXECUTION_MONO_CHAR_WIDTH) + 24.0;
-    px(estimated_width.max(AI_COMMAND_EXECUTION_TRANSCRIPT_MIN_WIDTH))
+    px(
+        estimated_width
+            .clamp(
+                AI_COMMAND_EXECUTION_TRANSCRIPT_MIN_WIDTH,
+                AI_COMMAND_EXECUTION_TRANSCRIPT_MAX_WIDTH,
+            ),
+    )
 }
 
 fn ai_command_execution_terminal_text(
@@ -749,10 +756,13 @@ fn render_ai_command_execution_details(
         terminal_surface_id.clone(),
         preview_text.clone(),
     )]);
+    let rerun_button_id = format!("ai-rerun-command-exec-{}", row_id.replace('\u{1f}', "--"));
     let copy_button_id = format!("ai-copy-command-exec-{}", row_id.replace('\u{1f}', "--"));
     let status_color = ai_command_execution_status_color(details, cx);
     let status_text = details.status.replace('_', " ");
     let transcript_width = ai_command_execution_transcript_width(preview_text.as_str());
+    let command_to_rerun = details.command.trim().to_string();
+    let command_cwd = (!details.cwd.trim().is_empty()).then(|| std::path::PathBuf::from(details.cwd.clone()));
 
     div()
         .w_full()
@@ -806,6 +816,29 @@ fn render_ai_command_execution_details(
                                         .text_xs()
                                         .text_color(status_color)
                                         .child(status_text),
+                                )
+                                .child(
+                                    Button::new(rerun_button_id)
+                                        .ghost()
+                                        .compact()
+                                        .rounded(px(7.0))
+                                        .icon(Icon::new(IconName::SquareTerminal).size(px(13.0)))
+                                        .text_color(cx.theme().muted_foreground)
+                                        .min_w(px(22.0))
+                                        .h(px(20.0))
+                                        .tooltip("Run in terminal")
+                                        .on_click({
+                                            let view = view.clone();
+                                            move |_, _, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_run_command_in_terminal(
+                                                        command_cwd.clone(),
+                                                        command_to_rerun.clone(),
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
                                 )
                                 .child(
                                     Button::new(copy_button_id)
@@ -904,12 +937,7 @@ fn render_ai_compact_diff_summary_row(
         .iter()
         .take(AI_TURN_DIFF_VISIBLE_FILE_LIMIT)
         .map(|file| {
-            let path = file.path.as_str();
-            let file_name = path.rsplit('/').next().unwrap_or(path).to_string();
-            let directory = path
-                .rsplit_once('/')
-                .map(|(prefix, _)| prefix.to_string())
-                .filter(|prefix| !prefix.is_empty());
+            let (file_name, directory) = ai_display_path_parts(file.path.as_str());
 
             h_flex()
                 .w_full()
@@ -1070,6 +1098,29 @@ fn render_ai_compact_diff_summary_row(
     } else {
         ai_timeline_row_with_animation(this, row_id_string.as_str(), wrapped_row)
     }
+}
+
+fn ai_display_path_parts(path: &str) -> (String, Option<String>) {
+    let normalized = path.trim().trim_end_matches(['/', '\\']);
+    if normalized.is_empty() {
+        return ("changes".to_string(), None);
+    }
+
+    let Some(separator_ix) = normalized.rfind(['/', '\\']) else {
+        return (normalized.to_string(), None);
+    };
+    let file_name = normalized[separator_ix + 1..].trim();
+    if file_name.is_empty() {
+        return (normalized.to_string(), None);
+    }
+
+    let directory = normalized[..separator_ix]
+        .trim()
+        .to_string();
+    (
+        file_name.to_string(),
+        (!directory.is_empty()).then_some(directory),
+    )
 }
 
 fn render_ai_turn_diff_row(

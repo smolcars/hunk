@@ -1,7 +1,6 @@
 name: Adhoc Release Assets
 
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
