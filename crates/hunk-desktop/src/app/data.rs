@@ -13,7 +13,6 @@ pub(super) use super::data_segments::{
 };
 use super::highlight::{
     StyledSegment, SyntaxTokenKind, build_line_segments, build_syntax_only_line_segments,
-    render_with_whitespace_markers,
 };
 pub(super) use super::workspace_view::{WorkspaceSwitchAction, WorkspaceViewMode};
 use super::*;
@@ -70,7 +69,6 @@ pub(super) struct FileEditorDocument {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CachedStyledSegment {
     pub(super) plain_text: SharedString,
-    pub(super) whitespace_text: SharedString,
     pub(super) syntax: SyntaxTokenKind,
     pub(super) changed: bool,
 }
@@ -647,16 +645,10 @@ pub(super) fn cached_segments_from_styled(
 ) -> Vec<CachedStyledSegment> {
     segments
         .into_iter()
-        .map(|segment| {
-            let plain_text = SharedString::from(segment.text);
-            let whitespace_text =
-                SharedString::from(render_with_whitespace_markers(plain_text.as_ref()));
-            CachedStyledSegment {
-                plain_text,
-                whitespace_text,
-                syntax: segment.syntax,
-                changed: segment.changed,
-            }
+        .map(|segment| CachedStyledSegment {
+            plain_text: SharedString::from(segment.text),
+            syntax: segment.syntax,
+            changed: segment.changed,
         })
         .collect::<Vec<_>>()
 }
@@ -708,8 +700,8 @@ pub(super) fn build_diff_row_segment_cache_from_cells(
         }
         DiffSegmentQuality::Plain => DiffRowSegmentCache {
             quality,
-            left: cached_runtime_fallback_segments(left_text, true),
-            right: cached_runtime_fallback_segments(right_text, true),
+            left: cached_runtime_fallback_segments(left_text),
+            right: cached_runtime_fallback_segments(right_text),
         },
     }
 }

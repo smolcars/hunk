@@ -199,8 +199,6 @@ impl SettingsShortcutInputs {
 struct SettingsDraft {
     category: SettingsCategory,
     theme: ThemePreference,
-    show_whitespace: bool,
-    show_eol_markers: bool,
     reduce_motion: bool,
     show_fps_counter: bool,
     shortcuts: SettingsShortcutInputs,

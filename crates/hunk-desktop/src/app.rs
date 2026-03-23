@@ -1084,8 +1084,6 @@ struct DiffViewer {
     file_row_ranges: Vec<FileRowRange>,
     file_line_stats: BTreeMap<String, LineStats>,
     diff_list_state: ListState,
-    diff_show_whitespace: bool,
-    diff_show_eol_markers: bool,
     diff_split_ratio: f32,
     diff_split_bounds: Option<Bounds<Pixels>>,
     diff_left_line_number_width: f32,

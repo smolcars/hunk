@@ -235,8 +235,6 @@ impl DiffViewer {
         self.settings_draft = Some(SettingsDraft {
             category: SettingsCategory::Ui,
             theme: self.config.theme,
-            show_whitespace: self.config.show_whitespace,
-            show_eol_markers: self.config.show_eol_markers,
             reduce_motion: self.config.reduce_motion,
             show_fps_counter: self.config.show_fps_counter,
             shortcuts,
@@ -294,38 +292,6 @@ impl DiffViewer {
         cx.notify();
     }
 
-    pub(super) fn set_settings_show_whitespace(
-        &mut self,
-        show: bool,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(settings) = self.settings_draft.as_mut() else {
-            return;
-        };
-        if settings.show_whitespace == show {
-            return;
-        }
-        settings.show_whitespace = show;
-        settings.error_message = None;
-        cx.notify();
-    }
-
-    pub(super) fn set_settings_show_eol_markers(
-        &mut self,
-        show: bool,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(settings) = self.settings_draft.as_mut() else {
-            return;
-        };
-        if settings.show_eol_markers == show {
-            return;
-        }
-        settings.show_eol_markers = show;
-        settings.error_message = None;
-        cx.notify();
-    }
-
     pub(super) fn set_settings_reduce_motion(
         &mut self,
         reduce_motion: bool,
@@ -359,14 +325,7 @@ impl DiffViewer {
     }
 
     pub(super) fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (
-            theme,
-            show_whitespace,
-            show_eol_markers,
-            reduce_motion,
-            show_fps_counter,
-            keyboard_shortcuts,
-        ) = {
+        let (theme, reduce_motion, show_fps_counter, keyboard_shortcuts) = {
             let Some(settings) = self.settings_draft.as_mut() else {
                 return;
             };
@@ -449,8 +408,6 @@ impl DiffViewer {
             settings.error_message = None;
             (
                 settings.theme,
-                settings.show_whitespace,
-                settings.show_eol_markers,
                 settings.reduce_motion,
                 settings.show_fps_counter,
                 keyboard_shortcuts,
@@ -458,13 +415,9 @@ impl DiffViewer {
         };
 
         self.config.theme = theme;
-        self.config.show_whitespace = show_whitespace;
-        self.config.show_eol_markers = show_eol_markers;
         self.config.reduce_motion = reduce_motion;
         self.config.show_fps_counter = show_fps_counter;
         self.config.keyboard_shortcuts = keyboard_shortcuts;
-        self.diff_show_whitespace = self.config.show_whitespace;
-        self.diff_show_eol_markers = self.config.show_eol_markers;
         self.apply_theme_preference(window, cx);
         self.restart_auto_refresh(cx);
         self.persist_config();

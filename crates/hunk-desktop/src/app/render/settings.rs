@@ -254,8 +254,6 @@ impl DiffViewer {
             ThemePreference::Light => "Light",
             ThemePreference::Dark => "Dark",
         };
-        let whitespace_label = if settings.show_whitespace { "On" } else { "Off" };
-        let eol_label = if settings.show_eol_markers { "On" } else { "Off" };
         let reduced_motion_label = if settings.reduce_motion { "On" } else { "Off" };
         let show_fps_counter_label = if settings.show_fps_counter { "On" } else { "Off" };
         v_flex()
@@ -276,7 +274,7 @@ impl DiffViewer {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child("Theme and UI visibility preferences."),
+                            .child("Theme and UI preferences."),
                     ),
             )
             .child(
@@ -353,108 +351,6 @@ impl DiffViewer {
                                                                 ThemePreference::Dark,
                                                                 cx,
                                                             );
-                                                        });
-                                                    }
-                                                }),
-                                        )
-                                    })
-                            }),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_semibold()
-                                    .text_color(cx.theme().foreground)
-                                    .child("Whitespace Markers"),
-                            )
-                            .child({
-                                let view = view.clone();
-                                let show_whitespace = settings.show_whitespace;
-                                Button::new("settings-whitespace-dropdown")
-                                    .outline()
-                                    .compact()
-                                    .rounded(px(8.0))
-                                    .bg(dropdown_bg)
-                                    .dropdown_caret(true)
-                                    .label(whitespace_label)
-                                    .dropdown_menu(move |menu, _, _| {
-                                        menu.item(
-                                            PopupMenuItem::new("On")
-                                                .checked(show_whitespace)
-                                                .on_click({
-                                                    let view = view.clone();
-                                                    move |_, _, cx| {
-                                                        view.update(cx, |this, cx| {
-                                                            this.set_settings_show_whitespace(true, cx);
-                                                        });
-                                                    }
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new("Off")
-                                                .checked(!show_whitespace)
-                                                .on_click({
-                                                    let view = view.clone();
-                                                    move |_, _, cx| {
-                                                        view.update(cx, |this, cx| {
-                                                            this.set_settings_show_whitespace(false, cx);
-                                                        });
-                                                    }
-                                                }),
-                                        )
-                                    })
-                            }),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_semibold()
-                                    .text_color(cx.theme().foreground)
-                                    .child("End-Of-Line Markers"),
-                            )
-                            .child({
-                                let view = view.clone();
-                                let show_eol_markers = settings.show_eol_markers;
-                                Button::new("settings-eol-dropdown")
-                                    .outline()
-                                    .compact()
-                                    .rounded(px(8.0))
-                                    .bg(dropdown_bg)
-                                    .dropdown_caret(true)
-                                    .label(eol_label)
-                                    .dropdown_menu(move |menu, _, _| {
-                                        menu.item(
-                                            PopupMenuItem::new("On")
-                                                .checked(show_eol_markers)
-                                                .on_click({
-                                                    let view = view.clone();
-                                                    move |_, _, cx| {
-                                                        view.update(cx, |this, cx| {
-                                                            this.set_settings_show_eol_markers(true, cx);
-                                                        });
-                                                    }
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new("Off")
-                                                .checked(!show_eol_markers)
-                                                .on_click({
-                                                    let view = view.clone();
-                                                    move |_, _, cx| {
-                                                        view.update(cx, |this, cx| {
-                                                            this.set_settings_show_eol_markers(false, cx);
                                                         });
                                                     }
                                                 }),

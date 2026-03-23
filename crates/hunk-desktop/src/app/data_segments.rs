@@ -3,7 +3,7 @@ use std::path::Path;
 use gpui::SharedString;
 
 use super::data::CachedStyledSegment;
-use super::highlight::{SyntaxTokenKind, render_with_whitespace_markers};
+use super::highlight::SyntaxTokenKind;
 
 pub(super) fn compact_cached_segments_for_render(
     segments: Vec<CachedStyledSegment>,
@@ -24,19 +24,13 @@ pub(super) fn compact_cached_segments_for_render(
             .iter()
             .map(|segment| segment.plain_text.as_ref().len())
             .sum::<usize>();
-        let whitespace_capacity = chunk
-            .iter()
-            .map(|segment| segment.whitespace_text.as_ref().len())
-            .sum::<usize>();
         let mut plain_text = String::with_capacity(plain_capacity);
-        let mut whitespace_text = String::with_capacity(whitespace_capacity);
 
         let first_syntax = chunk[0].syntax;
         let mut mixed_syntax = false;
         let mut changed = false;
         for segment in chunk {
             plain_text.push_str(segment.plain_text.as_ref());
-            whitespace_text.push_str(segment.whitespace_text.as_ref());
             changed |= segment.changed;
             if segment.syntax != first_syntax {
                 mixed_syntax = true;
@@ -45,7 +39,6 @@ pub(super) fn compact_cached_segments_for_render(
 
         compacted.push(CachedStyledSegment {
             plain_text: SharedString::from(plain_text),
-            whitespace_text: SharedString::from(whitespace_text),
             syntax: if mixed_syntax {
                 SyntaxTokenKind::Plain
             } else {
@@ -58,24 +51,13 @@ pub(super) fn compact_cached_segments_for_render(
     compacted
 }
 
-pub(super) fn cached_runtime_fallback_segments(
-    text: &str,
-    include_whitespace_markers: bool,
-) -> Vec<CachedStyledSegment> {
+pub(super) fn cached_runtime_fallback_segments(text: &str) -> Vec<CachedStyledSegment> {
     if text.is_empty() {
         return Vec::new();
     }
 
-    let plain_text = SharedString::from(text.to_string());
-    let whitespace_text = if include_whitespace_markers {
-        SharedString::from(render_with_whitespace_markers(text))
-    } else {
-        plain_text.clone()
-    };
-
     vec![CachedStyledSegment {
-        plain_text,
-        whitespace_text,
+        plain_text: SharedString::from(text.to_string()),
         syntax: SyntaxTokenKind::Plain,
         changed: false,
     }]

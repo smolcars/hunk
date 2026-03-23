@@ -243,42 +243,6 @@ impl DiffViewer {
                     })
                     .when(!git_selected, |this| {
                         this.child(self.render_line_stats("overall", visible_line_stats, cx))
-                            .child({
-                                let view = view.clone();
-                                Button::new("toggle-diff-whitespace")
-                                    .outline()
-                                    .compact()
-                                    .rounded(px(7.0))
-                                    .bg(dropdown_bg)
-                                    .label(if self.diff_show_whitespace {
-                                        "Whitespace: On"
-                                    } else {
-                                        "Whitespace: Off"
-                                    })
-                                    .on_click(move |_, _, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.toggle_diff_show_whitespace(cx);
-                                        });
-                                    })
-                            })
-                            .child({
-                                let view = view.clone();
-                                Button::new("toggle-diff-eol")
-                                    .outline()
-                                    .compact()
-                                    .rounded(px(7.0))
-                                    .bg(dropdown_bg)
-                                    .label(if self.diff_show_eol_markers {
-                                        "EOL: On"
-                                    } else {
-                                        "EOL: Off"
-                                    })
-                                    .on_click(move |_, _, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.toggle_diff_show_eol_markers(cx);
-                                        });
-                                    })
-                            })
                             .child(
                                 div()
                                     .text_sm()

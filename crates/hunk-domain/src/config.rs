@@ -99,8 +99,6 @@ impl Default for KeyboardShortcuts {
 #[serde(default)]
 pub struct AppConfig {
     pub theme: ThemePreference,
-    pub show_whitespace: bool,
-    pub show_eol_markers: bool,
     pub reduce_motion: bool,
     pub show_fps_counter: bool,
     pub keyboard_shortcuts: KeyboardShortcuts,
@@ -113,8 +111,6 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             theme: ThemePreference::System,
-            show_whitespace: false,
-            show_eol_markers: false,
             reduce_motion: false,
             show_fps_counter: true,
             keyboard_shortcuts: KeyboardShortcuts::default(),

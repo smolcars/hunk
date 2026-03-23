@@ -336,8 +336,7 @@ impl DiffViewer {
         let styled_segments = if let Some(cached) = segment_cache {
             cached
         } else {
-            fallback_segments =
-                cached_runtime_fallback_segments(&cell.text, self.diff_show_whitespace);
+            fallback_segments = cached_runtime_fallback_segments(&cell.text);
             &fallback_segments
         };
         let line_number_width = if side == "left" {
@@ -428,11 +427,6 @@ impl DiffViewer {
                     .flex_wrap()
                     .whitespace_normal()
                     .children(styled_segments.iter().map(|segment| {
-                        let segment_text = if self.diff_show_whitespace {
-                            segment.whitespace_text.clone()
-                        } else {
-                            segment.plain_text.clone()
-                        };
                         let segment_color =
                             diff_syntax_color(cx.theme(), text_color, segment.syntax);
                         div()
@@ -442,27 +436,8 @@ impl DiffViewer {
                             .when(segment.changed, |this| {
                                 this.bg(hunk_opacity(marker_color, is_dark, 0.20, 0.11))
                             })
-                            .child(segment_text)
-                    }))
-                    .when(
-                        self.diff_show_eol_markers && cell.kind != DiffCellKind::None,
-                        |this| {
-                            this.child(
-                                div()
-                                    .flex_none()
-                                    .whitespace_nowrap()
-                                    .text_color(
-                                        hunk_opacity(
-                                            cx.theme().muted_foreground,
-                                            is_dark,
-                                            0.90,
-                                            0.95,
-                                        ),
-                                    )
-                                    .child("↵"),
-                            )
-                        },
-                    ),
+                            .child(segment.plain_text.clone())
+                    })),
             )
             .into_any_element()
     }

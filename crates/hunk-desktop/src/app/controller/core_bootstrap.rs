@@ -314,8 +314,6 @@ impl DiffViewer {
             .and_then(|workspace| state.ai_workspace_include_hidden_models.get(workspace))
             .copied()
             .unwrap_or(true);
-        let diff_show_whitespace = config.show_whitespace;
-        let diff_show_eol_markers = config.show_eol_markers;
         let branch_picker_state = cx.new(|cx| {
             SelectState::new(BranchPickerDelegate::default(), None, window, cx).searchable(true)
         });
@@ -548,8 +546,6 @@ impl DiffViewer {
             file_row_ranges: Vec::new(),
             file_line_stats: BTreeMap::new(),
             diff_list_state: ListState::new(0, ListAlignment::Top, px(360.0)),
-            diff_show_whitespace,
-            diff_show_eol_markers,
             diff_split_ratio: 0.5,
             diff_split_bounds: None,
             diff_left_line_number_width: line_number_column_width(DIFF_LINE_NUMBER_MIN_DIGITS),

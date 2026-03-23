@@ -83,19 +83,6 @@ pub(super) fn build_plain_line_segments(file_path: Option<&str>, line: &str) -> 
     build_syntax_only_line_segments(file_path, line)
 }
 
-#[allow(dead_code)]
-pub(super) fn render_with_whitespace_markers(text: &str) -> String {
-    let mut rendered = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            ' ' => rendered.push('·'),
-            '\t' => rendered.push('⇥'),
-            _ => rendered.push(ch),
-        }
-    }
-    rendered
-}
-
 fn apply_tree_sitter_syntax_map(
     file_path: Option<&str>,
     line: &str,
