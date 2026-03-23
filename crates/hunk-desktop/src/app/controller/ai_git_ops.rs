@@ -411,6 +411,8 @@ impl DiffViewer {
                 let thread_key = AiComposerDraftKey::Thread(thread_id.clone());
                 self.ai_composer_drafts.remove(&thread_key);
                 self.ai_composer_status_by_draft.remove(&thread_key);
+                self.state.ai_thread_session_overrides.remove(thread_id);
+                self.ai_review_mode_thread_ids.remove(thread_id);
             }
         }
 

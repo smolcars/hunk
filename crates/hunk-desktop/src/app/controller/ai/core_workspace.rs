@@ -394,9 +394,7 @@ impl DiffViewer {
             mad_max_mode: workspace_mad_max_mode(&self.state, workspace_key),
             ..AiWorkspaceState::default()
         };
-        let persisted = workspace_key
-            .and_then(|workspace| self.state.ai_workspace_session_overrides.get(workspace).cloned())
-            .unwrap_or_else(AiThreadSessionState::preferred_defaults);
+        let persisted = resolved_ai_thread_session_state(&self.state, None, workspace_key);
         next.selected_model = persisted.model;
         next.selected_effort = persisted.effort;
         next.selected_collaboration_mode = persisted.collaboration_mode;
@@ -444,6 +442,7 @@ impl DiffViewer {
             selected_effort: self.ai_selected_effort.clone(),
             selected_collaboration_mode: self.ai_selected_collaboration_mode,
             selected_service_tier: self.ai_selected_service_tier,
+            review_mode_thread_ids: self.ai_review_mode_thread_ids.clone(),
             mad_max_mode: self.ai_mad_max_mode,
             terminal_open: self.ai_terminal_open,
             terminal_follow_output: self.ai_terminal_follow_output,
@@ -499,6 +498,7 @@ impl DiffViewer {
         self.ai_selected_effort = state.selected_effort;
         self.ai_selected_collaboration_mode = state.selected_collaboration_mode;
         self.ai_selected_service_tier = state.selected_service_tier;
+        self.ai_review_mode_thread_ids = state.review_mode_thread_ids;
         self.ai_mad_max_mode = state.mad_max_mode;
         self.ai_terminal_open = state.terminal_open;
         self.ai_terminal_follow_output = state.terminal_follow_output;
@@ -513,6 +513,8 @@ impl DiffViewer {
             .retain(|thread_id, _| self.ai_state_snapshot.threads.contains_key(thread_id));
         self.ai_timeline_visible_turn_limit_by_thread
             .retain(|thread_id, _| self.ai_state_snapshot.threads.contains_key(thread_id));
+        self.ai_review_mode_thread_ids
+            .retain(|thread_id| self.ai_state_snapshot.threads.contains_key(thread_id));
         self.sync_ai_pending_user_input_answers();
         self.ai_expanded_timeline_row_ids
             .retain(|row_id| self.ai_timeline_rows_by_id.contains_key(row_id));
@@ -544,6 +546,10 @@ impl DiffViewer {
         {
             self.ai_selected_thread_id = Some(first_thread.id.clone());
         }
+        self.ai_review_mode_active = self
+            .current_ai_thread_id()
+            .as_ref()
+            .is_some_and(|thread_id| self.ai_review_mode_thread_ids.contains(thread_id));
         self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
         self.restore_ai_queued_messages_to_drafts(restored_queued_messages);
         self.prune_ai_composer_drafts();

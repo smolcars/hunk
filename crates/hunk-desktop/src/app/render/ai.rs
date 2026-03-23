@@ -184,6 +184,7 @@ impl DiffViewer {
             composer_attachment_count,
             model_supports_image_inputs,
             review_mode_active: self.ai_review_mode_active,
+            usage_popover_open: self.ai_usage_popover_open,
             current_mode_label: crate::app::ai_composer_commands::ai_composer_mode_label(
                 self.ai_review_mode_active,
                 self.ai_selected_collaboration_mode,
@@ -255,111 +256,75 @@ impl DiffViewer {
             .when_some(self.ai_git_progress.clone(), |this, progress| {
                 this.child(render_ai_git_progress_overlay(&progress, is_dark, cx))
             })
-            .when(self.ai_usage_overlay_open, |this| {
-                this.child(self.render_ai_usage_overlay(cx.entity(), is_dark, cx))
-            })
             .into_any_element()
     }
 
-    fn render_ai_usage_overlay(
+    fn render_ai_usage_popover_card(
         &self,
         view: Entity<Self>,
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let backdrop_bg = hunk_modal_backdrop(cx.theme(), is_dark);
-        let modal_surface = hunk_modal_surface(cx.theme(), is_dark);
-        let backdrop_view = view.clone();
+        let popover_surface = hunk_completion_menu(cx.theme(), is_dark).panel;
         let (five_hour_window, weekly_window) = self
             .ai_rate_limits
             .as_ref()
             .map(ai_rate_limit_windows)
             .unwrap_or((None, None));
 
-        div()
-            .id("ai-usage-overlay")
-            .absolute()
-            .top_0()
-            .right_0()
-            .bottom_0()
-            .left_0()
-            .bg(backdrop_bg)
-            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .on_scroll_wheel(|_, _, cx| {
-                cx.stop_propagation();
-            })
+        v_flex()
+            .id("ai-usage-popover")
+            .w_full()
+            .max_w(px(620.0))
+            .rounded(px(22.0))
+            .border_1()
+            .border_color(popover_surface.border)
+            .bg(popover_surface.background)
+            .shadow_lg()
+            .px_4()
+            .py_3()
+            .gap_3()
             .child(
-                div()
-                    .size_full()
-                    .p_4()
-                    .flex()
+                h_flex()
                     .items_center()
-                    .justify_center()
-                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                        backdrop_view.update(cx, |this, cx| {
-                            this.ai_close_usage_overlay_action(cx);
-                        });
-                        cx.stop_propagation();
-                    })
+                    .justify_between()
+                    .gap_3()
                     .child(
-                        v_flex()
-                            .id("ai-usage-popup")
-                            .w_full()
-                            .max_w(px(720.0))
-                            .rounded(px(18.0))
-                            .border_1()
-                            .border_color(modal_surface.border)
-                            .bg(modal_surface.background)
-                            .p_5()
-                            .gap_4()
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                cx.stop_propagation();
+                        div()
+                            .text_base()
+                            .font_semibold()
+                            .text_color(cx.theme().foreground)
+                            .child("Status"),
+                    )
+                    .child({
+                        let view = view.clone();
+                        Button::new("ai-usage-close")
+                            .compact()
+                            .ghost()
+                            .rounded(px(8.0))
+                            .label("Close")
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.ai_close_usage_overlay_action(cx);
+                                });
                             })
-                            .child(
-                                h_flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .text_lg()
-                                            .font_semibold()
-                                            .text_color(cx.theme().foreground)
-                                            .child("Status"),
-                                    )
-                                    .child({
-                                        let view = view.clone();
-                                        Button::new("ai-usage-close")
-                                            .compact()
-                                            .ghost()
-                                            .rounded(px(8.0))
-                                            .label("Close")
-                                            .on_click(move |_, _, cx| {
-                                                view.update(cx, |this, cx| {
-                                                    this.ai_close_usage_overlay_action(cx);
-                                                });
-                                            })
-                                    }),
-                            )
-                            .child(
-                                v_flex()
-                                    .gap_3()
-                                    .child(render_ai_usage_row(
-                                        "5h limit",
-                                        five_hour_window.as_ref(),
-                                        is_dark,
-                                        cx,
-                                    ))
-                                    .child(render_ai_usage_row(
-                                        "7d limit",
-                                        weekly_window.as_ref(),
-                                        is_dark,
-                                        cx,
-                                    )),
-                            ),
-                    ),
+                    }),
+            )
+            .child(
+                v_flex()
+                    .gap_3()
+                    .child(render_ai_usage_row(
+                        "5h limit",
+                        five_hour_window.as_ref(),
+                        is_dark,
+                        cx,
+                    ))
+                    .child(render_ai_usage_row(
+                        "7d limit",
+                        weekly_window.as_ref(),
+                        is_dark,
+                        cx,
+                    )),
             )
             .into_any_element()
     }

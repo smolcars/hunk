@@ -262,6 +262,7 @@ fn workspace_mad_max_mode_reads_per_workspace_flags() {
         .collect(),
         ai_workspace_include_hidden_models: Default::default(),
         ai_workspace_session_overrides: Default::default(),
+        ai_thread_session_overrides: Default::default(),
         git_workflow_cache: None,
         git_recent_commits_cache: None,
     };
@@ -303,6 +304,7 @@ fn workspace_include_hidden_models_reads_per_workspace_flags() {
         .into_iter()
         .collect(),
         ai_workspace_session_overrides: Default::default(),
+        ai_thread_session_overrides: Default::default(),
         git_workflow_cache: None,
         git_recent_commits_cache: None,
     };
@@ -457,6 +459,61 @@ fn normalized_thread_session_state_drops_default_collaboration_mode() {
         service_tier: None,
     };
     assert_eq!(normalized_thread_session_state(session), None);
+}
+
+#[test]
+fn resolved_ai_thread_session_state_prefers_thread_override_over_workspace_override() {
+    let workspace_session = AiThreadSessionState {
+        model: Some("gpt-5.4".to_string()),
+        effort: Some("medium".to_string()),
+        collaboration_mode: AiCollaborationModeSelection::Default,
+        service_tier: None,
+    };
+    let thread_session = AiThreadSessionState {
+        model: Some("gpt-5.3-codex".to_string()),
+        effort: Some("high".to_string()),
+        collaboration_mode: AiCollaborationModeSelection::Plan,
+        service_tier: Some(AiServiceTierSelection::Fast),
+    };
+    let mut state = AppState::default();
+    state
+        .ai_workspace_session_overrides
+        .insert("/repo".to_string(), workspace_session);
+    state
+        .ai_thread_session_overrides
+        .insert("thread-1".to_string(), thread_session.clone());
+
+    assert_eq!(
+        resolved_ai_thread_session_state(&state, Some("thread-1"), Some("/repo")),
+        thread_session,
+    );
+}
+
+#[test]
+fn resolved_ai_thread_session_state_uses_workspace_override_when_thread_missing() {
+    let workspace_session = AiThreadSessionState {
+        model: Some("gpt-5.4".to_string()),
+        effort: Some("medium".to_string()),
+        collaboration_mode: AiCollaborationModeSelection::Plan,
+        service_tier: Some(AiServiceTierSelection::Flex),
+    };
+    let mut state = AppState::default();
+    state
+        .ai_workspace_session_overrides
+        .insert("/repo".to_string(), workspace_session.clone());
+
+    assert_eq!(
+        resolved_ai_thread_session_state(&state, Some("thread-1"), Some("/repo")),
+        workspace_session,
+    );
+}
+
+#[test]
+fn resolved_ai_thread_session_state_uses_preferred_defaults_without_overrides() {
+    assert_eq!(
+        resolved_ai_thread_session_state(&AppState::default(), None, None),
+        AiThreadSessionState::preferred_defaults(),
+    );
 }
 
 #[test]

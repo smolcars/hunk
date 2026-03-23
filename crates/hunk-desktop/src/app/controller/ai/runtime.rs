@@ -714,11 +714,13 @@ impl DiffViewer {
     }
 
     fn sync_ai_session_selection_from_state(&mut self) {
-        let persisted = self
-            .ai_workspace_key()
-            .as_ref()
-            .and_then(|workspace| self.state.ai_workspace_session_overrides.get(workspace).cloned())
-            .unwrap_or_else(AiThreadSessionState::preferred_defaults);
+        let selected_thread_id = self.current_ai_thread_id();
+        let workspace_key = self.ai_workspace_key();
+        let persisted = resolved_ai_thread_session_state(
+            &self.state,
+            selected_thread_id.as_deref(),
+            workspace_key.as_deref(),
+        );
         let (selected_model, selected_effort) = normalized_ai_session_selection(
             self.ai_models.as_slice(),
             persisted.model,
@@ -729,6 +731,9 @@ impl DiffViewer {
         self.ai_selected_collaboration_mode = persisted.collaboration_mode;
         self.ai_selected_effort = selected_effort;
         self.ai_selected_service_tier = persisted.service_tier.unwrap_or_default();
+        self.ai_review_mode_active = selected_thread_id
+            .as_ref()
+            .is_some_and(|thread_id| self.ai_review_mode_thread_ids.contains(thread_id));
     }
 
     fn seeded_ai_workspace_state_for_new_thread_workspace(
@@ -771,6 +776,7 @@ impl DiffViewer {
             selected_effort: current_state.selected_effort.clone(),
             selected_collaboration_mode: current_state.selected_collaboration_mode,
             selected_service_tier: current_state.selected_service_tier,
+            review_mode_thread_ids: std::collections::BTreeSet::new(),
             mad_max_mode: current_state.mad_max_mode,
             terminal_open: current_state.terminal_open,
             terminal_follow_output: current_state.terminal_follow_output,
@@ -780,7 +786,11 @@ impl DiffViewer {
         }
     }
 
-    fn persist_ai_workspace_session_for(&mut self, workspace: &str) {
+    fn persist_ai_session_for_target(
+        &mut self,
+        thread_id: Option<&str>,
+        workspace: Option<&str>,
+    ) {
         let session = AiThreadSessionState {
             model: self.ai_selected_model.clone(),
             effort: self.ai_selected_effort.clone(),
@@ -788,18 +798,28 @@ impl DiffViewer {
             service_tier: normalized_ai_service_tier_selection(self.ai_selected_service_tier),
         };
 
-        if let Some(session) = normalized_thread_session_state(session) {
-            self.state
-                .ai_workspace_session_overrides
-                .insert(workspace.to_string(), session);
-        } else {
-            self.state.ai_workspace_session_overrides.remove(workspace);
+        if let Some(thread_id) = thread_id {
+            if let Some(session) = normalized_thread_session_state(session) {
+                self.state
+                    .ai_thread_session_overrides
+                    .insert(thread_id.to_string(), session);
+            } else {
+                self.state.ai_thread_session_overrides.remove(thread_id);
+            }
+        } else if let Some(workspace) = workspace {
+            if let Some(session) = normalized_thread_session_state(session) {
+                self.state
+                    .ai_workspace_session_overrides
+                    .insert(workspace.to_string(), session);
+            } else {
+                self.state.ai_workspace_session_overrides.remove(workspace);
+            }
         }
         self.persist_state();
     }
 
     fn seed_ai_workspace_state_for(&mut self, workspace: &str) {
-        self.persist_ai_workspace_session_for(workspace);
+        self.persist_ai_session_for_target(None, Some(workspace));
         seed_ai_workspace_preferences(
             &mut self.state,
             workspace,
@@ -823,10 +843,15 @@ impl DiffViewer {
     }
 
     fn persist_current_ai_workspace_session(&mut self) {
-        let Some(workspace) = self.ai_workspace_key() else {
+        let current_thread_id = self.current_ai_thread_id();
+        let workspace_key = self.ai_workspace_key();
+        if current_thread_id.is_none() && workspace_key.is_none() {
             return;
-        };
-        self.persist_ai_workspace_session_for(workspace.as_str());
+        }
+        self.persist_ai_session_for_target(
+            current_thread_id.as_deref(),
+            workspace_key.as_deref(),
+        );
     }
 
     fn clear_ai_composer_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -950,6 +950,21 @@ fn normalized_thread_session_state(
     })
 }
 
+fn resolved_ai_thread_session_state(
+    state: &AppState,
+    thread_id: Option<&str>,
+    workspace_key: Option<&str>,
+) -> AiThreadSessionState {
+    thread_id
+        .and_then(|thread_id| state.ai_thread_session_overrides.get(thread_id).cloned())
+        .or_else(|| {
+            workspace_key.and_then(|workspace| {
+                state.ai_workspace_session_overrides.get(workspace).cloned()
+            })
+        })
+        .unwrap_or_else(AiThreadSessionState::preferred_defaults)
+}
+
 fn normalized_ai_service_tier_selection(
     selection: AiServiceTierSelection,
 ) -> Option<AiServiceTierSelection> {

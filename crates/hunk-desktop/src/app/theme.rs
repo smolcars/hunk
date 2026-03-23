@@ -22,6 +22,19 @@ pub(crate) struct HunkButtonColors {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub(crate) struct HunkCompletionMenuColors {
+    pub panel: HunkSurfaceColors,
+    pub row_hover: Hsla,
+    pub row_selected: Hsla,
+    pub row_selected_border: Hsla,
+    pub primary_text: Hsla,
+    pub secondary_text: Hsla,
+    pub selected_secondary_text: Hsla,
+    pub accent_text: Hsla,
+    pub accent_soft_background: Hsla,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum HunkAccentTone {
     Accent,
     Success,
@@ -140,6 +153,24 @@ pub(crate) fn hunk_input_surface(theme: &Theme, is_dark: bool) -> HunkSurfaceCol
     HunkSurfaceColors {
         background: hunk_blend(theme.background, theme.muted, is_dark, 0.20, 0.09),
         border: hunk_opacity(theme.border, is_dark, 0.90, 0.72),
+    }
+}
+
+pub(crate) fn hunk_completion_menu(theme: &Theme, is_dark: bool) -> HunkCompletionMenuColors {
+    let panel = HunkSurfaceColors {
+        background: hunk_blend(theme.popover, theme.background, is_dark, 0.18, 0.03),
+        border: hunk_opacity(theme.border, is_dark, 0.94, 0.76),
+    };
+    HunkCompletionMenuColors {
+        panel,
+        row_hover: hunk_blend(theme.accent, panel.background, is_dark, 0.10, 0.04),
+        row_selected: hunk_blend(theme.accent, panel.background, is_dark, 0.20, 0.08),
+        row_selected_border: hunk_opacity(theme.accent, is_dark, 0.78, 0.54),
+        primary_text: hunk_opacity(theme.foreground, is_dark, 0.98, 0.92),
+        secondary_text: hunk_opacity(theme.muted_foreground, is_dark, 0.88, 0.84),
+        selected_secondary_text: hunk_blend(theme.foreground, theme.accent, is_dark, 0.34, 0.28),
+        accent_text: hunk_blend(theme.accent, theme.foreground, is_dark, 0.90, 0.68),
+        accent_soft_background: hunk_opacity(theme.accent, is_dark, 0.14, 0.08),
     }
 }
 

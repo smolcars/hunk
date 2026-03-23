@@ -124,6 +124,7 @@ pub struct AppState {
     pub ai_workspace_mad_max: BTreeMap<String, bool>,
     pub ai_workspace_include_hidden_models: BTreeMap<String, bool>,
     pub ai_workspace_session_overrides: BTreeMap<String, AiThreadSessionState>,
+    pub ai_thread_session_overrides: BTreeMap<String, AiThreadSessionState>,
     pub git_workflow_cache: Option<CachedWorkflowState>,
     pub git_recent_commits_cache: Option<CachedRecentCommitsState>,
 }

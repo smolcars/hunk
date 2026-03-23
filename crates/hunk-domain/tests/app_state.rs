@@ -20,6 +20,7 @@ fn app_state_defaults_last_project_path_to_none() {
     assert!(state.ai_workspace_mad_max.is_empty());
     assert!(state.ai_workspace_include_hidden_models.is_empty());
     assert!(state.ai_workspace_session_overrides.is_empty());
+    assert!(state.ai_thread_session_overrides.is_empty());
     assert!(state.git_workflow_cache.is_none());
     assert!(state.git_recent_commits_cache.is_none());
 }
@@ -34,6 +35,7 @@ fn app_state_parses_without_last_project_path_field() {
     assert!(state.ai_workspace_mad_max.is_empty());
     assert!(state.ai_workspace_include_hidden_models.is_empty());
     assert!(state.ai_workspace_session_overrides.is_empty());
+    assert!(state.ai_thread_session_overrides.is_empty());
     assert!(state.git_workflow_cache.is_none());
     assert!(state.git_recent_commits_cache.is_none());
 }
@@ -81,6 +83,17 @@ fn app_state_round_trips_last_project_path() {
                 effort: Some("high".to_string()),
                 collaboration_mode: AiCollaborationModeSelection::Plan,
                 service_tier: Some(AiServiceTierSelection::Fast),
+            },
+        )]
+        .into_iter()
+        .collect(),
+        ai_thread_session_overrides: [(
+            "thread-1".to_string(),
+            AiThreadSessionState {
+                model: Some("gpt-5.4".to_string()),
+                effort: Some("high".to_string()),
+                collaboration_mode: AiCollaborationModeSelection::Default,
+                service_tier: None,
             },
         )]
         .into_iter()

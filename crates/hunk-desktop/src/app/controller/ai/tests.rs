@@ -50,6 +50,7 @@ mod ai_tests {
     #[cfg(target_os = "windows")]
     use super::resolve_windows_command_path_from_env;
     use super::resolve_workspace_codex_executable_from_exe;
+    use super::resolved_ai_thread_session_state;
     use super::resolved_ai_thread_mode_picker_state;
     use super::resolved_ai_workspace_cwd;
     use super::review_compare_selection_ids_for_workspace_root;

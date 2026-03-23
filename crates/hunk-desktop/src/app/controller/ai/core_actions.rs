@@ -134,6 +134,7 @@ impl DiffViewer {
         self.ai_pending_new_thread_selection = false;
         self.ai_pending_thread_start = None;
         self.ai_selected_thread_id = None;
+        self.ai_review_mode_active = false;
         self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = false;
         self.ai_expanded_timeline_row_ids.clear();
@@ -599,6 +600,9 @@ impl DiffViewer {
         selection: AiCollaborationModeSelection,
         cx: &mut Context<Self>,
     ) {
+        if let Some(thread_id) = self.current_ai_thread_id() {
+            self.ai_review_mode_thread_ids.remove(thread_id.as_str());
+        }
         self.ai_review_mode_active = false;
         self.ai_selected_collaboration_mode = selection;
         if let Some(mask) = ai_collaboration_mode_mask(
@@ -618,20 +622,26 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_select_review_mode_action(&mut self, cx: &mut Context<Self>) {
+        let Some(thread_id) = self.current_ai_thread_id() else {
+            self.set_current_ai_composer_status("Select a thread before switching to review mode.");
+            cx.notify();
+            return;
+        };
+        self.ai_review_mode_thread_ids.insert(thread_id);
         self.ai_review_mode_active = true;
         cx.notify();
     }
 
     pub(super) fn ai_open_usage_overlay_action(&mut self, cx: &mut Context<Self>) {
-        self.ai_usage_overlay_open = true;
+        self.ai_usage_popover_open = true;
         cx.notify();
     }
 
     pub(super) fn ai_close_usage_overlay_action(&mut self, cx: &mut Context<Self>) {
-        if !self.ai_usage_overlay_open {
+        if !self.ai_usage_popover_open {
             return;
         }
-        self.ai_usage_overlay_open = false;
+        self.ai_usage_popover_open = false;
         cx.notify();
     }
 
@@ -689,6 +699,7 @@ impl DiffViewer {
         self.ai_pending_new_thread_selection = false;
         let previous_terminal_thread_id = self.current_ai_thread_id();
         self.ai_selected_thread_id = Some(thread_id.clone());
+        self.ai_review_mode_active = self.ai_review_mode_thread_ids.contains(thread_id.as_str());
         self.ai_handle_terminal_thread_change(
             previous_terminal_thread_id,
             Some(thread_id.clone()),
