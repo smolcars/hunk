@@ -28,7 +28,7 @@ pub enum AiCollaborationModeSelection {
 impl AiCollaborationModeSelection {
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Default => "Default",
+            Self::Default => "Code",
             Self::Plan => "Plan",
         }
     }

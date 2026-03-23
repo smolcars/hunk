@@ -53,6 +53,25 @@ impl DiffViewer {
             .menu_state(text.as_str(), cursor)
     }
 
+    fn ai_composer_slash_command_menu_token(
+        menu: &crate::app::AiComposerSlashCommandMenuState,
+    ) -> ActivePrefixedToken {
+        ActivePrefixedToken {
+            query: menu.query.clone(),
+            replace_range: menu.replace_range.clone(),
+        }
+    }
+
+    fn current_ai_composer_slash_command_candidate(
+        &self,
+        cx: &Context<Self>,
+    ) -> Option<crate::app::AiComposerSlashCommandMenuState> {
+        let input = self.ai_composer_input_state.read(cx);
+        let text = input.value().to_string();
+        let cursor = input.cursor();
+        crate::app::ai_composer_commands::slash_command_menu_state(text.as_str(), cursor)
+    }
+
     fn current_ai_composer_skill_completion_candidate(
         &self,
         cx: &Context<Self>,
@@ -65,6 +84,7 @@ impl DiffViewer {
 
     pub(super) fn sync_ai_composer_completion_menus(&mut self, cx: &mut Context<Self>) {
         self.sync_ai_composer_file_completion_menu(cx);
+        self.sync_ai_composer_slash_command_menu(cx);
         self.sync_ai_composer_skill_completion_menu(cx);
     }
 
@@ -102,6 +122,48 @@ impl DiffViewer {
             }
         } else if self.ai_composer_file_completion_selected_ix != 0 {
             self.ai_composer_file_completion_selected_ix = 0;
+            changed = true;
+        }
+
+        if changed {
+            cx.notify();
+        }
+    }
+
+    pub(super) fn sync_ai_composer_slash_command_menu(&mut self, cx: &mut Context<Self>) {
+        let next_menu = self.current_ai_composer_slash_command_candidate(cx);
+        let next_token = next_menu
+            .as_ref()
+            .map(Self::ai_composer_slash_command_menu_token);
+        if self.ai_composer_slash_command_dismissed_token.as_ref() != next_token.as_ref() {
+            self.ai_composer_slash_command_dismissed_token = None;
+        }
+
+        let mut next_visible_menu = next_menu.clone();
+        if self.ai_composer_slash_command_dismissed_token.as_ref() == next_token.as_ref() {
+            next_visible_menu = None;
+        }
+
+        let current_token = self
+            .ai_composer_slash_command_menu
+            .as_ref()
+            .map(Self::ai_composer_slash_command_menu_token);
+        if current_token != next_token {
+            self.ai_composer_slash_command_selected_ix = 0;
+        }
+
+        let mut changed = self.ai_composer_slash_command_menu != next_visible_menu;
+        self.ai_composer_slash_command_menu = next_visible_menu;
+        if let Some(menu) = self.ai_composer_slash_command_menu.as_ref() {
+            let clamped_ix = self
+                .ai_composer_slash_command_selected_ix
+                .min(menu.items.len().saturating_sub(1));
+            if clamped_ix != self.ai_composer_slash_command_selected_ix {
+                self.ai_composer_slash_command_selected_ix = clamped_ix;
+                changed = true;
+            }
+        } else if self.ai_composer_slash_command_selected_ix != 0 {
+            self.ai_composer_slash_command_selected_ix = 0;
             changed = true;
         }
 
@@ -170,12 +232,41 @@ impl DiffViewer {
 
         let skill_menu_open = self.ai_composer_skill_completion_menu.is_some();
         let file_menu_open = self.ai_composer_file_completion_menu.is_some();
-        if !skill_menu_open && !file_menu_open {
+        let slash_menu_open = self.ai_composer_slash_command_menu.is_some();
+        if !skill_menu_open && !file_menu_open && !slash_menu_open {
             return false;
         }
 
         window.prevent_default();
         cx.stop_propagation();
+
+        if slash_menu_open {
+            return match action {
+                AiComposerCompletionAction::SelectNext => {
+                    if let Some(menu) = self.ai_composer_slash_command_menu.as_ref() {
+                        self.ai_composer_slash_command_selected_ix = (self
+                            .ai_composer_slash_command_selected_ix
+                            + 1)
+                            .min(menu.items.len().saturating_sub(1));
+                    }
+                    cx.notify();
+                    true
+                }
+                AiComposerCompletionAction::SelectPrevious => {
+                    self.ai_composer_slash_command_selected_ix =
+                        self.ai_composer_slash_command_selected_ix.saturating_sub(1);
+                    cx.notify();
+                    true
+                }
+                AiComposerCompletionAction::Accept => {
+                    self.accept_ai_composer_slash_command(window, cx)
+                }
+                AiComposerCompletionAction::Dismiss => {
+                    self.dismiss_ai_composer_slash_command(cx);
+                    true
+                }
+            };
+        }
 
         if skill_menu_open {
             return match action {
@@ -243,6 +334,16 @@ impl DiffViewer {
         cx.notify();
     }
 
+    fn dismiss_ai_composer_slash_command(&mut self, cx: &mut Context<Self>) {
+        self.ai_composer_slash_command_dismissed_token = self
+            .ai_composer_slash_command_menu
+            .as_ref()
+            .map(Self::ai_composer_slash_command_menu_token);
+        self.ai_composer_slash_command_menu = None;
+        self.ai_composer_slash_command_selected_ix = 0;
+        cx.notify();
+    }
+
     fn dismiss_ai_composer_skill_completion(&mut self, cx: &mut Context<Self>) {
         self.ai_composer_skill_completion_dismissed_token = self
             .ai_composer_skill_completion_menu
@@ -281,6 +382,77 @@ impl DiffViewer {
 
         self.ai_composer_file_completion_dismissed_token = None;
         self.sync_ai_composer_file_completion_menu(cx);
+        true
+    }
+
+    fn accept_ai_composer_slash_command(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(menu) = self.ai_composer_slash_command_menu.clone() else {
+            return false;
+        };
+        let Some(command) = menu
+            .items
+            .get(self.ai_composer_slash_command_selected_ix)
+            .copied()
+        else {
+            return false;
+        };
+
+        let current_text = self.ai_composer_input_state.read(cx).value().to_string();
+        let next_prompt = crate::app::ai_composer_commands::prompt_after_accepting_slash_command(
+            current_text.as_str(),
+            &menu.replace_range,
+        );
+        if let Some(draft) = self.current_ai_composer_draft_mut() {
+            draft.skill_bindings =
+                crate::app::ai_composer_completion::reconcile_ai_composer_skill_bindings(
+                    draft.prompt.as_str(),
+                    draft.skill_bindings.as_slice(),
+                    next_prompt.as_str(),
+                );
+            draft.prompt = next_prompt.clone();
+        }
+
+        self.ai_composer_input_state.update(cx, |state, cx| {
+            state.set_value(next_prompt.clone(), window, cx);
+            state.focus(window, cx);
+        });
+
+        self.ai_composer_slash_command_dismissed_token = None;
+        self.ai_composer_slash_command_menu = None;
+        self.ai_composer_slash_command_selected_ix = 0;
+
+        match command.kind {
+            crate::app::ai_composer_commands::AiComposerSlashCommandKind::Code => {
+                self.ai_select_collaboration_mode_action(
+                    hunk_domain::state::AiCollaborationModeSelection::Default,
+                    cx,
+                );
+            }
+            crate::app::ai_composer_commands::AiComposerSlashCommandKind::Plan => {
+                self.ai_select_collaboration_mode_action(
+                    hunk_domain::state::AiCollaborationModeSelection::Plan,
+                    cx,
+                );
+            }
+            crate::app::ai_composer_commands::AiComposerSlashCommandKind::Review => {
+                self.ai_select_review_mode_action(cx);
+            }
+            crate::app::ai_composer_commands::AiComposerSlashCommandKind::Usage => {
+                self.ai_open_usage_overlay_action(cx);
+            }
+            crate::app::ai_composer_commands::AiComposerSlashCommandKind::Login => {
+                self.ai_start_chatgpt_login_action(cx);
+            }
+            crate::app::ai_composer_commands::AiComposerSlashCommandKind::Logout => {
+                self.ai_logout_account_action(cx);
+            }
+        }
+
+        self.sync_ai_composer_completion_menus(cx);
         true
     }
 
@@ -348,6 +520,22 @@ impl DiffViewer {
         };
         self.ai_composer_file_completion_selected_ix = selected_ix;
         let _ = self.accept_ai_composer_file_completion(window, cx);
+    }
+
+    pub(super) fn ai_accept_composer_slash_command_name(
+        &mut self,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(menu) = self.ai_composer_slash_command_menu.as_ref() else {
+            return;
+        };
+        let Some(selected_ix) = menu.items.iter().position(|item| item.name == name) else {
+            return;
+        };
+        self.ai_composer_slash_command_selected_ix = selected_ix;
+        let _ = self.accept_ai_composer_slash_command(window, cx);
     }
 
     pub(super) fn ai_accept_composer_skill_completion_name(

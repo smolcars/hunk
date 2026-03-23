@@ -355,7 +355,7 @@ impl DiffViewer {
             InputState::new(window, cx)
                 .multi_line(true)
                 .rows(4)
-                .placeholder("Ask for follow-up changes")
+                .placeholder("Ask Codex anything, @ to add files, / for commands, $ for skills")
         });
         let ai_terminal_input_state = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Run a command in this workspace")
@@ -497,11 +497,16 @@ impl DiffViewer {
             ai_composer_file_completion_menu: None,
             ai_composer_file_completion_selected_ix: 0,
             ai_composer_file_completion_dismissed_token: None,
+            ai_composer_slash_command_menu: None,
+            ai_composer_slash_command_selected_ix: 0,
+            ai_composer_slash_command_dismissed_token: None,
             ai_composer_skill_completion_menu: None,
             ai_composer_skill_completion_selected_ix: 0,
             ai_composer_skill_completion_dismissed_token: None,
             ai_worktree_base_branch_picker_state,
             ai_composer_input_state,
+            ai_review_mode_active: false,
+            ai_usage_overlay_open: false,
             ai_composer_drafts: BTreeMap::new(),
             ai_composer_status_by_draft: BTreeMap::new(),
             files: Vec::new(),
@@ -651,10 +656,12 @@ impl DiffViewer {
             if matches!(event, InputEvent::Change) {
                 this.sync_ai_visible_composer_prompt_to_draft(cx);
                 this.ai_composer_file_completion_dismissed_token = None;
+                this.ai_composer_slash_command_dismissed_token = None;
                 this.ai_composer_skill_completion_dismissed_token = None;
             }
             if matches!(event, InputEvent::Blur) {
                 this.ai_composer_file_completion_menu = None;
+                this.ai_composer_slash_command_menu = None;
                 this.ai_composer_skill_completion_menu = None;
                 cx.notify();
             }

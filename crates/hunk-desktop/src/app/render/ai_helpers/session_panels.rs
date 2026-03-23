@@ -180,13 +180,11 @@ fn render_ai_account_actions_for_view(
 
 struct AiSessionControlsPanelView<'a> {
     models: &'a [codex_app_server_protocol::Model],
-    experimental_features: &'a [codex_app_server_protocol::ExperimentalFeature],
     selected_model: Option<&'a str>,
     selected_effort: Option<&'a str>,
     selected_thread_mode: AiNewThreadStartMode,
     thread_mode_editable: bool,
     read_only: bool,
-    selected_collaboration_mode: hunk_domain::state::AiCollaborationModeSelection,
     selected_service_tier: AiServiceTierSelection,
 }
 
@@ -201,13 +199,11 @@ fn render_ai_session_controls_panel_for_view(
     render_ai_session_controls_panel(
         AiSessionControlsPanelView {
             models: this.ai_models.as_slice(),
-            experimental_features: this.ai_experimental_features.as_slice(),
             selected_model: this.ai_selected_model.as_deref(),
             selected_effort: this.ai_selected_effort.as_deref(),
             selected_thread_mode,
             thread_mode_editable,
             read_only,
-            selected_collaboration_mode: this.ai_selected_collaboration_mode,
             selected_service_tier: this.ai_selected_service_tier,
         },
         view,
@@ -242,11 +238,8 @@ fn render_ai_session_controls_panel(
         })
         .unwrap_or_default();
     let effort_label = ai_effort_picker_label(panel.selected_effort, selected_model);
-    let collaboration_enabled =
-        ai_experimental_feature_enabled(panel.experimental_features, "collaboration_modes");
     let service_tier_label = ai_service_tier_picker_label(panel.selected_service_tier);
     let thread_mode_label = panel.selected_thread_mode.label().to_string();
-    let collaboration_label = ai_collaboration_picker_label(panel.selected_collaboration_mode);
     let controls_locked_tooltip = "Session settings are locked while the agent is working.";
     let (visible_models, hidden_models): (Vec<_>, Vec<_>) = panel
         .models
@@ -462,60 +455,6 @@ fn render_ai_session_controls_panel(
                             }),
                     )
                 })
-        })
-        .when(collaboration_enabled, |this| {
-            this.child({
-                let view = view.clone();
-                let selected = panel.selected_collaboration_mode;
-                Button::new("ai-session-collaboration-dropdown")
-                    .compact()
-                    .ghost()
-                    .rounded(px(999.0))
-                    .with_size(gpui_component::Size::Small)
-                    .px_1()
-                    .dropdown_caret(true)
-                    .disabled(panel.read_only)
-                    .label(collaboration_label)
-                    .when(panel.read_only, |this| this.tooltip(controls_locked_tooltip))
-                    .dropdown_menu(move |menu, _, _| {
-                        menu.item(
-                            PopupMenuItem::new("Default")
-                                .checked(matches!(
-                                    selected,
-                                    hunk_domain::state::AiCollaborationModeSelection::Default
-                                ))
-                                .on_click({
-                                    let view = view.clone();
-                                    move |_, _, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.ai_select_collaboration_mode_action(
-                                                hunk_domain::state::AiCollaborationModeSelection::Default,
-                                                cx,
-                                            );
-                                        });
-                                    }
-                                }),
-                        )
-                        .item(
-                            PopupMenuItem::new("Plan")
-                                .checked(matches!(
-                                    selected,
-                                    hunk_domain::state::AiCollaborationModeSelection::Plan
-                                ))
-                                .on_click({
-                                    let view = view.clone();
-                                    move |_, _, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.ai_select_collaboration_mode_action(
-                                                hunk_domain::state::AiCollaborationModeSelection::Plan,
-                                                cx,
-                                            );
-                                        });
-                                    }
-                                }),
-                        )
-                    })
-            })
         })
         .into_any_element()
 }
@@ -735,10 +674,4 @@ fn ai_reasoning_effort_label(value: &str) -> String {
             .collect::<Vec<_>>()
             .join(" "),
     }
-}
-
-fn ai_collaboration_picker_label(
-    selected: hunk_domain::state::AiCollaborationModeSelection,
-) -> String {
-    selected.label().to_string()
 }

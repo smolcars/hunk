@@ -9,7 +9,6 @@ mod ai_helper_tests {
     use super::ai_command_execution_terminal_text;
     use super::ai_command_execution_transcript_width;
     use super::ai_composer_status_tone;
-    use super::ai_collaboration_picker_label;
     use super::ai_display_path_parts;
     use super::ai_file_change_summary;
     use super::ai_should_show_no_turns_empty_state;
@@ -49,7 +48,6 @@ mod ai_helper_tests {
     use hunk_codex::state::ThreadLifecycleStatus;
     use hunk_domain::markdown_preview::MarkdownCodeSpan;
     use hunk_domain::markdown_preview::MarkdownCodeTokenKind;
-    use hunk_domain::state::AiCollaborationModeSelection;
     use hunk_domain::markdown_preview::MarkdownPreviewBlock;
 
     fn rate_limit_window(
@@ -150,22 +148,6 @@ mod ai_helper_tests {
         assert!(ai_should_show_no_turns_empty_state(0, false));
         assert!(!ai_should_show_no_turns_empty_state(0, true));
         assert!(!ai_should_show_no_turns_empty_state(1, false));
-    }
-
-    #[test]
-    fn collaboration_picker_defaults_to_default_mode() {
-        assert_eq!(
-            ai_collaboration_picker_label(AiCollaborationModeSelection::Default),
-            "Default"
-        );
-    }
-
-    #[test]
-    fn collaboration_picker_uses_plan_label() {
-        assert_eq!(
-            ai_collaboration_picker_label(AiCollaborationModeSelection::Plan),
-            "Plan"
-        );
     }
 
     #[test]

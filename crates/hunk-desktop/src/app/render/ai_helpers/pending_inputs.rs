@@ -1,14 +1,3 @@
-fn ai_experimental_feature_enabled(
-    features: &[codex_app_server_protocol::ExperimentalFeature],
-    key: &str,
-) -> bool {
-    features
-        .iter()
-        .find(|feature| feature.name == key)
-        .map(|feature| feature.enabled)
-        .unwrap_or(false)
-}
-
 fn ai_reasoning_effort_key(effort: &codex_protocol::openai_models::ReasoningEffort) -> String {
     serde_json::to_value(effort)
         .ok()

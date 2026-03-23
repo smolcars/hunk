@@ -57,6 +57,7 @@ use hunk_terminal::{
 
 const AI_TERMINAL_TEXT_SELECTION_ROW_ID: &str = "ai-terminal";
 
+use ai_composer_commands::AiComposerSlashCommandMenuState;
 use ai_composer_completion::{
     ActivePrefixedToken, AiComposerFileCompletionMenuState, AiComposerFileCompletionProvider,
     AiComposerSkillCompletionMenuState, ai_composer_inserted_path_text,
@@ -134,6 +135,7 @@ const AI_TIMELINE_TURN_PAGE_SIZE: usize = 80;
 const AI_THREAD_TITLE_REFRESH_MAX_ATTEMPTS: u8 = 20;
 const AI_THREAD_TITLE_REFRESH_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
+mod ai_composer_commands;
 mod ai_composer_completion;
 mod ai_paths;
 mod ai_thread_flow;
@@ -1031,11 +1033,16 @@ struct DiffViewer {
     ai_composer_file_completion_menu: Option<AiComposerFileCompletionMenuState>,
     ai_composer_file_completion_selected_ix: usize,
     ai_composer_file_completion_dismissed_token: Option<ActivePrefixedToken>,
+    ai_composer_slash_command_menu: Option<AiComposerSlashCommandMenuState>,
+    ai_composer_slash_command_selected_ix: usize,
+    ai_composer_slash_command_dismissed_token: Option<ActivePrefixedToken>,
     ai_composer_skill_completion_menu: Option<AiComposerSkillCompletionMenuState>,
     ai_composer_skill_completion_selected_ix: usize,
     ai_composer_skill_completion_dismissed_token: Option<ActivePrefixedToken>,
     ai_worktree_base_branch_picker_state: Entity<SelectState<BranchPickerDelegate>>,
     ai_composer_input_state: Entity<InputState>,
+    ai_review_mode_active: bool,
+    ai_usage_overlay_open: bool,
     ai_composer_drafts: BTreeMap<AiComposerDraftKey, AiComposerDraft>,
     ai_composer_status_by_draft: BTreeMap<AiComposerDraftKey, String>,
     files: Vec<ChangedFile>,

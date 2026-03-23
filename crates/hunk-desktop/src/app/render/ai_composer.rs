@@ -4,6 +4,8 @@ struct AiComposerPanelState {
     composer_attachment_paths: Vec<PathBuf>,
     composer_attachment_count: usize,
     model_supports_image_inputs: bool,
+    review_mode_active: bool,
+    current_mode_label: String,
     selected_thread_mode_for_picker: AiNewThreadStartMode,
     thread_mode_picker_editable: bool,
     session_controls_read_only: bool,
@@ -171,6 +173,19 @@ impl DiffViewer {
                                         },
                                     )
                                     .when_some(
+                                        self.ai_composer_slash_command_menu.clone(),
+                                        |this, menu| {
+                                            this.child(
+                                                self.render_ai_composer_slash_command_menu(
+                                                    view.clone(),
+                                                    menu,
+                                                    is_dark,
+                                                    cx,
+                                                ),
+                                            )
+                                        },
+                                    )
+                                    .when_some(
                                         self.ai_composer_skill_completion_menu.clone(),
                                         |this, menu| {
                                             this.child(
@@ -227,38 +242,36 @@ impl DiffViewer {
                                                 state.thread_mode_picker_editable,
                                                 state.session_controls_read_only,
                                                 cx,
-                                            )),
+                                            ))
+                                            .child(
+                                                div()
+                                                    .rounded(px(999.0))
+                                                    .border_1()
+                                                    .border_color(hunk_opacity(
+                                                        cx.theme().accent,
+                                                        is_dark,
+                                                        0.54,
+                                                        0.44,
+                                                    ))
+                                                    .bg(hunk_opacity(
+                                                        cx.theme().accent,
+                                                        is_dark,
+                                                        0.14,
+                                                        0.10,
+                                                    ))
+                                                    .px_2()
+                                                    .py_0p5()
+                                                    .text_xs()
+                                                    .font_semibold()
+                                                    .text_color(cx.theme().accent)
+                                                    .child(state.current_mode_label.clone()),
+                                            ),
                                     )
                                     .child(
                                         h_flex()
                                             .items_center()
                                             .justify_end()
                                             .gap(footer_button_gap)
-                                            .child({
-                                                let view = view.clone();
-                                                let review_action_blocker =
-                                                    state.review_action_blocker.clone();
-                                                let review_action_disabled =
-                                                    review_action_blocker.is_some();
-                                                let review_action_tooltip =
-                                                    review_action_blocker.unwrap_or_else(|| {
-                                                        "Review the current working-copy changes for correctness and regressions.".to_string()
-                                                    });
-                                                Button::new("ai-start-review")
-                                                    .compact()
-                                                    .ghost()
-                                                    .rounded(px(999.0))
-                                                    .with_size(gpui_component::Size::Small)
-                                                    .px_1()
-                                                    .label("Review")
-                                                    .disabled(review_action_disabled)
-                                                    .tooltip(review_action_tooltip)
-                                                    .on_click(move |_, window, cx| {
-                                                        view.update(cx, |this, cx| {
-                                                            this.ai_start_review_action(window, cx);
-                                                        });
-                                                    })
-                                            })
                                             .child({
                                                 let view = view.clone();
                                                 if state.composer_interrupt_available {
@@ -277,17 +290,30 @@ impl DiffViewer {
                                                 } else {
                                                     let composer_send_waiting_on_connection =
                                                         state.composer_send_waiting_on_connection;
+                                                    let review_mode_active =
+                                                        state.review_mode_active;
+                                                    let review_action_tooltip = state
+                                                        .review_action_blocker
+                                                        .clone()
+                                                        .unwrap_or_else(|| {
+                                                            "Review the current working-copy changes for correctness and regressions.".to_string()
+                                                        });
                                                     Button::new("ai-send-prompt")
                                                         .compact()
                                                         .primary()
                                                         .rounded(px(999.0))
                                                         .with_size(gpui_component::Size::Small)
                                                         .icon(Icon::new(IconName::ArrowUp).size(px(16.0)))
-                                                        .tooltip(if composer_send_waiting_on_connection {
-                                                            "Wait for Codex to finish connecting."
-                                                        } else {
-                                                            "Send prompt"
-                                                        })
+                                                        .tooltip(
+                                                            if composer_send_waiting_on_connection {
+                                                                "Wait for Codex to finish connecting."
+                                                                    .to_string()
+                                                            } else if review_mode_active {
+                                                                review_action_tooltip
+                                                            } else {
+                                                                "Send prompt".to_string()
+                                                            },
+                                                        )
                                                         .disabled(composer_send_waiting_on_connection)
                                                         .on_click(move |_, window, cx| {
                                                             view.update(cx, |this, cx| {
@@ -658,8 +684,176 @@ impl DiffViewer {
                                 .into_any_element()
                         })),
                 ),
-        )
-        .into_any_element()
+            )
+            .into_any_element()
+    }
+
+    fn render_ai_composer_slash_command_menu(
+        &self,
+        view: Entity<Self>,
+        menu: crate::app::AiComposerSlashCommandMenuState,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let anchor_range = menu.replace_range.start..menu.replace_range.start.saturating_add(1);
+        let Some(anchor_position) = self
+            .ai_composer_input_state
+            .read(cx)
+            .offset_range_bounds(&anchor_range)
+            .map(|bounds| point(bounds.left(), bounds.top()))
+        else {
+            return div().into_any_element();
+        };
+
+        let selected_ix = self
+            .ai_composer_slash_command_selected_ix
+            .min(menu.items.len().saturating_sub(1));
+
+        deferred(
+            anchored()
+                .position_mode(AnchoredPositionMode::Window)
+                .position(anchor_position)
+                .offset(point(
+                    px(0.),
+                    -px(AI_COMPOSER_FILE_COMPLETION_MENU_GAP_Y),
+                ))
+                .anchor(Corner::BottomLeft)
+                .snap_to_window_with_margin(px(8.0))
+                .child(
+                    div()
+                        .id("ai-composer-slash-command-menu")
+                        .min_w(px(320.0))
+                        .max_w(px(460.0))
+                        .max_h(px(280.0))
+                        .overflow_y_scrollbar()
+                        .rounded(px(18.0))
+                        .border_1()
+                        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.78, 0.62))
+                        .bg(cx.theme().popover)
+                        .shadow_lg()
+                        .p_1()
+                        .children(menu.items.iter().enumerate().map(|(ix, item)| {
+                            let select_view = view.clone();
+                            let command_name = item.name.to_string();
+                            let selected = ix == selected_ix;
+
+                            h_flex()
+                                .id(("ai-composer-slash-command-item", ix))
+                                .w_full()
+                                .min_w_0()
+                                .items_center()
+                                .gap_2()
+                                .rounded(px(12.0))
+                                .px_2()
+                                .py_1p5()
+                                .text_sm()
+                                .hover(|style| {
+                                    style.bg(hunk_opacity(
+                                        cx.theme().accent,
+                                        is_dark,
+                                        0.22,
+                                        0.14,
+                                    ))
+                                })
+                                .when(selected, |this| {
+                                    this.bg(hunk_opacity(
+                                        cx.theme().accent,
+                                        is_dark,
+                                        0.28,
+                                        0.18,
+                                    ))
+                                    .border_1()
+                                    .border_color(hunk_opacity(
+                                        cx.theme().accent,
+                                        is_dark,
+                                        0.68,
+                                        0.58,
+                                    ))
+                                })
+                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                    select_view.update(cx, |this, cx| {
+                                        this.ai_accept_composer_slash_command_name(
+                                            command_name.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                    cx.stop_propagation();
+                                })
+                                .child(
+                                    v_flex()
+                                        .min_w_0()
+                                        .gap_0p5()
+                                        .child(
+                                            h_flex()
+                                                .min_w_0()
+                                                .items_center()
+                                                .gap_2()
+                                                .child(
+                                                    div()
+                                                        .flex_none()
+                                                        .rounded(px(999.0))
+                                                        .bg(hunk_opacity(
+                                                            cx.theme().accent,
+                                                            is_dark,
+                                                            0.16,
+                                                            0.10,
+                                                        ))
+                                                        .px_1p5()
+                                                        .py_0p5()
+                                                        .text_xs()
+                                                        .font_family(
+                                                            cx.theme()
+                                                                .mono_font_family
+                                                                .clone(),
+                                                        )
+                                                        .text_color(cx.theme().accent)
+                                                        .child(format!("/{}", item.name)),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .min_w_0()
+                                                        .truncate()
+                                                        .text_color(if selected {
+                                                            cx.theme().foreground
+                                                        } else {
+                                                            hunk_opacity(
+                                                                cx.theme().foreground,
+                                                                is_dark,
+                                                                0.96,
+                                                                0.98,
+                                                            )
+                                                        })
+                                                        .child(item.label),
+                                                ),
+                                        )
+                                        .child(
+                                            div()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_xs()
+                                                .text_color(if selected {
+                                                    hunk_opacity(
+                                                        cx.theme().accent,
+                                                        is_dark,
+                                                        0.94,
+                                                        0.90,
+                                                    )
+                                                } else {
+                                                    hunk_opacity(
+                                                        cx.theme().muted_foreground,
+                                                        is_dark,
+                                                        0.82,
+                                                        0.94,
+                                                    )
+                                                })
+                                                .child(item.description),
+                                        ),
+                                )
+                        })),
+                ),
+            )
+            .into_any_element()
     }
 }
 

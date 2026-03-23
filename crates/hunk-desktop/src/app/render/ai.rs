@@ -183,6 +183,12 @@ impl DiffViewer {
             composer_attachment_paths,
             composer_attachment_count,
             model_supports_image_inputs,
+            review_mode_active: self.ai_review_mode_active,
+            current_mode_label: crate::app::ai_composer_commands::ai_composer_mode_label(
+                self.ai_review_mode_active,
+                self.ai_selected_collaboration_mode,
+            )
+            .to_string(),
             selected_thread_mode_for_picker,
             thread_mode_picker_editable,
             session_controls_read_only: composer_interrupt_available,
@@ -249,6 +255,194 @@ impl DiffViewer {
             .when_some(self.ai_git_progress.clone(), |this, progress| {
                 this.child(render_ai_git_progress_overlay(&progress, is_dark, cx))
             })
+            .when(self.ai_usage_overlay_open, |this| {
+                this.child(self.render_ai_usage_overlay(cx.entity(), is_dark, cx))
+            })
             .into_any_element()
+    }
+
+    fn render_ai_usage_overlay(
+        &self,
+        view: Entity<Self>,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let backdrop_bg = hunk_modal_backdrop(cx.theme(), is_dark);
+        let modal_surface = hunk_modal_surface(cx.theme(), is_dark);
+        let backdrop_view = view.clone();
+        let (five_hour_window, weekly_window) = self
+            .ai_rate_limits
+            .as_ref()
+            .map(ai_rate_limit_windows)
+            .unwrap_or((None, None));
+
+        div()
+            .id("ai-usage-overlay")
+            .absolute()
+            .top_0()
+            .right_0()
+            .bottom_0()
+            .left_0()
+            .bg(backdrop_bg)
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_scroll_wheel(|_, _, cx| {
+                cx.stop_propagation();
+            })
+            .child(
+                div()
+                    .size_full()
+                    .p_4()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                        backdrop_view.update(cx, |this, cx| {
+                            this.ai_close_usage_overlay_action(cx);
+                        });
+                        cx.stop_propagation();
+                    })
+                    .child(
+                        v_flex()
+                            .id("ai-usage-popup")
+                            .w_full()
+                            .max_w(px(720.0))
+                            .rounded(px(18.0))
+                            .border_1()
+                            .border_color(modal_surface.border)
+                            .bg(modal_surface.background)
+                            .p_5()
+                            .gap_4()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation();
+                            })
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .font_semibold()
+                                            .text_color(cx.theme().foreground)
+                                            .child("Status"),
+                                    )
+                                    .child({
+                                        let view = view.clone();
+                                        Button::new("ai-usage-close")
+                                            .compact()
+                                            .ghost()
+                                            .rounded(px(8.0))
+                                            .label("Close")
+                                            .on_click(move |_, _, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_close_usage_overlay_action(cx);
+                                                });
+                                            })
+                                    }),
+                            )
+                            .child(
+                                v_flex()
+                                    .gap_3()
+                                    .child(render_ai_usage_row(
+                                        "5h limit",
+                                        five_hour_window.as_ref(),
+                                        is_dark,
+                                        cx,
+                                    ))
+                                    .child(render_ai_usage_row(
+                                        "7d limit",
+                                        weekly_window.as_ref(),
+                                        is_dark,
+                                        cx,
+                                    )),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
+fn render_ai_usage_row(
+    label: &str,
+    window: Option<&codex_app_server_protocol::RateLimitWindow>,
+    is_dark: bool,
+    cx: &mut Context<DiffViewer>,
+) -> AnyElement {
+    let used_percent = window.map(|window| window.used_percent.clamp(0, 100) as u8);
+    let remaining_percent = used_percent
+        .map(|used_percent| 100_u8.saturating_sub(used_percent))
+        .unwrap_or(0);
+    let reset_label = window
+        .and_then(|window| window.resets_at)
+        .map(ai_format_rate_limit_reset_compact);
+
+    h_flex()
+        .w_full()
+        .items_center()
+        .gap_4()
+        .child(
+            div()
+                .w(px(96.0))
+                .text_sm()
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_color(cx.theme().muted_foreground)
+                .child(format!("{label}:")),
+        )
+        .child(
+            div()
+                .flex_1()
+                .h(px(20.0))
+                .rounded(px(999.0))
+                .border_1()
+                .border_color(hunk_opacity(cx.theme().border, is_dark, 0.78, 0.62))
+                .bg(hunk_opacity(cx.theme().muted, is_dark, 0.22, 0.40))
+                .child(
+                    div()
+                        .h_full()
+                        .rounded(px(999.0))
+                        .bg(hunk_opacity(cx.theme().foreground, is_dark, 0.96, 0.92))
+                        .w(gpui::relative(remaining_percent as f32 / 100.0)),
+                ),
+        )
+        .child(
+            div()
+                .w(px(190.0))
+                .text_sm()
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_color(cx.theme().foreground)
+                .child(match reset_label {
+                    Some(reset_label) => format!("{remaining_percent}% left (resets {reset_label})"),
+                    None => "Unavailable".to_string(),
+                }),
+        )
+        .into_any_element()
+}
+
+fn ai_format_rate_limit_reset_compact(unix_seconds: i64) -> String {
+    let Ok(utc_datetime) = time::OffsetDateTime::from_unix_timestamp(unix_seconds) else {
+        return unix_seconds.to_string();
+    };
+
+    let local_datetime = time::UtcOffset::current_local_offset()
+        .map(|offset| utc_datetime.to_offset(offset))
+        .unwrap_or(utc_datetime);
+    let now = time::UtcOffset::current_local_offset()
+        .ok()
+        .map(|offset| time::OffsetDateTime::now_utc().to_offset(offset))
+        .unwrap_or_else(time::OffsetDateTime::now_utc);
+
+    if local_datetime.date() == now.date() {
+        let minute = local_datetime.minute();
+        let (hour, meridiem) = ai_hour_and_meridiem(local_datetime.hour());
+        format!("{hour}:{minute:02} {meridiem}")
+    } else {
+        format!(
+            "{} {}",
+            ai_month_short(local_datetime.month()),
+            local_datetime.day()
+        )
     }
 }
