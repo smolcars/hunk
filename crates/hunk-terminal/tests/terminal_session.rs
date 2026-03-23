@@ -13,7 +13,8 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[test]
 fn terminal_session_emits_vt_screen_snapshots_for_output() {
-    let request = TerminalSpawnRequest::new(repo_root(), "printf 'hello from vt\\n'".to_string());
+    let request = TerminalSpawnRequest::new(repo_root(), "printf 'hello from vt\\n'".to_string())
+        .with_shell_program(test_shell_program());
     let (_handle, event_rx) =
         spawn_terminal_session(request).expect("terminal session should start");
 
@@ -41,7 +42,8 @@ fn terminal_session_emits_vt_screen_snapshots_for_output() {
 
 #[test]
 fn terminal_session_emits_updated_screen_snapshot_after_resize() {
-    let request = TerminalSpawnRequest::new(repo_root(), "sleep 1".to_string());
+    let request = TerminalSpawnRequest::new(repo_root(), "sleep 1".to_string())
+        .with_shell_program(test_shell_program());
     let (handle, event_rx) =
         spawn_terminal_session(request).expect("terminal session should start");
 
@@ -68,7 +70,8 @@ fn terminal_session_supports_scrollback_after_output() {
         repo_root(),
         "i=1; while [ \"$i\" -le 12 ]; do printf 'line %s\\n' \"$i\"; i=$((i + 1)); done; sleep 1"
             .to_string(),
-    );
+    )
+    .with_shell_program(test_shell_program());
     request.rows = 5;
     request.cols = 80;
 
@@ -143,6 +146,14 @@ fn repo_root() -> PathBuf {
         .and_then(|path| path.parent())
         .map(ToOwned::to_owned)
         .expect("crate should live under workspace/crates")
+}
+
+fn test_shell_program() -> &'static str {
+    if PathBuf::from("/bin/sh").exists() {
+        "/bin/sh"
+    } else {
+        "/bin/bash"
+    }
 }
 
 fn screen_text(screen: &Arc<TerminalScreenSnapshot>) -> String {
