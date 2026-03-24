@@ -26,7 +26,7 @@ impl DiffViewer {
         let codex_executable = if let Err(error) =
             Self::validate_codex_executable_path(codex_executable.as_path())
         {
-            debug!("skipping repo-wide AI thread catalog refresh: {error}");
+            debug!("skipping workspace-wide AI thread catalog refresh: {error}");
             None
         } else {
             Some(codex_executable)
@@ -100,7 +100,7 @@ impl DiffViewer {
                             cx.notify();
                         }
                         Err(error) => {
-                            debug!("failed to refresh repo-wide AI thread catalog: {error:#}");
+                            debug!("failed to refresh workspace-wide AI thread catalog: {error:#}");
                         }
                     }
                 });
