@@ -51,9 +51,13 @@ impl DiffViewer {
 
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
-        let threads = self.ai_visible_threads();
+        let project_sections = self.ai_visible_thread_sections();
+        let visible_thread_count = project_sections
+            .iter()
+            .map(|section| section.total_thread_count)
+            .sum::<usize>();
         let show_global_loading_overlay = self.ai_bootstrap_loading;
-        let threads_loading = show_global_loading_overlay && threads.is_empty();
+        let threads_loading = show_global_loading_overlay && visible_thread_count == 0;
         let active_branch = self.ai_active_workspace_branch_name();
         let active_workspace_label = self.ai_active_workspace_label();
         let pending_approvals = self.ai_visible_pending_approvals();
@@ -133,7 +137,7 @@ impl DiffViewer {
         };
 
         let sidebar_state = AiThreadSidebarState {
-            threads,
+            project_sections,
             threads_loading,
             selected_thread_id: selected_thread_id.clone(),
             new_thread_menu_action_context: self.focus_handle.clone(),

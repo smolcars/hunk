@@ -1,14 +1,13 @@
 #[cfg(test)]
 mod ai_visible_threads_tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use hunk_codex::state::AiState;
     use hunk_codex::state::ThreadLifecycleStatus;
     use hunk_codex::state::ThreadSummary;
-    use hunk_git::worktree::WorkspaceTargetKind;
-    use hunk_git::worktree::WorkspaceTargetSummary;
 
     use super::AiWorkspaceState;
+    use super::ai_visible_thread_sections;
     use super::merged_ai_visible_threads;
     use super::state_snapshot_workspace_key;
     use std::path::PathBuf;
@@ -27,23 +26,6 @@ mod ai_visible_threads_tests {
             created_at,
             updated_at,
             last_sequence: 1,
-        }
-    }
-
-    fn workspace_target(
-        id: &str,
-        kind: WorkspaceTargetKind,
-        root: &str,
-    ) -> WorkspaceTargetSummary {
-        WorkspaceTargetSummary {
-            id: id.to_string(),
-            kind,
-            root: PathBuf::from(root),
-            name: id.to_string(),
-            display_name: id.to_string(),
-            branch_name: "main".to_string(),
-            managed: matches!(kind, WorkspaceTargetKind::LinkedWorktree),
-            is_active: false,
         }
     }
 
@@ -98,14 +80,7 @@ mod ai_visible_threads_tests {
             &state_snapshot,
             Some("/repo"),
             &background_workspace_states,
-            &[
-                workspace_target("primary", WorkspaceTargetKind::PrimaryCheckout, "/repo"),
-                workspace_target(
-                    "task-7",
-                    WorkspaceTargetKind::LinkedWorktree,
-                    "/repo/worktrees/task-7",
-                ),
-            ],
+            &[PathBuf::from("/repo")],
             Some(std::path::Path::new("/repo")),
             Some(std::path::Path::new("/repo")),
         );
@@ -145,19 +120,52 @@ mod ai_visible_threads_tests {
             &state_snapshot,
             Some("/repo-b"),
             &background_workspace_states,
-            &[
-                workspace_target("primary", WorkspaceTargetKind::PrimaryCheckout, "/repo-b"),
-                workspace_target(
-                    "task-7",
-                    WorkspaceTargetKind::LinkedWorktree,
-                    "/repo-b/worktrees/task-7",
-                ),
-            ],
+            &[PathBuf::from("/repo-b")],
             Some(std::path::Path::new("/repo-b")),
             Some(std::path::Path::new("/repo-b")),
         );
         let thread_ids = threads.into_iter().map(|thread| thread.id).collect::<Vec<_>>();
 
         assert_eq!(thread_ids, vec!["thread-worktree-b", "thread-local"]);
+    }
+
+    #[test]
+    fn visible_thread_sections_are_ordered_by_active_project_and_capped_per_project() {
+        let threads = vec![
+            thread_summary("repo-a-6", "/repo-a", 60, 60),
+            thread_summary("repo-a-5", "/repo-a", 50, 50),
+            thread_summary("repo-a-4", "/repo-a/worktrees/task-4", 40, 40),
+            thread_summary("repo-a-3", "/repo-a/worktrees/task-3", 30, 30),
+            thread_summary("repo-a-2", "/repo-a", 20, 20),
+            thread_summary("repo-a-1", "/repo-a", 10, 10),
+            thread_summary("repo-b-1", "/repo-b", 70, 70),
+        ];
+
+        let sections = ai_visible_thread_sections(
+            threads,
+            &[PathBuf::from("/repo-a"), PathBuf::from("/repo-b")],
+            Some(std::path::Path::new("/repo-b")),
+            Some(std::path::Path::new("/repo-b")),
+            &BTreeSet::new(),
+        );
+
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].project_root, PathBuf::from("/repo-b"));
+        assert!(sections[0].is_active_project);
+        assert_eq!(sections[0].threads.len(), 1);
+
+        assert_eq!(sections[1].project_root, PathBuf::from("/repo-a"));
+        assert_eq!(sections[1].total_thread_count, 6);
+        assert_eq!(sections[1].threads.len(), 5);
+        assert_eq!(sections[1].hidden_thread_count, 1);
+        let repo_a_thread_ids = sections[1]
+            .threads
+            .iter()
+            .map(|thread| thread.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            repo_a_thread_ids,
+            vec!["repo-a-6", "repo-a-5", "repo-a-4", "repo-a-3", "repo-a-2"]
+        );
     }
 }

@@ -1042,6 +1042,7 @@ struct DiffViewer {
     ai_thread_list_scroll_handle: ScrollHandle,
     ai_git_progress: Option<AiGitProgressState>,
     ai_thread_title_refresh_state_by_thread: BTreeMap<String, AiThreadTitleRefreshState>,
+    ai_expanded_thread_sidebar_project_roots: BTreeSet<String>,
     ai_timeline_list_state: ListState,
     ai_timeline_list_row_count: usize,
     ai_timeline_visible_turn_limit_by_thread: BTreeMap<String, usize>,

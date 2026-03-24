@@ -684,6 +684,12 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(thread_project_root) = self.ai_thread_project_root(thread_id.as_str())
+            && self.project_path.as_deref() != Some(thread_project_root.as_path())
+        {
+            self.activate_workspace_project_root(thread_project_root, cx);
+        }
+
         let previous_workspace_key = self.ai_workspace_key();
         let next_workspace_key = self
             .ai_thread_workspace_root(thread_id.as_str())

@@ -68,6 +68,17 @@ impl DiffViewer {
         )
     }
 
+    pub(crate) fn ai_visible_thread_sections(&self) -> Vec<AiVisibleThreadProjectSection> {
+        let threads = self.ai_visible_threads();
+        ai_visible_thread_sections(
+            threads,
+            self.state.workspace_project_paths.as_slice(),
+            self.project_path.as_deref(),
+            self.repo_root.as_deref(),
+            &self.ai_expanded_thread_sidebar_project_roots,
+        )
+    }
+
     fn ai_state_snapshot_workspace_key(&self) -> Option<String> {
         let draft_workspace_key = self.ai_workspace_key_for_draft();
         state_snapshot_workspace_key(
@@ -81,30 +92,35 @@ impl DiffViewer {
     }
 
     fn ai_thread_summary(&self, thread_id: &str) -> Option<ThreadSummary> {
+        let workspace_project_roots = ai_workspace_project_roots(
+            self.state.workspace_project_paths.as_slice(),
+            self.project_path.as_deref(),
+            self.repo_root.as_deref(),
+        );
         self.ai_state_snapshot
             .threads
             .get(thread_id)
             .filter(|thread| {
-                ai_thread_workspace_matches_current_project(
+                ai_workspace_project_root_for_thread_root(
                     std::path::Path::new(thread.cwd.as_str()),
-                    self.workspace_targets.as_slice(),
-                    self.project_path.as_deref(),
-                    self.repo_root.as_deref(),
+                    workspace_project_roots.as_slice(),
                 )
+                .is_some()
             })
             .cloned()
             .or_else(|| {
                 self.ai_workspace_states
-                    .iter()
-                    .filter(|(workspace_key, _)| {
-                        ai_thread_workspace_matches_current_project(
-                            std::path::Path::new(workspace_key.as_str()),
-                            self.workspace_targets.as_slice(),
-                            self.project_path.as_deref(),
-                            self.repo_root.as_deref(),
-                        )
+                    .values()
+                    .find_map(|state| {
+                        state.state_snapshot.threads.get(thread_id).filter(|thread| {
+                            ai_workspace_project_root_for_thread_root(
+                                std::path::Path::new(thread.cwd.as_str()),
+                                workspace_project_roots.as_slice(),
+                            )
+                            .is_some()
+                        })
                     })
-                    .find_map(|(_, state)| state.state_snapshot.threads.get(thread_id).cloned())
+                    .cloned()
             })
     }
 
@@ -112,6 +128,20 @@ impl DiffViewer {
         self.ai_thread_summary(thread_id)
             .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
             .map(|thread| std::path::PathBuf::from(thread.cwd))
+    }
+
+    fn ai_thread_project_root(&self, thread_id: &str) -> Option<std::path::PathBuf> {
+        let workspace_project_roots = ai_workspace_project_roots(
+            self.state.workspace_project_paths.as_slice(),
+            self.project_path.as_deref(),
+            self.repo_root.as_deref(),
+        );
+        self.ai_thread_workspace_root(thread_id).and_then(|thread_workspace_root| {
+            ai_workspace_project_root_for_thread_root(
+                thread_workspace_root.as_path(),
+                workspace_project_roots.as_slice(),
+            )
+        })
     }
 
     fn ai_pending_approval(&self, request_id: &str) -> Option<AiPendingApproval> {
@@ -172,7 +202,7 @@ impl DiffViewer {
             &self.ai_state_snapshot,
             state_snapshot_workspace_key.as_deref(),
             &self.ai_workspace_states,
-            self.workspace_targets.as_slice(),
+            self.state.workspace_project_paths.as_slice(),
             self.project_path.as_deref(),
             self.repo_root.as_deref(),
         );
@@ -180,6 +210,21 @@ impl DiffViewer {
             threads,
             &self.state.ai_bookmarked_thread_ids,
         )
+    }
+
+    pub(super) fn ai_toggle_thread_sidebar_project_expanded(
+        &mut self,
+        project_root: String,
+        cx: &mut Context<Self>,
+    ) {
+        if !self
+            .ai_expanded_thread_sidebar_project_roots
+            .insert(project_root.clone())
+        {
+            self.ai_expanded_thread_sidebar_project_roots
+                .remove(project_root.as_str());
+        }
+        cx.notify();
     }
 
     pub(super) fn ai_timeline_turn_ids(&self, thread_id: &str) -> &[String] {

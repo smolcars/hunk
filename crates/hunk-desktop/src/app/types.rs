@@ -254,6 +254,17 @@ struct AiHiddenTerminalRuntimeHandle {
     event_task: Task<()>,
 }
 
+#[derive(Debug, Clone)]
+struct AiVisibleThreadProjectSection {
+    project_root: PathBuf,
+    project_label: String,
+    threads: Vec<ThreadSummary>,
+    total_thread_count: usize,
+    hidden_thread_count: usize,
+    expanded: bool,
+    is_active_project: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiComposerSkillBinding {
     token: String,
