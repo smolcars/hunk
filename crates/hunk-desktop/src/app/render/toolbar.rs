@@ -1,20 +1,34 @@
 impl DiffViewer {
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let view = cx.entity();
-        let project_label = self.project_display_name();
-        let repo_label = self
-            .repo_root
-            .as_ref()
+        let ai_selected = self.workspace_view_mode == WorkspaceViewMode::Ai;
+        let project_root = if ai_selected {
+            self.ai_visible_project_root().or_else(|| self.repo_root.clone())
+        } else {
+            self.project_path.clone().or_else(|| self.repo_root.clone())
+        };
+        let project_label = project_root
+            .as_deref()
+            .map(crate::app::project_picker::project_display_name)
+            .unwrap_or_else(|| self.project_display_name());
+        let repo_label = if ai_selected {
+            self.ai_workspace_cwd()
+        } else {
+            self.repo_root.clone()
+        }
+        .as_ref()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "No Git repository found".to_string());
         let is_dark = cx.theme().mode.is_dark();
         let git_selected = self.workspace_view_mode == WorkspaceViewMode::GitWorkspace;
         let review_selected = self.workspace_view_mode == WorkspaceViewMode::Diff;
-        let ai_selected = self.workspace_view_mode == WorkspaceViewMode::Ai;
-        let active_branch = self
-            .primary_checked_out_branch_name()
-            .unwrap_or(self.branch_name.as_str())
-            .to_string();
+        let active_branch = if ai_selected {
+            self.ai_active_workspace_branch_name()
+        } else {
+            self.primary_checked_out_branch_name()
+                .unwrap_or(self.branch_name.as_str())
+                .to_string()
+        };
         let chip_colors = hunk_toolbar_chip(cx.theme(), is_dark);
         let brand_colors = hunk_toolbar_brand_chip(cx.theme(), is_dark);
         let toolbar_button_bg = hunk_dropdown_fill(cx.theme(), is_dark);
@@ -53,13 +67,24 @@ impl DiffViewer {
                     .child(
                         h_flex()
                             .items_center()
+                            .min_w(px(if ai_selected { 180.0 } else { 260.0 }))
+                            .max_w(px(if ai_selected { 220.0 } else { 320.0 }))
                             .px_1()
                             .py_0p5()
                             .rounded_md()
                             .bg(brand_colors.background)
                             .border_1()
                             .border_color(brand_colors.border)
-                            .child(
+                            .child(if ai_selected {
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_sm()
+                                    .font_medium()
+                                    .text_color(cx.theme().foreground)
+                                    .child(project_label)
+                                    .into_any_element()
+                            } else {
                                 Select::new(&self.project_picker_state)
                                     .with_size(gpui_component::Size::Small)
                                     .placeholder(project_label)
@@ -67,6 +92,8 @@ impl DiffViewer {
                                     .rounded(px(8.0))
                                     .bg(brand_colors.background)
                                     .border_color(brand_colors.border)
+                                    .min_w(px(258.0))
+                                    .max_w(px(318.0))
                                     .disabled(self.state.workspace_project_paths.is_empty())
                                     .empty(
                                         h_flex()
@@ -75,8 +102,9 @@ impl DiffViewer {
                                             .text_sm()
                                             .text_color(cx.theme().muted_foreground)
                                             .child("No projects in this workspace."),
-                                    ),
-                            ),
+                                    )
+                                    .into_any_element()
+                            }),
                     )
                     .child(
                         h_flex()

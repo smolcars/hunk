@@ -1,6 +1,7 @@
 #[derive(Debug)]
 struct AiPreparedThreadWorkspace {
     branch_name: String,
+    workspace_root: PathBuf,
     workspace_target_id: Option<String>,
     status_message: String,
 }
@@ -482,10 +483,26 @@ impl DiffViewer {
                                 prepared.branch_name
                             );
                             this.git_status_message = Some(prepared.status_message.clone());
+                            this.ai_draft_workspace_root_override =
+                                Some(prepared.workspace_root.clone());
                             if let Some(target_id) = prepared.workspace_target_id.clone() {
+                                let active_repo_matches_prepared_workspace = this
+                                    .primary_repo_root()
+                                    .and_then(|root| {
+                                        hunk_git::worktree::primary_repo_root(
+                                            prepared.workspace_root.as_path(),
+                                        )
+                                        .ok()
+                                        .map(|prepared_root| root == prepared_root)
+                                    })
+                                    .unwrap_or(false);
                                 this.sync_ai_visible_composer_prompt_to_draft(cx);
-                                this.refresh_workspace_targets_from_git_state(cx);
-                                this.ai_draft_workspace_target_id = Some(target_id.clone());
+                                if active_repo_matches_prepared_workspace {
+                                    this.refresh_workspace_targets_from_git_state(cx);
+                                    this.ai_draft_workspace_target_id = Some(target_id.clone());
+                                } else {
+                                    this.ai_draft_workspace_target_id = None;
+                                }
                                 if let Some(workspace_key) = this.ai_workspace_key_for_draft() {
                                     this.seed_ai_workspace_state_for(workspace_key.as_str());
                                 }
@@ -781,6 +798,7 @@ impl DiffViewer {
             selected_service_tier: current_state.selected_service_tier,
             review_mode_thread_ids: std::collections::BTreeSet::new(),
             mad_max_mode: current_state.mad_max_mode,
+            draft_workspace_root_override: current_state.draft_workspace_root_override.clone(),
             terminal_open: current_state.terminal_open,
             terminal_follow_output: current_state.terminal_follow_output,
             terminal_height_px: current_state.terminal_height_px,
@@ -928,6 +946,7 @@ fn prepare_ai_thread_workspace(
             let branch_name = snapshot.branch_name;
             Ok(AiPreparedThreadWorkspace {
                 branch_name: branch_name.clone(),
+                workspace_root: repo_root.to_path_buf(),
                 workspace_target_id: None,
                 status_message: format!("Prepared local thread on branch {branch_name}"),
             })
@@ -967,6 +986,7 @@ fn prepare_ai_thread_workspace(
                     Ok(created) => {
                         return Ok(AiPreparedThreadWorkspace {
                             branch_name: candidate_branch_name,
+                            workspace_root: created.root.clone(),
                             workspace_target_id: Some(created.id),
                             status_message: format!(
                                 "Prepared worktree {} from {}",

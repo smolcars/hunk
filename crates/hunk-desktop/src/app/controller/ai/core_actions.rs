@@ -195,11 +195,61 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some(project_root) = self.ai_visible_project_root().or_else(|| self.primary_repo_root())
+        else {
+            self.ai_new_thread_start_mode = start_mode;
+            self.ai_draft_workspace_root_override = None;
+            self.ai_draft_workspace_target_id = self
+                .primary_workspace_target_id()
+                .or_else(|| self.workspace_targets.first().map(|target| target.id.clone()));
+            self.sync_ai_worktree_base_branch_from_repo();
+            self.sync_ai_worktree_base_branch_picker_state(cx);
+            self.sync_ai_workspace_target_from_catalog(cx);
+            self.ai_create_thread_action(window, cx);
+            return;
+        };
+        self.ai_start_thread_draft_for_project_root(project_root, start_mode, window, cx);
+    }
+
+    pub(super) fn ai_start_thread_draft_for_project_root(
+        &mut self,
+        project_root: PathBuf,
+        start_mode: AiNewThreadStartMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.ai_new_thread_start_mode = start_mode;
-        self.ai_draft_workspace_target_id = self
-            .primary_workspace_target_id()
-            .or_else(|| self.workspace_targets.first().map(|target| target.id.clone()));
-        self.sync_ai_worktree_base_branch_from_repo();
+        self.ai_draft_workspace_root_override = Some(project_root.clone());
+        self.ai_draft_workspace_target_id = hunk_git::worktree::list_workspace_targets(
+            project_root.as_path(),
+        )
+        .ok()
+        .and_then(|targets| {
+            targets
+                .into_iter()
+                .find(|target| {
+                    matches!(
+                        target.kind,
+                        hunk_git::worktree::WorkspaceTargetKind::PrimaryCheckout
+                    )
+                })
+                .map(|target| target.id)
+        });
+        if start_mode == AiNewThreadStartMode::Worktree {
+            let project_matches_non_ai_root = self
+                .primary_repo_root()
+                .is_some_and(|root| root == project_root);
+            if project_matches_non_ai_root {
+                self.sync_ai_worktree_base_branch_from_repo();
+            } else {
+                self.ai_worktree_base_branch_name =
+                    resolve_default_base_branch_name(project_root.as_path())
+                        .ok()
+                        .flatten();
+            }
+        } else {
+            self.ai_worktree_base_branch_name = None;
+        }
         self.sync_ai_worktree_base_branch_picker_state(cx);
         self.sync_ai_workspace_target_from_catalog(cx);
         self.ai_create_thread_action(window, cx);
@@ -684,12 +734,6 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(thread_project_root) = self.ai_thread_project_root(thread_id.as_str())
-            && self.project_path.as_deref() != Some(thread_project_root.as_path())
-        {
-            self.activate_workspace_project_root(thread_project_root, cx);
-        }
-
         let previous_workspace_key = self.ai_workspace_key();
         let next_workspace_key = self
             .ai_thread_workspace_root(thread_id.as_str())

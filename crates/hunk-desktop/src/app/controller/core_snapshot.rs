@@ -44,6 +44,7 @@ impl DiffViewer {
         self.workspace_targets.clear();
         self.active_workspace_target_id = None;
         self.sync_project_picker_state(cx);
+        self.ai_draft_workspace_root_override = None;
         self.ai_draft_workspace_target_id = None;
         self.persist_active_workspace_target_id();
         self.sync_workspace_target_picker_state(cx);

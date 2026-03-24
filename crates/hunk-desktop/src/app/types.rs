@@ -262,7 +262,6 @@ struct AiVisibleThreadProjectSection {
     total_thread_count: usize,
     hidden_thread_count: usize,
     expanded: bool,
-    is_active_project: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,6 +352,7 @@ struct AiWorkspaceState {
     selected_service_tier: AiServiceTierSelection,
     review_mode_thread_ids: BTreeSet<String>,
     mad_max_mode: bool,
+    draft_workspace_root_override: Option<PathBuf>,
     terminal_open: bool,
     terminal_follow_output: bool,
     terminal_height_px: f32,
@@ -401,6 +401,7 @@ impl Default for AiWorkspaceState {
             selected_service_tier: AiServiceTierSelection::Standard,
             review_mode_thread_ids: BTreeSet::new(),
             mad_max_mode: false,
+            draft_workspace_root_override: None,
             terminal_open: false,
             terminal_follow_output: true,
             terminal_height_px: 220.0,
