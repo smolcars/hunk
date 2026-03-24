@@ -221,7 +221,7 @@ impl DiffViewer {
                             .child(
                                 div()
                                     .relative()
-                                    .key_context("AiComposer")
+                                    .key_context("AiComposer AiWorkspace")
                                     .on_action(cx.listener(Self::ai_queue_prompt_action))
                                     .on_action(cx.listener(Self::ai_edit_last_queued_prompt_action))
                                     .child(

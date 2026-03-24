@@ -2,10 +2,20 @@ impl DiffViewer {
     fn render_tree(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
-        let tree_key_context = if self.repo_tree_inline_edit.is_some() {
-            "RepoTreeInlineEdit"
-        } else {
-            "RepoTree"
+        let tree_key_context = match (
+            self.repo_tree_inline_edit.is_some(),
+            self.workspace_view_mode,
+        ) {
+            (true, WorkspaceViewMode::Files) => {
+                "RepoTreeInlineEdit RepoTree FilesWorkspace TreeWorkspace"
+            }
+            (false, WorkspaceViewMode::Files) => "RepoTree FilesWorkspace TreeWorkspace",
+            (true, WorkspaceViewMode::Diff) => {
+                "RepoTreeInlineEdit RepoTree ReviewWorkspace TreeWorkspace"
+            }
+            (false, WorkspaceViewMode::Diff) => "RepoTree ReviewWorkspace TreeWorkspace",
+            (true, _) => "RepoTreeInlineEdit RepoTree TreeWorkspace",
+            (false, _) => "RepoTree TreeWorkspace",
         };
         let tree_summary = if self.repo_tree.loading && !self.repo_tree.rows.is_empty() {
             format!(

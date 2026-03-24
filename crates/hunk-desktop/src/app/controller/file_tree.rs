@@ -26,6 +26,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.workspace_view_mode.supports_sidebar_tree() {
+            return;
+        }
         self.toggle_sidebar_tree(cx);
     }
 

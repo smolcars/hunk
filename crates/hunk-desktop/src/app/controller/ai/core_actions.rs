@@ -151,8 +151,9 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.focus_handle.focus(window, cx);
-        self.set_workspace_view_mode(WorkspaceSwitchAction::Ai.target_mode(), cx);
+        if self.workspace_view_mode != WorkspaceViewMode::Ai {
+            return;
+        }
         self.ai_start_thread_draft(AiNewThreadStartMode::Local, window, cx);
     }
 
@@ -162,8 +163,9 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.focus_handle.focus(window, cx);
-        self.set_workspace_view_mode(WorkspaceSwitchAction::Ai.target_mode(), cx);
+        if self.workspace_view_mode != WorkspaceViewMode::Ai {
+            return;
+        }
         self.ai_start_thread_draft(AiNewThreadStartMode::Worktree, window, cx);
     }
 

@@ -1,3 +1,10 @@
+pub(crate) const SHORTCUT_CONTEXT_FILES_WORKSPACE: &str = "FilesWorkspace";
+pub(crate) const SHORTCUT_CONTEXT_REVIEW_WORKSPACE: &str = "ReviewWorkspace";
+pub(crate) const SHORTCUT_CONTEXT_GIT_WORKSPACE: &str = "GitWorkspace";
+pub(crate) const SHORTCUT_CONTEXT_AI_WORKSPACE: &str = "AiWorkspace";
+pub(crate) const SHORTCUT_CONTEXT_TREE_WORKSPACE: &str = "TreeWorkspace";
+pub(crate) const SHORTCUT_CONTEXT_SELECTABLE_WORKSPACE: &str = "SelectableWorkspace";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum WorkspaceViewMode {
     Files,
@@ -21,6 +28,24 @@ impl WorkspaceViewMode {
 
     pub(super) const fn supports_diff_stream(self) -> bool {
         matches!(self, Self::Files | Self::Diff)
+    }
+
+    pub(crate) const fn shortcut_context(self) -> &'static str {
+        match self {
+            Self::Files => SHORTCUT_CONTEXT_FILES_WORKSPACE,
+            Self::Diff => SHORTCUT_CONTEXT_REVIEW_WORKSPACE,
+            Self::GitWorkspace => SHORTCUT_CONTEXT_GIT_WORKSPACE,
+            Self::Ai => SHORTCUT_CONTEXT_AI_WORKSPACE,
+        }
+    }
+
+    pub(crate) const fn root_key_context(self) -> &'static str {
+        match self {
+            Self::Files => "DiffViewer FilesWorkspace TreeWorkspace",
+            Self::Diff => "DiffViewer ReviewWorkspace TreeWorkspace SelectableWorkspace",
+            Self::GitWorkspace => "DiffViewer GitWorkspace",
+            Self::Ai => "DiffViewer AiWorkspace SelectableWorkspace",
+        }
     }
 }
 

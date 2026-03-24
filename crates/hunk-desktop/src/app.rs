@@ -107,6 +107,7 @@ use workspace_target_picker::{
     WorkspaceTargetPickerDelegate, build_workspace_target_picker_delegate,
     workspace_target_picker_selected_index,
 };
+use workspace_view::{SHORTCUT_CONTEXT_SELECTABLE_WORKSPACE, SHORTCUT_CONTEXT_TREE_WORKSPACE};
 
 const FPS_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 const AUTO_REFRESH_SCROLL_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -350,20 +351,25 @@ fn load_keyboard_shortcuts() -> KeyboardShortcuts {
 fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
     let mut bindings = Vec::new();
 
-    bindings.extend(
-        shortcuts
-            .select_next_line
-            .iter()
-            .map(|shortcut| KeyBinding::new(shortcut.as_str(), SelectNextLine, Some("DiffViewer"))),
-    );
+    bindings.extend(shortcuts.select_next_line.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            SelectNextLine,
+            Some(WorkspaceViewMode::Diff.shortcut_context()),
+        )
+    }));
     bindings.extend(shortcuts.select_previous_line.iter().map(|shortcut| {
-        KeyBinding::new(shortcut.as_str(), SelectPreviousLine, Some("DiffViewer"))
+        KeyBinding::new(
+            shortcut.as_str(),
+            SelectPreviousLine,
+            Some(WorkspaceViewMode::Diff.shortcut_context()),
+        )
     }));
     bindings.extend(shortcuts.extend_selection_next_line.iter().map(|shortcut| {
         KeyBinding::new(
             shortcut.as_str(),
             ExtendSelectionNextLine,
-            Some("DiffViewer"),
+            Some(WorkspaceViewMode::Diff.shortcut_context()),
         )
     }));
     bindings.extend(
@@ -374,57 +380,66 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
                 KeyBinding::new(
                     shortcut.as_str(),
                     ExtendSelectionPreviousLine,
-                    Some("DiffViewer"),
+                    Some(WorkspaceViewMode::Diff.shortcut_context()),
                 )
             }),
     );
-    bindings.extend(
-        shortcuts
-            .copy_selection
-            .iter()
-            .map(|shortcut| KeyBinding::new(shortcut.as_str(), CopySelection, Some("DiffViewer"))),
-    );
-    bindings.extend(
-        shortcuts.select_all_diff_rows.iter().map(|shortcut| {
-            KeyBinding::new(shortcut.as_str(), SelectAllDiffRows, Some("DiffViewer"))
-        }),
-    );
-    bindings.extend(
-        shortcuts
-            .next_hunk
-            .iter()
-            .map(|shortcut| KeyBinding::new(shortcut.as_str(), NextHunk, Some("DiffViewer"))),
-    );
-    bindings.extend(
-        shortcuts
-            .previous_hunk
-            .iter()
-            .map(|shortcut| KeyBinding::new(shortcut.as_str(), PreviousHunk, Some("DiffViewer"))),
-    );
-    bindings.extend(
-        shortcuts
-            .next_file
-            .iter()
-            .map(|shortcut| KeyBinding::new(shortcut.as_str(), NextFile, Some("DiffViewer"))),
-    );
-    bindings.extend(
-        shortcuts
-            .previous_file
-            .iter()
-            .map(|shortcut| KeyBinding::new(shortcut.as_str(), PreviousFile, Some("DiffViewer"))),
-    );
+    bindings.extend(shortcuts.copy_selection.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            CopySelection,
+            Some(SHORTCUT_CONTEXT_SELECTABLE_WORKSPACE),
+        )
+    }));
+    bindings.extend(shortcuts.select_all_diff_rows.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            SelectAllDiffRows,
+            Some(SHORTCUT_CONTEXT_SELECTABLE_WORKSPACE),
+        )
+    }));
+    bindings.extend(shortcuts.next_hunk.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            NextHunk,
+            Some(WorkspaceViewMode::Diff.shortcut_context()),
+        )
+    }));
+    bindings.extend(shortcuts.previous_hunk.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            PreviousHunk,
+            Some(WorkspaceViewMode::Diff.shortcut_context()),
+        )
+    }));
+    bindings.extend(shortcuts.next_file.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            NextFile,
+            Some(WorkspaceViewMode::Diff.shortcut_context()),
+        )
+    }));
+    bindings.extend(shortcuts.previous_file.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            PreviousFile,
+            Some(WorkspaceViewMode::Diff.shortcut_context()),
+        )
+    }));
     bindings.extend(shortcuts.view_current_review_file.iter().map(|shortcut| {
         KeyBinding::new(
             shortcut.as_str(),
             ViewCurrentReviewFile,
-            Some("ReviewWorkspace"),
+            Some(WorkspaceViewMode::Diff.shortcut_context()),
         )
     }));
-    bindings.extend(
-        shortcuts.toggle_sidebar_tree.iter().map(|shortcut| {
-            KeyBinding::new(shortcut.as_str(), ToggleSidebarTree, Some("DiffViewer"))
-        }),
-    );
+    bindings.extend(shortcuts.toggle_sidebar_tree.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            ToggleSidebarTree,
+            Some(SHORTCUT_CONTEXT_TREE_WORKSPACE),
+        )
+    }));
     bindings.extend(
         shortcuts
             .switch_to_files_view
@@ -449,12 +464,13 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
             .iter()
             .map(|shortcut| KeyBinding::new(shortcut.as_str(), SwitchToAiView, None)),
     );
-    bindings.extend(
-        shortcuts
-            .toggle_ai_terminal_drawer
-            .iter()
-            .map(|shortcut| KeyBinding::new(shortcut.as_str(), AiToggleTerminalDrawer, None)),
-    );
+    bindings.extend(shortcuts.toggle_ai_terminal_drawer.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            AiToggleTerminalDrawer,
+            Some(WorkspaceViewMode::Ai.shortcut_context()),
+        )
+    }));
     bindings.push(KeyBinding::new(
         "ctrl-c",
         AiTerminalSendCtrlC,
@@ -501,17 +517,25 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
         AiTerminalSendEnd,
         Some("AiTerminal"),
     ));
-    bindings.push(KeyBinding::new("cmd-n", AiNewThread, Some("DiffViewer")));
-    bindings.push(KeyBinding::new("ctrl-n", AiNewThread, Some("DiffViewer")));
+    bindings.push(KeyBinding::new(
+        "cmd-n",
+        AiNewThread,
+        Some(WorkspaceViewMode::Ai.shortcut_context()),
+    ));
+    bindings.push(KeyBinding::new(
+        "ctrl-n",
+        AiNewThread,
+        Some(WorkspaceViewMode::Ai.shortcut_context()),
+    ));
     bindings.push(KeyBinding::new(
         "cmd-shift-n",
         AiNewWorktreeThread,
-        Some("DiffViewer"),
+        Some(WorkspaceViewMode::Ai.shortcut_context()),
     ));
     bindings.push(KeyBinding::new(
         "ctrl-shift-n",
         AiNewWorktreeThread,
-        Some("DiffViewer"),
+        Some(WorkspaceViewMode::Ai.shortcut_context()),
     ));
     bindings.extend(
         shortcuts
@@ -519,8 +543,16 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
             .iter()
             .map(|shortcut| KeyBinding::new(shortcut.as_str(), OpenProject, None)),
     );
-    bindings.push(KeyBinding::new("cmd-p", QuickOpenFile, Some("DiffViewer")));
-    bindings.push(KeyBinding::new("ctrl-p", QuickOpenFile, Some("DiffViewer")));
+    bindings.push(KeyBinding::new(
+        "cmd-p",
+        QuickOpenFile,
+        Some(WorkspaceViewMode::Files.shortcut_context()),
+    ));
+    bindings.push(KeyBinding::new(
+        "ctrl-p",
+        QuickOpenFile,
+        Some(WorkspaceViewMode::Files.shortcut_context()),
+    ));
     bindings.push(KeyBinding::new(
         "cmd-c",
         FilesEditorCopy,
@@ -734,12 +766,13 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
             Some("FilesEditor"),
         ));
     }
-    bindings.extend(
-        shortcuts
-            .save_current_file
-            .iter()
-            .map(|shortcut| KeyBinding::new(shortcut.as_str(), SaveCurrentFile, None)),
-    );
+    bindings.extend(shortcuts.save_current_file.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            SaveCurrentFile,
+            Some(WorkspaceViewMode::Files.shortcut_context()),
+        )
+    }));
     bindings.extend(
         shortcuts
             .open_settings
@@ -781,7 +814,7 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
     bindings.push(KeyBinding::new(
         "escape",
         AiInterruptSelectedTurn,
-        Some("AiWorkspace"),
+        Some(WorkspaceViewMode::Ai.shortcut_context()),
     ));
     bindings.push(KeyBinding::new("tab", AiQueuePrompt, Some("AiComposer")));
     bindings.push(KeyBinding::new(

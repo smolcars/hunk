@@ -355,14 +355,10 @@ impl DiffViewer {
     pub(super) fn ai_toggle_terminal_drawer_shortcut_action(
         &mut self,
         _: &AiToggleTerminalDrawer,
-        window: &mut Window,
+        _: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.workspace_view_mode != WorkspaceViewMode::Ai {
-            self.activate_ai_workspace(window, cx);
-            self.ai_terminal_set_open(true, cx);
-            self.ensure_ai_terminal_session(cx);
-            self.defer_ai_terminal_interaction_focus(cx);
             return;
         }
         self.toggle_ai_terminal_drawer(cx);

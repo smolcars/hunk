@@ -237,6 +237,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return;
+        }
         self.move_selection_by(1, false, cx);
     }
 
@@ -246,6 +249,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return;
+        }
         self.move_selection_by(-1, false, cx);
     }
 
@@ -255,6 +261,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return;
+        }
         self.move_selection_by(1, true, cx);
     }
 
@@ -264,6 +273,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return;
+        }
         self.move_selection_by(-1, true, cx);
     }
 
@@ -274,6 +286,9 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         if self.workspace_view_mode == WorkspaceViewMode::Ai && self.ai_copy_selected_text(cx) {
+            return;
+        }
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
             return;
         }
         let Some(selection_text) = self.selected_rows_as_text() else {
@@ -291,6 +306,9 @@ impl DiffViewer {
         if self.workspace_view_mode == WorkspaceViewMode::Ai && self.ai_select_all_text(cx) {
             return;
         }
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return;
+        }
         self.select_all_rows(cx);
     }
 
@@ -300,6 +318,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return;
+        }
         self.select_hunk_relative(1, cx);
     }
 
@@ -309,6 +330,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return;
+        }
         self.select_hunk_relative(-1, cx);
     }
 
@@ -318,6 +342,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return;
+        }
         self.select_file_relative(1, cx);
     }
 
@@ -327,6 +354,9 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return;
+        }
         self.select_file_relative(-1, cx);
     }
 }

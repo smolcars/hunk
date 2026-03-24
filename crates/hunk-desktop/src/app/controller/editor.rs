@@ -28,6 +28,9 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Files {
+            return;
+        }
         self.save_current_editor_file(window, cx);
     }
 

@@ -32,18 +32,15 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.workspace_view_mode != WorkspaceViewMode::Files {
+            return;
+        }
+
         let Some(repo_root) = self.repo_root.clone() else {
             self.git_status_message = Some("No repository is open.".to_string());
             cx.notify();
             return;
         };
-
-        if self.workspace_view_mode != WorkspaceViewMode::Files {
-            self.set_workspace_view_mode(WorkspaceViewMode::Files, cx);
-        }
-        if self.workspace_view_mode != WorkspaceViewMode::Files {
-            return;
-        }
 
         self.file_quick_open_visible = true;
         self.file_quick_open_selected_ix = 0;

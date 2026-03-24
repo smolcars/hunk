@@ -242,7 +242,7 @@ impl DiffViewer {
                                 .flex_1()
                                 .min_h_0()
                                 .bg(chrome.background)
-                                .key_context("AiTerminal")
+                                .key_context("AiTerminal AiWorkspace")
                                 .track_focus(&self.ai_terminal_focus_handle)
                                 .on_action(cx.listener(Self::ai_terminal_send_ctrl_c_action))
                                 .on_action(cx.listener(Self::ai_terminal_send_ctrl_a_action))

@@ -334,16 +334,10 @@ impl Render for DiffViewer {
             self.last_scroll_activity_at = Instant::now();
         }
         self.frame_sample_count = self.frame_sample_count.saturating_add(1);
-        let root_key_context = if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            "DiffViewer ReviewWorkspace"
-        } else {
-            "DiffViewer"
-        };
-
         v_flex()
             .size_full()
             .relative()
-            .key_context(root_key_context)
+            .key_context(self.workspace_view_mode.root_key_context())
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::select_next_line_action))
             .on_action(cx.listener(Self::select_previous_line_action))

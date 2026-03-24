@@ -53,7 +53,7 @@ impl DiffViewer {
             .flex_1()
             .min_h_0()
             .bg(editor_chrome.background)
-            .key_context("FilesEditor")
+            .key_context("FilesEditor FilesWorkspace")
             .track_focus(&self.files_editor_focus_handle)
             .on_action(cx.listener(Self::files_editor_copy_action))
             .on_action(cx.listener(Self::files_editor_cut_action))
