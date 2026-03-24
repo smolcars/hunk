@@ -203,6 +203,7 @@ impl DiffViewer {
         self.sync_branch_picker_state(cx);
         self.sync_ai_worktree_base_branch_picker_state(cx);
         self.refresh_workspace_targets_from_git_state(cx);
+        self.sync_git_workspace_with_primary_state();
         self.repo_discovery_failed = false;
         self.error_message = None;
         debug!(
@@ -477,6 +478,7 @@ impl DiffViewer {
             ai_terminal_cursor_output_generation: 0,
             ai_terminal_runtime_generation: 0,
             ai_terminal_stop_requested: false,
+            workspace_project_states: BTreeMap::new(),
             files_terminal_states_by_project: BTreeMap::new(),
             files_hidden_terminal_runtimes: BTreeMap::new(),
             files_terminal_open: false,

@@ -4,24 +4,39 @@ impl DiffViewer {
     }
 
     fn activate_workspace_project_root(&mut self, project_root: PathBuf, cx: &mut Context<Self>) {
+        let previous_project_key = self.current_workspace_project_key();
         let previous_files_terminal_project_key = self.current_files_terminal_owner_key();
         let previous_ai_workspace_key = self.ai_workspace_key();
+        let next_project_key = project_root.to_string_lossy().to_string();
+        let switching_projects = previous_project_key.as_deref() != Some(next_project_key.as_str());
+        if switching_projects {
+            self.store_current_workspace_project_state();
+        }
         self.sync_ai_visible_composer_prompt_to_draft(cx);
         self.project_path = Some(project_root.clone());
-        self.repo_root = None;
-        self.workspace_targets.clear();
-        self.active_workspace_target_id = None;
         self.set_active_workspace_project_path(Some(project_root));
+        let restored_warm_state =
+            self.restore_workspace_project_state(std::path::Path::new(next_project_key.as_str()));
+        if !restored_warm_state {
+            self.apply_workspace_project_state(Self::empty_workspace_project_state());
+        }
         self.sync_project_picker_state(cx);
-        self.hydrate_workflow_cache_if_available(cx);
+        self.sync_branch_picker_state(cx);
+        self.sync_workspace_target_picker_state(cx);
+        self.sync_review_compare_picker_states(cx);
+        if !restored_warm_state {
+            self.hydrate_workflow_cache_if_available(cx);
+        }
         self.restore_active_workspace_target_root_from_state(cx);
         self.files_handle_project_change(previous_files_terminal_project_key, cx);
         self.ai_handle_workspace_change(previous_ai_workspace_key, cx);
         self.git_status_message = None;
         self.repo_discovery_failed = false;
         self.error_message = None;
-        self.reset_recent_commits_state();
-        self.hydrate_recent_commits_cache_if_available(cx);
+        if !restored_warm_state {
+            self.reset_recent_commits_state();
+            self.hydrate_recent_commits_cache_if_available(cx);
+        }
         self.start_repo_watch(cx);
         self.request_snapshot_refresh_internal(SnapshotRefreshRequest::user(true), cx);
         self.request_recent_commits_refresh(true, cx);
@@ -36,6 +51,9 @@ impl DiffViewer {
     ) {
         self.stop_all_files_terminal_runtimes("resetting to empty workspace");
         self.files_terminal_states_by_project.clear();
+        if self.state.workspace_project_paths.is_empty() {
+            self.workspace_project_states.clear();
+        }
         self.cancel_line_stats_refresh();
         self.cancel_patch_reload();
         self.pending_dirty_paths.clear();

@@ -323,6 +323,22 @@ impl DiffViewer {
         }
     }
 
+    pub(crate) fn discard_files_terminal_state_for_project(
+        &mut self,
+        project_root: &std::path::Path,
+        reason: &str,
+    ) {
+        let project_key = project_root.to_string_lossy().to_string();
+        self.files_terminal_states_by_project.remove(project_key.as_str());
+        if let Some(hidden) = self.files_hidden_terminal_runtimes.remove(project_key.as_str())
+            && let Err(error) = hidden.runtime.handle.kill()
+        {
+            error!(
+                "failed to stop hidden Files terminal runtime for project {project_key} during {reason}: {error:#}"
+            );
+        }
+    }
+
     pub(super) fn files_toggle_terminal_drawer_action(
         &mut self,
         window: &mut Window,

@@ -34,6 +34,11 @@ impl DiffViewer {
             return;
         }
         self.persist_state();
+        self.discard_workspace_project_state(active_project_path.as_path());
+        self.discard_files_terminal_state_for_project(
+            active_project_path.as_path(),
+            "removing project from workspace",
+        );
         self.sync_project_picker_state(cx);
 
         let next_active_project = self.state.active_project_path().cloned();
