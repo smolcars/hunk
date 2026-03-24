@@ -451,6 +451,7 @@ impl DiffViewer {
             ai_worker_thread: None,
             ai_command_tx: None,
             ai_worker_workspace_key: None,
+            ai_draft_workspace_root_override: None,
             ai_draft_workspace_target_id: None,
             ai_terminal_states_by_thread: BTreeMap::new(),
             ai_hidden_terminal_runtimes: BTreeMap::new(),

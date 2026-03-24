@@ -205,14 +205,13 @@ impl DiffViewer {
             .insert(thread_id.to_string(), self.ai_capture_visible_terminal_state());
     }
 
-    fn ai_visible_terminal_owner_thread_id<'a>(
-        &'a self,
-        fallback_thread_id: Option<&'a str>,
-    ) -> Option<&'a str> {
-        self.ai_terminal_runtime
-            .as_ref()
-            .map(|runtime| runtime.thread_id.as_str())
-            .or(fallback_thread_id)
+    fn ai_terminal_owner_key_for_thread(&self, thread_id: &str) -> Option<String> {
+        self.ai_thread_workspace_root(thread_id)
+            .map(|root| root.to_string_lossy().to_string())
+    }
+
+    fn ai_current_terminal_owner_key(&self) -> Option<String> {
+        self.ai_workspace_key()
     }
 
     fn ai_restore_visible_terminal_state_for_thread(&mut self, thread_id: Option<&str>) {
@@ -251,46 +250,28 @@ impl DiffViewer {
         next_thread_id: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if previous_thread_id == next_thread_id {
+        let previous_terminal_owner_thread_id = self
+            .ai_terminal_runtime
+            .as_ref()
+            .map(|runtime| runtime.thread_id.clone())
+            .or_else(|| {
+                previous_thread_id
+                    .as_deref()
+                    .and_then(|thread_id| self.ai_terminal_owner_key_for_thread(thread_id))
+            });
+        let next_terminal_owner_thread_id = next_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.ai_terminal_owner_key_for_thread(thread_id))
+            .or_else(|| self.ai_current_terminal_owner_key());
+        if previous_terminal_owner_thread_id == next_terminal_owner_thread_id {
             return;
         }
 
-        let previous_terminal_owner_thread_id = self
-            .ai_visible_terminal_owner_thread_id(previous_thread_id.as_deref())
-            .map(str::to_string);
-        let visible_state = self.ai_capture_visible_terminal_state();
-        if let Some(next_thread_id) = next_thread_id.as_deref()
-            && should_bind_visible_terminal_state_to_new_thread(
-                previous_thread_id.as_deref(),
-                Some(next_thread_id),
-                self.ai_terminal_states_by_thread
-                    .contains_key(next_thread_id),
-                &visible_state,
-            )
-        {
-            let bound_state = AiThreadTerminalState {
-                open: visible_state.open,
-                follow_output: visible_state.follow_output,
-                ..AiThreadTerminalState::default()
-            };
-            debug!(
-                thread_id = next_thread_id,
-                open = bound_state.open,
-                "Binding pending AI terminal drawer intent to newly selected thread"
-            );
-            self.ai_terminal_states_by_thread
-                .insert(next_thread_id.to_string(), bound_state);
-        }
+        self.ai_store_visible_terminal_state_for_thread(previous_terminal_owner_thread_id.as_deref());
+        self.ai_park_visible_terminal_runtime_for_thread(previous_terminal_owner_thread_id.as_deref());
+        self.ai_restore_visible_terminal_state_for_thread(next_terminal_owner_thread_id.as_deref());
 
-        self.ai_store_visible_terminal_state_for_thread(
-            previous_terminal_owner_thread_id.as_deref(),
-        );
-        self.ai_park_visible_terminal_runtime_for_thread(
-            previous_terminal_owner_thread_id.as_deref(),
-        );
-        self.ai_restore_visible_terminal_state_for_thread(next_thread_id.as_deref());
-
-        if let Some(next_thread_id) = next_thread_id.as_deref() {
+        if let Some(next_thread_id) = next_terminal_owner_thread_id.as_deref() {
             if !self.ai_promote_hidden_terminal_runtime_for_thread(next_thread_id)
                 && self.ai_terminal_open
             {
@@ -312,12 +293,23 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_prune_terminal_threads(&mut self, reason: &str, cx: &mut Context<Self>) {
-        let retained_thread_ids = ai_retainable_terminal_thread_ids(
+        let mut retained_thread_ids = ai_retainable_terminal_thread_ids(
             &self.ai_state_snapshot,
             self.ai_workspace_states
                 .values()
                 .map(|state| &state.state_snapshot),
         );
+        if let Some(workspace_key) = self.ai_workspace_key() {
+            retained_thread_ids.insert(workspace_key);
+        }
+        retained_thread_ids.extend(self.ai_workspace_states.iter().filter_map(|(workspace_key, state)| {
+            let retain = state.new_thread_draft_active
+                || state.pending_new_thread_selection
+                || state.terminal_open
+                || state.terminal_session.screen.is_some()
+                || !state.terminal_session.transcript.is_empty();
+            retain.then(|| workspace_key.clone())
+        }));
 
         let visible_runtime_removed = self.ai_terminal_runtime.as_ref().is_some_and(|runtime| {
             !retained_thread_ids.contains(runtime.thread_id.as_str())
@@ -437,12 +429,12 @@ impl DiffViewer {
     }
 
     fn ensure_ai_terminal_session(&mut self, cx: &mut Context<Self>) {
-        let Some(thread_id) = self.current_ai_thread_id() else {
+        let Some(thread_id) = self.ai_current_terminal_owner_key() else {
             debug!(
                 terminal_open = self.ai_terminal_open,
                 pending_new_thread_selection = self.ai_pending_new_thread_selection,
                 new_thread_draft_active = self.ai_new_thread_draft_active,
-                "Skipping AI terminal start because no thread is currently selected"
+                "Skipping AI terminal start because no workspace is currently selected"
             );
             return;
         };
@@ -480,7 +472,7 @@ impl DiffViewer {
             return;
         };
 
-        self.start_default_ai_terminal_session(cwd, cx);
+        self.start_default_ai_terminal_session(cwd, thread_id, cx);
     }
 
     pub(crate) fn stop_ai_terminal_runtime(&mut self, reason: &str) {
@@ -996,15 +988,20 @@ impl DiffViewer {
             return;
         }
 
-        self.start_default_ai_terminal_session(target_cwd, cx);
+        self.start_default_ai_terminal_session(
+            target_cwd.clone(),
+            target_cwd.to_string_lossy().to_string(),
+            cx,
+        );
     }
 
-    fn start_default_ai_terminal_session(&mut self, cwd: PathBuf, cx: &mut Context<Self>) {
+    fn start_default_ai_terminal_session(
+        &mut self,
+        cwd: PathBuf,
+        thread_id: String,
+        cx: &mut Context<Self>,
+    ) {
         self.stop_ai_terminal_runtime("starting default terminal shell");
-
-        let Some(thread_id) = self.current_ai_thread_id() else {
-            return;
-        };
         debug!(
             thread_id = thread_id.as_str(),
             cwd = %cwd.display(),
@@ -1119,7 +1116,7 @@ impl DiffViewer {
         event: TerminalEvent,
         cx: &mut Context<Self>,
     ) {
-        if self.current_ai_thread_id().as_deref() == Some(thread_id) {
+        if self.ai_current_terminal_owner_key().as_deref() == Some(thread_id) {
             self.apply_ai_terminal_event(event, cx);
             return;
         }
@@ -1338,22 +1335,6 @@ fn ai_terminal_wrapped_command(command: &str) -> Option<(&str, AiTerminalShellFa
         .find_map(|(prefix, family)| command.strip_prefix(prefix).map(|inner| (inner, *family)))
 }
 
-fn should_bind_visible_terminal_state_to_new_thread(
-    previous_thread_id: Option<&str>,
-    next_thread_id: Option<&str>,
-    next_thread_has_saved_state: bool,
-    visible_state: &AiThreadTerminalState,
-) -> bool {
-    previous_thread_id.is_none()
-        && next_thread_id.is_some()
-        && !next_thread_has_saved_state
-        && ai_thread_terminal_state_has_binding_intent(visible_state)
-}
-
-fn ai_thread_terminal_state_has_binding_intent(state: &AiThreadTerminalState) -> bool {
-    state.open || state.pending_input.is_some()
-}
-
 fn append_ai_terminal_transcript(buffer: &mut String, text: String) {
     if text.is_empty() {
         return;
@@ -1480,7 +1461,7 @@ fn ai_extend_retainable_terminal_thread_ids(
             .threads
             .values()
             .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
-            .map(|thread| thread.id.clone()),
+            .map(|thread| thread.cwd.clone()),
     );
 }
 
@@ -1561,8 +1542,8 @@ mod terminal_output_tests {
             workspace_states.values().map(|state| &state.state_snapshot),
         );
 
-        assert!(retained.contains("thread-visible"));
-        assert!(retained.contains("thread-background"));
+        assert!(retained.contains("/repo"));
+        assert!(retained.contains("/repo/worktree"));
         assert!(!retained.contains("thread-archived"));
     }
 

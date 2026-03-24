@@ -1084,6 +1084,7 @@ struct DiffViewer {
     ai_worker_thread: Option<JoinHandle<()>>,
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_worker_workspace_key: Option<String>,
+    ai_draft_workspace_root_override: Option<PathBuf>,
     ai_draft_workspace_target_id: Option<String>,
     ai_terminal_states_by_thread: BTreeMap<String, AiThreadTerminalState>,
     ai_hidden_terminal_runtimes: BTreeMap<String, AiHiddenTerminalRuntimeHandle>,

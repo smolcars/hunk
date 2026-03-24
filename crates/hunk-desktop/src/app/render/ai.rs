@@ -69,9 +69,7 @@ impl DiffViewer {
             .and_then(|thread_id| self.ai_thread_start_mode(thread_id));
         let (selected_thread_mode_for_picker, thread_mode_picker_editable) = self
             .ai_thread_mode_picker_state(selected_thread_start_mode);
-        let show_worktree_base_branch_picker =
-            self.ai_new_thread_draft_active
-                && self.ai_new_thread_start_mode == AiNewThreadStartMode::Worktree;
+        let show_worktree_base_branch_picker = self.ai_show_worktree_base_branch_picker();
         let selected_worktree_base_branch = self
             .ai_selected_worktree_base_branch_name()
             .unwrap_or("Choose base branch")
@@ -140,7 +138,6 @@ impl DiffViewer {
             project_sections,
             threads_loading,
             selected_thread_id: selected_thread_id.clone(),
-            new_thread_menu_action_context: self.focus_handle.clone(),
         };
         let timeline_state = AiTimelinePanelState {
             active_branch: active_branch.clone(),

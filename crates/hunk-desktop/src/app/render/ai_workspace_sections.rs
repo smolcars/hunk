@@ -2,7 +2,6 @@ struct AiThreadSidebarState {
     project_sections: Vec<AiVisibleThreadProjectSection>,
     threads_loading: bool,
     selected_thread_id: Option<String>,
-    new_thread_menu_action_context: FocusHandle,
 }
 
 struct AiTimelinePanelState {
@@ -216,28 +215,6 @@ impl DiffViewer {
                                         });
                                     })
                             })
-                            .child({
-                                let action_context = state.new_thread_menu_action_context.clone();
-                                Button::new("ai-thread-new")
-                                    .compact()
-                                    .primary()
-                                    .rounded(px(999.0))
-                                    .with_size(gpui_component::Size::Small)
-                                    .dropdown_caret(true)
-                                    .label("New")
-                                    .min_w(px(52.0))
-                                    .dropdown_menu(move |menu, _, _| {
-                                        menu.action_context(action_context.clone())
-                                            .item(
-                                                PopupMenuItem::new("Local thread")
-                                                    .action(Box::new(AiNewThread)),
-                                            )
-                                            .item(
-                                                PopupMenuItem::new("Worktree thread")
-                                                    .action(Box::new(AiNewWorktreeThread)),
-                                            )
-                                    })
-                            }),
                     ),
             )
             .child(
@@ -315,16 +292,8 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let section_key = section.project_root.to_string_lossy().to_string();
-        let header_border = if section.is_active_project {
-            hunk_opacity(cx.theme().accent, is_dark, 0.34, 0.24)
-        } else {
-            hunk_opacity(cx.theme().border, is_dark, 0.96, 0.96)
-        };
-        let header_background = if section.is_active_project {
-            hunk_opacity(cx.theme().accent, is_dark, 0.10, 0.07)
-        } else {
-            hunk_opacity(cx.theme().muted, is_dark, 0.18, 0.22)
-        };
+        let header_border = hunk_opacity(cx.theme().border, is_dark, 0.96, 0.96);
+        let header_background = hunk_opacity(cx.theme().muted, is_dark, 0.18, 0.22);
         let hidden_thread_label = if section.hidden_thread_count == 1 {
             "1 more".to_string()
         } else {
@@ -362,16 +331,7 @@ impl DiffViewer {
                                             .font_semibold()
                                             .text_color(cx.theme().foreground)
                                             .child(section.project_label.clone()),
-                                    )
-                                    .when(section.is_active_project, |this| {
-                                        this.child(
-                                            div()
-                                                .text_xs()
-                                                .font_semibold()
-                                                .text_color(cx.theme().accent)
-                                                .child("Active"),
-                                        )
-                                    }),
+                                    ),
                             )
                             .child(
                                 div()
@@ -379,6 +339,51 @@ impl DiffViewer {
                                     .text_color(cx.theme().muted_foreground)
                                     .child(format!("{} threads", section.total_thread_count)),
                             ),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .child({
+                                let view = view.clone();
+                                let project_root = section.project_root.clone();
+                                Button::new(format!("ai-thread-new-local-{section_index}"))
+                                    .compact()
+                                    .primary()
+                                    .rounded(px(999.0))
+                                    .with_size(gpui_component::Size::Small)
+                                    .label("New")
+                                    .on_click(move |_, window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_start_thread_draft_for_project_root(
+                                                project_root.clone(),
+                                                AiNewThreadStartMode::Local,
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    })
+                            })
+                            .child({
+                                let view = view.clone();
+                                let project_root = section.project_root.clone();
+                                Button::new(format!("ai-thread-new-worktree-{section_index}"))
+                                    .compact()
+                                    .outline()
+                                    .rounded(px(999.0))
+                                    .with_size(gpui_component::Size::Small)
+                                    .label("New Worktree")
+                                    .on_click(move |_, window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_start_thread_draft_for_project_root(
+                                                project_root.clone(),
+                                                AiNewThreadStartMode::Worktree,
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    })
+                            }),
                     )
                     .when(section.hidden_thread_count > 0 || section.expanded, |this| {
                         let view = view.clone();

@@ -170,14 +170,11 @@ fn ai_workspace_project_root_for_thread_root(
 fn ai_visible_thread_sections(
     threads: Vec<ThreadSummary>,
     workspace_project_paths: &[std::path::PathBuf],
-    active_project_path: Option<&std::path::Path>,
+    project_path: Option<&std::path::Path>,
     repo_root: Option<&std::path::Path>,
     expanded_project_roots: &BTreeSet<String>,
 ) -> Vec<AiVisibleThreadProjectSection> {
-    let project_roots = ai_workspace_project_roots(workspace_project_paths, active_project_path, repo_root);
-    let active_project_root = active_project_path
-        .or(repo_root)
-        .and_then(ai_workspace_project_root_identity);
+    let project_roots = ai_workspace_project_roots(workspace_project_paths, project_path, repo_root);
     let mut threads_by_project = std::collections::BTreeMap::<
         std::path::PathBuf,
         Vec<ThreadSummary>,
@@ -192,21 +189,7 @@ fn ai_visible_thread_sections(
         }
     }
 
-    let mut ordered_project_roots = Vec::with_capacity(project_roots.len());
-    if let Some(active_project_root) = active_project_root.as_ref()
-        && project_roots
-            .iter()
-            .any(|project_root| project_root == active_project_root)
-    {
-        ordered_project_roots.push(active_project_root.clone());
-    }
-    ordered_project_roots.extend(project_roots.into_iter().filter(|project_root| {
-        active_project_root
-            .as_ref()
-            .is_none_or(|active_project_root| active_project_root != project_root)
-    }));
-
-    ordered_project_roots
+    project_roots
         .into_iter()
         .map(|project_root| {
             let expanded = expanded_project_roots
@@ -230,9 +213,6 @@ fn ai_visible_thread_sections(
                 hidden_thread_count: total_thread_count.saturating_sub(visible_threads.len()),
                 total_thread_count,
                 expanded,
-                is_active_project: active_project_root
-                    .as_ref()
-                    .is_some_and(|active| active == &project_root),
                 project_root,
                 threads: visible_threads,
             }
@@ -360,13 +340,16 @@ fn ai_thread_start_mode_for_workspace(
         });
     }
 
-    repo_root.map(|repo_root| {
-        if repo_root == thread_cwd {
-            AiNewThreadStartMode::Local
-        } else {
-            AiNewThreadStartMode::Worktree
-        }
-    })
+    hunk_git::worktree::primary_repo_root(thread_cwd)
+        .ok()
+        .or_else(|| repo_root.map(std::path::Path::to_path_buf))
+        .map(|primary_root| {
+            if primary_root.as_path() == thread_cwd {
+                AiNewThreadStartMode::Local
+            } else {
+                AiNewThreadStartMode::Worktree
+            }
+        })
 }
 
 fn resolved_ai_thread_mode_picker_state(

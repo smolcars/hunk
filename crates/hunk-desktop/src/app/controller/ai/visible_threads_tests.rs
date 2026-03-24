@@ -130,7 +130,7 @@ mod ai_visible_threads_tests {
     }
 
     #[test]
-    fn visible_thread_sections_are_ordered_by_active_project_and_capped_per_project() {
+    fn visible_thread_sections_follow_workspace_order_and_cap_per_project() {
         let threads = vec![
             thread_summary("repo-a-6", "/repo-a", 60, 60),
             thread_summary("repo-a-5", "/repo-a", 50, 50),
@@ -150,15 +150,11 @@ mod ai_visible_threads_tests {
         );
 
         assert_eq!(sections.len(), 2);
-        assert_eq!(sections[0].project_root, PathBuf::from("/repo-b"));
-        assert!(sections[0].is_active_project);
-        assert_eq!(sections[0].threads.len(), 1);
-
-        assert_eq!(sections[1].project_root, PathBuf::from("/repo-a"));
-        assert_eq!(sections[1].total_thread_count, 6);
-        assert_eq!(sections[1].threads.len(), 5);
-        assert_eq!(sections[1].hidden_thread_count, 1);
-        let repo_a_thread_ids = sections[1]
+        assert_eq!(sections[0].project_root, PathBuf::from("/repo-a"));
+        assert_eq!(sections[0].total_thread_count, 6);
+        assert_eq!(sections[0].threads.len(), 5);
+        assert_eq!(sections[0].hidden_thread_count, 1);
+        let repo_a_thread_ids = sections[0]
             .threads
             .iter()
             .map(|thread| thread.id.as_str())
@@ -167,5 +163,8 @@ mod ai_visible_threads_tests {
             repo_a_thread_ids,
             vec!["repo-a-6", "repo-a-5", "repo-a-4", "repo-a-3", "repo-a-2"]
         );
+
+        assert_eq!(sections[1].project_root, PathBuf::from("/repo-b"));
+        assert_eq!(sections[1].threads.len(), 1);
     }
 }

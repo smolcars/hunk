@@ -62,6 +62,8 @@ impl SelectItem for ProjectPickerItem {
                     .child(div().truncate().child(self.title.clone()))
                     .child(
                         div()
+                            .min_w_0()
+                            .truncate()
                             .text_xs()
                             .text_color(detail_color)
                             .child(self.detail.clone()),
