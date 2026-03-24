@@ -60,8 +60,6 @@ fn resolve_ai_commit_message_for_working_copy(
     generation_config: AiCodexGenerationConfig<'_>,
     repo_root: &std::path::Path,
     branch_name: &str,
-    prompt_seed: Option<&str>,
-    latest_agent_message: Option<&str>,
     fallback_commit_message: &AiCommitMessage,
 ) -> AiCommitMessage {
     let working_copy_context =
@@ -74,8 +72,6 @@ fn resolve_ai_commit_message_for_working_copy(
         generation_config,
         AiCommitGenerationContext {
             branch_name,
-            prompt_seed,
-            latest_agent_message,
             changed_files_summary: working_copy_context.changed_files_summary.as_str(),
             diff_patch: working_copy_context.diff_patch.as_str(),
         },
@@ -97,8 +93,6 @@ fn try_ai_commit_message_for_staged_index(
         generation_config,
         AiCommitGenerationContext {
             branch_name,
-            prompt_seed: None,
-            latest_agent_message: None,
             changed_files_summary: staged_context.changed_files_summary.as_str(),
             diff_patch: staged_context.diff_patch.as_str(),
         },

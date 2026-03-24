@@ -11,10 +11,10 @@ const MAX_BRANCH_SLUG_TOKENS: usize = 6;
 const MAX_BRANCH_SLUG_LEN: usize = 48;
 const MAX_COMMIT_SUBJECT_LEN: usize = 72;
 const MAX_COMMIT_BODY_LEN: usize = 2_000;
-const MAX_PROMPT_CONTEXT_LEN: usize = 8_000;
-const MAX_SUMMARY_CONTEXT_LEN: usize = 8_000;
+const MAX_BRANCH_REQUEST_CONTEXT_LEN: usize = 4_000;
+const MAX_CHANGED_FILES_CONTEXT_LEN: usize = 6_000;
 const MAX_PATCH_CONTEXT_LEN: usize = 40_000;
-const DEFAULT_AI_GIT_TEXT_MODEL: &str = "gpt-5.3-codex";
+const DEFAULT_AI_GIT_TEXT_MODEL: &str = "gpt-5.4-mini";
 const DEFAULT_AI_GIT_REASONING_EFFORT: &str = "low";
 const AI_GIT_TEXT_TIMEOUT: Duration = Duration::from_secs(20);
 const AI_GIT_TEXT_POLL_INTERVAL: Duration = Duration::from_millis(25);
@@ -50,8 +50,6 @@ pub(super) struct AiCodexGenerationConfig<'a> {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct AiCommitGenerationContext<'a> {
     pub branch_name: &'a str,
-    pub prompt_seed: Option<&'a str>,
-    pub latest_agent_message: Option<&'a str>,
     pub changed_files_summary: &'a str,
     pub diff_patch: &'a str,
 }
@@ -155,7 +153,7 @@ pub(super) fn try_ai_branch_name_for_prompt(
     let request_context = if prompt.is_empty() {
         "(none)".to_string()
     } else {
-        limit_text(prompt, MAX_PROMPT_CONTEXT_LEN)
+        limit_text(prompt, MAX_BRANCH_REQUEST_CONTEXT_LEN)
     };
 
     let branch_prefix = if worktree_mode {
@@ -169,7 +167,6 @@ Return strict JSON with one key: branch.\n\
 Rules:\n\
 - 2 to 6 words.\n\
 - lowercase words only.\n\
-- no quotes.\n\
 - no prefix like feature/ or ai/.\n\
 - no trailing punctuation.\n\
 - use attached images as primary context for visual/UI requests.\n\
@@ -224,26 +221,15 @@ Rules:\n\
 - subject must not end with a period.\n\
 - body can be an empty string.\n\
 - body should only include critical context not obvious from the diff.\n\
+- capture the primary user-visible or developer-visible change.\n\
 \n\
 Current branch:\n{}\n\
-\n\
-Original user request:\n{}\n\
-\n\
-Latest AI summary:\n{}\n\
 \n\
 Changed files:\n{}\n\
 \n\
 Diff patch:\n{}\n",
         context.branch_name,
-        limit_text(
-            context.prompt_seed.unwrap_or_default(),
-            MAX_PROMPT_CONTEXT_LEN
-        ),
-        limit_text(
-            context.latest_agent_message.unwrap_or_default(),
-            MAX_SUMMARY_CONTEXT_LEN
-        ),
-        limit_text(context.changed_files_summary, MAX_SUMMARY_CONTEXT_LEN),
+        limit_text(context.changed_files_summary, MAX_CHANGED_FILES_CONTEXT_LEN),
         limit_text(context.diff_patch, MAX_PATCH_CONTEXT_LEN),
     );
     let output_schema = serde_json::json!({

@@ -501,10 +501,6 @@ impl DiffViewer {
             context.thread_id.as_str(),
             context.branch_name.as_str(),
         );
-        let prompt_seed =
-            ai_first_prompt_seed_for_thread(&self.ai_state_snapshot, context.thread_id.as_str());
-        let latest_agent_message =
-            ai_latest_agent_message_for_thread(&self.ai_state_snapshot, context.thread_id.as_str());
         let codex_executable = Self::resolve_codex_executable_path();
         let branch_name = context.branch_name.clone();
         let repo_root = context.repo_root.clone();
@@ -529,8 +525,6 @@ impl DiffViewer {
                         },
                         repo_root.as_path(),
                         branch_name.as_str(),
-                        prompt_seed.as_deref(),
-                        latest_agent_message.as_deref(),
                         &fallback_commit_message,
                     );
                     send_ai_git_progress(
@@ -636,10 +630,6 @@ impl DiffViewer {
             context.branch_name.as_str(),
         );
         let fallback_review_title = fallback_commit_message.subject.clone();
-        let prompt_seed =
-            ai_first_prompt_seed_for_thread(&self.ai_state_snapshot, context.thread_id.as_str());
-        let latest_agent_message =
-            ai_latest_agent_message_for_thread(&self.ai_state_snapshot, context.thread_id.as_str());
         let codex_executable = Self::resolve_codex_executable_path();
         let provider_mappings = self.config.review_provider_mappings.clone();
         let fallback_review_branch_name = ai_branch_name_for_thread(
@@ -730,8 +720,6 @@ impl DiffViewer {
                         },
                         repo_root.as_path(),
                         review_branch_name.as_str(),
-                        prompt_seed.as_deref(),
-                        latest_agent_message.as_deref(),
                         &fallback_commit_message,
                     );
                     send_ai_git_progress(

@@ -10,8 +10,7 @@ use crate::app::ai_git_progress::ai_delete_worktree_progress_steps;
 use crate::app::ai_thread_flow::{
     AiCodexGenerationConfig, AiCommitGenerationContext, AiCommitMessage,
     ai_branch_generation_seed_for_thread, ai_branch_name_for_prompt, ai_branch_name_for_thread,
-    ai_commit_message_for_thread, ai_first_prompt_seed_for_thread,
-    ai_latest_agent_message_for_thread, try_ai_branch_name_for_prompt, try_ai_commit_message,
+    ai_commit_message_for_thread, try_ai_branch_name_for_prompt, try_ai_commit_message,
 };
 use crate::app::markdown_links::open_url_in_browser;
 
