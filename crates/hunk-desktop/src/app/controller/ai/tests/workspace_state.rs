@@ -884,6 +884,84 @@
     }
 
     #[test]
+    fn workspace_catalog_inputs_include_all_projects_and_skip_visible_workspace_root() {
+        let repo_a_targets = vec![
+            workspace_target(
+                "primary",
+                WorkspaceTargetKind::PrimaryCheckout,
+                "/repo-a",
+                "Primary Checkout",
+            ),
+            workspace_target(
+                "worktree:task-a",
+                WorkspaceTargetKind::LinkedWorktree,
+                "/repo-a/worktrees/task-a",
+                "task-a",
+            ),
+        ];
+        let repo_b_targets = vec![
+            workspace_target(
+                "primary",
+                WorkspaceTargetKind::PrimaryCheckout,
+                "/repo-b",
+                "Primary Checkout",
+            ),
+            workspace_target(
+                "worktree:task-b",
+                WorkspaceTargetKind::LinkedWorktree,
+                "/repo-b/worktrees/task-b",
+                "task-b",
+            ),
+        ];
+
+        let inputs = ai_workspace_catalog_inputs_from_target_sets(
+            &[repo_a_targets, repo_b_targets],
+            &[],
+            Some("/repo-b/worktrees/task-b"),
+        );
+
+        assert_eq!(
+            inputs.known_workspace_keys,
+            BTreeSet::from([
+                "/repo-a".to_string(),
+                "/repo-a/worktrees/task-a".to_string(),
+                "/repo-b".to_string(),
+                "/repo-b/worktrees/task-b".to_string(),
+            ])
+        );
+        assert_eq!(
+            inputs.workspace_roots,
+            vec![
+                PathBuf::from("/repo-a"),
+                PathBuf::from("/repo-a/worktrees/task-a"),
+                PathBuf::from("/repo-b"),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_catalog_inputs_keep_fallback_project_roots_for_projects_without_targets() {
+        let repo_a_targets = vec![workspace_target(
+            "primary",
+            WorkspaceTargetKind::PrimaryCheckout,
+            "/repo-a",
+            "Primary Checkout",
+        )];
+
+        let inputs = ai_workspace_catalog_inputs_from_target_sets(
+            &[repo_a_targets],
+            &[PathBuf::from("/repo-b")],
+            Some("/repo-a"),
+        );
+
+        assert_eq!(
+            inputs.known_workspace_keys,
+            BTreeSet::from(["/repo-a".to_string(), "/repo-b".to_string(),])
+        );
+        assert_eq!(inputs.workspace_roots, vec![PathBuf::from("/repo-b")]);
+    }
+
+    #[test]
     fn thread_catalog_state_replaces_snapshot_and_selects_active_thread() {
         let mut workspace_state = AiWorkspaceState {
             connection_state: AiConnectionState::Failed,

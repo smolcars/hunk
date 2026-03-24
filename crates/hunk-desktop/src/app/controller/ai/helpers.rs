@@ -2,9 +2,7 @@
 use std::ffi::OsStr;
 #[cfg(target_os = "windows")]
 use std::ffi::OsString;
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
 
 use codex_app_server_protocol::CollaborationModeMask;
 use codex_protocol::config_types::ModeKind;
@@ -61,11 +59,11 @@ fn merged_ai_visible_threads(
     state_snapshot: &hunk_codex::state::AiState,
     state_snapshot_workspace_key: Option<&str>,
     workspace_states: &std::collections::BTreeMap<String, AiWorkspaceState>,
-    workspace_project_paths: &[PathBuf],
-    project_path: Option<&Path>,
-    repo_root: Option<&Path>,
+    workspace_project_paths: &[std::path::PathBuf],
+    project_path: Option<&std::path::Path>,
+    repo_root: Option<&std::path::Path>,
 ) -> Vec<ThreadSummary> {
-    let mut threads_by_id = BTreeMap::<String, ThreadSummary>::new();
+    let mut threads_by_id = std::collections::BTreeMap::<String, ThreadSummary>::new();
     let workspace_project_roots =
         ai_workspace_project_roots(workspace_project_paths, project_path, repo_root);
 
@@ -74,11 +72,11 @@ fn merged_ai_visible_threads(
         .values()
         .filter(|thread| {
             thread.status != ThreadLifecycleStatus::Archived
-                && ai_workspace_project_root_for_thread_root(
-                    Path::new(thread.cwd.as_str()),
-                    workspace_project_roots.as_slice(),
-                )
-                .is_some()
+                    && ai_workspace_project_root_for_thread_root(
+                        std::path::Path::new(thread.cwd.as_str()),
+                        workspace_project_roots.as_slice(),
+                    )
+                    .is_some()
         })
     {
         threads_by_id.insert(thread.id.clone(), thread.clone());
@@ -87,7 +85,7 @@ fn merged_ai_visible_threads(
     for (workspace_key, state) in workspace_states {
         if state_snapshot_workspace_key == Some(workspace_key.as_str())
             || ai_workspace_project_root_for_thread_root(
-                Path::new(workspace_key.as_str()),
+                std::path::Path::new(workspace_key.as_str()),
                 workspace_project_roots.as_slice(),
             )
             .is_none()
@@ -101,7 +99,7 @@ fn merged_ai_visible_threads(
             .filter(|thread| {
                 thread.status != ThreadLifecycleStatus::Archived
                     && ai_workspace_project_root_for_thread_root(
-                        Path::new(thread.cwd.as_str()),
+                        std::path::Path::new(thread.cwd.as_str()),
                         workspace_project_roots.as_slice(),
                     )
                     .is_some()
@@ -130,10 +128,10 @@ fn merged_ai_visible_threads(
 }
 
 fn ai_workspace_project_roots(
-    workspace_project_paths: &[PathBuf],
-    project_path: Option<&Path>,
-    repo_root: Option<&Path>,
-) -> Vec<PathBuf> {
+    workspace_project_paths: &[std::path::PathBuf],
+    project_path: Option<&std::path::Path>,
+    repo_root: Option<&std::path::Path>,
+) -> Vec<std::path::PathBuf> {
     let mut project_roots = workspace_project_paths.to_vec();
 
     if let Some(active_project_root) = project_path
@@ -147,16 +145,10 @@ fn ai_workspace_project_roots(
     project_roots
 }
 
-fn ai_workspace_project_root_identity(path: &Path) -> Option<PathBuf> {
-    hunk_git::worktree::primary_repo_root(path)
-        .ok()
-        .or_else(|| Some(path.to_path_buf()))
-}
-
 fn ai_workspace_project_root_for_thread_root(
-    thread_workspace_root: &Path,
-    workspace_project_roots: &[PathBuf],
-) -> Option<PathBuf> {
+    thread_workspace_root: &std::path::Path,
+    workspace_project_roots: &[std::path::PathBuf],
+) -> Option<std::path::PathBuf> {
     let thread_primary_root = ai_workspace_project_root_identity(thread_workspace_root)?;
     workspace_project_roots
         .iter()
@@ -166,20 +158,23 @@ fn ai_workspace_project_root_for_thread_root(
 
 fn ai_visible_thread_sections(
     threads: Vec<ThreadSummary>,
-    workspace_project_paths: &[PathBuf],
-    active_project_path: Option<&Path>,
-    repo_root: Option<&Path>,
+    workspace_project_paths: &[std::path::PathBuf],
+    active_project_path: Option<&std::path::Path>,
+    repo_root: Option<&std::path::Path>,
     expanded_project_roots: &BTreeSet<String>,
 ) -> Vec<AiVisibleThreadProjectSection> {
     let project_roots = ai_workspace_project_roots(workspace_project_paths, active_project_path, repo_root);
     let active_project_root = active_project_path
         .or(repo_root)
         .and_then(ai_workspace_project_root_identity);
-    let mut threads_by_project = BTreeMap::<PathBuf, Vec<ThreadSummary>>::new();
+    let mut threads_by_project = std::collections::BTreeMap::<
+        std::path::PathBuf,
+        Vec<ThreadSummary>,
+    >::new();
 
     for thread in threads {
         if let Some(project_root) = ai_workspace_project_root_for_thread_root(
-            Path::new(thread.cwd.as_str()),
+            std::path::Path::new(thread.cwd.as_str()),
             project_roots.as_slice(),
         ) {
             threads_by_project.entry(project_root).or_default().push(thread);
@@ -232,6 +227,12 @@ fn ai_visible_thread_sections(
             }
         })
         .collect()
+}
+
+fn ai_workspace_project_root_identity(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    hunk_git::worktree::primary_repo_root(path)
+        .ok()
+        .or_else(|| Some(path.to_path_buf()))
 }
 
 fn workspace_mad_max_mode(state: &AppState, workspace_key: Option<&str>) -> bool {

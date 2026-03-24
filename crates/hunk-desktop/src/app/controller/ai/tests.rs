@@ -12,6 +12,7 @@ mod ai_tests {
     use super::ai_attachment_status_message;
     use super::ai_branch_name_for_thread;
     use super::ai_completion_reload_workspace_root;
+    use super::ai_workspace_catalog_inputs_from_target_sets;
     use super::ai_composer_draft_key;
     use super::ai_composer_prompt_for_target;
     use super::ai_composer_retained_thread_ids;

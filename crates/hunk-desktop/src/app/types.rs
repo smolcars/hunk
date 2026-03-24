@@ -258,7 +258,7 @@ struct AiHiddenTerminalRuntimeHandle {
 struct AiVisibleThreadProjectSection {
     project_root: PathBuf,
     project_label: String,
-    threads: Vec<ThreadSummary>,
+    threads: Vec<hunk_codex::state::ThreadSummary>,
     total_thread_count: usize,
     hidden_thread_count: usize,
     expanded: bool,
