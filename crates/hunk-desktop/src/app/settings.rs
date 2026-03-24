@@ -1,18 +1,70 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SettingsCategory {
     Ui,
+    Terminal,
     KeyboardShortcuts,
 }
 
 impl SettingsCategory {
-    const ALL: [Self; 2] = [Self::Ui, Self::KeyboardShortcuts];
+    const ALL: [Self; 3] = [Self::Ui, Self::Terminal, Self::KeyboardShortcuts];
 
     fn title(self) -> &'static str {
         match self {
             Self::Ui => "UI",
+            Self::Terminal => "Terminal",
             Self::KeyboardShortcuts => "Keyboard Shortcuts",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SettingsTerminalShellChoice {
+    System,
+    Bash,
+    Zsh,
+    Fish,
+    PowerShell,
+    WindowsPowerShell,
+    CommandPrompt,
+    Custom,
+}
+
+impl SettingsTerminalShellChoice {
+    fn title(self) -> &'static str {
+        match self {
+            Self::System => "System",
+            Self::Bash => "Bash",
+            Self::Zsh => "Zsh",
+            Self::Fish => "Fish",
+            Self::PowerShell => "PowerShell",
+            Self::WindowsPowerShell => "Windows PowerShell",
+            Self::CommandPrompt => "Command Prompt",
+            Self::Custom => "Custom",
+        }
+    }
+
+    fn choices_for_current_platform() -> &'static [Self] {
+        if cfg!(target_os = "windows") {
+            &[
+                Self::System,
+                Self::PowerShell,
+                Self::WindowsPowerShell,
+                Self::CommandPrompt,
+                Self::Custom,
+            ]
+        } else {
+            &[Self::System, Self::Bash, Self::Zsh, Self::Fish, Self::Custom]
+        }
+    }
+}
+
+#[derive(Clone)]
+struct SettingsTerminalState {
+    shell_choice: SettingsTerminalShellChoice,
+    custom_program: Entity<InputState>,
+    original_shell: TerminalShell,
+    inherit_login_environment: bool,
+    hydrate_app_environment_on_launch: bool,
 }
 
 #[derive(Clone)]
@@ -201,8 +253,124 @@ struct SettingsDraft {
     theme: ThemePreference,
     reduce_motion: bool,
     show_fps_counter: bool,
+    terminal: SettingsTerminalState,
     shortcuts: SettingsShortcutInputs,
     error_message: Option<String>,
+}
+
+fn settings_terminal_input(
+    value: &str,
+    placeholder: &'static str,
+    window: &mut Window,
+    cx: &mut Context<DiffViewer>,
+) -> Entity<InputState> {
+    let value = value.to_string();
+    cx.new(|cx| {
+        let mut state = InputState::new(window, cx).placeholder(placeholder);
+        state.set_value(value.clone(), window, cx);
+        state
+    })
+}
+
+fn settings_terminal_shell_choice(shell: &TerminalShell) -> SettingsTerminalShellChoice {
+    match shell {
+        TerminalShell::System => SettingsTerminalShellChoice::System,
+        TerminalShell::WithArguments { .. } => SettingsTerminalShellChoice::Custom,
+        TerminalShell::Program(program) => match std::path::Path::new(program)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(program.as_str())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "bash" => SettingsTerminalShellChoice::Bash,
+            "zsh" => SettingsTerminalShellChoice::Zsh,
+            "fish" => SettingsTerminalShellChoice::Fish,
+            "pwsh" | "pwsh.exe" => SettingsTerminalShellChoice::PowerShell,
+            "powershell" | "powershell.exe" => SettingsTerminalShellChoice::WindowsPowerShell,
+            "cmd" | "cmd.exe" => SettingsTerminalShellChoice::CommandPrompt,
+            _ => SettingsTerminalShellChoice::Custom,
+        },
+    }
+}
+
+fn settings_terminal_custom_program(shell: &TerminalShell) -> String {
+    match shell {
+        TerminalShell::System => String::new(),
+        TerminalShell::Program(program) => program.clone(),
+        TerminalShell::WithArguments { program, .. } => program.clone(),
+    }
+}
+
+fn terminal_shell_choice_program(choice: SettingsTerminalShellChoice) -> Option<&'static str> {
+    match choice {
+        SettingsTerminalShellChoice::System => None,
+        SettingsTerminalShellChoice::Bash => Some("/bin/bash"),
+        SettingsTerminalShellChoice::Zsh => Some("/bin/zsh"),
+        SettingsTerminalShellChoice::Fish => Some("fish"),
+        SettingsTerminalShellChoice::PowerShell => Some("pwsh.exe"),
+        SettingsTerminalShellChoice::WindowsPowerShell => Some("powershell.exe"),
+        SettingsTerminalShellChoice::CommandPrompt => Some("cmd.exe"),
+        SettingsTerminalShellChoice::Custom => None,
+    }
+}
+
+fn terminal_custom_placeholder() -> &'static str {
+    if cfg!(target_os = "windows") {
+        r"Program path or command, e.g. C:\Program Files\PowerShell\7\pwsh.exe"
+    } else {
+        "Program path or command, e.g. /opt/homebrew/bin/fish"
+    }
+}
+
+fn settings_terminal_config(
+    state: &SettingsTerminalState,
+    cx: &Context<DiffViewer>,
+) -> Result<TerminalConfig, String> {
+    let shell = settings_terminal_shell_from_choice(
+        state.shell_choice,
+        state.custom_program.read(cx).value().trim(),
+        &state.original_shell,
+    )?;
+
+    Ok(TerminalConfig {
+        shell,
+        inherit_login_environment: state.inherit_login_environment,
+        hydrate_app_environment_on_launch: state.hydrate_app_environment_on_launch,
+    })
+}
+
+fn settings_terminal_shell_from_choice(
+    choice: SettingsTerminalShellChoice,
+    custom_program: &str,
+    original_shell: &TerminalShell,
+) -> Result<TerminalShell, String> {
+    match choice {
+        SettingsTerminalShellChoice::System => Ok(TerminalShell::System),
+        SettingsTerminalShellChoice::Custom => {
+            let program = custom_program.trim();
+            if program.is_empty() {
+                return Err("Terminal shell: custom program cannot be empty".to_string());
+            }
+
+            match original_shell {
+                TerminalShell::WithArguments {
+                    program: original_program,
+                    ..
+                } if original_program == program => Ok(original_shell.clone()),
+                _ => Ok(TerminalShell::Program(program.to_string())),
+            }
+        }
+        choice => Ok(TerminalShell::Program(
+            terminal_shell_choice_program(choice)
+                .expect("preset shell choice should resolve to a program")
+                .to_string(),
+        )),
+    }
+}
+
+fn terminal_shell_preserves_custom_arguments(shell: &TerminalShell) -> bool {
+    matches!(shell, TerminalShell::WithArguments { .. })
 }
 
 fn shortcut_lines(values: &[String]) -> String {

@@ -129,6 +129,9 @@ impl DiffViewer {
                                                     let label = category.title();
                                                     let id = match category {
                                                         SettingsCategory::Ui => "settings-nav-ui",
+                                                        SettingsCategory::Terminal => {
+                                                            "settings-nav-terminal"
+                                                        }
                                                         SettingsCategory::KeyboardShortcuts => {
                                                             "settings-nav-keyboard-shortcuts"
                                                         }
@@ -171,6 +174,11 @@ impl DiffViewer {
                                                 SettingsCategory::Ui => {
                                                     self.render_settings_ui_category(settings, cx)
                                                 }
+                                                SettingsCategory::Terminal => {
+                                                    self.render_settings_terminal_category(
+                                                        settings, cx,
+                                                    )
+                                                }
                                                 SettingsCategory::KeyboardShortcuts => {
                                                     self.render_settings_shortcuts_category(
                                                         settings, cx,
@@ -198,7 +206,7 @@ impl DiffViewer {
                                             })
                                             .child(
                                                 settings.error_message.clone().unwrap_or_else(|| {
-                                                    "Shortcut updates are saved to config.toml."
+                                                    "Settings are saved to config.toml."
                                                         .to_string()
                                                 }),
                                             ),
@@ -485,6 +493,304 @@ impl DiffViewer {
                             Reduced Motion disables animated transitions in the Git workspace.",
                                     ),
                             ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn render_settings_terminal_category(
+        &self,
+        settings: &SettingsDraft,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity();
+        let is_dark = cx.theme().mode.is_dark();
+        let card_surface = hunk_card_surface(cx.theme(), is_dark);
+        let dropdown_bg = hunk_dropdown_fill(cx.theme(), is_dark);
+        let input_surface = hunk_input_surface(cx.theme(), is_dark);
+        let shell_label = settings.terminal.shell_choice.title();
+        let inherit_label = if settings.terminal.inherit_login_environment {
+            "On"
+        } else {
+            "Off"
+        };
+        let hydrate_label = if settings.terminal.hydrate_app_environment_on_launch {
+            "On"
+        } else {
+            "Off"
+        };
+        let preserves_custom_arguments =
+            terminal_shell_preserves_custom_arguments(&settings.terminal.original_shell);
+
+        v_flex()
+            .w_full()
+            .gap_3()
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_base()
+                            .font_semibold()
+                            .text_color(cx.theme().foreground)
+                            .child("Terminal"),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(
+                                "Choose the shell used for new AI terminal sessions and how much shell environment Hunk should inherit.",
+                            ),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap_3()
+                    .p_3()
+                    .rounded(px(10.0))
+                    .border_1()
+                    .border_color(card_surface.border)
+                    .bg(card_surface.background)
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                v_flex()
+                                    .gap_0p5()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_semibold()
+                                            .text_color(cx.theme().foreground)
+                                            .child("Shell"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(
+                                                "System follows Hunk's built-in per-platform shell resolver.",
+                                            ),
+                                    ),
+                            )
+                            .child({
+                                let view = view.clone();
+                                let selected = settings.terminal.shell_choice;
+                                Button::new("settings-terminal-shell-dropdown")
+                                    .outline()
+                                    .compact()
+                                    .rounded(px(8.0))
+                                    .bg(dropdown_bg)
+                                    .dropdown_caret(true)
+                                    .label(shell_label)
+                                    .dropdown_menu(move |menu, _, _| {
+                                        SettingsTerminalShellChoice::choices_for_current_platform()
+                                            .iter()
+                                            .copied()
+                                            .fold(menu, |menu, choice| {
+                                                menu.item(
+                                                    PopupMenuItem::new(choice.title())
+                                                        .checked(selected == choice)
+                                                        .on_click({
+                                                            let view = view.clone();
+                                                            move |_, _, cx| {
+                                                                view.update(cx, |this, cx| {
+                                                                    this.set_settings_terminal_shell_choice(
+                                                                        choice, cx,
+                                                                    );
+                                                                });
+                                                            }
+                                                        }),
+                                                )
+                                            })
+                                    })
+                            }),
+                    )
+                    .when(
+                        settings.terminal.shell_choice == SettingsTerminalShellChoice::Custom,
+                        |this| {
+                            this.child(
+                                v_flex()
+                                    .w_full()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_semibold()
+                                            .text_color(cx.theme().foreground)
+                                            .child("Custom Shell Program"),
+                                    )
+                                    .child(
+                                        Input::new(&settings.terminal.custom_program)
+                                            .h(px(36.0))
+                                            .rounded(px(8.0))
+                                            .border_1()
+                                            .border_color(input_surface.border)
+                                            .bg(input_surface.background)
+                                            .disabled(false),
+                                    )
+                                    .when(preserves_custom_arguments, |this| {
+                                        this.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(
+                                                    "Existing custom shell arguments from config.toml are preserved unless you change the program.",
+                                                ),
+                                        )
+                                    }),
+                            )
+                        },
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                v_flex()
+                                    .gap_0p5()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_semibold()
+                                            .text_color(cx.theme().foreground)
+                                            .child("Inherit Login Environment"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(
+                                                "Controls whether new terminal shells load login/profile startup state.",
+                                            ),
+                                    ),
+                            )
+                            .child({
+                                let view = view.clone();
+                                let inherit_login_environment =
+                                    settings.terminal.inherit_login_environment;
+                                Button::new("settings-terminal-inherit-dropdown")
+                                    .outline()
+                                    .compact()
+                                    .rounded(px(8.0))
+                                    .bg(dropdown_bg)
+                                    .dropdown_caret(true)
+                                    .label(inherit_label)
+                                    .dropdown_menu(move |menu, _, _| {
+                                        menu.item(
+                                            PopupMenuItem::new("On")
+                                                .checked(inherit_login_environment)
+                                                .on_click({
+                                                    let view = view.clone();
+                                                    move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            this.set_settings_terminal_inherit_login_environment(true, cx);
+                                                        });
+                                                    }
+                                                }),
+                                        )
+                                        .item(
+                                            PopupMenuItem::new("Off")
+                                                .checked(!inherit_login_environment)
+                                                .on_click({
+                                                    let view = view.clone();
+                                                    move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            this.set_settings_terminal_inherit_login_environment(false, cx);
+                                                        });
+                                                    }
+                                                }),
+                                        )
+                                    })
+                            }),
+                    )
+                    .when(!cfg!(target_os = "windows"), |this| {
+                        this.child(
+                            h_flex()
+                                .w_full()
+                                .items_center()
+                                .justify_between()
+                                .gap_3()
+                                .child(
+                                    v_flex()
+                                        .gap_0p5()
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_semibold()
+                                                .text_color(cx.theme().foreground)
+                                                .child("Hydrate App Environment On Launch"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(
+                                                    "For GUI launches, ask the selected shell for its startup environment before the app fully boots.",
+                                                ),
+                                        ),
+                                )
+                                .child({
+                                    let view = view.clone();
+                                    let hydrate_app_environment_on_launch =
+                                        settings.terminal.hydrate_app_environment_on_launch;
+                                    Button::new("settings-terminal-hydrate-dropdown")
+                                        .outline()
+                                        .compact()
+                                        .rounded(px(8.0))
+                                        .bg(dropdown_bg)
+                                        .dropdown_caret(true)
+                                        .label(hydrate_label)
+                                        .dropdown_menu(move |menu, _, _| {
+                                            menu.item(
+                                                PopupMenuItem::new("On")
+                                                    .checked(hydrate_app_environment_on_launch)
+                                                    .on_click({
+                                                        let view = view.clone();
+                                                        move |_, _, cx| {
+                                                            view.update(cx, |this, cx| {
+                                                                this.set_settings_terminal_hydrate_app_environment_on_launch(
+                                                                    true, cx,
+                                                                );
+                                                            });
+                                                        }
+                                                    }),
+                                            )
+                                            .item(
+                                                PopupMenuItem::new("Off")
+                                                    .checked(!hydrate_app_environment_on_launch)
+                                                    .on_click({
+                                                        let view = view.clone();
+                                                        move |_, _, cx| {
+                                                            view.update(cx, |this, cx| {
+                                                                this.set_settings_terminal_hydrate_app_environment_on_launch(
+                                                                    false, cx,
+                                                                );
+                                                            });
+                                                        }
+                                                    }),
+                                            )
+                                        })
+                                }),
+                        )
+                    })
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(hunk_opacity(cx.theme().muted_foreground, is_dark, 0.94, 1.0))
+                            .child(if cfg!(target_os = "windows") {
+                                "Shell changes apply to newly opened AI terminal sessions. App environment hydration is currently only used for Unix GUI launches."
+                            } else {
+                                "Shell changes apply to newly opened AI terminal sessions. Startup environment hydration changes take effect after restarting Hunk."
+                            }),
                     ),
             )
             .into_any_element()

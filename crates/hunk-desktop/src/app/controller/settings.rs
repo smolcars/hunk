@@ -232,11 +232,28 @@ impl DiffViewer {
             ),
         };
 
+        let terminal = SettingsTerminalState {
+            shell_choice: settings_terminal_shell_choice(&self.config.terminal.shell),
+            custom_program: settings_terminal_input(
+                settings_terminal_custom_program(&self.config.terminal.shell).as_str(),
+                terminal_custom_placeholder(),
+                window,
+                cx,
+            ),
+            original_shell: self.config.terminal.shell.clone(),
+            inherit_login_environment: self.config.terminal.inherit_login_environment,
+            hydrate_app_environment_on_launch: self
+                .config
+                .terminal
+                .hydrate_app_environment_on_launch,
+        };
+
         self.settings_draft = Some(SettingsDraft {
             category: SettingsCategory::Ui,
             theme: self.config.theme,
             reduce_motion: self.config.reduce_motion,
             show_fps_counter: self.config.show_fps_counter,
+            terminal,
             shortcuts,
             error_message: None,
         });
@@ -324,8 +341,56 @@ impl DiffViewer {
         cx.notify();
     }
 
+    pub(super) fn set_settings_terminal_shell_choice(
+        &mut self,
+        shell_choice: SettingsTerminalShellChoice,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(settings) = self.settings_draft.as_mut() else {
+            return;
+        };
+        if settings.terminal.shell_choice == shell_choice {
+            return;
+        }
+        settings.terminal.shell_choice = shell_choice;
+        settings.error_message = None;
+        cx.notify();
+    }
+
+    pub(super) fn set_settings_terminal_inherit_login_environment(
+        &mut self,
+        inherit_login_environment: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(settings) = self.settings_draft.as_mut() else {
+            return;
+        };
+        if settings.terminal.inherit_login_environment == inherit_login_environment {
+            return;
+        }
+        settings.terminal.inherit_login_environment = inherit_login_environment;
+        settings.error_message = None;
+        cx.notify();
+    }
+
+    pub(super) fn set_settings_terminal_hydrate_app_environment_on_launch(
+        &mut self,
+        hydrate_app_environment_on_launch: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(settings) = self.settings_draft.as_mut() else {
+            return;
+        };
+        if settings.terminal.hydrate_app_environment_on_launch == hydrate_app_environment_on_launch {
+            return;
+        }
+        settings.terminal.hydrate_app_environment_on_launch = hydrate_app_environment_on_launch;
+        settings.error_message = None;
+        cx.notify();
+    }
+
     pub(super) fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (theme, reduce_motion, show_fps_counter, keyboard_shortcuts) = {
+        let (theme, reduce_motion, show_fps_counter, terminal, keyboard_shortcuts) = {
             let Some(settings) = self.settings_draft.as_mut() else {
                 return;
             };
@@ -405,18 +470,34 @@ impl DiffViewer {
                 return;
             }
 
+            let terminal = match settings_terminal_config(&settings.terminal, cx) {
+                Ok(terminal) => terminal,
+                Err(err) => {
+                    settings.error_message = Some(err);
+                    cx.notify();
+                    return;
+                }
+            };
+
             settings.error_message = None;
             (
                 settings.theme,
                 settings.reduce_motion,
                 settings.show_fps_counter,
+                terminal,
                 keyboard_shortcuts,
             )
         };
 
+        let keyboard_shortcuts_changed = self.config.keyboard_shortcuts != keyboard_shortcuts;
+        let terminal_changed = self.config.terminal != terminal;
+        let terminal_requires_restart = self.config.terminal.hydrate_app_environment_on_launch
+            != terminal.hydrate_app_environment_on_launch;
+
         self.config.theme = theme;
         self.config.reduce_motion = reduce_motion;
         self.config.show_fps_counter = show_fps_counter;
+        self.config.terminal = terminal;
         self.config.keyboard_shortcuts = keyboard_shortcuts;
         self.apply_theme_preference(window, cx);
         self.restart_auto_refresh(cx);
@@ -428,10 +509,22 @@ impl DiffViewer {
             .map(|store| store.path().display().to_string())
             .unwrap_or_else(|| "~/.hunkdiff/config.toml".to_string());
         let save_message = format!("Saved settings to {}.", saved_path);
-        self.git_status_message = Some(format!(
-            "{} Restart Hunk to reload keyboard shortcuts.",
-            save_message
-        ));
+        let follow_up =
+            match (keyboard_shortcuts_changed, terminal_changed, terminal_requires_restart) {
+                (true, true, true) => {
+                    " Restart Hunk to reload keyboard shortcuts and startup terminal environment changes."
+                }
+                (true, true, false) => {
+                    " Restart Hunk to reload keyboard shortcuts. Reopen the AI terminal to apply shell changes."
+                }
+                (true, false, _) => " Restart Hunk to reload keyboard shortcuts.",
+                (false, true, true) => {
+                    " Restart Hunk to apply startup terminal environment changes."
+                }
+                (false, true, false) => " Reopen the AI terminal to apply shell changes.",
+                (false, false, _) => "",
+            };
+        self.git_status_message = Some(format!("{save_message}{follow_up}"));
         gpui_component::WindowExt::push_notification(
             window,
             crate::app::notifications::success(save_message),
@@ -445,6 +538,12 @@ impl DiffViewer {
 #[cfg(test)]
 mod settings_tests {
     use super::validate_shortcut_list;
+    use crate::app::{
+        SettingsTerminalShellChoice, settings_terminal_custom_program, settings_terminal_shell_choice,
+        settings_terminal_shell_from_choice, terminal_shell_choice_program,
+        terminal_shell_preserves_custom_arguments,
+    };
+    use hunk_domain::config::TerminalShell;
 
     #[test]
     fn validate_shortcut_list_accepts_key_sequences() {
@@ -456,5 +555,70 @@ mod settings_tests {
     fn validate_shortcut_list_rejects_invalid_key_sequences() {
         let shortcuts = vec!["g not-a-key".to_string()];
         assert!(validate_shortcut_list("Test Action", &shortcuts).is_err());
+    }
+
+    #[test]
+    fn terminal_shell_choice_maps_known_programs_to_presets() {
+        assert_eq!(
+            settings_terminal_shell_choice(&TerminalShell::Program("/bin/bash".to_string())),
+            SettingsTerminalShellChoice::Bash
+        );
+        assert_eq!(
+            settings_terminal_shell_choice(&TerminalShell::Program("pwsh.exe".to_string())),
+            SettingsTerminalShellChoice::PowerShell
+        );
+        assert_eq!(
+            settings_terminal_shell_choice(&TerminalShell::Program("cmd.exe".to_string())),
+            SettingsTerminalShellChoice::CommandPrompt
+        );
+    }
+
+    #[test]
+    fn terminal_shell_choice_keeps_argument_variants_on_custom() {
+        let shell = TerminalShell::WithArguments {
+            program: "pwsh.exe".to_string(),
+            args: vec!["-NoLogo".to_string()],
+        };
+
+        assert_eq!(
+            settings_terminal_shell_choice(&shell),
+            SettingsTerminalShellChoice::Custom
+        );
+        assert_eq!(settings_terminal_custom_program(&shell), "pwsh.exe");
+        assert!(terminal_shell_preserves_custom_arguments(&shell));
+    }
+
+    #[test]
+    fn terminal_shell_choice_program_returns_expected_presets() {
+        assert_eq!(
+            terminal_shell_choice_program(SettingsTerminalShellChoice::Bash),
+            Some("/bin/bash")
+        );
+        assert_eq!(
+            terminal_shell_choice_program(SettingsTerminalShellChoice::PowerShell),
+            Some("pwsh.exe")
+        );
+        assert_eq!(
+            terminal_shell_choice_program(SettingsTerminalShellChoice::System),
+            None
+        );
+    }
+
+    #[test]
+    fn custom_shell_choice_preserves_with_arguments_when_program_is_unchanged() {
+        let shell = TerminalShell::WithArguments {
+            program: "pwsh.exe".to_string(),
+            args: vec!["-NoLogo".to_string()],
+        };
+
+        assert_eq!(
+            settings_terminal_shell_from_choice(
+                SettingsTerminalShellChoice::Custom,
+                "pwsh.exe",
+                &shell,
+            )
+            .expect("custom terminal shell should build"),
+            shell
+        );
     }
 }

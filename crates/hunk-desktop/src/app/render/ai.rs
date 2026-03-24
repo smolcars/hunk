@@ -22,18 +22,8 @@ struct AiTerminalPanelState {
     height_px: f32,
 }
 
-fn ai_terminal_shell_label() -> String {
-    #[cfg(target_os = "windows")]
-    let shell = std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into());
-
-    #[cfg(not(target_os = "windows"))]
-    let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/bash".into());
-
-    std::path::Path::new(&shell)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("shell")
-        .to_string()
+fn ai_terminal_shell_label(config: &AppConfig) -> String {
+    crate::terminal_env::terminal_shell_label(&config.terminal)
 }
 
 impl DiffViewer {
@@ -209,7 +199,7 @@ impl DiffViewer {
                 .or_else(|| self.ai_workspace_cwd())
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|| "No workspace selected".to_string()),
-            shell_label: ai_terminal_shell_label(),
+            shell_label: ai_terminal_shell_label(&self.config),
             status_message: self.ai_terminal_session.status_message.clone(),
             running: self.ai_terminal_is_running(),
             surface_focused: self.ai_terminal_surface_focused,

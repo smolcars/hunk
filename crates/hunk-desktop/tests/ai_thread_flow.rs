@@ -113,7 +113,7 @@ fn branch_name_generation_uses_dedicated_model_and_image_inputs() {
     assert_eq!(branch, "ai/worktree/fix-screenshot-overflow");
 
     let args = fs::read_to_string(args_path).expect("args");
-    assert!(args.contains("--model\ngpt-5.3-codex\n"));
+    assert!(args.contains("--model\ngpt-5.4-mini\n"));
     assert!(args.contains("model_reasoning_effort=\"low\""));
     assert!(args.contains("--image\n"));
     assert!(args.contains(image_path.to_string_lossy().as_ref()));

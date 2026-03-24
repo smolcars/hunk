@@ -1,4 +1,7 @@
-use hunk_domain::config::{AppConfig, KeyboardShortcuts, ReviewProviderKind, ThemePreference};
+use hunk_domain::config::{
+    AppConfig, KeyboardShortcuts, ReviewProviderKind, TerminalShell, ThemePreference,
+    default_terminal_hydrate_app_environment_on_launch,
+};
 
 fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
@@ -91,6 +94,15 @@ fn app_config_defaults_include_existing_keyboard_shortcuts() {
         config.show_fps_counter,
         "fps counter should default to enabled"
     );
+    assert_eq!(config.terminal.shell, TerminalShell::System);
+    assert!(
+        config.terminal.inherit_login_environment,
+        "terminal should default to inheriting login environment"
+    );
+    assert_eq!(
+        config.terminal.hydrate_app_environment_on_launch,
+        default_terminal_hydrate_app_environment_on_launch()
+    );
 }
 
 #[test]
@@ -103,6 +115,7 @@ theme = "dark"
 
     assert_eq!(config.theme, ThemePreference::Dark);
     assert_eq!(config.keyboard_shortcuts, KeyboardShortcuts::default());
+    assert_eq!(config.terminal.shell, TerminalShell::System);
     assert!(
         !config.reduce_motion,
         "configs missing reduce_motion should fall back to false"
@@ -258,4 +271,25 @@ switch_to_graph_view = ["cmd-9"]
         config.keyboard_shortcuts.switch_to_git_view,
         strings(&["cmd-9"])
     );
+}
+
+#[test]
+fn app_config_parses_terminal_settings() {
+    let raw = r#"
+[terminal]
+shell = { with_arguments = { program = "pwsh.exe", args = ["-NoLogo"] } }
+inherit_login_environment = false
+hydrate_app_environment_on_launch = false
+"#;
+    let config: AppConfig = toml::from_str(raw).expect("terminal settings should parse");
+
+    assert_eq!(
+        config.terminal.shell,
+        TerminalShell::WithArguments {
+            program: "pwsh.exe".to_string(),
+            args: vec!["-NoLogo".to_string()]
+        }
+    );
+    assert!(!config.terminal.inherit_login_environment);
+    assert!(!config.terminal.hydrate_app_environment_on_launch);
 }

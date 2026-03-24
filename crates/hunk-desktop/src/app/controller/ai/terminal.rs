@@ -916,7 +916,10 @@ impl DiffViewer {
         command: String,
         cx: &mut Context<Self>,
     ) {
-        let command = ai_terminal_command_for_shell(command.as_str(), ai_terminal_default_shell_family());
+        let command = ai_terminal_command_for_shell(
+            command.as_str(),
+            ai_terminal_default_shell_family(&self.config),
+        );
         if command.is_empty() {
             return;
         }
@@ -962,7 +965,12 @@ impl DiffViewer {
             pending_input = self.ai_terminal_pending_input.is_some(),
             "Starting AI terminal session"
         );
-        let request = TerminalSpawnRequest::shell(cwd.clone());
+        let resolved_shell = crate::terminal_env::resolve_terminal_shell(&self.config.terminal);
+        let request = TerminalSpawnRequest::shell(cwd.clone())
+            .with_shell_program(resolved_shell.program().to_os_string())
+            .with_shell_args(
+                resolved_shell.interactive_shell_args(self.config.terminal.inherit_login_environment),
+            );
         match spawn_terminal_session(request) {
             Ok((handle, event_rx)) => {
                 self.ai_terminal_open = true;
@@ -1250,18 +1258,10 @@ fn ai_terminal_strip_matching_outer_quotes(value: &str) -> &str {
     trimmed
 }
 
-fn ai_terminal_default_shell_family() -> AiTerminalShellFamily {
-    #[cfg(target_os = "windows")]
-    let shell = std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into());
-
-    #[cfg(not(target_os = "windows"))]
-    let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/bash".into());
-
+fn ai_terminal_default_shell_family(config: &AppConfig) -> AiTerminalShellFamily {
+    let shell = crate::terminal_env::resolve_terminal_shell(&config.terminal);
     ai_terminal_shell_family_from_program(
-        std::path::Path::new(&shell)
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default(),
+        shell.label(),
     )
 }
 

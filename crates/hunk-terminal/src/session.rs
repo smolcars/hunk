@@ -22,6 +22,8 @@ pub struct TerminalSpawnRequest {
     pub rows: u16,
     pub cols: u16,
     shell_program_override: Option<OsString>,
+    shell_args_override: Option<Vec<OsString>>,
+    env_overrides: Vec<(OsString, OsString)>,
 }
 
 impl TerminalSpawnRequest {
@@ -32,6 +34,8 @@ impl TerminalSpawnRequest {
             rows: 24,
             cols: 120,
             shell_program_override: None,
+            shell_args_override: None,
+            env_overrides: Vec::new(),
         }
     }
 
@@ -41,6 +45,34 @@ impl TerminalSpawnRequest {
 
     pub fn with_shell_program(mut self, shell_program: impl Into<OsString>) -> Self {
         self.shell_program_override = Some(shell_program.into());
+        self
+    }
+
+    pub fn with_shell_args<I, S>(mut self, shell_args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        self.shell_args_override = Some(shell_args.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub fn with_env_var(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
+        self.env_overrides.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn with_env_vars<I, K, V>(mut self, env_vars: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<OsString>,
+        V: Into<OsString>,
+    {
+        self.env_overrides.extend(
+            env_vars
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.into())),
+        );
         self
     }
 }
@@ -109,10 +141,14 @@ pub fn spawn_terminal_session(
         request.command.as_str(),
         request.cwd.as_path(),
         request.shell_program_override.as_deref(),
+        request.shell_args_override.as_deref(),
     );
     command.cwd(request.cwd.as_os_str());
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
+    for (key, value) in request.env_overrides {
+        command.env(key, value);
+    }
 
     let mut child = pair
         .slave
@@ -310,6 +346,7 @@ fn shell_command_builder(
     command: &str,
     cwd: &Path,
     shell_program_override: Option<&std::ffi::OsStr>,
+    shell_args_override: Option<&[OsString]>,
 ) -> CommandBuilder {
     #[cfg(target_os = "windows")]
     {
@@ -318,6 +355,16 @@ fn shell_command_builder(
             .unwrap_or_else(windows_shell_program);
         let is_cmd = shell_is_cmd(shell.as_os_str());
         let mut builder = CommandBuilder::new(shell);
+        if let Some(shell_args_override) = shell_args_override {
+            for arg in shell_args_override {
+                builder.arg(arg);
+            }
+            if !command.trim().is_empty() {
+                builder.arg(command);
+            }
+            builder.cwd(cwd.as_os_str());
+            return builder;
+        }
         if is_cmd && std::env::var_os("PROMPT").is_none() {
             builder.env("PROMPT", "$P$G$S");
         }
@@ -346,6 +393,16 @@ fn shell_command_builder(
             .map(OsString::from)
             .unwrap_or_else(unix_shell_program);
         let mut builder = CommandBuilder::new(shell.clone());
+        if let Some(shell_args_override) = shell_args_override {
+            for arg in shell_args_override {
+                builder.arg(arg);
+            }
+            if !command.trim().is_empty() {
+                builder.arg(command);
+            }
+            builder.cwd(cwd.as_os_str());
+            return builder;
+        }
         if command.trim().is_empty() {
             builder.arg("-i");
         } else {

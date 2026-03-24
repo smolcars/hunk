@@ -36,7 +36,9 @@ mod hunk_assets;
 use hunk_assets::HunkAssets;
 pub(crate) use hunk_assets::HunkIconName;
 
-use hunk_domain::config::{AppConfig, ConfigStore, KeyboardShortcuts, ThemePreference};
+use hunk_domain::config::{
+    AppConfig, ConfigStore, KeyboardShortcuts, TerminalConfig, TerminalShell, ThemePreference,
+};
 use hunk_domain::db::{
     CommentLineSide, CommentRecord, CommentStatus, DatabaseStore, NewComment,
     compute_comment_anchor_hash, format_comment_clipboard_blob, next_status_for_unmatched_anchor,
