@@ -916,3 +916,57 @@ fn compact_highlight_captures(captures: Vec<HighlightCapture>) -> Vec<HighlightC
     }
     compacted
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Font, hsla};
+
+    #[test]
+    fn wrapped_markdown_rows_keep_text_run_lengths_in_bounds() {
+        let mut editor = FilesEditor::new();
+        let path = PathBuf::from("README.md");
+        let contents = concat!(
+            "- `crates/hunk-domain` owns markdown preview parsing.\n",
+            "- `crates/hunk-desktop` paints the wrapped native editor.\n",
+        );
+        editor
+            .open_document(path.as_path(), contents)
+            .expect("document should open");
+
+        let display_snapshot = editor.display_snapshot_for_test(20, 20);
+        let syntax_spans = editor.row_syntax_spans(&display_snapshot.visible_rows);
+        let mut saw_overlap = false;
+
+        for row in &display_snapshot.visible_rows {
+            let row_spans = syntax_spans
+                .get(&row.row_index)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            saw_overlap |= row_spans
+                .windows(2)
+                .any(|pair| pair[0].end_column > pair[1].start_column);
+
+            let runs = paint::build_text_runs_for_row(
+                row,
+                row_spans,
+                &BTreeMap::new(),
+                Font::default(),
+                hsla(0.0, 0.0, 0.0, 1.0),
+                hsla(0.0, 0.0, 0.0, 1.0),
+            );
+
+            assert_eq!(
+                runs.iter().map(|run| run.len).sum::<usize>(),
+                row.text.len(),
+                "text runs must exactly cover row {:?}",
+                row.text
+            );
+        }
+
+        assert!(
+            saw_overlap,
+            "expected markdown highlighting to produce overlapping row spans"
+        );
+    }
+}

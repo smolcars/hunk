@@ -217,16 +217,17 @@ pub(super) fn build_text_runs_for_row(
     for span in syntax_spans {
         let span_start = span.start_column.min(total_columns);
         let span_end = span.end_column.min(total_columns);
-        if span_start >= span_end {
+        let applied_start = span_start.max(current_column);
+        if applied_start >= span_end {
             continue;
         }
 
-        if current_column < span_start {
+        if current_column < applied_start {
             push_text_run(
                 &mut runs,
                 &column_byte_offsets,
                 current_column,
-                span_start,
+                applied_start,
                 font.clone(),
                 default_foreground,
                 None,
@@ -236,7 +237,7 @@ pub(super) fn build_text_runs_for_row(
         push_text_run(
             &mut runs,
             &column_byte_offsets,
-            span_start,
+            applied_start,
             span_end,
             font.clone(),
             default_foreground,
