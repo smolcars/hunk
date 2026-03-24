@@ -104,6 +104,49 @@ fn terminal_session_supports_scrollback_after_output() {
     handle.kill().expect("kill should succeed");
 }
 
+#[test]
+fn terminal_session_applies_environment_overrides() {
+    let request = TerminalSpawnRequest::new(
+        repo_root(),
+        "printf '%s\\n' \"$HUNK_TERMINAL_TEST\"".to_string(),
+    )
+    .with_shell_program(test_shell_program())
+    .with_env_var("HUNK_TERMINAL_TEST", "env-override-ok");
+    let (_handle, event_rx) =
+        spawn_terminal_session(request).expect("terminal session should start");
+
+    let events = collect_events_until_exit(&event_rx);
+    let output_text = events
+        .iter()
+        .filter_map(|event| match event {
+            TerminalEvent::Output(bytes) => Some(String::from_utf8_lossy(bytes).to_string()),
+            _ => None,
+        })
+        .collect::<String>();
+
+    assert!(output_text.contains("env-override-ok"));
+}
+
+#[test]
+fn terminal_session_uses_explicit_shell_args_for_interactive_shells() {
+    let request = TerminalSpawnRequest::shell(repo_root())
+        .with_shell_program(test_shell_program())
+        .with_shell_args(["-c", "printf 'shell-args-ok\\n'"]);
+    let (_handle, event_rx) =
+        spawn_terminal_session(request).expect("terminal session should start");
+
+    let events = collect_events_until_exit(&event_rx);
+    let output_text = events
+        .iter()
+        .filter_map(|event| match event {
+            TerminalEvent::Output(bytes) => Some(String::from_utf8_lossy(bytes).to_string()),
+            _ => None,
+        })
+        .collect::<String>();
+
+    assert!(output_text.contains("shell-args-ok"));
+}
+
 fn collect_events_until_exit(
     event_rx: &std::sync::mpsc::Receiver<TerminalEvent>,
 ) -> Vec<TerminalEvent> {

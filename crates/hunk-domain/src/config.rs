@@ -11,6 +11,10 @@ pub const fn default_auto_refresh_interval_ms() -> u64 {
     DEFAULT_AUTO_REFRESH_INTERVAL_MS
 }
 
+pub const fn default_terminal_hydrate_app_environment_on_launch() -> bool {
+    !cfg!(target_os = "windows")
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemePreference {
@@ -32,6 +36,37 @@ pub enum ReviewProviderKind {
 pub struct ReviewProviderMapping {
     pub host: String,
     pub provider: ReviewProviderKind,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalShell {
+    #[default]
+    System,
+    Program(String),
+    WithArguments {
+        program: String,
+        args: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TerminalConfig {
+    pub shell: TerminalShell,
+    pub inherit_login_environment: bool,
+    #[serde(default = "default_terminal_hydrate_app_environment_on_launch")]
+    pub hydrate_app_environment_on_launch: bool,
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            shell: TerminalShell::System,
+            inherit_login_environment: true,
+            hydrate_app_environment_on_launch: default_terminal_hydrate_app_environment_on_launch(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +136,7 @@ pub struct AppConfig {
     pub theme: ThemePreference,
     pub reduce_motion: bool,
     pub show_fps_counter: bool,
+    pub terminal: TerminalConfig,
     pub keyboard_shortcuts: KeyboardShortcuts,
     pub review_provider_mappings: Vec<ReviewProviderMapping>,
     #[serde(default = "default_auto_refresh_interval_ms")]
@@ -113,6 +149,7 @@ impl Default for AppConfig {
             theme: ThemePreference::System,
             reduce_motion: false,
             show_fps_counter: true,
+            terminal: TerminalConfig::default(),
             keyboard_shortcuts: KeyboardShortcuts::default(),
             review_provider_mappings: Vec::new(),
             auto_refresh_interval_ms: default_auto_refresh_interval_ms(),

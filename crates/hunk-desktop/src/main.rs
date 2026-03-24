@@ -4,15 +4,20 @@
 )]
 
 mod app;
+mod terminal_env;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
+use hunk_domain::config::{AppConfig, ConfigStore};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 static SIGNAL_SHUTDOWN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<()> {
+    if terminal_env::maybe_handle_terminal_env_helper_mode()? {
+        return Ok(());
+    }
     run_with_platform_stack_workaround()
 }
 
@@ -37,6 +42,11 @@ fn run_with_platform_stack_workaround() -> Result<()> {
 }
 
 fn run_app() -> Result<()> {
+    let config = load_startup_config();
+    if let Err(error) = terminal_env::maybe_hydrate_app_environment(&config) {
+        eprintln!("failed to hydrate terminal environment: {error:#}");
+    }
+
     let default_log_level = if cfg!(debug_assertions) {
         LevelFilter::DEBUG
     } else {
@@ -58,6 +68,13 @@ fn run_app() -> Result<()> {
     install_process_signal_cleanup()?;
 
     app::run()
+}
+
+fn load_startup_config() -> AppConfig {
+    ConfigStore::new()
+        .ok()
+        .and_then(|store| store.load_or_create_default().ok())
+        .unwrap_or_default()
 }
 
 fn install_process_signal_cleanup() -> Result<()> {
