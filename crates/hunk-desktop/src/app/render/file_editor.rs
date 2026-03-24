@@ -43,7 +43,7 @@ impl DiffViewer {
             return div().into_any_element();
         }
 
-        let tab_height = px(34.0);
+        let tab_height = px(crate::app::FILES_WORKSPACE_RAIL_HEIGHT);
         let border_color = cx.theme().border;
 
         div()

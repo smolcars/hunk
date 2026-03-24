@@ -328,6 +328,9 @@ impl DiffViewer {
         let Some(repo_root) = self.repo_root.clone() else {
             return;
         };
+        if self.prevent_file_editor_tab_discard_for_path(path, "deleting", cx) {
+            return;
+        }
         let result = fs_delete_repo_tree_file(&repo_root, path);
         match result {
             Ok(()) => {
@@ -619,6 +622,9 @@ impl DiffViewer {
         let destination_path = rename_destination_path(source_path, requested_name)?;
         if source_path == destination_path {
             anyhow::bail!("File name is unchanged.");
+        }
+        if self.prevent_file_editor_tab_discard_for_path(source_path, "renaming", cx) {
+            anyhow::bail!("Unsaved editor changes must be saved before renaming.");
         }
         fs_rename_repo_tree_file(&repo_root, source_path, destination_path.as_str())?;
         self.expand_repo_tree_ancestors(destination_path.as_str());

@@ -4,6 +4,10 @@ impl DiffViewer {
         self.file_editor_tabs.iter().position(|tab| tab.id == active_id)
     }
 
+    fn file_editor_tab_index_for_id(&self, tab_id: usize) -> Option<usize> {
+        self.file_editor_tabs.iter().position(|tab| tab.id == tab_id)
+    }
+
     fn file_editor_tab_index_for_path(&self, path: &str) -> Option<usize> {
         self.file_editor_tabs
             .iter()
@@ -45,10 +49,8 @@ impl DiffViewer {
         self.editor_error = tab.error.clone();
         self.editor_dirty = tab.dirty;
         self.editor_last_saved_text = tab.last_saved_text.clone();
-        self.editor_epoch = tab.reload_epoch;
         self.editor_task = std::mem::replace(&mut tab.reload_task, Task::ready(()));
         self.editor_save_loading = tab.save_loading;
-        self.editor_save_epoch = tab.save_epoch;
         self.editor_save_task = std::mem::replace(&mut tab.save_task, Task::ready(()));
         self.editor_markdown_preview_task =
             std::mem::replace(&mut tab.markdown_preview_task, Task::ready(()));
@@ -66,10 +68,8 @@ impl DiffViewer {
         self.editor_error = None;
         self.editor_dirty = false;
         self.editor_last_saved_text = None;
-        self.editor_epoch = 0;
         self.editor_task = Task::ready(());
         self.editor_save_loading = false;
-        self.editor_save_epoch = 0;
         self.editor_save_task = Task::ready(());
         self.editor_markdown_preview_task = Task::ready(());
         self.editor_markdown_preview_blocks.clear();
@@ -245,6 +245,42 @@ impl DiffViewer {
         }
     }
 
+    fn prevent_file_editor_tab_discard_for_path(
+        &mut self,
+        path: &str,
+        action: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.editor_path.as_deref() == Some(path) {
+            self.sync_editor_dirty_from_input(cx);
+        }
+        self.sync_active_file_editor_tab_state();
+
+        if let Some(tab) = self
+            .file_editor_tabs
+            .iter()
+            .find(|tab| tab.path == path && tab.save_loading)
+        {
+            self.git_status_message = Some(format!(
+                "Save in progress for {}. Wait before {}.",
+                tab.path, action
+            ));
+            cx.notify();
+            return true;
+        }
+
+        if let Some(tab) = self.file_editor_tabs.iter().find(|tab| tab.path == path && tab.dirty) {
+            self.git_status_message = Some(format!(
+                "Unsaved changes in {}. Save before {}.",
+                tab.path, action
+            ));
+            cx.notify();
+            return true;
+        }
+
+        false
+    }
+
     pub(super) fn view_current_review_file_action(
         &mut self,
         _: &ViewCurrentReviewFile,
@@ -349,6 +385,9 @@ impl DiffViewer {
             return false;
         };
         self.activate_file_editor_tab_index(tab_index, None, cx);
+        let Some(tab_id) = self.active_file_editor_tab_id else {
+            return false;
+        };
 
         let retain_markdown_preview = if self.editor_path.as_deref() == Some(path.as_str()) {
             self.editor_markdown_preview
@@ -393,38 +432,62 @@ impl DiffViewer {
 
             if let Some(this) = this.upgrade() {
                 this.update(cx, |this, cx| {
-                    if epoch != this.editor_epoch {
+                    let Some(tab_index) = this.file_editor_tab_index_for_id(tab_id) else {
+                        return;
+                    };
+                    if epoch != this.file_editor_tabs[tab_index].reload_epoch {
                         return;
                     }
 
-                    this.editor_loading = false;
+                    let is_active = this.active_file_editor_tab_id == Some(tab_id);
+                    let tab_editor = this.file_editor_tabs[tab_index].files_editor.clone();
+
                     match result {
                         Ok(document) => {
                             let text = document.text;
-                            this.editor_last_saved_text = Some(text.clone());
-                            this.editor_dirty = false;
-                            this.editor_error = None;
-                            let open_result = this.open_files_editor_document(
+                            let open_result = Self::open_files_editor_document_in(
+                                &tab_editor,
                                 path.as_str(),
                                 &repo_root,
                                 text.as_str(),
-                                cx,
                             );
-                            if let Err(err) = open_result {
-                                this.editor_error =
-                                    Some(format!("File editor failed to open {}: {err:#}", path));
-                                this.files_editor.borrow_mut().clear();
-                            } else if this.editor_markdown_preview {
-                                this.schedule_editor_markdown_preview_parse(cx);
+                            let should_schedule_preview = {
+                                let tab = &mut this.file_editor_tabs[tab_index];
+                                tab.loading = false;
+                                tab.last_saved_text = Some(text.clone());
+                                tab.dirty = false;
+                                tab.error = None;
+                                if let Err(err) = open_result {
+                                    tab.error =
+                                        Some(format!("File editor failed to open {}: {err:#}", path));
+                                    tab.files_editor.borrow_mut().clear();
+                                    false
+                                } else {
+                                    tab.markdown_preview
+                                }
+                            };
+                            if is_active {
+                                this.restore_file_editor_tab_state(tab_index);
+                                this.sync_editor_search_query(cx);
+                                this.focus_files_editor(cx);
+                                if should_schedule_preview {
+                                    this.schedule_editor_markdown_preview_parse(cx);
+                                }
                             }
-                            this.sync_active_file_editor_tab_state();
                         }
                         Err(err) => {
-                            this.editor_last_saved_text = None;
-                            this.editor_dirty = false;
-                            this.editor_error = Some(format!("Editor unavailable: {err}"));
-                            this.files_editor.borrow_mut().clear();
-                            this.sync_active_file_editor_tab_state();
+                            {
+                                let tab = &mut this.file_editor_tabs[tab_index];
+                                tab.loading = false;
+                                tab.last_saved_text = None;
+                                tab.dirty = false;
+                                tab.error = Some(format!("Editor unavailable: {err}"));
+                                tab.files_editor.borrow_mut().clear();
+                            }
+                            if is_active {
+                                this.restore_file_editor_tab_state(tab_index);
+                                this.sync_editor_search_query(cx);
+                            }
                         }
                     }
 
@@ -531,7 +594,11 @@ impl DiffViewer {
         self.editor_save_loading = true;
         self.editor_error = None;
         self.git_status_message = None;
+        self.sync_active_file_editor_tab_state();
         cx.notify();
+        let Some(tab_id) = self.active_file_editor_tab_id else {
+            return;
+        };
 
         self.editor_save_task = cx.spawn(async move |this, cx| {
             let result = cx.background_executor().spawn(async move {
@@ -541,17 +608,27 @@ impl DiffViewer {
 
             if let Some(this) = this.upgrade() {
                 this.update(cx, move |this, cx| {
-                    if epoch != this.editor_save_epoch {
+                    let Some(tab_index) = this.file_editor_tab_index_for_id(tab_id) else {
+                        return;
+                    };
+                    if epoch != this.file_editor_tabs[tab_index].save_epoch {
                         return;
                     }
 
-                    this.editor_save_loading = false;
+                    let is_active = this.active_file_editor_tab_id == Some(tab_id);
+                    let tab_editor = this.file_editor_tabs[tab_index].files_editor.clone();
+                    this.file_editor_tabs[tab_index].save_loading = false;
+
                     match result {
                         Ok(()) => {
-                            if this.editor_path.as_deref() == Some(status_path.as_str()) {
-                                this.editor_last_saved_text = Some(saved_text.clone());
-                                this.files_editor.borrow_mut().mark_saved();
-                                this.sync_editor_dirty_from_input(cx);
+                            {
+                                let tab = &mut this.file_editor_tabs[tab_index];
+                                tab.last_saved_text = Some(saved_text.clone());
+                                tab.dirty = false;
+                            }
+                            tab_editor.borrow_mut().mark_saved();
+                            if is_active {
+                                this.restore_file_editor_tab_state(tab_index);
                             }
                             this.git_status_message = Some(format!("Saved {}", status_path));
                             this.request_snapshot_refresh(cx);
@@ -562,7 +639,6 @@ impl DiffViewer {
                         }
                     }
 
-                    this.sync_active_file_editor_tab_state();
                     cx.notify();
                 });
             }
@@ -1057,27 +1133,24 @@ impl DiffViewer {
         }
     }
 
-    fn open_files_editor_document(
-        &mut self,
+    fn open_files_editor_document_in(
+        files_editor: &crate::app::native_files_editor::SharedFilesEditor,
         relative_path: &str,
         repo_root: &std::path::Path,
         text: &str,
-        cx: &mut Context<Self>,
     ) -> anyhow::Result<()> {
         let absolute_path = repo_root.join(relative_path);
-        self.files_editor
-            .borrow_mut()
-            .open_document(&absolute_path, text)?;
-        self.sync_editor_search_query(cx);
+        files_editor.borrow_mut().open_document(&absolute_path, text)?;
+        Ok(())
+    }
 
+    fn focus_files_editor(&self, cx: &mut Context<Self>) {
         let focus_handle = self.files_editor_focus_handle.clone();
         if let Err(err) = Self::update_any_window(cx, |window, cx| {
             focus_handle.focus(window, cx);
         }) {
             error!("failed to focus files editor: {err:#}");
-            return Err(err);
         }
-        Ok(())
     }
 
     fn update_any_window(

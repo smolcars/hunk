@@ -63,11 +63,11 @@ impl DiffViewer {
             .child(
                 h_flex()
                     .w_full()
+                    .h(px(crate::app::FILES_WORKSPACE_RAIL_HEIGHT))
                     .items_center()
                     .justify_between()
                     .gap_2()
                     .px_2()
-                    .py_1p5()
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .bg(hunk_blend(cx.theme().sidebar, cx.theme().muted, is_dark, 0.18, 0.30))
