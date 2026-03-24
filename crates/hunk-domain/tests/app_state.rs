@@ -180,7 +180,10 @@ fn normalize_workspace_state_promotes_active_project_when_list_is_empty() {
         state.active_workspace_project_path,
         Some(PathBuf::from("/tmp/hunk-repo"))
     );
-    assert_eq!(state.active_project_path(), Some(&PathBuf::from("/tmp/hunk-repo")));
+    assert_eq!(
+        state.active_project_path(),
+        Some(&PathBuf::from("/tmp/hunk-repo"))
+    );
 }
 
 #[test]

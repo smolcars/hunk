@@ -142,7 +142,9 @@ pub(crate) fn build_project_picker_delegate(
 ) -> ProjectPickerDelegate {
     let items = project_paths
         .iter()
-        .map(|project_path| ProjectPickerItem::from_project_path(project_path.as_path(), active_project_path))
+        .map(|project_path| {
+            ProjectPickerItem::from_project_path(project_path.as_path(), active_project_path)
+        })
         .collect::<Vec<_>>();
     ProjectPickerDelegate::new(items)
 }

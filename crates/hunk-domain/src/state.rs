@@ -163,8 +163,7 @@ impl AppState {
 
         let previous_paths = self.workspace_project_paths.clone();
         let previous_active = self.active_workspace_project_path.clone();
-        let was_active =
-            self.active_workspace_project_path.as_deref() == Some(project_path);
+        let was_active = self.active_workspace_project_path.as_deref() == Some(project_path);
 
         self.workspace_project_paths.remove(removal_index);
         if was_active {
@@ -193,9 +192,7 @@ impl AppState {
             }
         }
 
-        let preferred_active_path = self
-            .active_workspace_project_path
-            .clone();
+        let preferred_active_path = self.active_workspace_project_path.clone();
 
         if let Some(active_path) = preferred_active_path.as_ref()
             && seen_paths.insert(active_path.clone())

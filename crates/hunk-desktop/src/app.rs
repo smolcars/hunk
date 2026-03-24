@@ -95,6 +95,9 @@ use data::{
     DiffRowSegmentCache, DiffStreamRowMeta, FileRowRange, RepoTreeNode, RepoTreeNodeKind,
     RepoTreeRow, WorkspaceSwitchAction, WorkspaceViewMode,
 };
+use project_picker::{
+    ProjectPickerDelegate, build_project_picker_delegate, project_picker_selected_index,
+};
 use refresh_policy::{
     GitWorkspaceRefreshRequest, SnapshotRefreshBehavior, SnapshotRefreshPriority,
     SnapshotRefreshRequest, diff_state_changed, line_stats_paths_from_dirty_paths,
@@ -104,9 +107,6 @@ use refresh_policy::{
     should_scroll_selected_after_reload,
 };
 use repo_file_search::RepoFileSearchProvider;
-use project_picker::{
-    ProjectPickerDelegate, build_project_picker_delegate, project_picker_selected_index,
-};
 use review_compare_picker::{
     ReviewComparePickerDelegate, ReviewCompareSourceOption, build_review_compare_picker_delegate,
 };
