@@ -139,8 +139,6 @@ fn commit_message_generation_truncates_non_ascii_output_safely() {
         },
         AiCommitGenerationContext {
             branch_name: "ai/local/fix-screenshot-overflow",
-            prompt_seed: Some("Fix the screenshot overflow"),
-            latest_agent_message: Some("Updated the overflow handling."),
             changed_files_summary: "M src/app.rs",
             diff_patch: "diff --git a/src/app.rs b/src/app.rs\n",
         },

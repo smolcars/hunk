@@ -126,7 +126,7 @@ impl DiffViewer {
             cx.background_executor()
                 .timer(AI_COMPOSER_STATUS_AUTO_DISMISS_DELAY)
                 .await;
-            let _ = cx.update(|cx| {
+            cx.update(|cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |this, cx| {
                         if this.clear_ai_composer_status_key_if_generation_matches(

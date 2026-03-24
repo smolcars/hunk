@@ -178,6 +178,7 @@ impl DiffViewer {
         let is_dark = cx.theme().mode.is_dark();
         let colors = hunk_git_workspace(cx.theme(), is_dark);
         let create_commit_loading = self.git_action_loading_named("Create commit");
+        let commit_and_push_loading = self.git_action_loading_named("Commit and Push");
         let generate_commit_message_loading =
             self.git_action_loading_named("Generate commit message");
         let push_loading = self.git_action_loading_named("Push branch");
@@ -208,6 +209,9 @@ impl DiffViewer {
             || (git_controls_busy && !create_commit_loading);
         let generate_commit_message_disabled =
             staged_count == 0 || (git_controls_busy && !generate_commit_message_loading);
+        let commit_and_push_tooltip = self.combined_workspace_commit_and_push_tooltip();
+        let commit_and_push_disabled =
+            !self.can_run_combined_workspace_commit_and_push_for_ui() && !commit_and_push_loading;
         let commit_readiness_label = if staged_count == 0 {
             "Stage files".to_string()
         } else if !commit_message_has_text {
@@ -365,6 +369,25 @@ impl DiffViewer {
                                 .text_color(push_button_colors.text);
                         }
                         button
+                    })
+                    .child({
+                        let view = view.clone();
+                        Button::new("commit-and-push-all-v1")
+                            .outline()
+                            .rounded(px(8.0))
+                            .loading(commit_and_push_loading)
+                            .label(if commit_and_push_loading {
+                                "Working..."
+                            } else {
+                                "Stage, Commit & Push"
+                            })
+                            .tooltip(commit_and_push_tooltip)
+                            .disabled(commit_and_push_disabled)
+                            .on_click(move |_, window, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.confirm_combined_workspace_commit_and_push(window, cx);
+                                });
+                            })
                     }),
             )
             .child(

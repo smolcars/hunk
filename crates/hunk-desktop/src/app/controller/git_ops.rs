@@ -1,3 +1,22 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CombinedWorkspaceCommitAndPushBlocker {
+    Busy,
+    MissingBranch,
+    MissingRepo,
+    NoChanges,
+}
+
+impl CombinedWorkspaceCommitAndPushBlocker {
+    const fn message(self) -> &'static str {
+        match self {
+            Self::Busy => "Another workspace action is in progress.",
+            Self::MissingBranch => "Activate a branch before committing and pushing.",
+            Self::MissingRepo => "No Git repository available.",
+            Self::NoChanges => "No changed files to stage and commit.",
+        }
+    }
+}
+
 impl DiffViewer {
     pub(super) fn git_controls_busy(&self) -> bool {
         self.git_action_loading || self.workspace_target_switch_loading
@@ -586,6 +605,208 @@ impl DiffViewer {
             && self.git_workspace.branch_has_upstream
             && self.git_workspace.branch_ahead_count > 0
             && !self.git_rail_controls_busy()
+    }
+
+    fn combined_workspace_commit_and_push_blocker(
+        &self,
+    ) -> Option<CombinedWorkspaceCommitAndPushBlocker> {
+        if self.git_rail_controls_busy() {
+            return Some(CombinedWorkspaceCommitAndPushBlocker::Busy);
+        }
+        if !self.branch_syncable() || !self.active_branch_is_checked_out() {
+            return Some(CombinedWorkspaceCommitAndPushBlocker::MissingBranch);
+        }
+        if self.selected_git_workspace_root().is_none() {
+            return Some(CombinedWorkspaceCommitAndPushBlocker::MissingRepo);
+        }
+        if self.git_workspace.files.is_empty() {
+            return Some(CombinedWorkspaceCommitAndPushBlocker::NoChanges);
+        }
+        None
+    }
+
+    pub(super) fn combined_workspace_commit_and_push_tooltip(&self) -> String {
+        self.combined_workspace_commit_and_push_blocker()
+            .map(|blocker| blocker.message().to_string())
+            .unwrap_or_else(|| {
+                "Stage all changed files, generate a commit message, create a commit, and push or publish this branch."
+                    .to_string()
+            })
+    }
+
+    pub(super) fn can_run_combined_workspace_commit_and_push_for_ui(&self) -> bool {
+        self.combined_workspace_commit_and_push_blocker().is_none()
+    }
+
+    pub(super) fn confirm_combined_workspace_commit_and_push(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(blocker) = self.combined_workspace_commit_and_push_blocker() {
+            self.set_git_warning_message(blocker.message().to_string(), Some(window), cx);
+            return;
+        }
+
+        let branch_name = self.git_workspace.branch_name.clone();
+        let changed_count = self.git_workspace.files.len();
+        let view = cx.entity();
+
+        gpui_component::WindowExt::open_alert_dialog(window, cx, move |alert, _, _| {
+            alert
+                .width(px(460.0))
+                .title("Commit And Push?")
+                .description(format!(
+                    "Stage all {changed_count} changed file(s), generate a commit message, create a commit, and push branch '{branch_name}'?"
+                ))
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("Yes")
+                        .cancel_text("No")
+                        .show_cancel(true),
+                )
+                .on_ok({
+                    let view = view.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            this.run_combined_workspace_commit_and_push(cx);
+                        });
+                        true
+                    }
+                })
+        });
+    }
+
+    fn run_combined_workspace_commit_and_push(&mut self, cx: &mut Context<Self>) {
+        if let Some(blocker) = self.combined_workspace_commit_and_push_blocker() {
+            let message = blocker.message().to_string();
+            self.git_status_message = Some(message.clone());
+            Self::push_warning_notification(message, None, cx);
+            cx.notify();
+            return;
+        }
+
+        let Some(repo_root) = self.selected_git_workspace_root() else {
+            let message = CombinedWorkspaceCommitAndPushBlocker::MissingRepo
+                .message()
+                .to_string();
+            self.git_status_message = Some(message.clone());
+            Self::push_warning_notification(message, None, cx);
+            cx.notify();
+            return;
+        };
+
+        let changed_paths = self
+            .git_workspace
+            .files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
+        let branch_name = self.git_workspace.branch_name.clone();
+        let codex_executable = Self::resolve_codex_executable_path();
+        let epoch = self.begin_git_action("Commit and Push", cx);
+
+        self.spawn_ai_git_action_with_progress(
+            epoch,
+            cx,
+            move |progress_tx| {
+                (|| -> anyhow::Result<(hunk_git::mutation::CreatedCommit, String)> {
+                    stage_paths(repo_root.as_path(), &changed_paths)?;
+
+                    send_ai_git_progress(
+                        &progress_tx,
+                        AiGitProgressStep::GeneratingCommitMessage,
+                        Some(ai_branch_progress_detail("Branch", branch_name.as_str())),
+                    );
+                    let commit_message = try_ai_commit_message_for_staged_index(
+                        AiCodexGenerationConfig {
+                            codex_executable: codex_executable.as_path(),
+                            repo_root: repo_root.as_path(),
+                        },
+                        repo_root.as_path(),
+                        branch_name.as_str(),
+                    )?;
+
+                    send_ai_git_progress(
+                        &progress_tx,
+                        AiGitProgressStep::CreatingCommit,
+                        Some(ai_commit_progress_detail(commit_message.subject.as_str())),
+                    );
+                    let created_commit = commit_index_with_details(
+                        repo_root.as_path(),
+                        commit_message.as_git_message().as_str(),
+                    )?;
+
+                    send_ai_git_progress(
+                        &progress_tx,
+                        AiGitProgressStep::PushingBranch,
+                        Some(ai_branch_progress_detail("Branch", branch_name.as_str())),
+                    );
+                    push_current_branch_with_publish_fallback(
+                        repo_root.as_path(),
+                        branch_name.as_str(),
+                    )?;
+
+                    Ok((created_commit, branch_name))
+                })()
+            },
+            move |this, result, execution_elapsed, total_elapsed, cx| {
+                if epoch != this.git_action_epoch {
+                    return;
+                }
+
+                this.finish_git_action();
+                match result {
+                    Ok((created_commit, branch_name)) => {
+                        debug!(
+                            "git action complete: epoch={} action=Commit and Push exec_elapsed_ms={} total_elapsed_ms={} branch={}",
+                            epoch,
+                            execution_elapsed.as_millis(),
+                            total_elapsed.as_millis(),
+                            branch_name
+                        );
+                        this.apply_optimistic_commit_success(created_commit.subject.as_str());
+                        this.apply_optimistic_recent_commit(&created_commit);
+                        this.request_snapshot_refresh_workflow_only(true, cx);
+                        this.request_git_workspace_refresh(false, cx);
+                        this.request_recent_commits_refresh(true, cx);
+
+                        let commit_input_state = this.commit_input_state.clone();
+                        if let Some(window_handle) = cx.windows().into_iter().next()
+                            && let Err(err) = cx.update_window(window_handle, |_, window, cx| {
+                                commit_input_state.update(cx, |state, cx| {
+                                    state.set_value("", window, cx);
+                                });
+                            })
+                        {
+                            error!(
+                                "failed to clear commit input after combined commit and push: {err:#}"
+                            );
+                        }
+
+                        let message = format!("Committed and pushed {}", branch_name);
+                        this.git_status_message = Some(message.clone());
+                        Self::push_success_notification(message, cx);
+                    }
+                    Err(err) => {
+                        error!(
+                            "git action failed: epoch={} action=Commit and Push exec_elapsed_ms={} total_elapsed_ms={} err={err:#}",
+                            epoch,
+                            execution_elapsed.as_millis(),
+                            total_elapsed.as_millis()
+                        );
+                        let summary = err.to_string();
+                        this.git_status_message = Some(format!("Git error: {err:#}"));
+                        Self::push_error_notification(
+                            format!("Commit and Push failed: {summary}"),
+                            cx,
+                        );
+                    }
+                }
+
+                cx.notify();
+            },
+        );
     }
 
     pub(super) fn create_or_switch_branch_from_input(
