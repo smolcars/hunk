@@ -894,8 +894,6 @@ impl DiffViewer {
             let weak_view = weak_view.clone();
             move |_, _, cx| {
                 let weak_view = weak_view.clone();
-                // GPUI invokes the scroll handler while the list state is mutably borrowed.
-                // Defer follow-output recomputation until that borrow is released.
                 cx.defer(move |cx| {
                     let Some(view) = weak_view.upgrade() else {
                         return;

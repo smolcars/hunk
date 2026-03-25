@@ -120,7 +120,15 @@ impl DiffViewer {
             rows_elapsed_ms,
             started_at.elapsed().as_millis()
         );
-        self.invalidate_ai_visible_frame_state();
+        let visible_thread_count = sections
+            .iter()
+            .map(|section| section.total_thread_count)
+            .sum::<usize>();
+        if let Some(state) = self.ai_visible_frame_state.as_mut() {
+            state.project_count = sections.len();
+            state.visible_thread_count = visible_thread_count;
+            state.threads_loading = self.ai_bootstrap_loading && visible_thread_count == 0;
+        }
         self.ai_thread_sidebar_sections = sections;
         self.ai_thread_sidebar_rows = rows;
     }

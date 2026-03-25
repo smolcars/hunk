@@ -1339,7 +1339,7 @@ fn render_ai_chat_timeline_row_for_view(
                     } else {
                         ai_timeline_row_with_animation(this, row.id.as_str(), row_element)
                     };
-                    (element, "message", true)
+                    (element, "message", false)
                 }
                 AiTimelineItemRole::Tool => {
                     (
@@ -1367,7 +1367,7 @@ fn render_ai_chat_timeline_row_for_view(
             (
                 render_ai_timeline_group_row(this, view, row, group, is_dark, cx),
                 "group",
-                true,
+                false,
             )
         }
         AiTimelineRowSource::TurnDiff { turn_key } => {
@@ -1407,6 +1407,7 @@ fn ai_timeline_row_with_animation_in_lane(
     row: gpui::Div,
     lane_max_width: f32,
 ) -> AnyElement {
+    let _ = (this, row_id);
     let row = h_flex()
         .w_full()
         .min_w_0()
@@ -1420,18 +1421,5 @@ fn ai_timeline_row_with_animation_in_lane(
                 .py_1p5()
                 .child(row),
         );
-    if this.reduced_motion_enabled() {
-        row.into_any_element()
-    } else {
-        row.with_animation(
-            row_id.to_string(),
-            Animation::new(this.animation_duration_ms(170))
-                .with_easing(cubic_bezier(0.32, 0.72, 0.0, 1.0)),
-            |this, delta| {
-                let entering = 1.0 - delta;
-                this.top(px(entering * 7.0)).opacity(0.76 + (0.24 * delta))
-            },
-        )
-        .into_any_element()
-    }
+    row.into_any_element()
 }
