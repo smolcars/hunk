@@ -608,6 +608,7 @@ impl DiffViewer {
         let Some(workspace_key) = self.ai_worker_workspace_key.clone() else {
             return;
         };
+        self.clear_ai_runtime_start_in_flight_for_workspace(Some(workspace_key.as_str()));
         let Some(command_tx) = self.ai_command_tx.take() else {
             self.ai_worker_workspace_key = None;
             return;
@@ -650,6 +651,7 @@ impl DiffViewer {
         self.ai_event_task = handle.event_task;
         self.ai_event_epoch = handle.generation;
         self.ai_worker_workspace_key = Some(workspace_key.to_string());
+        self.clear_ai_runtime_start_in_flight_for_workspace(Some(workspace_key));
         true
     }
 
@@ -664,6 +666,28 @@ impl DiffViewer {
 
     fn ai_runtime_listener_is_current(&self, workspace_key: &str, generation: usize) -> bool {
         self.ai_runtime_listener_generation(workspace_key) == Some(generation)
+    }
+
+    fn ai_runtime_start_is_in_flight_for_workspace(&self, workspace_key: &str) -> bool {
+        self.ai_runtime_starting_workspace_key.as_deref() == Some(workspace_key)
+    }
+
+    fn mark_ai_runtime_start_in_flight(&mut self, workspace_key: &str) {
+        self.ai_runtime_starting_workspace_key = Some(workspace_key.to_string());
+    }
+
+    fn clear_ai_runtime_start_in_flight_for_workspace(&mut self, workspace_key: Option<&str>) {
+        let should_clear = match (
+            self.ai_runtime_starting_workspace_key.as_deref(),
+            workspace_key,
+        ) {
+            (_, None) => true,
+            (Some(in_flight), Some(workspace_key)) => in_flight == workspace_key,
+            (None, Some(_)) => false,
+        };
+        if should_clear {
+            self.ai_runtime_starting_workspace_key = None;
+        }
     }
 
     fn update_background_ai_workspace_state<F>(&mut self, workspace_key: &str, update: F)
@@ -975,6 +999,8 @@ impl DiffViewer {
         if let Some(command_tx) = self.ai_command_tx.take() {
             let _ = command_tx.send(AiWorkerCommand::Shutdown);
         }
+        let visible_workspace_key = self.ai_worker_workspace_key.clone();
+        self.clear_ai_runtime_start_in_flight_for_workspace(visible_workspace_key.as_deref());
         self.ai_worker_workspace_key = None;
         self.join_ai_worker_thread("dropping DiffViewer");
         for (_, hidden) in std::mem::take(&mut self.ai_hidden_runtimes) {
@@ -990,6 +1016,7 @@ impl DiffViewer {
             if let Some(command_tx) = self.ai_command_tx.take() {
                 let _ = command_tx.send(AiWorkerCommand::Shutdown);
             }
+            self.clear_ai_runtime_start_in_flight_for_workspace(Some(workspace_key));
             self.ai_worker_workspace_key = None;
             self.ai_connection_state = AiConnectionState::Disconnected;
             self.ai_bootstrap_loading = false;
@@ -1071,6 +1098,7 @@ impl DiffViewer {
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("AI worker channel disconnected.".to_string());
             self.ai_command_tx = None;
+            self.clear_ai_runtime_start_in_flight_for_workspace(Some(workspace_key));
             self.ai_worker_workspace_key = None;
             self.join_ai_worker_thread("worker channel disconnect");
             cx.notify();

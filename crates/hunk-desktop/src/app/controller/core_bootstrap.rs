@@ -453,6 +453,7 @@ impl DiffViewer {
             ai_attachment_picker_task: Task::ready(()),
             ai_workspace_states: BTreeMap::new(),
             ai_hidden_runtimes: BTreeMap::new(),
+            ai_runtime_starting_workspace_key: None,
             ai_worker_thread: None,
             ai_command_tx: None,
             ai_worker_workspace_key: None,

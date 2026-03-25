@@ -9,6 +9,41 @@ struct AiPreparedThreadWorkspace {
 include!("runtime_events.rs");
 
 impl DiffViewer {
+    fn should_ignore_transient_visible_ai_snapshot(
+        &self,
+        next_state: &hunk_codex::state::AiState,
+        next_active_thread_id: Option<&str>,
+    ) -> bool {
+        if self.ai_bootstrap_loading || self.ai_connection_state != AiConnectionState::Ready {
+            return false;
+        }
+
+        let Some(current_thread_id) = self.current_ai_thread_id() else {
+            return false;
+        };
+        if self.ai_state_snapshot.threads.is_empty() {
+            return false;
+        }
+        if self
+            .ai_state_snapshot
+            .threads
+            .get(current_thread_id.as_str())
+            .is_none()
+        {
+            return false;
+        }
+        if current_ai_renderable_visible_row_ids(self, current_thread_id.as_str()).is_empty() {
+            return false;
+        }
+        if next_state.threads.contains_key(current_thread_id.as_str()) {
+            return false;
+        }
+        if next_active_thread_id == Some(current_thread_id.as_str()) {
+            return false;
+        }
+        true
+    }
+
     fn apply_ai_snapshot(&mut self, snapshot: AiSnapshot, cx: &mut Context<Self>) {
         let previous_selected_thread = self.ai_selected_thread_id.clone();
         let previous_draft_key = self.current_ai_composer_draft_key();
@@ -39,6 +74,16 @@ impl DiffViewer {
             include_hidden_models,
             mad_max_mode,
         } = snapshot;
+        if self.should_ignore_transient_visible_ai_snapshot(&state, active_thread_id.as_deref()) {
+            debug!(
+                selected_thread_id = previous_selected_thread.as_deref().unwrap_or("<none>"),
+                current_threads = self.ai_state_snapshot.threads.len(),
+                next_threads = state.threads.len(),
+                next_active_thread_id = active_thread_id.as_deref().unwrap_or("<none>"),
+                "ignoring transient visible AI snapshot that would evict the current thread"
+            );
+            return;
+        }
         let changed_row_ids = previous_selected_thread
             .as_deref()
             .map(|thread_id| {

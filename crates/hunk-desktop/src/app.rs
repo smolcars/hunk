@@ -1153,6 +1153,7 @@ struct DiffViewer {
     ai_attachment_picker_task: Task<()>,
     ai_workspace_states: BTreeMap<String, AiWorkspaceState>,
     ai_hidden_runtimes: BTreeMap<String, AiHiddenRuntimeHandle>,
+    ai_runtime_starting_workspace_key: Option<String>,
     ai_worker_thread: Option<JoinHandle<()>>,
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_worker_workspace_key: Option<String>,

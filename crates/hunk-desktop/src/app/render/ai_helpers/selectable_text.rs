@@ -269,8 +269,7 @@ fn ai_render_selectable_styled_text(
     selection_surfaces: std::sync::Arc<[AiTextSelectionSurfaceSpec]>,
     link_ranges: std::sync::Arc<[MarkdownLinkRange]>,
     styled_text: StyledText,
-    is_dark: bool,
-    cx: &mut Context<DiffViewer>,
+    selection_background: Hsla,
 ) -> AiSelectableStyledText {
     let surface_id = surface_id.into();
     let selection_range = this.ai_text_selection_range_for_surface(surface_id.as_str());
@@ -282,7 +281,7 @@ fn ai_render_selectable_styled_text(
         link_ranges,
         text: styled_text,
         selection_range,
-        selection_background: hunk_text_selection_background(cx.theme(), is_dark),
+        selection_background,
         view,
     }
 }

@@ -117,6 +117,8 @@ impl DiffViewer {
         let restored_pending_steer_drafts = self.restore_all_visible_ai_pending_steers_to_drafts();
         let restored_queued_message_drafts = self.restore_all_visible_ai_queued_messages_to_drafts();
         self.ai_command_tx = None;
+        let visible_workspace_key = self.ai_worker_workspace_key.clone();
+        self.clear_ai_runtime_start_in_flight_for_workspace(visible_workspace_key.as_deref());
         self.ai_worker_workspace_key = None;
         self.join_ai_worker_thread(join_reason);
         self.ai_thread_title_refresh_state_by_thread.clear();
@@ -169,9 +171,13 @@ impl DiffViewer {
                 self.apply_ai_snapshot(*snapshot, cx);
                 self.ai_connection_state = AiConnectionState::Ready;
                 self.ai_error_message = None;
+                let visible_workspace_key = self.ai_worker_workspace_key.clone();
+                self.clear_ai_runtime_start_in_flight_for_workspace(visible_workspace_key.as_deref());
             }
             AiWorkerEventPayload::BootstrapCompleted => {
                 self.ai_bootstrap_loading = false;
+                let visible_workspace_key = self.ai_worker_workspace_key.clone();
+                self.clear_ai_runtime_start_in_flight_for_workspace(visible_workspace_key.as_deref());
             }
             AiWorkerEventPayload::ThreadStarted { thread_id } => {
                 set_pending_thread_start_thread_id(&mut self.ai_pending_thread_start, thread_id);
