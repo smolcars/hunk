@@ -42,9 +42,11 @@ impl Render for AiTimelineListView {
             return div().size_full();
         };
 
+        let render_started_at = Instant::now();
         let is_dark = cx.theme().mode.is_dark();
         let theme = cx.theme().clone();
         let row_ids = self.timeline_visible_row_ids.clone();
+        let visible_row_count = row_ids.len();
         let list_state = self.ai_timeline_list_state.clone();
         let root_view_for_list: Entity<DiffViewer> = root_view.clone();
         let timeline_list = list(list_state.clone(), {
@@ -65,7 +67,7 @@ impl Render for AiTimelineListView {
         .size_full()
         .with_sizing_behavior(ListSizingBehavior::Auto);
 
-        div()
+        let element = div()
             .size_full()
             .relative()
             .child(div().size_full().child(timeline_list))
@@ -104,6 +106,11 @@ impl Render for AiTimelineListView {
                                 }),
                         ),
                 )
-            })
+            });
+        root_view.read(cx).record_ai_timeline_list_render_timing(
+            render_started_at.elapsed(),
+            visible_row_count,
+        );
+        element
     }
 }

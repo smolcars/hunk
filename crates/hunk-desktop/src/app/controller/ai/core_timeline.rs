@@ -146,6 +146,7 @@ impl DiffViewer {
     }
 
     pub(super) fn rebuild_ai_thread_sidebar_state(&mut self) {
+        let rebuild_started_at = Instant::now();
         let threads = self.ai_visible_threads();
         let sections = ai_visible_thread_sections(
             threads,
@@ -166,17 +167,24 @@ impl DiffViewer {
         }
         self.ai_thread_sidebar_sections = sections;
         self.ai_thread_sidebar_rows = rows;
+        self.record_ai_thread_sidebar_rebuild_timing(rebuild_started_at.elapsed());
     }
 
-    pub(super) fn invalidate_ai_visible_frame_state(&mut self) {
+    pub(super) fn invalidate_ai_visible_frame_state_with_reason(
+        &mut self,
+        reason: &'static str,
+    ) {
+        self.record_ai_visible_frame_invalidation(reason);
         self.ai_visible_frame_state = None;
     }
 
     pub(super) fn visible_ai_frame_state(&mut self) -> AiVisibleFrameState {
         if let Some(state) = self.ai_visible_frame_state.clone() {
+            self.record_ai_visible_frame_cache_hit();
             return state;
         }
 
+        let build_started_at = Instant::now();
         let project_count = self.ai_visible_thread_sections().len();
         let visible_thread_count = self
             .ai_visible_thread_sections()
@@ -199,6 +207,7 @@ impl DiffViewer {
             .ai_selected_worktree_base_branch_name()
             .unwrap_or("Choose base branch")
             .to_string();
+        let timeline_rows_started_at = Instant::now();
         let (
             timeline_total_turn_count,
             timeline_visible_turn_count,
@@ -209,6 +218,7 @@ impl DiffViewer {
         } else {
             (0, 0, 0, Vec::new())
         };
+        self.record_ai_visible_frame_timeline_rows_timing(timeline_rows_started_at.elapsed());
         let show_no_turns_empty_state = crate::app::render::ai_should_show_no_turns_empty_state(
             timeline_visible_row_ids.len(),
             pending_thread_start.is_some(),
@@ -218,7 +228,11 @@ impl DiffViewer {
             && timeline_visible_row_ids.is_empty();
         let show_select_thread_empty_state =
             selected_thread_id.is_none() && !timeline_loading && pending_thread_start.is_none();
+        let composer_feedback_started_at = Instant::now();
         let composer_feedback = self.current_ai_composer_feedback_state();
+        self.record_ai_visible_frame_composer_feedback_timing(
+            composer_feedback_started_at.elapsed(),
+        );
         let composer_send_waiting_on_connection =
             crate::app::controller::ai_prompt_send_waiting_on_connection(
                 self.ai_connection_state,
@@ -358,6 +372,7 @@ impl DiffViewer {
             terminal_cwd_label,
         };
         self.ai_visible_frame_state = Some(state.clone());
+        self.record_ai_visible_frame_build_timing(build_started_at.elapsed());
         state
     }
 
@@ -615,6 +630,7 @@ impl DiffViewer {
     }
 
     fn rebuild_ai_timeline_indexes(&mut self) {
+        let rebuild_started_at = Instant::now();
         self.ai_timeline_turn_ids_by_thread = timeline_turn_ids_by_thread(&self.ai_state_snapshot);
 
         let mut base_rows_by_thread = BTreeMap::<String, Vec<(u64, String)>>::new();
@@ -732,6 +748,7 @@ impl DiffViewer {
         self.ai_timeline_rows_by_id = rows_by_id;
         self.ai_timeline_groups_by_id = groups_by_id;
         self.ai_timeline_group_parent_by_child_row_id = parent_by_child_row_id;
+        self.record_ai_timeline_index_rebuild_timing(rebuild_started_at.elapsed());
     }
 
     fn refresh_ai_timeline_follow_output_from_scroll(&mut self) {
@@ -799,7 +816,7 @@ impl DiffViewer {
         }
         self.ai_timeline_visible_turn_limit_by_thread
             .insert(thread_id.clone(), next_limit);
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
             self.ai_text_selection = None;
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
@@ -816,7 +833,7 @@ impl DiffViewer {
         }
         self.ai_timeline_visible_turn_limit_by_thread
             .insert(thread_id.clone(), usize::MAX);
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
             self.ai_text_selection = None;
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());

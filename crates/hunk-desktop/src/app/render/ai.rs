@@ -47,6 +47,7 @@ impl DiffViewer {
                 .into_any_element();
         }
 
+        let render_started_at = Instant::now();
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
         let ai_view_state = self.visible_ai_frame_state();
@@ -170,7 +171,7 @@ impl DiffViewer {
             cx,
         );
 
-        div()
+        let element = div()
             .size_full()
             .relative()
             .child(workspace)
@@ -180,7 +181,9 @@ impl DiffViewer {
             .when_some(self.ai_git_progress.clone(), |this, progress| {
                 this.child(render_ai_git_progress_overlay(&progress, is_dark, cx))
             })
-            .into_any_element()
+            .into_any_element();
+        self.record_ai_root_render_timing(render_started_at.elapsed());
+        element
     }
 
     fn render_ai_usage_popover_card(

@@ -116,6 +116,7 @@ impl DiffViewer {
     }
 
     fn render_app_footer(&self, cx: &mut Context<Self>) -> AnyElement {
+        let render_started_at = Instant::now();
         let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
         let files_selected = self.workspace_view_mode == WorkspaceViewMode::Files;
@@ -185,7 +186,7 @@ impl DiffViewer {
             },
         );
 
-        h_flex()
+        let element = h_flex()
             .w_full()
             .h_10()
             .items_center()
@@ -376,19 +377,25 @@ impl DiffViewer {
                             .child(footer_summary),
                     ),
             )
-            .into_any_element()
+            .into_any_element();
+        if ai_selected {
+            self.record_ai_footer_render_timing(render_started_at.elapsed());
+        }
+        element
     }
 }
 
 impl Render for DiffViewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let render_started_at = Instant::now();
         let current_scroll_offset = self.diff_list_state.scroll_px_offset_for_scrollbar();
         if self.last_diff_scroll_offset != Some(current_scroll_offset) {
             self.last_diff_scroll_offset = Some(current_scroll_offset);
             self.last_scroll_activity_at = Instant::now();
         }
         self.frame_sample_count = self.frame_sample_count.saturating_add(1);
-        v_flex()
+        let ai_selected = self.workspace_view_mode == WorkspaceViewMode::Ai;
+        let element = v_flex()
             .size_full()
             .relative()
             .key_context(self.workspace_view_mode.root_key_context())
@@ -451,5 +458,10 @@ impl Render for DiffViewer {
             })
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_notification_layer(window, cx))
+            .into_any_element();
+        if ai_selected {
+            self.record_ai_app_render_timing(render_started_at.elapsed());
+        }
+        element
     }
 }

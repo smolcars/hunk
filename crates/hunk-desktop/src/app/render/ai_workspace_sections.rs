@@ -171,8 +171,10 @@ impl DiffViewer {
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let render_started_at = Instant::now();
         self.sync_ai_thread_sidebar_list_state();
         let list_state = self.ai_thread_sidebar_list_state.clone();
+        let visible_row_count = self.ai_thread_sidebar_rows.len();
         let row_state = state.clone();
         let list_view = view.clone();
         let list = list(list_state.clone(), {
@@ -197,7 +199,7 @@ impl DiffViewer {
         })
         .with_sizing_behavior(ListSizingBehavior::Auto);
 
-        v_flex()
+        let element = v_flex()
             .size_full()
             .min_h_0()
             .bg(cx.theme().sidebar)
@@ -296,7 +298,9 @@ impl DiffViewer {
                             }),
                     ),
             )
-            .into_any_element()
+            .into_any_element();
+        self.record_ai_thread_sidebar_render_timing(render_started_at.elapsed(), visible_row_count);
+        element
     }
 
     fn sync_ai_thread_sidebar_list_state(&mut self) {
@@ -333,49 +337,63 @@ impl DiffViewer {
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        match row.kind {
+        let render_started_at = Instant::now();
+        let (element, row_kind) = match row.kind {
             AiThreadSidebarRowKind::ProjectHeader {
                 project_root,
                 project_label,
                 total_thread_count,
-            } => self.render_ai_thread_project_header_row(
-                view,
-                project_root,
-                project_label,
-                total_thread_count,
-                is_first,
-                is_dark,
-                cx,
+            } => (
+                self.render_ai_thread_project_header_row(
+                    view,
+                    project_root,
+                    project_label,
+                    total_thread_count,
+                    is_first,
+                    is_dark,
+                    cx,
+                ),
+                AiPerfSidebarRowKind::ProjectHeader,
             ),
             AiThreadSidebarRowKind::Thread {
                 thread,
                 workspace_label,
             } => {
                 let bookmarked = self.ai_thread_is_bookmarked(thread.id.as_str());
-                render_ai_thread_sidebar_row(
-                    thread,
-                    workspace_label,
-                    state.selected_thread_id.as_deref(),
-                    bookmarked,
-                    view,
-                    is_dark,
-                    cx,
+                (
+                    render_ai_thread_sidebar_row(
+                        thread,
+                        workspace_label,
+                        state.selected_thread_id.as_deref(),
+                        bookmarked,
+                        view,
+                        is_dark,
+                        cx,
+                    ),
+                    AiPerfSidebarRowKind::Thread,
                 )
             }
-            AiThreadSidebarRowKind::EmptyProject { project_root } => self
-                .render_ai_thread_project_empty_row(project_root, is_dark, cx),
+            AiThreadSidebarRowKind::EmptyProject { project_root } => (
+                self.render_ai_thread_project_empty_row(project_root, is_dark, cx),
+                AiPerfSidebarRowKind::EmptyProject,
+            ),
             AiThreadSidebarRowKind::ProjectFooter {
                 project_root,
                 hidden_thread_count,
                 expanded,
-            } => self.render_ai_thread_project_footer_row(
-                view,
-                project_root,
-                hidden_thread_count,
-                expanded,
-                cx,
+            } => (
+                self.render_ai_thread_project_footer_row(
+                    view,
+                    project_root,
+                    hidden_thread_count,
+                    expanded,
+                    cx,
+                ),
+                AiPerfSidebarRowKind::ProjectFooter,
             ),
-        }
+        };
+        self.record_ai_thread_sidebar_row_render_timing(row_kind, render_started_at.elapsed());
+        element
     }
 
 #[allow(clippy::too_many_arguments)]
@@ -1016,11 +1034,27 @@ impl DiffViewer {
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let timeline_list_view = self.ai_timeline_list_view.get_or_insert_with(|| {
-            cx.new(|_| {
-                AiTimelineListView::new(view.downgrade(), self.ai_timeline_list_state.clone())
+        let timeline_list_view = self
+            .ai_timeline_list_view
+            .get_or_insert_with(|| {
+                cx.new(|_| {
+                    AiTimelineListView::new(view.downgrade(), self.ai_timeline_list_state.clone())
+                })
             })
-        });
+            .clone();
+        let (row_ids_changed, follow_output_changed) = {
+            let list_view_state = timeline_list_view.read(cx);
+            (
+                list_view_state.timeline_visible_row_ids.as_ref()
+                    != state.timeline_visible_row_ids.as_ref(),
+                list_view_state.ai_timeline_follow_output != state.ai_timeline_follow_output,
+            )
+        };
+        self.record_ai_timeline_list_sync(
+            row_ids_changed,
+            follow_output_changed,
+            state.timeline_visible_row_ids.len(),
+        );
         timeline_list_view.update(cx, |this: &mut AiTimelineListView, cx| {
             this.sync_state(
                 state.timeline_visible_row_ids.clone(),

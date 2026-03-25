@@ -122,7 +122,7 @@ impl DiffViewer {
         self.ai_timeline_visible_turn_limit_by_thread
             .retain(|thread_id, _| self.ai_state_snapshot.threads.contains_key(thread_id));
         self.prune_ai_composer_statuses();
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("runtime");
         self.rebuild_ai_thread_sidebar_state();
 
         if let Some(thread_id) = pending_new_thread_selection_ready_thread_id(

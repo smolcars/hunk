@@ -121,6 +121,7 @@ use workspace_target_picker::{
 use workspace_view::{SHORTCUT_CONTEXT_SELECTABLE_WORKSPACE, SHORTCUT_CONTEXT_TREE_WORKSPACE};
 
 const FPS_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
+const AI_PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 const AUTO_REFRESH_SCROLL_DEBOUNCE: Duration = Duration::from_millis(500);
 const DIFF_MONO_CHAR_WIDTH: f32 = 8.0;
 const DIFF_LINE_NUMBER_MIN_DIGITS: u32 = 3;
@@ -1333,6 +1334,7 @@ struct DiffViewer {
     frame_sample_started_at: Instant,
     fps_epoch: usize,
     fps_task: Task<()>,
+    ai_perf_metrics: RefCell<AiPerfMetrics>,
     repo_discovery_failed: bool,
     error_message: Option<String>,
     sidebar_collapsed: bool,

@@ -665,6 +665,7 @@ impl DiffViewer {
             frame_sample_started_at: Instant::now(),
             fps_epoch: 0,
             fps_task: Task::ready(()),
+            ai_perf_metrics: RefCell::new(AiPerfMetrics::default()),
             repo_discovery_failed: false,
             error_message: None,
             sidebar_collapsed: false,
@@ -911,6 +912,7 @@ impl DiffViewer {
         view.restore_active_workspace_target_root_from_state(cx);
         view.request_snapshot_refresh(cx);
         view.request_recent_commits_refresh(false, cx);
+        view.prewarm_preview_highlighting(cx);
         view.preload_ai_runtime_on_startup(cx);
         view.start_auto_refresh(cx);
         view.start_repo_watch(cx);
@@ -963,5 +965,24 @@ impl DiffViewer {
         let list_state = self.ai_timeline_list_state.clone();
         self.ai_timeline_list_view =
             Some(cx.new(|_| render::AiTimelineListView::new(root_view, list_state)));
+    }
+
+    fn prewarm_preview_highlighting(&self, cx: &mut Context<Self>) {
+        cx.spawn(async move |_, cx| {
+            let elapsed = cx.background_executor().spawn(async move {
+                let started_at = Instant::now();
+                let _ = hunk_language::preview_highlight_spans_for_language_hint(
+                    Some("rust"),
+                    "fn warm_preview_highlight_registry() {}\n",
+                );
+                started_at.elapsed()
+            });
+            let elapsed = elapsed.await;
+            debug!(
+                "prewarmed preview highlighting registry in {}ms",
+                elapsed.as_millis()
+            );
+        })
+        .detach();
     }
 }

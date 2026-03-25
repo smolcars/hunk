@@ -109,7 +109,7 @@ impl DiffViewer {
         }
         self.ai_worktree_base_branch_name = Some(branch_name);
         self.sync_ai_worktree_base_branch_picker_state(cx);
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("workspace");
         cx.notify();
     }
 
@@ -533,7 +533,7 @@ impl DiffViewer {
         self.ai_terminal_height_px = state.terminal_height_px;
         self.ai_terminal_input_draft = state.terminal_input_draft;
         self.ai_terminal_session = state.terminal_session;
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("workspace");
         self.ai_text_selection = None;
         self.rebuild_ai_timeline_indexes();
         self.sync_ai_in_progress_turn_started_at();

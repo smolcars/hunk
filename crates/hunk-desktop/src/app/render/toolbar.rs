@@ -1,5 +1,6 @@
 impl DiffViewer {
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let render_started_at = Instant::now();
         let view = cx.entity();
         let ai_selected = self.workspace_view_mode == WorkspaceViewMode::Ai;
         let project_root = if ai_selected {
@@ -45,8 +46,259 @@ impl DiffViewer {
             ai_selected.then(|| self.ai_visible_pending_user_inputs().len());
         let (ai_connection_status_label, ai_connection_status_color) =
             ai_connection_label(self.ai_connection_state, cx);
+        let ai_perf_label = ai_selected.then(|| self.ai_perf_toolbar_label()).flatten();
+        if ai_selected {
+            self.record_ai_toolbar_prep_timing(render_started_at.elapsed());
+        }
 
-        h_flex()
+        let left_started_at = Instant::now();
+        let left = h_flex()
+            .flex_1()
+            .min_w_0()
+            .items_center()
+            .gap_2()
+            .overflow_x_hidden()
+            .child(
+                h_flex()
+                    .items_center()
+                    .min_w(px(if ai_selected { 180.0 } else { 260.0 }))
+                    .max_w(px(if ai_selected { 220.0 } else { 320.0 }))
+                    .px_1()
+                    .py_0p5()
+                    .rounded_md()
+                    .bg(chip_colors.background)
+                    .border_1()
+                    .border_color(chip_colors.border)
+                    .child(if ai_selected {
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .font_medium()
+                            .text_color(cx.theme().foreground)
+                            .child(project_label)
+                            .into_any_element()
+                    } else {
+                        render_hunk_picker(
+                            &self.project_picker_state,
+                            HunkPickerConfig::new("project-picker", project_label)
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .background(chip_colors.background)
+                                .border_color(chip_colors.border)
+                                .min_width(px(258.0))
+                                .max_width(px(318.0))
+                                .disabled(self.state.workspace_project_paths.is_empty())
+                                .empty(
+                                    h_flex()
+                                        .h(px(72.0))
+                                        .justify_center()
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child("No projects in this workspace."),
+                                ),
+                            cx,
+                        )
+                    }),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .px_2()
+                    .py_0p5()
+                    .rounded_md()
+                    .bg(chip_colors.background)
+                    .border_1()
+                    .border_color(chip_colors.border)
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_medium()
+                            .text_color(cx.theme().foreground)
+                            .child(active_branch),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_none()
+                    .min_w_0()
+                    .max_w(px(560.0))
+                    .items_center()
+                    .gap_1()
+                    .px_2()
+                    .py_0p5()
+                    .rounded_md()
+                    .bg(chip_colors.background)
+                    .border_1()
+                    .border_color(chip_colors.border)
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .text_color(cx.theme().foreground.opacity(0.82))
+                            .child(repo_label),
+                    ),
+            )
+            .into_any_element();
+        if ai_selected {
+            self.record_ai_toolbar_left_render_timing(left_started_at.elapsed());
+        }
+
+        let right_started_at = Instant::now();
+        let right = h_flex()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            .when(review_selected, |this| {
+                let view = view.clone();
+                this.child(
+                    Button::new("toggle-comments-preview")
+                        .outline()
+                        .compact()
+                        .rounded(px(7.0))
+                        .bg(toolbar_button_bg)
+                        .label(format!("Comments ({})", self.comments_open_count()))
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.toggle_comments_preview(cx);
+                            });
+                        }),
+                )
+            })
+            .when(git_selected, |this| {
+                this.when(self.git_workspace.overall_line_stats.changed() > 0, |this| {
+                    this.child(self.render_line_stats(
+                        "overall",
+                        self.git_workspace.overall_line_stats,
+                        cx,
+                    ))
+                })
+                .child(self.render_git_metric_pill(
+                    if self.git_workspace.branch_has_upstream {
+                        "Published"
+                    } else {
+                        "Local Only"
+                    },
+                    if self.git_workspace.branch_has_upstream {
+                        HunkAccentTone::Success
+                    } else {
+                        HunkAccentTone::Warning
+                    },
+                    cx,
+                ))
+                .child(self.render_git_metric_pill(
+                    format!("Ahead {}", self.git_workspace.branch_ahead_count),
+                    if self.git_workspace.branch_ahead_count > 0 {
+                        HunkAccentTone::Accent
+                    } else {
+                        HunkAccentTone::Neutral
+                    },
+                    cx,
+                ))
+                .child(self.render_git_metric_pill(
+                    format!("Behind {}", self.git_workspace.branch_behind_count),
+                    if self.git_workspace.branch_behind_count > 0 {
+                        HunkAccentTone::Warning
+                    } else {
+                        HunkAccentTone::Neutral
+                    },
+                    cx,
+                ))
+                .child(self.render_git_metric_pill(
+                    format!("Changed {}", self.git_workspace.files.len()),
+                    if self.git_workspace.files.is_empty() {
+                        HunkAccentTone::Neutral
+                    } else {
+                        HunkAccentTone::Accent
+                    },
+                    cx,
+                ))
+            })
+            .when(!git_selected, |this| {
+                this.child(self.render_line_stats("overall", visible_line_stats, cx))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{} files", visible_file_count)),
+                    )
+            })
+            .when(ai_selected, |this| {
+                this.when_some(ai_workspace_branch.clone(), |this, branch_name| {
+                    this.child(render_ai_header_metric_chip(
+                        "Branch",
+                        branch_name,
+                        cx.theme().accent,
+                        is_dark,
+                        cx,
+                    ))
+                })
+                .when_some(ai_pending_approval_count, |this, count| {
+                    this.child(render_ai_header_metric_chip(
+                        "Approvals",
+                        count.to_string(),
+                        if count > 0 {
+                            cx.theme().warning
+                        } else {
+                            cx.theme().muted_foreground
+                        },
+                        is_dark,
+                        cx,
+                    ))
+                })
+                .when_some(ai_pending_user_input_count, |this, count| {
+                    this.child(render_ai_header_metric_chip(
+                        "Inputs",
+                        count.to_string(),
+                        if count > 0 {
+                            cx.theme().warning
+                        } else {
+                            cx.theme().muted_foreground
+                        },
+                        is_dark,
+                        cx,
+                    ))
+                })
+                .child(render_ai_account_actions_for_view(self, view.clone(), cx))
+                .child(render_ai_header_metric_chip(
+                    "Status",
+                    ai_connection_status_label.to_string(),
+                    ai_connection_status_color,
+                    is_dark,
+                    cx,
+                ))
+            })
+            .when(self.config.show_fps_counter, |this| {
+                this.child(
+                    div()
+                        .text_sm()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_color(if self.fps >= 110.0 {
+                            cx.theme().success
+                        } else if self.fps >= 60.0 {
+                            cx.theme().warning
+                        } else {
+                            cx.theme().danger
+                        })
+                        .child(format!("{:>3.0} fps", self.fps.round())),
+                )
+            })
+            .when_some(ai_perf_label, |this, label| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_color(cx.theme().muted_foreground)
+                        .child(label),
+                )
+            })
+            .into_any_element();
+        if ai_selected {
+            self.record_ai_toolbar_right_render_timing(right_started_at.elapsed());
+        }
+
+        let element = h_flex()
             .w_full()
             .h_11()
             .items_center()
@@ -56,236 +308,13 @@ impl DiffViewer {
             .border_b_1()
             .border_color(cx.theme().border)
             .bg(cx.theme().background)
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    .overflow_x_hidden()
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .min_w(px(if ai_selected { 180.0 } else { 260.0 }))
-                            .max_w(px(if ai_selected { 220.0 } else { 320.0 }))
-                            .px_1()
-                            .py_0p5()
-                            .rounded_md()
-                            .bg(chip_colors.background)
-                            .border_1()
-                            .border_color(chip_colors.border)
-                            .child(if ai_selected {
-                                div()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_sm()
-                                    .font_medium()
-                                    .text_color(cx.theme().foreground)
-                                    .child(project_label)
-                                    .into_any_element()
-                            } else {
-                                render_hunk_picker(
-                                    &self.project_picker_state,
-                                    HunkPickerConfig::new("project-picker", project_label)
-                                        .with_size(gpui_component::Size::Small)
-                                        .rounded(px(8.0))
-                                        .background(chip_colors.background)
-                                        .border_color(chip_colors.border)
-                                        .min_width(px(258.0))
-                                        .max_width(px(318.0))
-                                        .disabled(self.state.workspace_project_paths.is_empty())
-                                        .empty(
-                                            h_flex()
-                                                .h(px(72.0))
-                                                .justify_center()
-                                                .text_sm()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child("No projects in this workspace."),
-                                        ),
-                                    cx,
-                                )
-                            }),
-                    )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .px_2()
-                            .py_0p5()
-                            .rounded_md()
-                            .bg(chip_colors.background)
-                            .border_1()
-                            .border_color(chip_colors.border)
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_medium()
-                                    .text_color(cx.theme().foreground)
-                                    .child(active_branch),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .flex_none()
-                            .min_w_0()
-                            .max_w(px(560.0))
-                            .items_center()
-                            .gap_1()
-                            .px_2()
-                            .py_0p5()
-                            .rounded_md()
-                            .bg(chip_colors.background)
-                            .border_1()
-                            .border_color(chip_colors.border)
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_sm()
-                                    .text_color(cx.theme().foreground.opacity(0.82))
-                                    .child(repo_label),
-                            ),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .flex_none()
-                    .items_center()
-                    .gap_2()
-                    .when(review_selected, |this| {
-                        let view = view.clone();
-                        this.child(
-                            Button::new("toggle-comments-preview")
-                                .outline()
-                                .compact()
-                                .rounded(px(7.0))
-                                .bg(toolbar_button_bg)
-                                .label(format!("Comments ({})", self.comments_open_count()))
-                                .on_click(move |_, _, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.toggle_comments_preview(cx);
-                                    });
-                                }),
-                        )
-                    })
-                    .when(git_selected, |this| {
-                        this.when(self.git_workspace.overall_line_stats.changed() > 0, |this| {
-                            this.child(self.render_line_stats(
-                                "overall",
-                                self.git_workspace.overall_line_stats,
-                                cx,
-                            ))
-                        })
-                        .child(self.render_git_metric_pill(
-                            if self.git_workspace.branch_has_upstream {
-                                "Published"
-                            } else {
-                                "Local Only"
-                            },
-                            if self.git_workspace.branch_has_upstream {
-                                HunkAccentTone::Success
-                            } else {
-                                HunkAccentTone::Warning
-                            },
-                            cx,
-                        ))
-                        .child(self.render_git_metric_pill(
-                            format!("Ahead {}", self.git_workspace.branch_ahead_count),
-                            if self.git_workspace.branch_ahead_count > 0 {
-                                HunkAccentTone::Accent
-                            } else {
-                                HunkAccentTone::Neutral
-                            },
-                            cx,
-                        ))
-                        .child(self.render_git_metric_pill(
-                            format!("Behind {}", self.git_workspace.branch_behind_count),
-                            if self.git_workspace.branch_behind_count > 0 {
-                                HunkAccentTone::Warning
-                            } else {
-                                HunkAccentTone::Neutral
-                            },
-                            cx,
-                        ))
-                        .child(self.render_git_metric_pill(
-                            format!("Changed {}", self.git_workspace.files.len()),
-                            if self.git_workspace.files.is_empty() {
-                                HunkAccentTone::Neutral
-                            } else {
-                                HunkAccentTone::Accent
-                            },
-                            cx,
-                        ))
-                    })
-                    .when(!git_selected, |this| {
-                        this.child(self.render_line_stats("overall", visible_line_stats, cx))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("{} files", visible_file_count)),
-                            )
-                    })
-                    .when(ai_selected, |this| {
-                        this.when_some(ai_workspace_branch.clone(), |this, branch_name| {
-                            this.child(render_ai_header_metric_chip(
-                                "Branch",
-                                branch_name,
-                                cx.theme().accent,
-                                is_dark,
-                                cx,
-                            ))
-                        })
-                        .when_some(ai_pending_approval_count, |this, count| {
-                            this.child(render_ai_header_metric_chip(
-                                "Approvals",
-                                count.to_string(),
-                                if count > 0 {
-                                    cx.theme().warning
-                                } else {
-                                    cx.theme().muted_foreground
-                                },
-                                is_dark,
-                                cx,
-                            ))
-                        })
-                        .when_some(ai_pending_user_input_count, |this, count| {
-                            this.child(render_ai_header_metric_chip(
-                                "Inputs",
-                                count.to_string(),
-                                if count > 0 {
-                                    cx.theme().warning
-                                } else {
-                                    cx.theme().muted_foreground
-                                },
-                                is_dark,
-                                cx,
-                            ))
-                        })
-                        .child(render_ai_account_actions_for_view(self, view.clone(), cx))
-                        .child(render_ai_header_metric_chip(
-                            "Status",
-                            ai_connection_status_label.to_string(),
-                            ai_connection_status_color,
-                            is_dark,
-                            cx,
-                        ))
-                    })
-                    .when(self.config.show_fps_counter, |this| {
-                        this.child(
-                            div()
-                                .text_sm()
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .text_color(if self.fps >= 110.0 {
-                                    cx.theme().success
-                                } else if self.fps >= 60.0 {
-                                    cx.theme().warning
-                                } else {
-                                    cx.theme().danger
-                                })
-                                .child(format!("{:>3.0} fps", self.fps.round())),
-                        )
-                    }),
-            )
+            .child(left)
+            .child(right)
+            .into_any_element();
+        if ai_selected {
+            self.record_ai_toolbar_render_timing(render_started_at.elapsed());
+        }
+        element
     }
 
     fn project_display_name(&self) -> String {

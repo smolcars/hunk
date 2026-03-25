@@ -334,6 +334,121 @@ struct AiVisibleFrameState {
     terminal_cwd_label: String,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct AiPerfDurationStats {
+    count: u32,
+    total_us: u64,
+    max_us: u64,
+}
+
+impl AiPerfDurationStats {
+    fn record(&mut self, duration: Duration) {
+        let micros = duration.as_micros().min(u128::from(u64::MAX)) as u64;
+        self.count = self.count.saturating_add(1);
+        self.total_us = self.total_us.saturating_add(micros);
+        self.max_us = self.max_us.max(micros);
+    }
+
+    fn average_us(self) -> u64 {
+        if self.count == 0 {
+            0
+        } else {
+            self.total_us / u64::from(self.count)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiPerfTimelineRowKind {
+    Message,
+    Tool,
+    Group,
+    Diff,
+    Plan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiPerfSidebarRowKind {
+    ProjectHeader,
+    Thread,
+    EmptyProject,
+    ProjectFooter,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AiPerfWindow {
+    app_render: AiPerfDurationStats,
+    toolbar_render: AiPerfDurationStats,
+    toolbar_prep: AiPerfDurationStats,
+    toolbar_left_render: AiPerfDurationStats,
+    toolbar_right_render: AiPerfDurationStats,
+    footer_render: AiPerfDurationStats,
+    root_render: AiPerfDurationStats,
+    visible_frame_build: AiPerfDurationStats,
+    visible_frame_cache_hits: u32,
+    visible_frame_invalidations: u32,
+    visible_frame_invalidation_reasons: BTreeMap<&'static str, u32>,
+    visible_frame_timeline_rows: AiPerfDurationStats,
+    visible_frame_composer_feedback: AiPerfDurationStats,
+    thread_sidebar_rebuild: AiPerfDurationStats,
+    thread_sidebar_render: AiPerfDurationStats,
+    thread_sidebar_visible_rows_total: u64,
+    thread_sidebar_row_render: AiPerfDurationStats,
+    thread_sidebar_project_header_row_render: AiPerfDurationStats,
+    thread_sidebar_thread_row_render: AiPerfDurationStats,
+    thread_sidebar_empty_project_row_render: AiPerfDurationStats,
+    thread_sidebar_project_footer_row_render: AiPerfDurationStats,
+    timeline_index_rebuild: AiPerfDurationStats,
+    timeline_list_sync_count: u32,
+    timeline_list_sync_row_ids_changed: u32,
+    timeline_list_sync_follow_output_changed: u32,
+    timeline_list_sync_visible_rows_total: u64,
+    timeline_list_render: AiPerfDurationStats,
+    timeline_list_render_visible_rows_total: u64,
+    timeline_row_render: AiPerfDurationStats,
+    timeline_row_skipped: u32,
+    message_row_render: AiPerfDurationStats,
+    tool_row_render: AiPerfDurationStats,
+    group_row_render: AiPerfDurationStats,
+    diff_row_render: AiPerfDurationStats,
+    plan_row_render: AiPerfDurationStats,
+    markdown_cache_hits: u32,
+    markdown_cache_misses: u32,
+    markdown_comrak_parse: AiPerfDurationStats,
+    markdown_transform: AiPerfDurationStats,
+    markdown_code_highlight: AiPerfDurationStats,
+    markdown_code_block_count_total: u64,
+    markdown_code_char_count_total: u64,
+    markdown_parse: AiPerfDurationStats,
+    markdown_selection_surfaces: AiPerfDurationStats,
+    markdown_render_build: AiPerfDurationStats,
+    markdown_render_block_count_total: u64,
+    markdown_render_char_count_total: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AiPerfReport {
+    elapsed_ms: u64,
+    window: AiPerfWindow,
+}
+
+#[derive(Debug, Clone)]
+struct AiPerfMetrics {
+    window_started_at: Instant,
+    window: AiPerfWindow,
+    last_report: AiPerfReport,
+}
+
+impl Default for AiPerfMetrics {
+    fn default() -> Self {
+        Self {
+            window_started_at: Instant::now(),
+            window: AiPerfWindow::default(),
+            last_report: AiPerfReport::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct AiComposerFeedbackActivity {
     label: String,

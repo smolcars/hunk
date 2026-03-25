@@ -101,7 +101,7 @@ impl DiffViewer {
         self.update_project_picker_state(window, cx);
         self.remove_ai_workspace_states_for_project(project_path, cx);
         self.rebuild_ai_thread_sidebar_state();
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("refresh");
         self.git_status_message = Some(if removed_last_project {
             "Removed the last project from the workspace.".to_string()
         } else {

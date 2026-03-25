@@ -33,6 +33,12 @@ impl DiffViewer {
                         this.request_visible_row_segment_prefetch(visible_row, true, cx);
                     }
 
+                    if this.roll_ai_perf_sample_if_due()
+                        && this.workspace_view_mode == WorkspaceViewMode::Ai
+                        && let Some(line) = this.ai_perf_log_line(this.fps)
+                    {
+                        tracing::info!(target: "ai_perf", "{line}");
+                    }
                     let next_epoch = this.next_fps_epoch();
                     this.schedule_fps_sample(next_epoch, cx);
                     cx.notify();

@@ -26,7 +26,7 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("Open a workspace before using AI.".to_string());
-            self.invalidate_ai_visible_frame_state();
+            self.invalidate_ai_visible_frame_state_with_reason("runtime");
             cx.notify();
             return;
         };
@@ -57,7 +57,7 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("Unable to resolve the Codex home directory.".to_string());
-            self.invalidate_ai_visible_frame_state();
+            self.invalidate_ai_visible_frame_state_with_reason("runtime");
             cx.notify();
             return;
         };
@@ -67,7 +67,7 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some(error);
-            self.invalidate_ai_visible_frame_state();
+            self.invalidate_ai_visible_frame_state_with_reason("runtime");
             cx.notify();
             return;
         }
@@ -84,7 +84,7 @@ impl DiffViewer {
         self.ai_bootstrap_loading = true;
         self.ai_error_message = None;
         self.ai_status_message = Some("Starting Codex App Server...".to_string());
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("runtime");
         let listener_workspace_key = worker_workspace_key.clone();
         self.ai_command_tx = Some(command_tx);
         self.ai_worker_thread = Some(worker);
@@ -143,7 +143,7 @@ impl DiffViewer {
         self.ai_scroll_timeline_to_bottom = false;
         self.ai_expanded_timeline_row_ids.clear();
         self.ai_text_selection = None;
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("thread");
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
         } else {
@@ -628,7 +628,7 @@ impl DiffViewer {
         self.ai_selected_model = model_id;
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("settings");
         cx.notify();
     }
 
@@ -676,7 +676,7 @@ impl DiffViewer {
         }
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("settings");
         cx.notify();
     }
 
@@ -767,7 +767,7 @@ impl DiffViewer {
             Some(thread_id.clone()),
             cx,
         );
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("thread");
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
         }
@@ -782,7 +782,7 @@ impl DiffViewer {
     pub(super) fn ai_scroll_timeline_to_bottom_action(&mut self, cx: &mut Context<Self>) {
         self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = true;
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
         self.flush_ai_timeline_scroll_request();
         cx.notify();
     }
@@ -824,7 +824,7 @@ impl DiffViewer {
         } else {
             self.ai_expanded_timeline_row_ids.insert(row_id);
         }
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
         if let Some(selected_thread_id) = self.ai_selected_thread_id.as_deref() {
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, selected_thread_id);
             reset_ai_timeline_list_measurements(self, visible_row_ids.len());

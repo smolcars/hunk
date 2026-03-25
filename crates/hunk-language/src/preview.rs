@@ -40,6 +40,10 @@ pub fn preview_highlight_spans_for_language_hint(
     )
 }
 
+pub fn warm_preview_highlight_registry() {
+    let _ = registry();
+}
+
 fn preview_highlight_spans(
     source: &str,
     language: Option<&LanguageDefinition>,

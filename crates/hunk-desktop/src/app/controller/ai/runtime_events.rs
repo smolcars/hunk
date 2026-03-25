@@ -142,7 +142,7 @@ impl DiffViewer {
         self.ai_composer_skill_completion_dismissed_token = None;
         self.ai_bootstrap_loading = false;
         self.ai_connection_state = AiConnectionState::Failed;
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("event");
         if self
             .current_ai_composer_draft_key()
             .as_ref()
@@ -214,6 +214,6 @@ impl DiffViewer {
                 Self::push_error_notification(format!("Codex AI failed: {message}"), cx);
             }
         }
-        self.invalidate_ai_visible_frame_state();
+        self.invalidate_ai_visible_frame_state_with_reason("event");
     }
 }

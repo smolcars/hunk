@@ -1282,23 +1282,37 @@ fn render_ai_chat_timeline_row_for_view(
     theme: &gpui_component::Theme,
     is_dark: bool,
 ) -> AnyElement {
+    let row_render_started_at = Instant::now();
     if let Some(pending) = this.ai_pending_steer_for_row_id(row_id) {
-        return render_ai_pending_steer(&pending, is_dark, theme);
+        let element = render_ai_pending_steer(&pending, is_dark, theme);
+        this.record_ai_timeline_row_render_timing(
+            AiPerfTimelineRowKind::Message,
+            row_render_started_at.elapsed(),
+        );
+        return element;
     }
     if let Some(queued) = this.ai_queued_message_for_row_id(row_id) {
-        return render_ai_queued_message(&queued, is_dark, theme);
+        let element = render_ai_queued_message(&queued, is_dark, theme);
+        this.record_ai_timeline_row_render_timing(
+            AiPerfTimelineRowKind::Message,
+            row_render_started_at.elapsed(),
+        );
+        return element;
     }
 
     let Some(row) = this.ai_timeline_row(row_id) else {
+        this.record_ai_timeline_row_skipped();
         return div().w_full().h(px(0.0)).into_any_element();
     };
     if !ai_timeline_row_is_renderable(this, row) {
+        this.record_ai_timeline_row_skipped();
         return div().w_full().h(px(0.0)).into_any_element();
     }
 
-    let (element, _row_kind, _animated) = match &row.source {
+    let (element, row_kind) = match &row.source {
         AiTimelineRowSource::Item { item_key } => {
             let Some(item) = this.ai_state_snapshot.items.get(item_key.as_str()) else {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             };
             let role = ai_timeline_item_role(item.kind.as_str());
@@ -1410,7 +1424,7 @@ fn render_ai_chat_timeline_row_for_view(
                     } else {
                         ai_timeline_row_with_animation(this, row.id.as_str(), row_element)
                     };
-                    (element, "message", false)
+                    (element, AiPerfTimelineRowKind::Message)
                 }
                 AiTimelineItemRole::Tool => {
                     (
@@ -1423,50 +1437,52 @@ fn render_ai_chat_timeline_row_for_view(
                         is_dark,
                         false,
                         ),
-                        "tool",
-                        false,
+                        AiPerfTimelineRowKind::Tool,
                     )
                 }
             }
         }
         AiTimelineRowSource::Group { group_id } => {
             let Some(group) = this.ai_timeline_group(group_id.as_str()) else {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             };
             (
                 render_ai_timeline_group_row(this, view, row, group, theme, is_dark),
-                "group",
-                false,
+                AiPerfTimelineRowKind::Group,
             )
         }
         AiTimelineRowSource::TurnDiff { turn_key } => {
             let Some(diff) = this.ai_state_snapshot.turn_diffs.get(turn_key.as_str()) else {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             };
             let diff_text = diff.trim();
             if diff_text.is_empty() {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             }
             (
                 render_ai_turn_diff_row(this, view, row, diff_text, theme, is_dark),
-                "diff",
-                false,
+                AiPerfTimelineRowKind::Diff,
             )
         }
         AiTimelineRowSource::TurnPlan { turn_key } => {
             let Some(plan) = ai_turn_plan_summary(&this.ai_state_snapshot, turn_key.as_str()) else {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             };
             if !ai_turn_plan_is_renderable(plan) {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             }
             (
                 render_ai_turn_plan_row(this, row, plan, theme, is_dark),
-                "plan-update",
-                false,
+                AiPerfTimelineRowKind::Plan,
             )
         }
     };
+    this.record_ai_timeline_row_render_timing(row_kind, row_render_started_at.elapsed());
     element
 }
 

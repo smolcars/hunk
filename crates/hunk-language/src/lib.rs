@@ -22,7 +22,7 @@ pub use features::{
 use features::{position_to_byte_in_source, text_range_for_byte_range};
 pub use preview::{
     PreviewHighlightSpan, preview_highlight_spans_for_language_hint,
-    preview_highlight_spans_for_path,
+    preview_highlight_spans_for_path, warm_preview_highlight_registry,
 };
 pub use preview_tokens::PreviewSyntaxToken;
 
