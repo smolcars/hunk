@@ -40,6 +40,7 @@ impl DiffViewer {
             "removing project from workspace",
         );
         self.sync_project_picker_state(cx);
+        self.rebuild_ai_thread_sidebar_state();
 
         let next_active_project = self.state.active_project_path().cloned();
         if was_active_project {

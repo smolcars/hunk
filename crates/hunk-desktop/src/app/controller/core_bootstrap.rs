@@ -407,10 +407,13 @@ impl DiffViewer {
             ai_interrupt_restore_queued_thread_ids: BTreeSet::new(),
             ai_scroll_timeline_to_bottom: false,
             ai_timeline_follow_output: true,
-            ai_thread_list_scroll_handle: ScrollHandle::default(),
             ai_git_progress: None,
             ai_thread_title_refresh_state_by_thread: BTreeMap::new(),
             ai_expanded_thread_sidebar_project_roots: BTreeSet::new(),
+            ai_thread_sidebar_sections: Vec::new(),
+            ai_thread_sidebar_rows: Vec::new(),
+            ai_thread_sidebar_list_state: ListState::new(0, ListAlignment::Top, px(48.0)),
+            ai_thread_sidebar_row_count: 0,
             ai_timeline_list_state: ListState::new(0, ListAlignment::Top, px(360.0)),
             ai_timeline_list_row_count: 0,
             ai_timeline_visible_turn_limit_by_thread: BTreeMap::new(),
@@ -867,6 +870,7 @@ impl DiffViewer {
         view.start_auto_refresh(cx);
         view.start_repo_watch(cx);
         view.start_fps_monitor(cx);
+        view.rebuild_ai_thread_sidebar_state();
         view.prune_expired_comments();
         view.refresh_comments_cache_from_store();
         view

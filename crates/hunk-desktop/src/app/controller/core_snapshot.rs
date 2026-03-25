@@ -37,6 +37,7 @@ impl DiffViewer {
             self.reset_recent_commits_state();
             self.hydrate_recent_commits_cache_if_available(cx);
         }
+        self.rebuild_ai_thread_sidebar_state();
         self.start_repo_watch(cx);
         self.request_snapshot_refresh_internal(SnapshotRefreshRequest::user(true), cx);
         self.request_recent_commits_refresh(true, cx);
@@ -118,6 +119,7 @@ impl DiffViewer {
         self.repo_tree.scroll_anchor_path = None;
         self.repo_tree.row_count = 0;
         self.repo_tree.list_state.reset(0);
+        self.rebuild_ai_thread_sidebar_state();
         self.repo_tree.loading = false;
         self.repo_tree.reload_pending = false;
         self.repo_tree.error = None;

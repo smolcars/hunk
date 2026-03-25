@@ -273,6 +273,32 @@ struct AiVisibleThreadProjectSection {
     expanded: bool,
 }
 
+#[derive(Debug, Clone)]
+enum AiThreadSidebarRowKind {
+    ProjectHeader {
+        project_root: PathBuf,
+        project_label: String,
+        total_thread_count: usize,
+    },
+    Thread {
+        thread: hunk_codex::state::ThreadSummary,
+        workspace_label: String,
+    },
+    EmptyProject {
+        project_root: PathBuf,
+    },
+    ProjectFooter {
+        project_root: PathBuf,
+        hidden_thread_count: usize,
+        expanded: bool,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct AiThreadSidebarRow {
+    kind: AiThreadSidebarRowKind,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiComposerSkillBinding {
     token: String,

@@ -86,15 +86,73 @@ impl DiffViewer {
         )
     }
 
-    pub(crate) fn ai_visible_thread_sections(&self) -> Vec<AiVisibleThreadProjectSection> {
+    pub(crate) fn ai_visible_thread_sections(&self) -> &[AiVisibleThreadProjectSection] {
+        self.ai_thread_sidebar_sections.as_slice()
+    }
+
+    pub(crate) fn ai_thread_sidebar_rows(&self) -> &[AiThreadSidebarRow] {
+        self.ai_thread_sidebar_rows.as_slice()
+    }
+
+    pub(super) fn rebuild_ai_thread_sidebar_state(&mut self) {
+        let started_at = Instant::now();
         let threads = self.ai_visible_threads();
-        ai_visible_thread_sections(
+        let sections = ai_visible_thread_sections(
             threads,
             self.state.workspace_project_paths.as_slice(),
             self.project_path.as_deref(),
             self.repo_root.as_deref(),
             &self.ai_expanded_thread_sidebar_project_roots,
-        )
+        );
+        let rows = self.ai_thread_sidebar_rows_from_sections(sections.as_slice());
+        debug!(
+            "rebuilt ai thread sidebar rows: sections={} rows={} elapsed_ms={}",
+            sections.len(),
+            rows.len(),
+            started_at.elapsed().as_millis()
+        );
+        self.ai_thread_sidebar_sections = sections;
+        self.ai_thread_sidebar_rows = rows;
+    }
+
+    fn ai_thread_sidebar_rows_from_sections(
+        &self,
+        sections: &[AiVisibleThreadProjectSection],
+    ) -> Vec<AiThreadSidebarRow> {
+        let mut rows = Vec::new();
+        for section in sections {
+            rows.push(AiThreadSidebarRow {
+                kind: AiThreadSidebarRowKind::ProjectHeader {
+                    project_root: section.project_root.clone(),
+                    project_label: section.project_label.clone(),
+                    total_thread_count: section.total_thread_count,
+                },
+            });
+            if section.threads.is_empty() {
+                rows.push(AiThreadSidebarRow {
+                    kind: AiThreadSidebarRowKind::EmptyProject {
+                        project_root: section.project_root.clone(),
+                    },
+                });
+            } else {
+                rows.extend(section.threads.iter().cloned().map(|thread| AiThreadSidebarRow {
+                    kind: AiThreadSidebarRowKind::Thread {
+                        workspace_label: self.ai_thread_workspace_label(thread.id.as_str()),
+                        thread,
+                    },
+                }));
+            }
+            if section.hidden_thread_count > 0 || section.expanded {
+                rows.push(AiThreadSidebarRow {
+                    kind: AiThreadSidebarRowKind::ProjectFooter {
+                        project_root: section.project_root.clone(),
+                        hidden_thread_count: section.hidden_thread_count,
+                        expanded: section.expanded,
+                    },
+                });
+            }
+        }
+        rows
     }
 
     fn ai_state_snapshot_workspace_key(&self) -> Option<String> {
@@ -242,6 +300,7 @@ impl DiffViewer {
             self.ai_expanded_thread_sidebar_project_roots
                 .remove(project_root.as_str());
         }
+        self.rebuild_ai_thread_sidebar_state();
         cx.notify();
     }
 

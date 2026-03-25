@@ -1,5 +1,6 @@
+#[derive(Clone)]
 struct AiThreadSidebarState {
-    project_sections: Vec<AiVisibleThreadProjectSection>,
+    project_count: usize,
     threads_loading: bool,
     selected_thread_id: Option<String>,
 }
@@ -120,7 +121,7 @@ fn render_ai_header_metric_chip(
 
 impl DiffViewer {
     fn render_ai_workspace_content(
-        &self,
+        &mut self,
         view: Entity<Self>,
         sections: AiWorkspaceContentSections<'_>,
         is_dark: bool,
@@ -165,12 +166,38 @@ impl DiffViewer {
     }
 
     fn render_ai_thread_sidebar_panel(
-        &self,
+        &mut self,
         view: Entity<Self>,
         state: &AiThreadSidebarState,
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.sync_ai_thread_sidebar_list_state();
+        let list_state = self.ai_thread_sidebar_list_state.clone();
+        let row_state = state.clone();
+        let list_view = view.clone();
+        let list = list(list_state.clone(), {
+            cx.processor(move |this, ix: usize, _window, cx| {
+                let Some(row) = this.ai_thread_sidebar_rows().get(ix).cloned() else {
+                    return div().into_any_element();
+                };
+                this.render_ai_thread_sidebar_list_row(
+                    list_view.clone(),
+                    &row_state,
+                    row,
+                    ix == 0,
+                    is_dark,
+                    cx,
+                )
+            })
+        })
+        .size_full()
+        .map(|mut list| {
+            list.style().restrict_scroll_to_axis = Some(true);
+            list
+        })
+        .with_sizing_behavior(ListSizingBehavior::Auto);
+
         v_flex()
             .size_full()
             .min_h_0()
@@ -191,259 +218,319 @@ impl DiffViewer {
                             .text_color(cx.theme().muted_foreground)
                             .child("Threads"),
                     )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_1()
-                            .child({
-                                let view = view.clone();
-                                Button::new("ai-thread-refresh")
-                                    .ghost()
-                                    .compact()
-                                    .rounded(px(999.0))
-                                    .with_size(gpui_component::Size::Small)
-                                    .label("Refresh")
-                                    .text_color(hunk_opacity(
-                                        cx.theme().muted_foreground,
-                                        is_dark,
-                                        0.88,
-                                        0.96,
-                                    ))
-                                    .on_click(move |_, _, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.ai_refresh_threads(cx);
-                                        });
-                                    })
+                    .child({
+                        let view = view.clone();
+                        Button::new("ai-thread-refresh")
+                            .ghost()
+                            .compact()
+                            .rounded(px(999.0))
+                            .with_size(gpui_component::Size::Small)
+                            .label("Refresh")
+                            .text_color(hunk_opacity(
+                                cx.theme().muted_foreground,
+                                is_dark,
+                                0.88,
+                                0.96,
+                            ))
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.ai_refresh_threads(cx);
+                                });
                             })
-                    ),
+                    }),
             )
             .child(
                 div()
                     .flex_1()
                     .min_h_0()
-                    .relative()
                     .child(
                         div()
-                            .id("ai-thread-list-scroll-area")
                             .size_full()
-                            .track_scroll(&self.ai_thread_list_scroll_handle)
-                            .overflow_y_scroll()
-                            .child(
-                                v_flex()
-                                    .w_full()
-                                    .gap_0p5()
-                                    .px_2()
-                                    .pb_3()
-                                    .when(state.threads_loading, |this| {
-                                        this.child(render_ai_thread_list_loading_skeleton(is_dark, cx))
-                                    })
-                                    .when(
-                                        state.project_sections.is_empty() && !state.threads_loading,
-                                        |this| {
-                                        this.child(
-                                            v_flex()
-                                                .w_full()
-                                                .items_center()
-                                                .pt_8()
-                                                .px_3()
-                                                .child(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(hunk_opacity(
-                                                            cx.theme().muted_foreground,
-                                                            is_dark,
-                                                            0.86,
-                                                            0.96,
-                                                        ))
-                                                        .child("No threads in this workspace yet."),
-                                                ),
-                                        )
-                                        },
-                                    )
-                                    .children(
-                                        state
-                                            .project_sections
-                                            .iter()
-                                            .enumerate()
-                                            .map(|(section_index, section)| {
-                                                self.render_ai_thread_project_section(
-                                                    view.clone(),
-                                                    state,
-                                                    section,
-                                                    section_index,
+                            .overflow_y_scrollbar()
+                            .px_2()
+                            .pb_3()
+                            .when(state.threads_loading, |this| {
+                                this.child(render_ai_thread_list_loading_skeleton(is_dark, cx))
+                            })
+                            .when(state.project_count == 0 && !state.threads_loading, |this| {
+                                this.child(
+                                    v_flex()
+                                        .w_full()
+                                        .items_center()
+                                        .pt_8()
+                                        .px_3()
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(hunk_opacity(
+                                                    cx.theme().muted_foreground,
                                                     is_dark,
-                                                    cx,
-                                                )
-                                            }),
-                                    ),
-                            ),
+                                                    0.86,
+                                                    0.96,
+                                                ))
+                                                .child("No threads in this workspace yet."),
+                                        ),
+                                )
+                            })
+                            .when(state.project_count > 0 && !state.threads_loading, |this| {
+                                this.child(list)
+                            }),
                     ),
             )
             .into_any_element()
     }
 
-    fn render_ai_thread_project_section(
+    fn sync_ai_thread_sidebar_list_state(&mut self) {
+        let row_count = self.ai_thread_sidebar_rows.len();
+        if self.ai_thread_sidebar_row_count == row_count {
+            return;
+        }
+
+        let previous_top = self.ai_thread_sidebar_list_state.logical_scroll_top();
+        self.ai_thread_sidebar_list_state.reset(row_count);
+        let item_ix = if row_count == 0 {
+            0
+        } else {
+            previous_top.item_ix.min(row_count.saturating_sub(1))
+        };
+        let offset_in_item = if row_count == 0 || item_ix != previous_top.item_ix {
+            px(0.)
+        } else {
+            previous_top.offset_in_item
+        };
+        self.ai_thread_sidebar_list_state.scroll_to(ListOffset {
+            item_ix,
+            offset_in_item,
+        });
+        self.ai_thread_sidebar_row_count = row_count;
+    }
+
+    fn render_ai_thread_sidebar_list_row(
         &self,
         view: Entity<Self>,
         state: &AiThreadSidebarState,
-        section: &AiVisibleThreadProjectSection,
-        section_index: usize,
+        row: AiThreadSidebarRow,
+        is_first: bool,
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let section_key = section.project_root.to_string_lossy().to_string();
-        let header_border = hunk_opacity(cx.theme().border, is_dark, 0.96, 0.96);
-        let header_background = hunk_opacity(cx.theme().muted, is_dark, 0.18, 0.22);
-        let hidden_thread_label = if section.hidden_thread_count == 1 {
-            "1 more".to_string()
-        } else {
-            format!("{} more", section.hidden_thread_count)
-        };
-
-        v_flex()
-            .w_full()
-            .gap_1()
-            .pt_1()
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_between()
-                    .gap_2()
-                    .rounded(px(10.0))
-                    .border_1()
-                    .border_color(header_border)
-                    .bg(header_background)
-                    .px_2()
-                    .py_1p5()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_0p5()
-                            .child(
-                                h_flex()
-                                    .items_center()
-                                    .gap_1p5()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .font_semibold()
-                                            .text_color(cx.theme().foreground)
-                                            .child(section.project_label.clone()),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("{} threads", section.total_thread_count)),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_1()
-                            .child({
-                                let view = view.clone();
-                                let project_root = section.project_root.clone();
-                                Button::new(format!("ai-thread-new-local-{section_index}"))
-                                    .compact()
-                                    .primary()
-                                    .rounded(px(999.0))
-                                    .with_size(gpui_component::Size::Small)
-                                    .label("New")
-                                    .on_click(move |_, window, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.ai_start_thread_draft_for_project_root(
-                                                project_root.clone(),
-                                                AiNewThreadStartMode::Local,
-                                                window,
-                                                cx,
-                                            );
-                                        });
-                                    })
-                            })
-                            .child({
-                                let view = view.clone();
-                                let project_root = section.project_root.clone();
-                                Button::new(format!("ai-thread-new-worktree-{section_index}"))
-                                    .compact()
-                                    .outline()
-                                    .rounded(px(999.0))
-                                    .with_size(gpui_component::Size::Small)
-                                    .label("New Worktree")
-                                    .on_click(move |_, window, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.ai_start_thread_draft_for_project_root(
-                                                project_root.clone(),
-                                                AiNewThreadStartMode::Worktree,
-                                                window,
-                                                cx,
-                                            );
-                                        });
-                                    })
-                            }),
-                    )
-                    .when(section.hidden_thread_count > 0 || section.expanded, |this| {
-                        let view = view.clone();
-                        let toggle_label = if section.expanded {
-                            "Show less".to_string()
-                        } else {
-                            format!("Show {hidden_thread_label}")
-                        };
-                        this.child(
-                            Button::new(format!("ai-thread-section-toggle-{section_index}"))
-                                .ghost()
-                                .compact()
-                                .rounded(px(999.0))
-                                .with_size(gpui_component::Size::Small)
-                                .icon(Icon::new(if section.expanded {
-                                    IconName::ChevronUp
-                                } else {
-                                    IconName::ChevronDown
-                                })
-                                .size(px(12.0)))
-                                .label(toggle_label)
-                                .on_click(move |_, _, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.ai_toggle_thread_sidebar_project_expanded(
-                                            section_key.clone(),
-                                            cx,
-                                        );
-                                    });
-                                }),
-                        )
-                    }),
-            )
-            .when(section.threads.is_empty(), |this| {
-                this.child(
-                    div()
-                        .px_2()
-                        .pb_1()
-                        .text_xs()
-                        .text_color(hunk_opacity(
-                            cx.theme().muted_foreground,
-                            is_dark,
-                            0.84,
-                            0.94,
-                        ))
-                        .child("No threads yet."),
-                )
-            })
-            .children(section.threads.iter().cloned().map(|thread| {
-                let workspace_label = self.ai_thread_workspace_label(thread.id.as_str());
+        match row.kind {
+            AiThreadSidebarRowKind::ProjectHeader {
+                project_root,
+                project_label,
+                total_thread_count,
+            } => self.render_ai_thread_project_header_row(
+                view,
+                project_root,
+                project_label,
+                total_thread_count,
+                is_first,
+                is_dark,
+                cx,
+            ),
+            AiThreadSidebarRowKind::Thread {
+                thread,
+                workspace_label,
+            } => {
                 let bookmarked = self.ai_thread_is_bookmarked(thread.id.as_str());
                 render_ai_thread_sidebar_row(
                     thread,
                     workspace_label,
                     state.selected_thread_id.as_deref(),
                     bookmarked,
-                    view.clone(),
+                    view,
                     is_dark,
                     cx,
                 )
-            }))
+            }
+            AiThreadSidebarRowKind::EmptyProject { project_root } => self
+                .render_ai_thread_project_empty_row(project_root, is_dark, cx),
+            AiThreadSidebarRowKind::ProjectFooter {
+                project_root,
+                hidden_thread_count,
+                expanded,
+            } => self.render_ai_thread_project_footer_row(
+                view,
+                project_root,
+                hidden_thread_count,
+                expanded,
+                cx,
+            ),
+        }
+    }
+
+    fn render_ai_thread_project_header_row(
+        &self,
+        view: Entity<Self>,
+        project_root: PathBuf,
+        project_label: String,
+        total_thread_count: usize,
+        is_first: bool,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let project_key = project_root.to_string_lossy().to_string();
+        let thread_count_label = if total_thread_count == 1 {
+            "1 thread".to_string()
+        } else {
+            format!("{total_thread_count} threads")
+        };
+
+        h_flex()
+            .w_full()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .when(!is_first, |this| {
+                this.pt_3().border_t_1().border_color(hunk_opacity(
+                    cx.theme().border,
+                    is_dark,
+                    0.64,
+                    0.84,
+                ))
+            })
+            .when(is_first, |this| this.pt_1())
+            .pb_1()
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_start()
+                    .gap_1p5()
+                    .child(
+                        Icon::new(IconName::FolderClosed)
+                            .size(px(12.0))
+                            .text_color(cx.theme().muted_foreground),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .truncate()
+                                    .child(project_label),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(thread_count_label),
+                            ),
+                    ),
+            )
+            .child(
+                Button::new(format!("ai-thread-project-actions-{project_key}"))
+                    .compact()
+                    .outline()
+                    .rounded(px(999.0))
+                    .with_size(gpui_component::Size::Small)
+                    .label("New")
+                    .dropdown_caret(true)
+                    .dropdown_menu(move |menu, _, _| {
+                        menu.item(
+                            PopupMenuItem::new("New Thread").on_click({
+                                let view = view.clone();
+                                let project_root = project_root.clone();
+                                move |_, window, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_start_thread_draft_for_project_root(
+                                            project_root.clone(),
+                                            AiNewThreadStartMode::Local,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }),
+                        )
+                        .item(
+                            PopupMenuItem::new("New Worktree").on_click({
+                                let view = view.clone();
+                                let project_root = project_root.clone();
+                                move |_, window, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_start_thread_draft_for_project_root(
+                                            project_root.clone(),
+                                            AiNewThreadStartMode::Worktree,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }),
+                        )
+                    }),
+            )
+            .into_any_element()
+    }
+
+    fn render_ai_thread_project_empty_row(
+        &self,
+        project_root: PathBuf,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let project_key = project_root.to_string_lossy().to_string();
+        div()
+            .id(format!("ai-thread-project-empty-{project_key}"))
+            .w_full()
+            .pl_5()
+            .pb_2()
+            .text_xs()
+            .text_color(hunk_opacity(
+                cx.theme().muted_foreground,
+                is_dark,
+                0.84,
+                0.94,
+            ))
+            .child("No threads")
+            .into_any_element()
+    }
+
+    fn render_ai_thread_project_footer_row(
+        &self,
+        view: Entity<Self>,
+        project_root: PathBuf,
+        hidden_thread_count: usize,
+        expanded: bool,
+        _cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let project_key = project_root.to_string_lossy().to_string();
+        let toggle_label = if expanded {
+            "Show less".to_string()
+        } else if hidden_thread_count == 1 {
+            "Show 1 more".to_string()
+        } else {
+            format!("Show {hidden_thread_count} more")
+        };
+
+        h_flex()
+            .w_full()
+            .pl_5()
+            .pb_2()
+            .child(
+                Button::new(format!("ai-thread-section-toggle-{project_key}"))
+                    .ghost()
+                    .compact()
+                    .with_size(gpui_component::Size::Small)
+                    .icon(Icon::new(if expanded {
+                        IconName::ChevronUp
+                    } else {
+                        IconName::ChevronDown
+                    })
+                    .size(px(12.0)))
+                    .label(toggle_label)
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            this.ai_toggle_thread_sidebar_project_expanded(project_key.clone(), cx);
+                        });
+                    }),
+            )
             .into_any_element()
     }
 

@@ -51,8 +51,9 @@ impl DiffViewer {
 
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
-        let project_sections = self.ai_visible_thread_sections();
-        let visible_thread_count = project_sections
+        let project_count = self.ai_visible_thread_sections().len();
+        let visible_thread_count = self
+            .ai_visible_thread_sections()
             .iter()
             .map(|section| section.total_thread_count)
             .sum::<usize>();
@@ -135,7 +136,7 @@ impl DiffViewer {
         };
 
         let sidebar_state = AiThreadSidebarState {
-            project_sections,
+            project_count,
             threads_loading,
             selected_thread_id: selected_thread_id.clone(),
         };

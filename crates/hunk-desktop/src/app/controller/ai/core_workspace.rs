@@ -595,6 +595,7 @@ impl DiffViewer {
         self.restore_ai_queued_messages_to_drafts(restored_queued_messages);
         self.prune_ai_composer_drafts();
         self.prune_ai_composer_statuses();
+        self.rebuild_ai_thread_sidebar_state();
         reset_ai_timeline_list_measurements(self, 0);
     }
 
