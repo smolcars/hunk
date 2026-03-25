@@ -7,6 +7,9 @@ start-mac:
 start-windows:
     pwsh ./scripts/run_windows_dev.ps1
 
+start-windows-release:
+    pwsh ./scripts/run_windows_release.ps1
+
 start-linux:
     ./scripts/run_linux_dev.sh
 
