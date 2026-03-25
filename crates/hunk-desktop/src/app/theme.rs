@@ -157,18 +157,49 @@ pub(crate) fn hunk_input_surface(theme: &Theme, is_dark: bool) -> HunkSurfaceCol
 }
 
 pub(crate) fn hunk_completion_menu(theme: &Theme, is_dark: bool) -> HunkCompletionMenuColors {
-    let panel = HunkSurfaceColors {
-        background: hunk_blend(theme.popover, theme.background, is_dark, 0.18, 0.03),
-        border: hunk_opacity(theme.border, is_dark, 0.94, 0.76),
+    let panel = if is_dark {
+        HunkSurfaceColors {
+            background: theme_hex("#191918"),
+            border: theme_hex("#31312e"),
+        }
+    } else {
+        HunkSurfaceColors {
+            background: theme_hex("#f9f9f8"),
+            border: theme_hex("#e2e1de"),
+        }
     };
     HunkCompletionMenuColors {
         panel,
-        row_hover: hunk_blend(theme.accent, panel.background, is_dark, 0.10, 0.04),
-        row_selected: hunk_blend(theme.accent, panel.background, is_dark, 0.20, 0.08),
-        row_selected_border: hunk_opacity(theme.accent, is_dark, 0.78, 0.54),
-        primary_text: hunk_opacity(theme.foreground, is_dark, 0.98, 0.92),
-        secondary_text: hunk_opacity(theme.muted_foreground, is_dark, 0.88, 0.84),
-        selected_secondary_text: hunk_blend(theme.foreground, theme.accent, is_dark, 0.34, 0.28),
+        row_hover: if is_dark {
+            theme_hex("#2a2a28")
+        } else {
+            theme_hex("#e9e8e6")
+        },
+        row_selected: if is_dark {
+            theme_hex("#31312e")
+        } else {
+            theme_hex("#e2e1de")
+        },
+        row_selected_border: if is_dark {
+            theme_hex("#3b3a37")
+        } else {
+            theme_hex("#dad9d6")
+        },
+        primary_text: if is_dark {
+            theme_hex("#eeeeec")
+        } else {
+            theme_hex("#21201c")
+        },
+        secondary_text: if is_dark {
+            theme_hex("#7c7b74")
+        } else {
+            theme_hex("#82827c")
+        },
+        selected_secondary_text: if is_dark {
+            theme_hex("#b5b3ad")
+        } else {
+            theme_hex("#63635e")
+        },
         accent_text: hunk_blend(theme.accent, theme.foreground, is_dark, 0.90, 0.68),
         accent_soft_background: hunk_opacity(theme.accent, is_dark, 0.14, 0.08),
     }

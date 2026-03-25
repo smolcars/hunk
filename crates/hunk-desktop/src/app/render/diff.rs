@@ -622,12 +622,15 @@ impl DiffViewer {
                                     .border_color(picker_border)
                                     .bg(picker_surface)
                                     .child(
-                                        Select::new(&self.review_left_picker_state)
+                                        render_hunk_picker(
+                                            &self.review_left_picker_state,
+                                            HunkPickerConfig::new(
+                                                "review-left-picker",
+                                                left_label,
+                                            )
                                             .with_size(gpui_component::Size::Medium)
-                                            .placeholder(left_label)
-                                            .search_placeholder("Find a branch or worktree")
                                             .rounded(px(8.0))
-                                            .w_full()
+                                            .fill_width()
                                             .disabled(self.review_compare_sources.is_empty())
                                             .empty(
                                                 h_flex()
@@ -637,6 +640,8 @@ impl DiffViewer {
                                                     .text_color(cx.theme().muted_foreground)
                                                     .child("No compare sources available."),
                                             ),
+                                            cx,
+                                        ),
                                     ),
                             ),
                     )
@@ -668,12 +673,15 @@ impl DiffViewer {
                                     .border_color(picker_border)
                                     .bg(picker_surface)
                                     .child(
-                                        Select::new(&self.review_right_picker_state)
+                                        render_hunk_picker(
+                                            &self.review_right_picker_state,
+                                            HunkPickerConfig::new(
+                                                "review-right-picker",
+                                                right_label,
+                                            )
                                             .with_size(gpui_component::Size::Medium)
-                                            .placeholder(right_label)
-                                            .search_placeholder("Find a branch or worktree")
                                             .rounded(px(8.0))
-                                            .w_full()
+                                            .fill_width()
                                             .disabled(self.review_compare_sources.is_empty())
                                             .empty(
                                                 h_flex()
@@ -683,6 +691,8 @@ impl DiffViewer {
                                                     .text_color(cx.theme().muted_foreground)
                                                     .child("No compare sources available."),
                                             ),
+                                            cx,
+                                        ),
                                     ),
                             ),
                     ),

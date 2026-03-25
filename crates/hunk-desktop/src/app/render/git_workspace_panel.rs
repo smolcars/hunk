@@ -161,23 +161,25 @@ impl DiffViewer {
                             .child("Workspace Target"),
                     )
                     .child(
-                        Select::new(&self.workspace_target_picker_state)
-                            .with_size(gpui_component::Size::Medium)
-                            .placeholder(active_target_label)
-                            .search_placeholder("Find a branch or project")
-                            .rounded(px(8.0))
-                            .w_full()
-                            .bg(colors.muted_card.background)
-                            .border_color(colors.muted_card.border)
-                            .disabled(git_controls_busy || self.workspace_targets.is_empty())
-                            .empty(
-                                h_flex()
-                                    .h(px(72.0))
-                                    .justify_center()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("No workspace targets available."),
-                            ),
+                        render_hunk_picker(
+                            &self.workspace_target_picker_state,
+                            HunkPickerConfig::new("workspace-target-picker", active_target_label)
+                                .with_size(gpui_component::Size::Medium)
+                                .rounded(px(8.0))
+                                .fill_width()
+                                .background(colors.muted_card.background)
+                                .border_color(colors.muted_card.border)
+                                .disabled(git_controls_busy || self.workspace_targets.is_empty())
+                                .empty(
+                                    h_flex()
+                                        .h(px(72.0))
+                                        .justify_center()
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child("No workspace targets available."),
+                                ),
+                            cx,
+                        ),
                     ),
             )
             .child(
@@ -219,23 +221,25 @@ impl DiffViewer {
                     )),
             )
             .child(
-                Select::new(&self.branch_picker_state)
-                    .with_size(gpui_component::Size::Medium)
-                    .placeholder(active_branch_label)
-                    .search_placeholder("Find a branch")
-                    .rounded(px(8.0))
-                    .w_full()
-                    .bg(colors.muted_card.background)
-                    .border_color(colors.muted_card.border)
-                    .disabled(git_controls_busy)
-                    .empty(
-                        h_flex()
-                            .h(px(72.0))
-                            .justify_center()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("No branches match your search."),
-                    ),
+                render_hunk_picker(
+                    &self.branch_picker_state,
+                    HunkPickerConfig::new("branch-picker", active_branch_label)
+                        .with_size(gpui_component::Size::Medium)
+                        .rounded(px(8.0))
+                        .fill_width()
+                        .background(colors.muted_card.background)
+                        .border_color(colors.muted_card.border)
+                        .disabled(git_controls_busy)
+                        .empty(
+                            h_flex()
+                                .h(px(72.0))
+                                .justify_center()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("No branches match your search."),
+                        ),
+                    cx,
+                ),
             )
             .child(
                 Input::new(&self.branch_input_state)

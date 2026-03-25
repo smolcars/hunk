@@ -12,7 +12,6 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::scroll::{Scrollbar, ScrollbarShow};
-use gpui_component::select::Select;
 use gpui_component::{Icon, IconName};
 use hunk_codex::state::{ItemStatus, ThreadLifecycleStatus};
 use hunk_domain::markdown_preview::{

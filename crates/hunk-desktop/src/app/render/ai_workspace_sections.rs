@@ -749,20 +749,25 @@ impl DiffViewer {
                                         .child("Base Branch"),
                                 )
                                 .child(
-                                    Select::new(&self.ai_worktree_base_branch_picker_state)
+                                    render_hunk_picker(
+                                        &self.ai_worktree_base_branch_picker_state,
+                                        HunkPickerConfig::new(
+                                            "ai-worktree-base-branch-picker",
+                                            state.selected_worktree_base_branch.clone(),
+                                        )
                                         .with_size(gpui_component::Size::Small)
-                                        .placeholder(state.selected_worktree_base_branch.clone())
-                                        .search_placeholder("Choose a base branch")
                                         .rounded(px(8.0))
-                                        .w(px(220.0))
-                                        .bg(hunk_opacity(
+                                        .width(px(220.0))
+                                        .background(hunk_opacity(
                                             cx.theme().background,
                                             is_dark,
                                             0.82,
                                             0.98,
                                         ))
                                         .border_color(cx.theme().border)
-                                        .disabled(self.git_controls_busy() || self.branches.is_empty())
+                                        .disabled(
+                                            self.git_controls_busy() || self.branches.is_empty(),
+                                        )
                                         .empty(
                                             h_flex()
                                                 .h(px(72.0))
@@ -771,6 +776,8 @@ impl DiffViewer {
                                                 .text_color(cx.theme().muted_foreground)
                                                 .child("No branches available."),
                                         ),
+                                        cx,
+                                    ),
                                 ),
                         )
                     })

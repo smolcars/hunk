@@ -30,7 +30,6 @@ impl DiffViewer {
                 .to_string()
         };
         let chip_colors = hunk_toolbar_chip(cx.theme(), is_dark);
-        let brand_colors = hunk_toolbar_brand_chip(cx.theme(), is_dark);
         let toolbar_button_bg = hunk_dropdown_fill(cx.theme(), is_dark);
         let visible_line_stats = self.active_diff_overall_line_stats();
         let visible_file_count = if review_selected {
@@ -72,9 +71,9 @@ impl DiffViewer {
                             .px_1()
                             .py_0p5()
                             .rounded_md()
-                            .bg(brand_colors.background)
+                            .bg(chip_colors.background)
                             .border_1()
-                            .border_color(brand_colors.border)
+                            .border_color(chip_colors.border)
                             .child(if ai_selected {
                                 div()
                                     .min_w_0()
@@ -85,25 +84,26 @@ impl DiffViewer {
                                     .child(project_label)
                                     .into_any_element()
                             } else {
-                                Select::new(&self.project_picker_state)
-                                    .with_size(gpui_component::Size::Small)
-                                    .placeholder(project_label)
-                                    .search_placeholder("Find a project")
-                                    .rounded(px(8.0))
-                                    .bg(brand_colors.background)
-                                    .border_color(brand_colors.border)
-                                    .min_w(px(258.0))
-                                    .max_w(px(318.0))
-                                    .disabled(self.state.workspace_project_paths.is_empty())
-                                    .empty(
-                                        h_flex()
-                                            .h(px(72.0))
-                                            .justify_center()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("No projects in this workspace."),
-                                    )
-                                    .into_any_element()
+                                render_hunk_picker(
+                                    &self.project_picker_state,
+                                    HunkPickerConfig::new("project-picker", project_label)
+                                        .with_size(gpui_component::Size::Small)
+                                        .rounded(px(8.0))
+                                        .background(chip_colors.background)
+                                        .border_color(chip_colors.border)
+                                        .min_width(px(258.0))
+                                        .max_width(px(318.0))
+                                        .disabled(self.state.workspace_project_paths.is_empty())
+                                        .empty(
+                                            h_flex()
+                                                .h(px(72.0))
+                                                .justify_center()
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child("No projects in this workspace."),
+                                        ),
+                                    cx,
+                                )
                             }),
                     )
                     .child(

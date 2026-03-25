@@ -299,25 +299,58 @@ impl DiffViewer {
             .copied()
             .unwrap_or(true);
         let branch_picker_state = cx.new(|cx| {
-            SelectState::new(BranchPickerDelegate::default(), None, window, cx).searchable(true)
+            HunkPickerState::new(
+                BranchPickerDelegate::default(),
+                None,
+                "Find a branch",
+                window,
+                cx,
+            )
         });
         let ai_worktree_base_branch_picker_state = cx.new(|cx| {
-            SelectState::new(BranchPickerDelegate::default(), None, window, cx).searchable(true)
+            HunkPickerState::new(
+                BranchPickerDelegate::default(),
+                None,
+                "Choose a base branch",
+                window,
+                cx,
+            )
         });
         let project_picker_state = cx.new(|cx| {
-            SelectState::new(ProjectPickerDelegate::default(), None, window, cx).searchable(true)
+            HunkPickerState::new(
+                ProjectPickerDelegate::default(),
+                None,
+                "Find a project",
+                window,
+                cx,
+            )
         });
         let workspace_target_picker_state = cx.new(|cx| {
-            SelectState::new(WorkspaceTargetPickerDelegate::default(), None, window, cx)
-                .searchable(true)
+            HunkPickerState::new(
+                WorkspaceTargetPickerDelegate::default(),
+                None,
+                "Find a branch or project",
+                window,
+                cx,
+            )
         });
         let review_left_picker_state = cx.new(|cx| {
-            SelectState::new(ReviewComparePickerDelegate::default(), None, window, cx)
-                .searchable(true)
+            HunkPickerState::new(
+                ReviewComparePickerDelegate::default(),
+                None,
+                "Find a branch or worktree",
+                window,
+                cx,
+            )
         });
         let review_right_picker_state = cx.new(|cx| {
-            SelectState::new(ReviewComparePickerDelegate::default(), None, window, cx)
-                .searchable(true)
+            HunkPickerState::new(
+                ReviewComparePickerDelegate::default(),
+                None,
+                "Find a branch or worktree",
+                window,
+                cx,
+            )
         });
         let branch_input_state = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Create or activate branch")
@@ -764,6 +797,13 @@ impl DiffViewer {
             let Some(view) = weak_view.upgrade() else {
                 return;
             };
+            if let Some(action) = hunk_picker_action_for_keystroke(&event.keystroke) {
+                let handled =
+                    view.update(cx, |this, cx| this.handle_hunk_picker_keystroke(action, window, cx));
+                if handled {
+                    return;
+                }
+            }
             if let Some(action) = file_quick_open_action_for_keystroke(&event.keystroke) {
                 let handled = view.update(cx, |this, cx| {
                     this.handle_file_quick_open_keystroke(action, window, cx)
@@ -792,8 +832,8 @@ impl DiffViewer {
         let branch_picker_state = view.branch_picker_state.clone();
         cx.subscribe(
             &branch_picker_state,
-            |this, _, event: &SelectEvent<BranchPickerDelegate>, cx| {
-                let SelectEvent::Confirm(branch_name) = event;
+            |this, _, event: &HunkPickerEvent<BranchPickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(branch_name) = event;
                 let Some(branch_name) = branch_name.clone() else {
                     return;
                 };
@@ -808,8 +848,8 @@ impl DiffViewer {
         let ai_worktree_base_branch_picker_state = view.ai_worktree_base_branch_picker_state.clone();
         cx.subscribe(
             &ai_worktree_base_branch_picker_state,
-            |this, _, event: &SelectEvent<BranchPickerDelegate>, cx| {
-                let SelectEvent::Confirm(branch_name) = event;
+            |this, _, event: &HunkPickerEvent<BranchPickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(branch_name) = event;
                 let Some(branch_name) = branch_name.clone() else {
                     return;
                 };
@@ -821,8 +861,8 @@ impl DiffViewer {
         let project_picker_state = view.project_picker_state.clone();
         cx.subscribe(
             &project_picker_state,
-            |this, _, event: &SelectEvent<ProjectPickerDelegate>, cx| {
-                let SelectEvent::Confirm(project_path) = event;
+            |this, _, event: &HunkPickerEvent<ProjectPickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(project_path) = event;
                 let Some(project_path) = project_path.clone() else {
                     return;
                 };
@@ -838,8 +878,8 @@ impl DiffViewer {
         let workspace_target_picker_state = view.workspace_target_picker_state.clone();
         cx.subscribe(
             &workspace_target_picker_state,
-            |this, _, event: &SelectEvent<WorkspaceTargetPickerDelegate>, cx| {
-                let SelectEvent::Confirm(target_id) = event;
+            |this, _, event: &HunkPickerEvent<WorkspaceTargetPickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(target_id) = event;
                 let Some(target_id) = target_id.clone() else {
                     return;
                 };

@@ -1,16 +1,12 @@
 use std::path::PathBuf;
 
-use gpui::{
-    App, Context, IntoElement, ParentElement as _, SharedString, Styled as _, Task, Window, div,
-};
-use gpui_component::{
-    ActiveTheme as _, IndexPath,
-    select::{SelectDelegate, SelectItem},
-    v_flex,
-};
+use gpui::{AnyElement, App, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
+use gpui_component::{ActiveTheme as _, v_flex};
 use hunk_git::compare::{compare_branch_source_id, compare_workspace_target_source_id};
 use hunk_git::git::LocalBranch;
 use hunk_git::worktree::{WorkspaceTargetKind, WorkspaceTargetSummary};
+
+use super::hunk_picker::{HunkPickerDelegate, HunkPickerItem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ReviewCompareSourceKind {
@@ -100,7 +96,7 @@ impl ReviewComparePickerItem {
     }
 }
 
-impl SelectItem for ReviewComparePickerItem {
+impl HunkPickerItem for ReviewComparePickerItem {
     type Value = String;
 
     fn title(&self) -> SharedString {
@@ -111,7 +107,7 @@ impl SelectItem for ReviewComparePickerItem {
         &self.value
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(&self, cx: &mut App) -> AnyElement {
         v_flex()
             .w_full()
             .gap_0p5()
@@ -122,6 +118,7 @@ impl SelectItem for ReviewComparePickerItem {
                     .text_color(cx.theme().muted_foreground)
                     .child(self.detail.clone()),
             )
+            .into_any_element()
     }
 }
 
@@ -140,34 +137,28 @@ impl ReviewComparePickerDelegate {
     }
 }
 
-impl SelectDelegate for ReviewComparePickerDelegate {
+impl HunkPickerDelegate for ReviewComparePickerDelegate {
     type Item = ReviewComparePickerItem;
 
-    fn items_count(&self, _: usize) -> usize {
+    fn items_count(&self) -> usize {
         self.matched_items.len()
     }
 
-    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
-        self.matched_items.get(ix.row)
+    fn item(&self, ix: usize) -> Option<&Self::Item> {
+        self.matched_items.get(ix)
     }
 
-    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    fn position<V>(&self, value: &V) -> Option<usize>
     where
-        Self::Item: SelectItem<Value = V>,
+        Self::Item: HunkPickerItem<Value = V>,
         V: PartialEq,
     {
         self.matched_items
             .iter()
             .position(|item| item.value() == value)
-            .map(|row| IndexPath::default().row(row))
     }
 
-    fn perform_search(
-        &mut self,
-        query: &str,
-        _: &mut Window,
-        _: &mut Context<gpui_component::select::SelectState<Self>>,
-    ) -> Task<()> {
+    fn perform_search(&mut self, query: &str) {
         let query = query.trim().to_lowercase();
         if query.is_empty() {
             self.matched_items = self.items.clone();
@@ -179,7 +170,6 @@ impl SelectDelegate for ReviewComparePickerDelegate {
                 .cloned()
                 .collect();
         }
-        Task::ready(())
     }
 }
 

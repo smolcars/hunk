@@ -1,4 +1,32 @@
 #[allow(dead_code)]
+mod hunk_picker {
+    use gpui::{AnyElement, App, SharedString};
+
+    pub(crate) trait HunkPickerItem: Clone {
+        type Value: Clone + PartialEq;
+
+        fn title(&self) -> SharedString;
+        fn value(&self) -> &Self::Value;
+        fn display_title(&self) -> Option<AnyElement> {
+            None
+        }
+        fn render(&self, cx: &mut App) -> AnyElement;
+    }
+
+    pub(crate) trait HunkPickerDelegate: Clone + Default + 'static {
+        type Item: HunkPickerItem;
+
+        fn items_count(&self) -> usize;
+        fn item(&self, ix: usize) -> Option<&Self::Item>;
+        fn position<V>(&self, value: &V) -> Option<usize>
+        where
+            Self::Item: HunkPickerItem<Value = V>,
+            V: PartialEq;
+        fn perform_search(&mut self, query: &str);
+    }
+}
+
+#[allow(dead_code)]
 #[path = "../src/app/branch_picker.rs"]
 mod branch_picker;
 #[allow(dead_code)]

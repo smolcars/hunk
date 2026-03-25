@@ -139,13 +139,13 @@ impl DiffViewer {
     }
 
     fn set_index_picker_state<D>(
-        picker_state: &Entity<SelectState<D>>,
+        picker_state: &Entity<HunkPickerState<D>>,
         delegate: D,
-        selected_index: Option<gpui_component::IndexPath>,
+        selected_index: Option<usize>,
         window: &mut Window,
         cx: &mut App,
     ) where
-        D: gpui_component::select::SelectDelegate + Clone + 'static,
+        D: crate::app::hunk_picker::HunkPickerDelegate,
     {
         picker_state.update(cx, |state, cx| {
             state.set_items(delegate, window, cx);
@@ -154,13 +154,13 @@ impl DiffViewer {
     }
 
     fn sync_index_picker_state<D>(
-        picker_state: Entity<SelectState<D>>,
+        picker_state: Entity<HunkPickerState<D>>,
         delegate: D,
-        selected_index: Option<gpui_component::IndexPath>,
+        selected_index: Option<usize>,
         error_context: &'static str,
         cx: &mut Context<Self>,
     ) where
-        D: gpui_component::select::SelectDelegate + Clone + 'static,
+        D: crate::app::hunk_picker::HunkPickerDelegate,
     {
         if let Err(err) = Self::update_any_window(cx, move |window, cx| {
             Self::set_index_picker_state(
@@ -173,6 +173,41 @@ impl DiffViewer {
         }) {
             error!("{error_context}: {err:#}");
         }
+    }
+
+    fn apply_picker_action<D>(
+        picker_state: &Entity<HunkPickerState<D>>,
+        action: HunkPickerAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool
+    where
+        D: crate::app::hunk_picker::HunkPickerDelegate,
+    {
+        if !picker_state.read(cx).is_open() {
+            return false;
+        }
+
+        picker_state.update(cx, |state, cx| state.apply_action(action, window, cx))
+    }
+
+    pub(super) fn handle_hunk_picker_keystroke(
+        &mut self,
+        action: HunkPickerAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        Self::apply_picker_action(&self.project_picker_state, action, window, cx)
+            || Self::apply_picker_action(&self.workspace_target_picker_state, action, window, cx)
+            || Self::apply_picker_action(&self.branch_picker_state, action, window, cx)
+            || Self::apply_picker_action(
+                &self.ai_worktree_base_branch_picker_state,
+                action,
+                window,
+                cx,
+            )
+            || Self::apply_picker_action(&self.review_left_picker_state, action, window, cx)
+            || Self::apply_picker_action(&self.review_right_picker_state, action, window, cx)
     }
 
     fn workspace_catalog_source_root(&self) -> Option<PathBuf> {

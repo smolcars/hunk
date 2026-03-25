@@ -1,21 +1,18 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    App, Context, IntoElement, ParentElement as _, SharedString, Styled as _, Task, Window, div,
+    AnyElement, App, IntoElement as _, ParentElement as _, SharedString, Styled as _, div,
     prelude::FluentBuilder as _,
 };
-use gpui_component::{
-    ActiveTheme as _, IndexPath, StyledExt as _, h_flex,
-    select::{SelectDelegate, SelectItem},
-    v_flex,
-};
+use gpui_component::{ActiveTheme as _, StyledExt as _, h_flex, v_flex};
+
+use super::hunk_picker::{HunkPickerDelegate, HunkPickerItem};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectPickerItem {
     title: SharedString,
     value: String,
     normalized_search_text: String,
-    detail: SharedString,
     is_active: bool,
 }
 
@@ -29,13 +26,12 @@ impl ProjectPickerItem {
             title: SharedString::from(title),
             value: project_path.to_string_lossy().to_string(),
             normalized_search_text: search_text.to_lowercase(),
-            detail: SharedString::from(detail),
             is_active: active_project_path == Some(project_path),
         }
     }
 }
 
-impl SelectItem for ProjectPickerItem {
+impl HunkPickerItem for ProjectPickerItem {
     type Value = String;
 
     fn title(&self) -> SharedString {
@@ -46,9 +42,8 @@ impl SelectItem for ProjectPickerItem {
         &self.value
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let detail_color = cx.theme().muted_foreground;
-        let active_color = cx.theme().accent;
+    fn render(&self, cx: &mut App) -> AnyElement {
+        let active_color = cx.theme().foreground;
 
         h_flex()
             .w_full()
@@ -58,16 +53,7 @@ impl SelectItem for ProjectPickerItem {
             .child(
                 v_flex()
                     .min_w_0()
-                    .gap_0p5()
-                    .child(div().truncate().child(self.title.clone()))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(detail_color)
-                            .child(self.detail.clone()),
-                    ),
+                    .child(div().truncate().child(self.title.clone())),
             )
             .when(self.is_active, |this| {
                 this.child(
@@ -78,6 +64,7 @@ impl SelectItem for ProjectPickerItem {
                         .child("Active"),
                 )
             })
+            .into_any_element()
     }
 }
 
@@ -96,34 +83,28 @@ impl ProjectPickerDelegate {
     }
 }
 
-impl SelectDelegate for ProjectPickerDelegate {
+impl HunkPickerDelegate for ProjectPickerDelegate {
     type Item = ProjectPickerItem;
 
-    fn items_count(&self, _: usize) -> usize {
+    fn items_count(&self) -> usize {
         self.matched_items.len()
     }
 
-    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
-        self.matched_items.get(ix.row)
+    fn item(&self, ix: usize) -> Option<&Self::Item> {
+        self.matched_items.get(ix)
     }
 
-    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    fn position<V>(&self, value: &V) -> Option<usize>
     where
-        Self::Item: SelectItem<Value = V>,
+        Self::Item: HunkPickerItem<Value = V>,
         V: PartialEq,
     {
         self.matched_items
             .iter()
             .position(|item| item.value() == value)
-            .map(|row| IndexPath::default().row(row))
     }
 
-    fn perform_search(
-        &mut self,
-        query: &str,
-        _: &mut Window,
-        _: &mut Context<gpui_component::select::SelectState<Self>>,
-    ) -> Task<()> {
+    fn perform_search(&mut self, query: &str) {
         let query = query.trim().to_lowercase();
         self.matched_items = if query.is_empty() {
             self.items.clone()
@@ -134,7 +115,6 @@ impl SelectDelegate for ProjectPickerDelegate {
                 .cloned()
                 .collect()
         };
-        Task::ready(())
     }
 }
 
@@ -154,12 +134,11 @@ pub(crate) fn build_project_picker_delegate(
 pub(crate) fn project_picker_selected_index(
     project_paths: &[PathBuf],
     active_project_path: Option<&Path>,
-) -> Option<IndexPath> {
+) -> Option<usize> {
     active_project_path.and_then(|active_project_path| {
         project_paths
             .iter()
             .position(|project_path| project_path.as_path() == active_project_path)
-            .map(|row| IndexPath::default().row(row))
     })
 }
 

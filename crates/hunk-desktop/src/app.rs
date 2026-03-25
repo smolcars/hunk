@@ -27,12 +27,12 @@ use gpui_component::{
     menu::AppMenuBar,
     resizable::{h_resizable, resizable_panel},
     scroll::ScrollableElement,
-    select::{SelectEvent, SelectState},
     v_flex,
 };
 use tracing::error;
 
 mod hunk_assets;
+mod hunk_picker;
 
 use hunk_assets::HunkAssets;
 pub(crate) use hunk_assets::HunkIconName;
@@ -94,6 +94,10 @@ use branch_picker::{
 use data::{
     DiffRowSegmentCache, DiffStreamRowMeta, FileRowRange, RepoTreeNode, RepoTreeNodeKind,
     RepoTreeRow, WorkspaceSwitchAction, WorkspaceViewMode,
+};
+use hunk_picker::{
+    HunkPickerAction, HunkPickerConfig, HunkPickerEvent, HunkPickerState,
+    hunk_picker_action_for_keystroke, render_hunk_picker,
 };
 use project_picker::{
     ProjectPickerDelegate, build_project_picker_delegate, project_picker_selected_index,
@@ -1223,7 +1227,7 @@ struct DiffViewer {
     ai_composer_skill_completion_selected_ix: usize,
     ai_composer_skill_completion_dismissed_token: Option<ActivePrefixedToken>,
     ai_composer_skill_completion_scroll_handle: ScrollHandle,
-    ai_worktree_base_branch_picker_state: Entity<SelectState<BranchPickerDelegate>>,
+    ai_worktree_base_branch_picker_state: Entity<HunkPickerState<BranchPickerDelegate>>,
     ai_composer_input_state: Entity<InputState>,
     ai_review_mode_active: bool,
     ai_review_mode_thread_ids: BTreeSet<String>,
@@ -1234,11 +1238,11 @@ struct DiffViewer {
     ai_composer_status_generation_by_key: BTreeMap<AiComposerStatusKey, usize>,
     files: Vec<ChangedFile>,
     file_status_by_path: BTreeMap<String, FileStatus>,
-    project_picker_state: Entity<SelectState<ProjectPickerDelegate>>,
-    workspace_target_picker_state: Entity<SelectState<WorkspaceTargetPickerDelegate>>,
-    review_left_picker_state: Entity<SelectState<ReviewComparePickerDelegate>>,
-    review_right_picker_state: Entity<SelectState<ReviewComparePickerDelegate>>,
-    branch_picker_state: Entity<SelectState<BranchPickerDelegate>>,
+    project_picker_state: Entity<HunkPickerState<ProjectPickerDelegate>>,
+    workspace_target_picker_state: Entity<HunkPickerState<WorkspaceTargetPickerDelegate>>,
+    review_left_picker_state: Entity<HunkPickerState<ReviewComparePickerDelegate>>,
+    review_right_picker_state: Entity<HunkPickerState<ReviewComparePickerDelegate>>,
+    branch_picker_state: Entity<HunkPickerState<BranchPickerDelegate>>,
     branch_input_state: Entity<InputState>,
     branch_input_has_text: bool,
     commit_input_state: Entity<InputState>,
