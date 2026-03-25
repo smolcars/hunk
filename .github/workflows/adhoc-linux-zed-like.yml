@@ -28,7 +28,7 @@ env:
 jobs:
   linux:
     name: Linux x86_64 Zed-like Bundles
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     env:
       REQUESTED_FORMATS: ${{ inputs.formats }}
