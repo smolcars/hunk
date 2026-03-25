@@ -561,8 +561,8 @@ fn ai_tool_detail_section(
     mono: bool,
     max_height: Option<gpui::Pixels>,
     scroll_x: bool,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let surface_id = surface_id.into();
     let scroll_region_id = format!("{surface_id}-scroll");
@@ -577,8 +577,8 @@ fn ai_tool_detail_section(
         .min_w_0()
         .rounded(px(8.0))
         .border_1()
-        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.85, 0.68))
-        .bg(hunk_blend(cx.theme().background, cx.theme().muted, is_dark, 0.10, 0.14))
+        .border_color(hunk_opacity(theme.border, is_dark, 0.85, 0.68))
+        .bg(hunk_blend(theme.background, theme.muted, is_dark, 0.10, 0.14))
         .overflow_hidden()
         .px_2()
         .py_1p5();
@@ -589,10 +589,10 @@ fn ai_tool_detail_section(
         .min_w_full()
         .min_w_0()
         .text_xs()
-        .text_color(cx.theme().muted_foreground)
+        .text_color(theme.muted_foreground)
         .whitespace_normal();
     if mono {
-        text = text.font_family(cx.theme().mono_font_family.clone());
+        text = text.font_family(theme.mono_font_family.clone());
     }
     if scroll_x {
         text = text.whitespace_nowrap();
@@ -611,7 +611,7 @@ fn ai_tool_detail_section(
                     selection_surfaces,
                     ai_text_link_ranges(Vec::new()),
                     StyledText::new(content),
-                    hunk_text_selection_background(cx.theme(), is_dark),
+                    hunk_text_selection_background(theme, is_dark),
                 )),
     );
 
@@ -685,7 +685,7 @@ fn ai_tool_detail_section(
                 .min_w_0()
                 .text_xs()
                 .font_semibold()
-                .text_color(cx.theme().muted_foreground)
+                .text_color(theme.muted_foreground)
                 .whitespace_nowrap()
                 .child(title.to_string()),
         )
@@ -701,15 +701,15 @@ const AI_COMMAND_EXECUTION_MONO_CHAR_WIDTH: f32 = 8.0;
 
 fn ai_command_execution_status_color(
     details: &AiCommandExecutionDisplayDetails,
-    cx: &mut Context<DiffViewer>,
+    theme: &gpui_component::Theme,
 ) -> Hsla {
     match details.exit_code {
-        Some(0) => cx.theme().success,
-        Some(_) => cx.theme().danger,
+        Some(0) => theme.success,
+        Some(_) => theme.danger,
         None => match details.status.as_str() {
-            "completed" => cx.theme().success,
-            "started" | "running" | "streaming" => cx.theme().accent,
-            _ => cx.theme().muted_foreground,
+            "completed" => theme.success,
+            "started" | "running" | "streaming" => theme.accent,
+            _ => theme.muted_foreground,
         },
     }
 }
@@ -799,8 +799,8 @@ fn render_ai_command_execution_details(
     row_id: &str,
     details: &AiCommandExecutionDisplayDetails,
     output: &str,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let terminal_surface_id = ai_timeline_text_surface_id(row_id, "tool-terminal", 0);
     let (preview_text, _truncated) = ai_command_execution_terminal_text(
@@ -815,7 +815,7 @@ fn render_ai_command_execution_details(
     )]);
     let rerun_button_id = format!("ai-rerun-command-exec-{}", row_id.replace('\u{1f}', "--"));
     let copy_button_id = format!("ai-copy-command-exec-{}", row_id.replace('\u{1f}', "--"));
-    let status_color = ai_command_execution_status_color(details, cx);
+    let status_color = ai_command_execution_status_color(details, theme);
     let status_text = details.status.replace('_', " ");
     let transcript_width = ai_command_execution_transcript_width(preview_text.as_str());
     let command_to_rerun = details.command.trim().to_string();
@@ -827,10 +827,10 @@ fn render_ai_command_execution_details(
         .max_w(px(AI_COMMAND_EXECUTION_CARD_MAX_WIDTH))
         .rounded(px(10.0))
         .border_1()
-        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.88, 0.72))
+        .border_color(hunk_opacity(theme.border, is_dark, 0.88, 0.72))
         .bg(hunk_blend(
-            cx.theme().background,
-            cx.theme().secondary,
+            theme.background,
+            theme.secondary,
             is_dark,
             0.24,
             0.16,
@@ -880,7 +880,7 @@ fn render_ai_command_execution_details(
                                         .compact()
                                         .rounded(px(7.0))
                                         .icon(Icon::new(IconName::SquareTerminal).size(px(13.0)))
-                                        .text_color(cx.theme().muted_foreground)
+                                        .text_color(theme.muted_foreground)
                                         .min_w(px(22.0))
                                         .h(px(20.0))
                                         .tooltip("Run in terminal")
@@ -903,7 +903,7 @@ fn render_ai_command_execution_details(
                                         .compact()
                                         .rounded(px(7.0))
                                         .icon(Icon::new(IconName::Copy).size(px(12.0)))
-                                        .text_color(cx.theme().muted_foreground)
+                                        .text_color(theme.muted_foreground)
                                         .min_w(px(22.0))
                                         .h(px(20.0))
                                         .tooltip("Copy command transcript")
@@ -929,10 +929,10 @@ fn render_ai_command_execution_details(
                         .min_w_0()
                         .rounded(px(8.0))
                         .border_1()
-                        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.82, 0.66))
+                        .border_color(hunk_opacity(theme.border, is_dark, 0.82, 0.66))
                         .bg(hunk_blend(
-                            cx.theme().background,
-                            cx.theme().secondary,
+                            theme.background,
+                            theme.secondary,
                             is_dark,
                             0.38,
                             0.24,
@@ -950,8 +950,8 @@ fn render_ai_command_execution_details(
                                         .w(transcript_width)
                                         .min_w(transcript_width)
                                         .text_xs()
-                                        .font_family(cx.theme().mono_font_family.clone())
-                                        .text_color(cx.theme().foreground)
+                                        .font_family(theme.mono_font_family.clone())
+                                        .text_color(theme.foreground)
                                         .child(ai_render_selectable_styled_text(
                                             this,
                                             view,
@@ -960,7 +960,7 @@ fn render_ai_command_execution_details(
                                             selection_surfaces,
                                             ai_text_link_ranges(Vec::new()),
                                             StyledText::new(preview_text),
-                                            hunk_text_selection_background(cx.theme(), is_dark),
+                                            hunk_text_selection_background(theme, is_dark),
                                         )),
                                 ),
                         ),
@@ -977,7 +977,6 @@ fn render_ai_compact_diff_summary_row(
     theme: &gpui_component::Theme,
     nested: bool,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     const AI_TURN_DIFF_VISIBLE_FILE_LIMIT: usize = 4;
 
@@ -1020,7 +1019,7 @@ fn render_ai_compact_diff_summary_row(
                                 .truncate()
                                 .text_sm()
                                 .font_semibold()
-                                .text_color(cx.theme().accent)
+                                .text_color(theme.accent)
                                 .child(file_name),
                         )
                         .when_some(directory, |this, directory| {
@@ -1040,7 +1039,7 @@ fn render_ai_compact_diff_summary_row(
                         .flex_none()
                         .items_center()
                         .gap_1p5()
-                        .font_family(cx.theme().mono_font_family.clone())
+                        .font_family(theme.mono_font_family.clone())
                         .text_xs()
                         .child(
                             div()
@@ -1117,14 +1116,14 @@ fn render_ai_compact_diff_summary_row(
                                         .child(
                                             div()
                                                 .text_xs()
-                                                .font_family(cx.theme().mono_font_family.clone())
+                                                .font_family(theme.mono_font_family.clone())
                                                 .text_color(line_stats_colors.added)
                                                 .child(format!("+{}", summary.total_added)),
                                         )
                                         .child(
                                             div()
                                                 .text_xs()
-                                                .font_family(cx.theme().mono_font_family.clone())
+                                                .font_family(theme.mono_font_family.clone())
                                                 .text_color(line_stats_colors.removed)
                                                 .child(format!("-{}", summary.total_removed)),
                                         ),
@@ -1185,20 +1184,18 @@ fn render_ai_turn_diff_row(
     view: Entity<DiffViewer>,
     row: &AiTimelineRow,
     diff_text: &str,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let summary = ai_turn_diff_summary(diff_text);
-    let theme = cx.theme().clone();
     render_ai_compact_diff_summary_row(
         this,
         view,
         row.id.as_str(),
         &summary,
-        &theme,
+        theme,
         false,
         is_dark,
-        cx,
     )
 }
 
@@ -1206,10 +1203,9 @@ fn render_ai_chat_timeline_row_for_view(
     this: &DiffViewer,
     row_id: &str,
     view: Entity<DiffViewer>,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
-    let theme = cx.theme().clone();
     let started_at = std::time::Instant::now();
     if let Some(pending) = this.ai_pending_steer_for_row_id(row_id) {
         let element = render_ai_pending_steer(&pending, is_dark, &theme);
@@ -1334,7 +1330,7 @@ fn render_ai_chat_timeline_row_for_view(
                                         view.clone(),
                                         row.id.as_str(),
                                         bubble_text,
-                                        &theme,
+                                        theme,
                                         is_dark,
                                     ))
                                 }),
@@ -1358,10 +1354,9 @@ fn render_ai_chat_timeline_row_for_view(
                         view,
                         row.id.as_str(),
                         item,
-                        &theme,
+                        theme,
                         is_dark,
                         false,
-                        cx,
                         ),
                         "tool",
                         false,
@@ -1376,7 +1371,7 @@ fn render_ai_chat_timeline_row_for_view(
                 return element;
             };
             (
-                render_ai_timeline_group_row(this, view, row, group, &theme, is_dark, cx),
+                render_ai_timeline_group_row(this, view, row, group, theme, is_dark),
                 "group",
                 false,
             )
@@ -1394,7 +1389,7 @@ fn render_ai_chat_timeline_row_for_view(
                 return element;
             }
             (
-                render_ai_turn_diff_row(this, view, row, diff_text, is_dark, cx),
+                render_ai_turn_diff_row(this, view, row, diff_text, theme, is_dark),
                 "diff",
                 false,
             )

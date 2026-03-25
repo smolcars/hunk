@@ -965,8 +965,9 @@ impl DiffViewer {
         let timeline_row_ids_for_list = state.timeline_visible_row_ids.clone();
         let timeline_list_state = state.ai_timeline_list_state.clone();
         let view_for_list = view.clone();
+        let theme_for_list = cx.theme().clone();
         let timeline_list = list(timeline_list_state.clone(), {
-            cx.processor(move |this, ix: usize, _window, cx| {
+            cx.processor(move |this, ix: usize, _window, _cx| {
                 let Some(row_id) = timeline_row_ids_for_list.get(ix) else {
                     return div().w_full().h(px(0.0)).into_any_element();
                 };
@@ -974,8 +975,8 @@ impl DiffViewer {
                     this,
                     row_id.as_str(),
                     view_for_list.clone(),
+                    &theme_for_list,
                     is_dark,
-                    cx,
                 )
             })
         })

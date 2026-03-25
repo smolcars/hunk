@@ -20,7 +20,6 @@ fn render_ai_tool_item_row(
     theme: &gpui_component::Theme,
     is_dark: bool,
     nested: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     if item.kind == "fileChange" && let Some(summary) = ai_file_change_summary(item) {
         return render_ai_compact_diff_summary_row(
@@ -31,7 +30,6 @@ fn render_ai_tool_item_row(
             theme,
             nested,
             is_dark,
-            cx,
         );
     }
 
@@ -149,8 +147,8 @@ fn render_ai_tool_item_row(
                 row_id,
                 details,
                 raw_content_text.trim_end(),
+                theme,
                 is_dark,
-                cx,
             )
         })
         .unwrap_or_else(|| {
@@ -170,8 +168,8 @@ fn render_ai_tool_item_row(
                 true,
                 Some(px(240.0)),
                 false,
+                theme,
                 is_dark,
-                cx,
             )
         });
 
@@ -218,7 +216,6 @@ fn render_ai_timeline_group_row(
     group: &AiTimelineGroup,
     theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     if group.kind == "file_change_batch"
         && let Some(summary) = ai_file_change_group_summary(this, group)
@@ -231,7 +228,6 @@ fn render_ai_timeline_group_row(
             theme,
             false,
             is_dark,
-            cx,
         );
     }
 
@@ -257,7 +253,6 @@ fn render_ai_timeline_group_row(
                 theme,
                 is_dark,
                 true,
-                cx,
             ))
         })
         .collect::<Vec<_>>();
