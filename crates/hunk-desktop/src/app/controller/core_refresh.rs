@@ -50,9 +50,13 @@ impl DiffViewer {
                 .on_ok({
                     let view = view.clone();
                     let project_path = project_path.clone();
-                    move |_, _, cx| {
+                    move |_, window, cx| {
                         view.update(cx, |this, cx| {
-                            this.remove_workspace_project_by_path(project_path.as_path(), cx);
+                            this.remove_workspace_project_by_path(
+                                project_path.as_path(),
+                                window,
+                                cx,
+                            );
                         });
                         true
                     }
@@ -63,6 +67,7 @@ impl DiffViewer {
     fn remove_workspace_project_by_path(
         &mut self,
         project_path: &std::path::Path,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let removed_project_name =
@@ -90,10 +95,10 @@ impl DiffViewer {
             } else {
                 self.reset_to_empty_workspace_state(false, cx);
             }
-        } else {
-            self.sync_project_picker_state(cx);
         }
 
+        self.discard_workspace_project_state(project_path);
+        self.update_project_picker_state(window, cx);
         self.remove_ai_workspace_states_for_project(project_path, cx);
         self.rebuild_ai_thread_sidebar_state();
         self.invalidate_ai_visible_frame_state();
