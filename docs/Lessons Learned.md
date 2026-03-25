@@ -22,3 +22,16 @@
   Fix: First decouple helper functions from root-view context requirements, then extract child entities in smaller cuts to avoid blank or partially wired surfaces.
 - Refactor discipline: Large architectural changes plus performance work can create avoidable churn if they are done in one pass without enough observability.
   Fix: Stage the work in this order: stabilize product semantics, instrument, cache the visible state, then extract child entities only where the measurements justify it.
+
+## Windows AI Chat Perf Investigation
+
+- Scope: This handoff is specifically for the Windows regression in the multi-project AI chat view, including the chat timeline, thread sidebar, and AI shell chrome. The current findings below should not be treated as confirmed macOS or Linux root causes, even though the same instrumentation may still be useful there.
+  Fix: Keep the current diagnosis framed as Windows-first until the same counters are compared on other platforms.
+- AI chat markdown hotspot: The first catastrophic stall we saw in the Windows multi-project AI chat view was not `comrak` itself. The slow row logs showed `doc_ms` near zero and `code_ms` dominating, which meant the first-use syntax-highlighting path for fenced code blocks was warming up on the UI thread.
+  Fix: Prewarm preview highlighting during startup and keep the markdown logs split into `doc_ms`, `xform_ms`, and `code_ms` so we can tell parser cost apart from code-highlighting cost.
+- AI chat shell hotspot: After the markdown warmup fix, the sustained Windows slowdown was no longer in the chat timeline, markdown renderer, or project-grouped thread sidebar. The `ai_perf` samples showed `app` around 21-26ms, `tb` around 15-19ms, and then the toolbar split showed `tbp` matching `tb` while `tbl`, `tbr`, and `foot` stayed near zero.
+  Fix: Treat the remaining Windows regression as toolbar prep and AI-shell data-resolution work, not as row rendering. The next optimization pass should target the helper calls that prepare AI toolbar state, or cache that toolbar state so scroll-driven root renders do not keep recomputing it.
+- AI perf logging workflow: For this Windows regression, logs were more useful than UI counters because they let us compare per-phase timing during real scrolling without adding more UI churn.
+  Fix: Run `just start-windows *>&1 | Tee-Object -FilePath ai-perf.log`, reproduce the slow AI chat thread, then inspect with `Select-String -Path ai-perf.log -Pattern "ai_perf|ai_perf_md_slow|foreground task timeout|prewarmed preview highlighting"`.
+- AI perf log interpretation: The current instrumentation already tells us how to branch the investigation. `md_*` isolates markdown parse/highlight cost, `side*` isolates the project-grouped thread sidebar, `vf/idx/cmp` isolates cached visible AI state rebuilds, and `app/tb/tbp/tbl/tbr/foot/root` isolates the top-level AI shell from the actual chat body.
+  Fix: If `tbp` dominates, instrument or cache toolbar prep helpers next. If `md_code` spikes, revisit preview-highlighter warmup or fenced-code handling. If `vf` or `idx` spikes, look at visible-frame invalidations and timeline index rebuild triggers before touching row rendering again.
