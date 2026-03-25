@@ -213,8 +213,8 @@ fn ai_render_chat_markdown_message(
     view: Entity<DiffViewer>,
     row_id: &str,
     markdown: &str,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let parse_started_at = std::time::Instant::now();
     let blocks = hunk_domain::markdown_preview::parse_markdown_preview(markdown);
@@ -240,8 +240,8 @@ fn ai_render_chat_markdown_message(
                 block_ix,
                 block,
                 selection_surfaces.clone(),
+                theme,
                 is_dark,
-                cx,
             )
         }))
         .into_any_element()
@@ -255,8 +255,8 @@ fn ai_render_chat_markdown_block(
     block_ix: usize,
     block: &MarkdownPreviewBlock,
     selection_surfaces: Arc<[AiTextSelectionSurfaceSpec]>,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     match block {
         MarkdownPreviewBlock::Heading { level, spans } => ai_render_chat_inline_spans(
@@ -268,9 +268,9 @@ fn ai_render_chat_markdown_block(
             spans,
             matches!(level, 1 | 2),
             true,
-            cx.theme().foreground,
+            theme.foreground,
+            theme,
             is_dark,
-            cx,
         ),
         MarkdownPreviewBlock::Paragraph(spans) => ai_render_chat_inline_spans(
             this,
@@ -281,9 +281,9 @@ fn ai_render_chat_markdown_block(
             spans,
             false,
             false,
-            cx.theme().foreground,
+            theme.foreground,
+            theme,
             is_dark,
-            cx,
         ),
         MarkdownPreviewBlock::UnorderedListItem(spans) => h_flex()
             .w_full()
@@ -293,7 +293,7 @@ fn ai_render_chat_markdown_block(
             .child(
                 div()
                     .text_sm()
-                    .text_color(cx.theme().muted_foreground)
+                    .text_color(theme.muted_foreground)
                     .child("-"),
             )
             .child(
@@ -306,9 +306,9 @@ fn ai_render_chat_markdown_block(
                     spans,
                     false,
                     false,
-                    cx.theme().foreground,
+                    theme.foreground,
+                    theme,
                     is_dark,
-                    cx,
                 )),
             )
             .into_any_element(),
@@ -320,7 +320,7 @@ fn ai_render_chat_markdown_block(
             .child(
                 div()
                     .text_sm()
-                    .text_color(cx.theme().muted_foreground)
+                    .text_color(theme.muted_foreground)
                     .child(format!("{number}.")),
             )
             .child(
@@ -333,9 +333,9 @@ fn ai_render_chat_markdown_block(
                     spans,
                     false,
                     false,
-                    cx.theme().foreground,
+                    theme.foreground,
+                    theme,
                     is_dark,
-                    cx,
                 )),
             )
             .into_any_element(),
@@ -347,7 +347,7 @@ fn ai_render_chat_markdown_block(
             .child(
                 div()
                     .text_sm()
-                    .text_color(cx.theme().muted_foreground)
+                    .text_color(theme.muted_foreground)
                     .child("|"),
             )
             .child(
@@ -360,9 +360,9 @@ fn ai_render_chat_markdown_block(
                     spans,
                     false,
                     false,
-                    cx.theme().muted_foreground,
+                    theme.muted_foreground,
+                    theme,
                     is_dark,
-                    cx,
                 )),
             )
             .into_any_element(),
@@ -374,9 +374,9 @@ fn ai_render_chat_markdown_block(
                 row_id.replace('\u{1f}', "--")
             );
             let code_text = ai_markdown_code_block_text(lines);
-            let default_color = cx.theme().foreground;
+            let default_color = theme.foreground;
             let (text, highlights) =
-                ai_markdown_code_block_text_and_highlights(lines, cx.theme(), default_color);
+                ai_markdown_code_block_text_and_highlights(lines, theme, default_color);
             let styled_text = if highlights.is_empty() {
                 StyledText::new(text.clone())
             } else {
@@ -401,8 +401,8 @@ fn ai_render_chat_markdown_block(
                                 .whitespace_nowrap()
                                 .truncate()
                                 .text_xs()
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .text_color(cx.theme().muted_foreground)
+                                .font_family(theme.mono_font_family.clone())
+                                .text_color(theme.muted_foreground)
                                 .child(language_label),
                         )
                         .child(
@@ -412,7 +412,7 @@ fn ai_render_chat_markdown_block(
                                 .compact()
                                 .rounded(px(7.0))
                                 .icon(Icon::new(IconName::Copy).size(px(12.0)))
-                                .text_color(cx.theme().muted_foreground)
+                                .text_color(theme.muted_foreground)
                                 .min_w(px(22.0))
                                 .h(px(20.0))
                                 .tooltip("Copy code block")
@@ -437,8 +437,8 @@ fn ai_render_chat_markdown_block(
                         .min_w_0()
                         .rounded(px(6.0))
                         .border_1()
-                        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.88, 0.74))
-                        .bg(hunk_opacity(cx.theme().secondary, is_dark, 0.30, 0.44))
+                        .border_color(hunk_opacity(theme.border, is_dark, 0.88, 0.74))
+                        .bg(hunk_opacity(theme.secondary, is_dark, 0.30, 0.44))
                         .p_2()
                         .child(
                             div()
@@ -450,7 +450,7 @@ fn ai_render_chat_markdown_block(
                                         .w_full()
                                         .min_w_0()
                                         .text_xs()
-                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .font_family(theme.mono_font_family.clone())
                                         .whitespace_normal()
                                         .child(
                                             div().w_full().min_w_0().child(
@@ -462,8 +462,7 @@ fn ai_render_chat_markdown_block(
                                                     selection_surfaces.clone(),
                                                     ai_text_link_ranges(Vec::new()),
                                                     styled_text,
-                                                    is_dark,
-                                                    cx,
+                                                    hunk_text_selection_background(theme, is_dark),
                                                 ),
                                             ),
                                         ),
@@ -475,7 +474,7 @@ fn ai_render_chat_markdown_block(
         MarkdownPreviewBlock::ThematicBreak => div()
             .h(px(1.0))
             .w_full()
-            .bg(hunk_opacity(cx.theme().border, is_dark, 0.8, 0.95))
+            .bg(hunk_opacity(theme.border, is_dark, 0.8, 0.95))
             .into_any_element(),
     }
 }
@@ -491,13 +490,13 @@ struct AiMarkdownInlineRenderData {
 fn ai_chat_markdown_text_and_highlights(
     spans: &[MarkdownInlineSpan],
     base_color: Hsla,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AiMarkdownInlineRenderData {
     let (text, link_ranges) = markdown_inline_text_and_link_ranges(spans);
     let mut highlights = Vec::new();
-    let link_color = cx.theme().primary;
-    let code_background = hunk_opacity(cx.theme().secondary, is_dark, 0.30, 0.42);
+    let link_color = theme.primary;
+    let code_background = hunk_opacity(theme.secondary, is_dark, 0.30, 0.42);
     let mut cursor = 0;
 
     for span in spans {
@@ -566,14 +565,14 @@ fn ai_render_chat_inline_spans(
     large: bool,
     emphasized: bool,
     base_color: Hsla,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let AiMarkdownInlineRenderData {
         text,
         highlights,
         link_ranges,
-    } = ai_chat_markdown_text_and_highlights(spans, base_color, is_dark, cx);
+    } = ai_chat_markdown_text_and_highlights(spans, base_color, theme, is_dark);
     if text.is_empty() {
         return div().w_full().text_sm().child("").into_any_element();
     }
@@ -596,8 +595,7 @@ fn ai_render_chat_inline_spans(
             selection_surfaces,
             ai_text_link_ranges(link_ranges),
             styled_text,
-            is_dark,
-            cx,
+            hunk_text_selection_background(theme, is_dark),
         ));
 
     if large {

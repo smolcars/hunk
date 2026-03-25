@@ -603,17 +603,16 @@ fn ai_tool_detail_section(
             .max_w_full()
             .min_w_full()
             .min_w_0()
-            .child(ai_render_selectable_styled_text(
-                this,
-                view,
-                row_id,
-                surface_id,
-                selection_surfaces,
-                ai_text_link_ranges(Vec::new()),
-                StyledText::new(content),
-                is_dark,
-                cx,
-            )),
+                .child(ai_render_selectable_styled_text(
+                    this,
+                    view,
+                    row_id,
+                    surface_id,
+                    selection_surfaces,
+                    ai_text_link_ranges(Vec::new()),
+                    StyledText::new(content),
+                    hunk_text_selection_background(cx.theme(), is_dark),
+                )),
     );
 
     let content = match (max_height, scroll_x, needs_vertical_scroll) {
@@ -961,8 +960,7 @@ fn render_ai_command_execution_details(
                                             selection_surfaces,
                                             ai_text_link_ranges(Vec::new()),
                                             StyledText::new(preview_text),
-                                            is_dark,
-                                            cx,
+                                            hunk_text_selection_background(cx.theme(), is_dark),
                                         )),
                                 ),
                         ),
@@ -976,14 +974,15 @@ fn render_ai_compact_diff_summary_row(
     view: Entity<DiffViewer>,
     row_id: &str,
     summary: &AiTurnDiffSummary,
+    theme: &gpui_component::Theme,
     nested: bool,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     const AI_TURN_DIFF_VISIBLE_FILE_LIMIT: usize = 4;
 
-    let disclosure_colors = hunk_disclosure_row(cx.theme(), is_dark);
-    let line_stats_colors = hunk_line_stats(cx.theme(), is_dark);
+    let disclosure_colors = hunk_disclosure_row(theme, is_dark);
+    let line_stats_colors = hunk_line_stats(theme, is_dark);
     let row_id_string = row_id.to_string();
     let file_count_label = if summary.files.len() == 1 {
         "1 file changed".to_string()
@@ -1006,7 +1005,7 @@ fn render_ai_compact_diff_summary_row(
                     div()
                         .flex_none()
                         .text_sm()
-                        .text_color(cx.theme().muted_foreground)
+                        .text_color(theme.muted_foreground)
                         .child("Edited"),
                 )
                 .child(
@@ -1031,7 +1030,7 @@ fn render_ai_compact_diff_summary_row(
                                     .min_w_0()
                                     .truncate()
                                     .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
+                                    .text_color(theme.muted_foreground)
                                     .child(directory),
                             )
                         }),
@@ -1096,7 +1095,7 @@ fn render_ai_compact_diff_summary_row(
                             this.child(
                                 div()
                                     .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
+                                    .text_color(theme.muted_foreground)
                                     .child(format!("+{hidden_file_count} more files")),
                             )
                         })
@@ -1190,7 +1189,17 @@ fn render_ai_turn_diff_row(
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let summary = ai_turn_diff_summary(diff_text);
-    render_ai_compact_diff_summary_row(this, view, row.id.as_str(), &summary, false, is_dark, cx)
+    let theme = cx.theme().clone();
+    render_ai_compact_diff_summary_row(
+        this,
+        view,
+        row.id.as_str(),
+        &summary,
+        &theme,
+        false,
+        is_dark,
+        cx,
+    )
 }
 
 fn render_ai_chat_timeline_row_for_view(
@@ -1200,6 +1209,7 @@ fn render_ai_chat_timeline_row_for_view(
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
+    let theme = cx.theme().clone();
     let started_at = std::time::Instant::now();
     if let Some(pending) = this.ai_pending_steer_for_row_id(row_id) {
         let element = render_ai_pending_steer(&pending, is_dark, cx);
@@ -1301,7 +1311,7 @@ fn render_ai_chat_timeline_row_for_view(
                                                             .compact()
                                                             .rounded(px(7.0))
                                                             .icon(Icon::new(IconName::Copy).size(px(12.0)))
-                                                            .text_color(cx.theme().muted_foreground)
+                                                            .text_color(theme.muted_foreground)
                                                             .min_w(px(22.0))
                                                             .h(px(20.0))
                                                             .tooltip("Copy message")
@@ -1324,8 +1334,8 @@ fn render_ai_chat_timeline_row_for_view(
                                         view.clone(),
                                         row.id.as_str(),
                                         bubble_text,
+                                        &theme,
                                         is_dark,
-                                        cx,
                                     ))
                                 }),
                         );
@@ -1348,6 +1358,7 @@ fn render_ai_chat_timeline_row_for_view(
                         view,
                         row.id.as_str(),
                         item,
+                        &theme,
                         is_dark,
                         false,
                         cx,
@@ -1365,7 +1376,7 @@ fn render_ai_chat_timeline_row_for_view(
                 return element;
             };
             (
-                render_ai_timeline_group_row(this, view, row, group, is_dark, cx),
+                render_ai_timeline_group_row(this, view, row, group, &theme, is_dark, cx),
                 "group",
                 false,
             )
