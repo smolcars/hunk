@@ -26,10 +26,17 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("Open a workspace before using AI.".to_string());
+            self.invalidate_ai_visible_frame_state();
             cx.notify();
             return;
         };
         let worker_workspace_key = cwd.to_string_lossy().to_string();
+        debug!(
+            "ensure_ai_runtime_started_for_workspace_key: requested={} current_worker={} hidden_runtimes={}",
+            worker_workspace_key,
+            self.ai_worker_workspace_key.as_deref().unwrap_or("<none>"),
+            self.ai_hidden_runtimes.len()
+        );
         if self.ai_command_tx.is_some()
             && self.ai_worker_workspace_key.as_deref() == Some(worker_workspace_key.as_str())
         {
@@ -45,6 +52,11 @@ impl DiffViewer {
         self.sync_ai_workspace_preferences_from_state();
 
         if self.promote_hidden_ai_runtime(worker_workspace_key.as_str()) {
+            debug!(
+                "promoted hidden ai runtime for workspace={} hidden_runtimes_remaining={}",
+                worker_workspace_key,
+                self.ai_hidden_runtimes.len()
+            );
             cx.notify();
             return;
         }
@@ -53,6 +65,7 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("Unable to resolve the Codex home directory.".to_string());
+            self.invalidate_ai_visible_frame_state();
             cx.notify();
             return;
         };
@@ -62,6 +75,7 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some(error);
+            self.invalidate_ai_visible_frame_state();
             cx.notify();
             return;
         }
@@ -72,11 +86,17 @@ impl DiffViewer {
         start_config.include_hidden_models = self.ai_include_hidden_models;
 
         let worker = spawn_ai_worker(start_config, command_rx, event_tx);
+        debug!(
+            "spawning fresh ai runtime for workspace={} hidden_runtimes={}",
+            worker_workspace_key,
+            self.ai_hidden_runtimes.len()
+        );
 
         self.ai_connection_state = AiConnectionState::Connecting;
         self.ai_bootstrap_loading = true;
         self.ai_error_message = None;
         self.ai_status_message = Some("Starting Codex App Server...".to_string());
+        self.invalidate_ai_visible_frame_state();
         let listener_workspace_key = worker_workspace_key.clone();
         self.ai_command_tx = Some(command_tx);
         self.ai_worker_thread = Some(worker);
@@ -135,6 +155,7 @@ impl DiffViewer {
         self.ai_scroll_timeline_to_bottom = false;
         self.ai_expanded_timeline_row_ids.clear();
         self.ai_text_selection = None;
+        self.invalidate_ai_visible_frame_state();
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
         } else {
@@ -619,6 +640,7 @@ impl DiffViewer {
         self.ai_selected_model = model_id;
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
+        self.invalidate_ai_visible_frame_state();
         cx.notify();
     }
 
@@ -666,6 +688,7 @@ impl DiffViewer {
         }
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
+        self.invalidate_ai_visible_frame_state();
         cx.notify();
     }
 
@@ -756,6 +779,7 @@ impl DiffViewer {
             Some(thread_id.clone()),
             cx,
         );
+        self.invalidate_ai_visible_frame_state();
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
         }
@@ -770,6 +794,7 @@ impl DiffViewer {
     pub(super) fn ai_scroll_timeline_to_bottom_action(&mut self, cx: &mut Context<Self>) {
         self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = true;
+        self.invalidate_ai_visible_frame_state();
         self.flush_ai_timeline_scroll_request();
         cx.notify();
     }
@@ -811,6 +836,7 @@ impl DiffViewer {
         } else {
             self.ai_expanded_timeline_row_ids.insert(row_id);
         }
+        self.invalidate_ai_visible_frame_state();
         if let Some(selected_thread_id) = self.ai_selected_thread_id.as_deref() {
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, selected_thread_id);
             reset_ai_timeline_list_measurements(self, visible_row_ids.len());

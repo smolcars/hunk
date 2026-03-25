@@ -64,18 +64,17 @@ fn merged_ai_visible_threads(
     repo_root: Option<&std::path::Path>,
 ) -> Vec<ThreadSummary> {
     let mut threads_by_id = std::collections::BTreeMap::<String, ThreadSummary>::new();
-    let workspace_project_roots =
-        ai_workspace_project_roots(workspace_project_paths, project_path, repo_root);
+    let mut project_root_resolver = AiWorkspaceProjectRootResolver::new(
+        ai_workspace_project_roots(workspace_project_paths, project_path, repo_root),
+    );
 
     for thread in state_snapshot
         .threads
         .values()
         .filter(|thread| {
             thread.status != ThreadLifecycleStatus::Archived
-                    && ai_workspace_project_root_for_thread_root(
-                        std::path::Path::new(thread.cwd.as_str()),
-                        workspace_project_roots.as_slice(),
-                    )
+                && project_root_resolver
+                    .resolve(std::path::Path::new(thread.cwd.as_str()))
                     .is_some()
         })
     {
@@ -84,11 +83,9 @@ fn merged_ai_visible_threads(
 
     for (workspace_key, state) in workspace_states {
         if state_snapshot_workspace_key == Some(workspace_key.as_str())
-            || ai_workspace_project_root_for_thread_root(
-                std::path::Path::new(workspace_key.as_str()),
-                workspace_project_roots.as_slice(),
-            )
-            .is_none()
+            || project_root_resolver
+                .resolve(std::path::Path::new(workspace_key.as_str()))
+                .is_none()
         {
             continue;
         }
@@ -98,11 +95,9 @@ fn merged_ai_visible_threads(
             .values()
             .filter(|thread| {
                 thread.status != ThreadLifecycleStatus::Archived
-                    && ai_workspace_project_root_for_thread_root(
-                        std::path::Path::new(thread.cwd.as_str()),
-                        workspace_project_roots.as_slice(),
-                    )
-                    .is_some()
+                    && project_root_resolver
+                        .resolve(std::path::Path::new(thread.cwd.as_str()))
+                        .is_some()
             })
         {
             let replace_existing = threads_by_id
@@ -175,16 +170,16 @@ fn ai_visible_thread_sections(
     expanded_project_roots: &BTreeSet<String>,
 ) -> Vec<AiVisibleThreadProjectSection> {
     let project_roots = ai_workspace_project_roots(workspace_project_paths, project_path, repo_root);
+    let mut project_root_resolver = AiWorkspaceProjectRootResolver::new(project_roots.clone());
     let mut threads_by_project = std::collections::BTreeMap::<
         std::path::PathBuf,
         Vec<ThreadSummary>,
     >::new();
 
     for thread in threads {
-        if let Some(project_root) = ai_workspace_project_root_for_thread_root(
-            std::path::Path::new(thread.cwd.as_str()),
-            project_roots.as_slice(),
-        ) {
+        if let Some(project_root) =
+            project_root_resolver.resolve(std::path::Path::new(thread.cwd.as_str()))
+        {
             threads_by_project.entry(project_root).or_default().push(thread);
         }
     }
@@ -224,6 +219,36 @@ fn ai_workspace_project_root_identity(path: &std::path::Path) -> Option<std::pat
     hunk_git::worktree::primary_repo_root(path)
         .ok()
         .or_else(|| Some(path.to_path_buf()))
+}
+
+struct AiWorkspaceProjectRootResolver {
+    workspace_project_roots: Vec<std::path::PathBuf>,
+    resolved_project_roots:
+        std::collections::BTreeMap<std::path::PathBuf, Option<std::path::PathBuf>>,
+}
+
+impl AiWorkspaceProjectRootResolver {
+    fn new(workspace_project_roots: Vec<std::path::PathBuf>) -> Self {
+        Self {
+            workspace_project_roots,
+            resolved_project_roots: BTreeMap::new(),
+        }
+    }
+
+    fn resolve(&mut self, workspace_root: &std::path::Path) -> Option<std::path::PathBuf> {
+        let workspace_root = workspace_root.to_path_buf();
+        if let Some(project_root) = self.resolved_project_roots.get(&workspace_root) {
+            return project_root.clone();
+        }
+
+        let resolved = ai_workspace_project_root_for_thread_root(
+            workspace_root.as_path(),
+            self.workspace_project_roots.as_slice(),
+        );
+        self.resolved_project_roots
+            .insert(workspace_root, resolved.clone());
+        resolved
+    }
 }
 
 fn workspace_mad_max_mode(state: &AppState, workspace_key: Option<&str>) -> bool {

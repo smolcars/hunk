@@ -109,6 +109,7 @@ impl DiffViewer {
         }
         self.ai_worktree_base_branch_name = Some(branch_name);
         self.sync_ai_worktree_base_branch_picker_state(cx);
+        self.invalidate_ai_visible_frame_state();
         cx.notify();
     }
 
@@ -207,27 +208,13 @@ impl DiffViewer {
             return "Primary Checkout".to_string();
         };
 
-        self.workspace_targets
-            .iter()
-            .find(|target| target.root == workspace_root)
-            .map(|target| target.display_name.clone())
-            .or_else(|| {
-                workspace_root
-                    .file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-            })
-            .filter(|label| !label.is_empty())
-            .unwrap_or_else(|| workspace_root.display().to_string())
+        self.ai_workspace_label_for_root(workspace_root.as_path())
     }
 
-    pub(crate) fn ai_thread_workspace_label(&self, thread_id: &str) -> String {
-        let Some(workspace_root) = self.ai_thread_workspace_root(thread_id) else {
-            return "Unknown Workspace".to_string();
-        };
-
+    pub(crate) fn ai_workspace_label_for_root(&self, workspace_root: &std::path::Path) -> String {
         self.workspace_targets
             .iter()
-            .find(|target| target.root == workspace_root)
+            .find(|target| target.root.as_path() == workspace_root)
             .map(|target| target.display_name.clone())
             .or_else(|| {
                 workspace_root
@@ -546,6 +533,7 @@ impl DiffViewer {
         self.ai_terminal_height_px = state.terminal_height_px;
         self.ai_terminal_input_draft = state.terminal_input_draft;
         self.ai_terminal_session = state.terminal_session;
+        self.invalidate_ai_visible_frame_state();
         self.ai_text_selection = None;
         self.rebuild_ai_timeline_indexes();
         self.sync_ai_in_progress_turn_started_at();
@@ -637,6 +625,10 @@ impl DiffViewer {
                 event_task,
                 generation: self.ai_event_epoch,
             },
+        );
+        debug!(
+            "parked ai runtime; hidden_runtimes={} current_worker_cleared=true",
+            self.ai_hidden_runtimes.len()
         );
         self.ai_worker_workspace_key = None;
     }

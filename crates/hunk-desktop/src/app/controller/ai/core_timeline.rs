@@ -96,7 +96,10 @@ impl DiffViewer {
 
     pub(super) fn rebuild_ai_thread_sidebar_state(&mut self) {
         let started_at = Instant::now();
+        let threads_started_at = Instant::now();
         let threads = self.ai_visible_threads();
+        let threads_elapsed_ms = threads_started_at.elapsed().as_millis();
+        let sections_started_at = Instant::now();
         let sections = ai_visible_thread_sections(
             threads,
             self.state.workspace_project_paths.as_slice(),
@@ -104,15 +107,242 @@ impl DiffViewer {
             self.repo_root.as_deref(),
             &self.ai_expanded_thread_sidebar_project_roots,
         );
+        let sections_elapsed_ms = sections_started_at.elapsed().as_millis();
+        let rows_started_at = Instant::now();
         let rows = self.ai_thread_sidebar_rows_from_sections(sections.as_slice());
+        let rows_elapsed_ms = rows_started_at.elapsed().as_millis();
         debug!(
-            "rebuilt ai thread sidebar rows: sections={} rows={} elapsed_ms={}",
+            "rebuilt ai thread sidebar rows: sections={} rows={} threads_ms={} sections_ms={} rows_ms={} elapsed_ms={}",
             sections.len(),
             rows.len(),
+            threads_elapsed_ms,
+            sections_elapsed_ms,
+            rows_elapsed_ms,
             started_at.elapsed().as_millis()
         );
+        self.invalidate_ai_visible_frame_state();
         self.ai_thread_sidebar_sections = sections;
         self.ai_thread_sidebar_rows = rows;
+    }
+
+    pub(super) fn invalidate_ai_visible_frame_state(&mut self) {
+        self.ai_visible_frame_state = None;
+    }
+
+    pub(super) fn visible_ai_frame_state(&mut self) -> AiVisibleFrameState {
+        if let Some(state) = self.ai_visible_frame_state.clone() {
+            return state;
+        }
+
+        let started_at = Instant::now();
+        let project_count = self.ai_visible_thread_sections().len();
+        let visible_thread_count = self
+            .ai_visible_thread_sections()
+            .iter()
+            .map(|section| section.total_thread_count)
+            .sum::<usize>();
+        let threads_loading = self.ai_bootstrap_loading && visible_thread_count == 0;
+        let labels_started_at = Instant::now();
+        let active_branch = self.ai_active_workspace_branch_name();
+        let active_workspace_label = self.ai_active_workspace_label();
+        let labels_elapsed_ms = labels_started_at.elapsed().as_millis();
+        let approvals_started_at = Instant::now();
+        let pending_approvals = self.ai_visible_pending_approvals();
+        let pending_user_inputs = self.ai_visible_pending_user_inputs();
+        let approvals_elapsed_ms = approvals_started_at.elapsed().as_millis();
+        let selected_thread_id = self.current_ai_thread_id();
+        let pending_thread_start = self.ai_pending_thread_start_for_timeline();
+        let thread_state_started_at = Instant::now();
+        let selected_thread_start_mode = selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.ai_thread_start_mode(thread_id));
+        let selected_workspace_root = self.ai_workspace_cwd();
+        let show_worktree_base_branch_picker = self.ai_show_worktree_base_branch_picker();
+        let selected_worktree_base_branch = self
+            .ai_selected_worktree_base_branch_name()
+            .unwrap_or("Choose base branch")
+            .to_string();
+        let thread_state_elapsed_ms = thread_state_started_at.elapsed().as_millis();
+        let timeline_started_at = Instant::now();
+        let (
+            timeline_total_turn_count,
+            timeline_visible_turn_count,
+            timeline_hidden_turn_count,
+            timeline_visible_row_ids,
+        ) = if let Some(thread_id) = selected_thread_id.as_deref() {
+            self.ai_timeline_visible_rows_for_thread(thread_id)
+        } else {
+            (0, 0, 0, Vec::new())
+        };
+        let timeline_elapsed_ms = timeline_started_at.elapsed().as_millis();
+        let show_no_turns_empty_state = crate::app::render::ai_should_show_no_turns_empty_state(
+            timeline_visible_row_ids.len(),
+            pending_thread_start.is_some(),
+        );
+        let timeline_loading = self.ai_bootstrap_loading
+            && selected_thread_id.is_some()
+            && timeline_visible_row_ids.is_empty();
+        let show_select_thread_empty_state =
+            selected_thread_id.is_none() && !timeline_loading && pending_thread_start.is_none();
+        let composer_started_at = Instant::now();
+        let composer_send_waiting_on_connection =
+            crate::app::controller::ai_prompt_send_waiting_on_connection(
+                self.ai_connection_state,
+                self.ai_bootstrap_loading,
+            );
+        let composer_interrupt_available = selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.current_ai_in_progress_turn_id(thread_id))
+            .is_some();
+        let queued_message_count = selected_thread_id
+            .as_deref()
+            .map(|thread_id| self.ai_queued_message_row_ids_for_thread(thread_id).len())
+            .unwrap_or(0);
+        let model_supports_image_inputs = self.current_ai_model_supports_image_inputs();
+        let composer_elapsed_ms = composer_started_at.elapsed().as_millis();
+        let actions_started_at = Instant::now();
+        let selected_thread_in_progress = selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.current_ai_in_progress_turn_id(thread_id))
+            .is_some();
+        let review_action_blocker = match selected_thread_id.as_deref() {
+            Some(_) if selected_thread_in_progress => {
+                Some("Wait for the current run to finish or interrupt it first.".to_string())
+            }
+            Some(_) => None,
+            None => Some("Select a thread before starting review.".to_string()),
+        };
+        let ai_publish_blocker = match (
+            self.git_controls_busy(),
+            selected_thread_id.as_deref(),
+            selected_thread_start_mode,
+            selected_workspace_root.as_deref(),
+        ) {
+            (true, _, _, _) => Some("Another workspace action is in progress.".to_string()),
+            (_, None, _, _) => Some("Select a thread before publishing.".to_string()),
+            (_, Some(_), None, _) => {
+                Some("Unable to resolve the selected thread before publishing.".to_string())
+            }
+            (_, Some(_), Some(_), None) => {
+                Some("Open a workspace before publishing.".to_string())
+            }
+            (_, Some(thread_id), Some(start_mode), Some(repo_root)) => {
+                let normalized_branch = active_branch.trim();
+                if normalized_branch.is_empty()
+                    || matches!(normalized_branch, "detached" | "unknown")
+                {
+                    Some("Activate a branch before publishing.".to_string())
+                } else {
+                    let _context = AiThreadGitActionContext {
+                        repo_root: repo_root.to_path_buf(),
+                        thread_id: thread_id.to_string(),
+                        branch_name: normalized_branch.to_string(),
+                        start_mode,
+                    };
+                    None
+                }
+            }
+        };
+        let ai_publish_disabled = ai_publish_blocker.is_some();
+        let ai_open_pr_disabled = match (
+            self.git_controls_busy(),
+            selected_thread_id.as_deref(),
+            selected_thread_start_mode,
+            selected_workspace_root.as_deref(),
+        ) {
+            (true, _, _, _) => true,
+            (_, Some(_), Some(_), Some(_)) => {
+                let normalized_branch = active_branch.trim();
+                normalized_branch.is_empty() || matches!(normalized_branch, "detached" | "unknown")
+            }
+            _ => true,
+        };
+        let ai_managed_worktree_target = if selected_thread_start_mode
+            == Some(AiNewThreadStartMode::Worktree)
+        {
+            selected_workspace_root.as_deref().and_then(|workspace_root| {
+                self.workspace_targets
+                    .iter()
+                    .find(|target| {
+                        target.root.as_path() == workspace_root
+                            && target.kind == hunk_git::worktree::WorkspaceTargetKind::LinkedWorktree
+                            && target.managed
+                    })
+                    .cloned()
+            })
+        } else {
+            None
+        };
+        let ai_delete_worktree_blocker = ai_managed_worktree_target
+            .as_ref()
+            .and_then(|_| {
+                if self.git_controls_busy() {
+                    Some("Another workspace action is in progress.".to_string())
+                } else if selected_thread_in_progress {
+                    Some("Wait for the current run to finish or interrupt it first.".to_string())
+                } else {
+                    None
+                }
+            });
+        let terminal_cwd_label = self
+            .ai_terminal_session
+            .cwd
+            .clone()
+            .or_else(|| selected_workspace_root.clone())
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "No workspace selected".to_string());
+        let actions_elapsed_ms = actions_started_at.elapsed().as_millis();
+
+        let state = AiVisibleFrameState {
+            project_count,
+            visible_thread_count,
+            threads_loading,
+            active_branch,
+            active_workspace_label,
+            pending_approvals: pending_approvals.into(),
+            pending_user_inputs: pending_user_inputs.into(),
+            selected_thread_id,
+            pending_thread_start,
+            selected_thread_start_mode,
+            show_worktree_base_branch_picker,
+            selected_worktree_base_branch,
+            timeline_total_turn_count,
+            timeline_visible_turn_count,
+            timeline_hidden_turn_count,
+            timeline_visible_row_ids: timeline_visible_row_ids.into(),
+            timeline_loading,
+            show_select_thread_empty_state,
+            show_no_turns_empty_state,
+            composer_send_waiting_on_connection,
+            composer_interrupt_available,
+            queued_message_count,
+            model_supports_image_inputs,
+            review_action_blocker,
+            ai_publish_blocker,
+            ai_publish_disabled,
+            ai_open_pr_disabled,
+            ai_managed_worktree_target,
+            ai_delete_worktree_blocker,
+            terminal_cwd_label,
+        };
+        debug!(
+            "rebuilt ai visible frame state: projects={} threads={} approvals={} inputs={} timeline_rows={} workspace_states={} labels_ms={} approvals_ms={} thread_state_ms={} timeline_ms={} composer_ms={} actions_ms={} elapsed_ms={}",
+            state.project_count,
+            state.visible_thread_count,
+            state.pending_approvals.len(),
+            state.pending_user_inputs.len(),
+            state.timeline_visible_row_ids.len(),
+            self.ai_workspace_states.len(),
+            labels_elapsed_ms,
+            approvals_elapsed_ms,
+            thread_state_elapsed_ms,
+            timeline_elapsed_ms,
+            composer_elapsed_ms,
+            actions_elapsed_ms,
+            started_at.elapsed().as_millis()
+        );
+        self.ai_visible_frame_state = Some(state.clone());
+        state
     }
 
     fn ai_thread_sidebar_rows_from_sections(
@@ -137,7 +367,8 @@ impl DiffViewer {
             } else {
                 rows.extend(section.threads.iter().cloned().map(|thread| AiThreadSidebarRow {
                     kind: AiThreadSidebarRowKind::Thread {
-                        workspace_label: self.ai_thread_workspace_label(thread.id.as_str()),
+                        workspace_label: self
+                            .ai_workspace_label_for_root(std::path::Path::new(thread.cwd.as_str())),
                         thread,
                     },
                 }));
@@ -507,59 +738,11 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_visible_pending_approvals(&self) -> Vec<AiPendingApproval> {
-        let mut approvals_by_id = BTreeMap::<String, AiPendingApproval>::new();
-
-        for approval in &self.ai_pending_approvals {
-            if self.ai_thread_workspace_root(approval.thread_id.as_str()).is_some() {
-                approvals_by_id.insert(approval.request_id.clone(), approval.clone());
-            }
-        }
-
-        for (workspace_key, state) in &self.ai_workspace_states {
-            if !ai_thread_workspace_matches_current_project(
-                std::path::Path::new(workspace_key.as_str()),
-                self.workspace_targets.as_slice(),
-                self.project_path.as_deref(),
-                self.repo_root.as_deref(),
-            ) {
-                continue;
-            }
-            for approval in &state.pending_approvals {
-                approvals_by_id
-                    .entry(approval.request_id.clone())
-                    .or_insert_with(|| approval.clone());
-            }
-        }
-
-        approvals_by_id.into_values().collect()
+        self.ai_pending_approvals.clone()
     }
 
     pub(super) fn ai_visible_pending_user_inputs(&self) -> Vec<AiPendingUserInputRequest> {
-        let mut requests_by_id = BTreeMap::<String, AiPendingUserInputRequest>::new();
-
-        for request in &self.ai_pending_user_inputs {
-            if self.ai_thread_workspace_root(request.thread_id.as_str()).is_some() {
-                requests_by_id.insert(request.request_id.clone(), request.clone());
-            }
-        }
-
-        for (workspace_key, state) in &self.ai_workspace_states {
-            if !ai_thread_workspace_matches_current_project(
-                std::path::Path::new(workspace_key.as_str()),
-                self.workspace_targets.as_slice(),
-                self.project_path.as_deref(),
-                self.repo_root.as_deref(),
-            ) {
-                continue;
-            }
-            for request in &state.pending_user_inputs {
-                requests_by_id
-                    .entry(request.request_id.clone())
-                    .or_insert_with(|| request.clone());
-            }
-        }
-
-        requests_by_id.into_values().collect()
+        self.ai_pending_user_inputs.clone()
     }
 
     pub(super) fn ai_load_older_turns_action(&mut self, thread_id: String, cx: &mut Context<Self>) {
@@ -583,6 +766,7 @@ impl DiffViewer {
         }
         self.ai_timeline_visible_turn_limit_by_thread
             .insert(thread_id.clone(), next_limit);
+        self.invalidate_ai_visible_frame_state();
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
             self.ai_text_selection = None;
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());
@@ -599,6 +783,7 @@ impl DiffViewer {
         }
         self.ai_timeline_visible_turn_limit_by_thread
             .insert(thread_id.clone(), usize::MAX);
+        self.invalidate_ai_visible_frame_state();
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
             self.ai_text_selection = None;
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, thread_id.as_str());

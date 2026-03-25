@@ -299,6 +299,40 @@ struct AiThreadSidebarRow {
     kind: AiThreadSidebarRowKind,
 }
 
+#[derive(Debug, Clone)]
+struct AiVisibleFrameState {
+    project_count: usize,
+    visible_thread_count: usize,
+    threads_loading: bool,
+    active_branch: String,
+    active_workspace_label: String,
+    pending_approvals: Arc<[AiPendingApproval]>,
+    pending_user_inputs: Arc<[AiPendingUserInputRequest]>,
+    selected_thread_id: Option<String>,
+    pending_thread_start: Option<AiPendingThreadStart>,
+    selected_thread_start_mode: Option<AiNewThreadStartMode>,
+    show_worktree_base_branch_picker: bool,
+    selected_worktree_base_branch: String,
+    timeline_total_turn_count: usize,
+    timeline_visible_turn_count: usize,
+    timeline_hidden_turn_count: usize,
+    timeline_visible_row_ids: Arc<[String]>,
+    timeline_loading: bool,
+    show_select_thread_empty_state: bool,
+    show_no_turns_empty_state: bool,
+    composer_send_waiting_on_connection: bool,
+    composer_interrupt_available: bool,
+    queued_message_count: usize,
+    model_supports_image_inputs: bool,
+    review_action_blocker: Option<String>,
+    ai_publish_blocker: Option<String>,
+    ai_publish_disabled: bool,
+    ai_open_pr_disabled: bool,
+    ai_managed_worktree_target: Option<WorkspaceTargetSummary>,
+    ai_delete_worktree_blocker: Option<String>,
+    terminal_cwd_label: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiComposerSkillBinding {
     token: String,

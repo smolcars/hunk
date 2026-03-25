@@ -122,11 +122,6 @@ impl DiffViewer {
         })
     }
 
-    pub(super) fn ai_delete_worktree_blocker(&self) -> Option<String> {
-        self.ai_current_managed_worktree_delete_context("deleting its worktree")
-            .err()
-    }
-
     fn ai_validate_managed_worktree_delete(
         &self,
         context: &AiManagedWorktreeDeleteContext,

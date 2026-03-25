@@ -1,10 +1,65 @@
 use std::time::Duration;
+use std::{sync::LazyLock, sync::Mutex, time::Instant};
 
 const AI_COMPOSER_SURFACE_MAX_WIDTH: f32 = 740.0;
 const AI_USAGE_POPOVER_MAX_WIDTH: f32 = 434.0;
 const AI_USAGE_ROW_LABEL_WIDTH: f32 = 68.0;
 const AI_USAGE_ROW_BAR_HEIGHT: f32 = 14.0;
 const AI_USAGE_ROW_DETAILS_WIDTH: f32 = 134.0;
+
+struct AiWorkspaceScreenRenderMetrics {
+    window_started_at: Instant,
+    render_count: usize,
+    latest_project_count: usize,
+    latest_thread_count: usize,
+    latest_timeline_row_count: usize,
+    latest_terminal_open: bool,
+}
+
+impl AiWorkspaceScreenRenderMetrics {
+    fn new() -> Self {
+        Self {
+            window_started_at: Instant::now(),
+            render_count: 0,
+            latest_project_count: 0,
+            latest_thread_count: 0,
+            latest_timeline_row_count: 0,
+            latest_terminal_open: false,
+        }
+    }
+}
+
+static AI_WORKSPACE_SCREEN_RENDER_METRICS: LazyLock<Mutex<AiWorkspaceScreenRenderMetrics>> =
+    LazyLock::new(|| Mutex::new(AiWorkspaceScreenRenderMetrics::new()));
+
+fn record_ai_workspace_screen_render(
+    project_count: usize,
+    thread_count: usize,
+    timeline_row_count: usize,
+    terminal_open: bool,
+) {
+    let Ok(mut metrics) = AI_WORKSPACE_SCREEN_RENDER_METRICS.lock() else {
+        return;
+    };
+    metrics.render_count = metrics.render_count.saturating_add(1);
+    metrics.latest_project_count = project_count;
+    metrics.latest_thread_count = thread_count;
+    metrics.latest_timeline_row_count = timeline_row_count;
+    metrics.latest_terminal_open = terminal_open;
+    if metrics.window_started_at.elapsed() < Duration::from_secs(1) {
+        return;
+    }
+
+    tracing::debug!(
+        "ai workspace screen renders/sec={} projects={} threads={} timeline_rows={} terminal_open={}",
+        metrics.render_count,
+        metrics.latest_project_count,
+        metrics.latest_thread_count,
+        metrics.latest_timeline_row_count,
+        metrics.latest_terminal_open
+    );
+    *metrics = AiWorkspaceScreenRenderMetrics::new();
+}
 
 struct TerminalPanelState {
     kind: WorkspaceTerminalKind,
@@ -51,128 +106,67 @@ impl DiffViewer {
 
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
-        let project_count = self.ai_visible_thread_sections().len();
-        let visible_thread_count = self
-            .ai_visible_thread_sections()
-            .iter()
-            .map(|section| section.total_thread_count)
-            .sum::<usize>();
+        let ai_view_state = self.visible_ai_frame_state();
         let show_global_loading_overlay = self.ai_bootstrap_loading;
-        let threads_loading = show_global_loading_overlay && visible_thread_count == 0;
-        let active_branch = self.ai_active_workspace_branch_name();
-        let active_workspace_label = self.ai_active_workspace_label();
-        let pending_approvals = self.ai_visible_pending_approvals();
-        let pending_user_inputs = self.ai_visible_pending_user_inputs();
-        let selected_thread_id = self.current_ai_thread_id();
-        let pending_thread_start = self.ai_pending_thread_start_for_timeline();
-        let selected_thread_start_mode = selected_thread_id
-            .as_deref()
-            .and_then(|thread_id| self.ai_thread_start_mode(thread_id));
+        let selected_thread_id = ai_view_state.selected_thread_id.clone();
         let (selected_thread_mode_for_picker, thread_mode_picker_editable) = self
-            .ai_thread_mode_picker_state(selected_thread_start_mode);
-        let show_worktree_base_branch_picker = self.ai_show_worktree_base_branch_picker();
-        let selected_worktree_base_branch = self
-            .ai_selected_worktree_base_branch_name()
-            .unwrap_or("Choose base branch")
-            .to_string();
-        let (
-            timeline_total_turn_count,
-            timeline_visible_turn_count,
-            timeline_hidden_turn_count,
-            timeline_visible_row_ids,
-        ) = if let Some(thread_id) = selected_thread_id.as_deref() {
-            self.ai_timeline_visible_rows_for_thread(thread_id)
-        } else {
-            (0, 0, 0, Vec::new())
-        };
+            .ai_thread_mode_picker_state(ai_view_state.selected_thread_start_mode);
         let ai_timeline_follow_output = self.ai_timeline_follow_output;
-        let show_no_turns_empty_state = ai_should_show_no_turns_empty_state(
-            timeline_visible_row_ids.len(),
-            pending_thread_start.is_some(),
-        );
-        let timeline_loading = show_global_loading_overlay
-            && selected_thread_id.is_some()
-            && timeline_visible_row_ids.is_empty();
-        let show_select_thread_empty_state =
-            selected_thread_id.is_none() && !timeline_loading && pending_thread_start.is_none();
         let ai_timeline_list_state = self.ai_timeline_list_state.clone();
         let composer_attachment_paths = self.current_ai_composer_local_images();
         let composer_attachment_count = composer_attachment_paths.len();
-        let composer_send_waiting_on_connection =
-            crate::app::controller::ai_prompt_send_waiting_on_connection(
-                self.ai_connection_state,
-                self.ai_bootstrap_loading,
-            );
-        let composer_interrupt_available = selected_thread_id
-            .as_deref()
-            .and_then(|thread_id| self.current_ai_in_progress_turn_id(thread_id))
-            .is_some();
-        let queued_message_count = selected_thread_id
-            .as_deref()
-            .map(|thread_id| self.ai_queued_message_row_ids_for_thread(thread_id).len())
-            .unwrap_or(0);
-        let model_supports_image_inputs = self.current_ai_model_supports_image_inputs();
-        let review_action_blocker = self.ai_review_blocker();
-        let ai_publish_blocker = self.ai_publish_blocker();
-        let ai_publish_disabled = ai_publish_blocker.is_some();
         let ai_commit_and_push_loading = self.git_action_loading_named("Commit and Push");
-        let ai_open_pr_blocker = self.ai_open_pr_blocker();
-        let ai_open_pr_disabled = ai_open_pr_blocker.is_some();
         let ai_open_pr_loading = self.git_action_loading_named("Open PR");
-        let ai_managed_worktree_target = self.ai_current_managed_worktree_target();
-        let ai_delete_worktree_blocker = ai_managed_worktree_target
-            .as_ref()
-            .and_then(|_| self.ai_delete_worktree_blocker());
         let ai_delete_worktree_loading = self.git_action_loading_named("Delete Worktree");
-        let composer_drop_border_color = if model_supports_image_inputs {
+        let composer_drop_border_color = if ai_view_state.model_supports_image_inputs {
             hunk_opacity(cx.theme().accent, is_dark, 0.78, 0.62)
         } else {
             hunk_opacity(cx.theme().warning, is_dark, 0.88, 0.74)
         };
-        let composer_drop_bg = if model_supports_image_inputs {
+        let composer_drop_bg = if ai_view_state.model_supports_image_inputs {
             hunk_opacity(cx.theme().accent, is_dark, 0.14, 0.10)
         } else {
             hunk_opacity(cx.theme().warning, is_dark, 0.14, 0.08)
         };
 
         let sidebar_state = AiThreadSidebarState {
-            project_count,
-            threads_loading,
+            project_count: ai_view_state.project_count,
+            threads_loading: ai_view_state.threads_loading,
             selected_thread_id: selected_thread_id.clone(),
         };
         let timeline_state = AiTimelinePanelState {
-            active_branch: active_branch.clone(),
-            workspace_label: active_workspace_label,
-            show_worktree_base_branch_picker,
-            selected_worktree_base_branch,
+            active_branch: ai_view_state.active_branch.clone(),
+            workspace_label: ai_view_state.active_workspace_label.clone(),
+            show_worktree_base_branch_picker: ai_view_state.show_worktree_base_branch_picker,
+            selected_worktree_base_branch: ai_view_state.selected_worktree_base_branch.clone(),
             selected_thread_id: selected_thread_id.clone(),
-            selected_thread_start_mode,
-            pending_approvals,
-            pending_user_inputs,
-            pending_thread_start,
-            timeline_total_turn_count,
-            timeline_visible_turn_count,
-            timeline_hidden_turn_count,
-            timeline_visible_row_ids,
-            timeline_loading,
-            show_select_thread_empty_state,
-            show_no_turns_empty_state,
+            selected_thread_start_mode: ai_view_state.selected_thread_start_mode,
+            pending_approvals: ai_view_state.pending_approvals.clone(),
+            pending_user_inputs: ai_view_state.pending_user_inputs.clone(),
+            pending_thread_start: ai_view_state.pending_thread_start.clone(),
+            timeline_total_turn_count: ai_view_state.timeline_total_turn_count,
+            timeline_visible_turn_count: ai_view_state.timeline_visible_turn_count,
+            timeline_hidden_turn_count: ai_view_state.timeline_hidden_turn_count,
+            timeline_visible_row_ids: ai_view_state.timeline_visible_row_ids.clone(),
+            timeline_loading: ai_view_state.timeline_loading,
+            show_select_thread_empty_state: ai_view_state.show_select_thread_empty_state,
+            show_no_turns_empty_state: ai_view_state.show_no_turns_empty_state,
             ai_timeline_list_state,
             ai_timeline_follow_output,
-            ai_publish_blocker,
-            ai_publish_disabled,
+            ai_publish_blocker: ai_view_state.ai_publish_blocker.clone(),
+            ai_publish_disabled: ai_view_state.ai_publish_disabled,
             ai_commit_and_push_loading,
-            ai_open_pr_disabled,
+            ai_open_pr_disabled: ai_view_state.ai_open_pr_disabled,
             ai_open_pr_loading,
-            ai_managed_worktree_target,
-            ai_delete_worktree_blocker,
+            ai_managed_worktree_target: ai_view_state.ai_managed_worktree_target.clone(),
+            ai_delete_worktree_blocker: ai_view_state.ai_delete_worktree_blocker.clone(),
             ai_delete_worktree_loading,
             ai_error_message: self.ai_error_message.clone(),
         };
         let composer_state = AiComposerPanelState {
             composer_attachment_paths,
             composer_attachment_count,
-            model_supports_image_inputs,
+            model_supports_image_inputs: ai_view_state.model_supports_image_inputs,
             review_mode_active: self.ai_review_mode_active,
             usage_popover_open: self.ai_usage_popover_open,
             current_mode_label: crate::app::ai_composer_commands::ai_composer_mode_label(
@@ -186,24 +180,18 @@ impl DiffViewer {
             ),
             selected_thread_mode_for_picker,
             thread_mode_picker_editable,
-            session_controls_read_only: composer_interrupt_available,
-            composer_send_waiting_on_connection,
-            composer_interrupt_available,
-            queued_message_count,
-            review_action_blocker,
+            session_controls_read_only: ai_view_state.composer_interrupt_available,
+            composer_send_waiting_on_connection: ai_view_state.composer_send_waiting_on_connection,
+            composer_interrupt_available: ai_view_state.composer_interrupt_available,
+            queued_message_count: ai_view_state.queued_message_count,
+            review_action_blocker: ai_view_state.review_action_blocker.clone(),
             composer_drop_border_color,
             composer_drop_bg,
         };
         let terminal_state = TerminalPanelState {
             kind: WorkspaceTerminalKind::Ai,
             open: self.ai_terminal_open,
-            cwd_label: self
-                .ai_terminal_session
-                .cwd
-                .clone()
-                .or_else(|| self.ai_workspace_cwd())
-                .map(|path| path.display().to_string())
-                .unwrap_or_else(|| "No workspace selected".to_string()),
+            cwd_label: ai_view_state.terminal_cwd_label.clone(),
             shell_label: ai_terminal_shell_label(&self.config),
             status_message: self.ai_terminal_session.status_message.clone(),
             status: self.ai_terminal_session.status,
@@ -223,6 +211,12 @@ impl DiffViewer {
             transcript: self.ai_terminal_session.transcript.clone(),
             height_px: self.ai_terminal_height_px,
         };
+        record_ai_workspace_screen_render(
+            ai_view_state.project_count,
+            ai_view_state.visible_thread_count,
+            ai_view_state.timeline_visible_row_ids.len(),
+            terminal_state.open,
+        );
 
         let composer_panel =
             self.render_ai_composer_panel(view.clone(), &composer_state, is_dark, cx);

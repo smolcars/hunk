@@ -12,13 +12,13 @@ struct AiTimelinePanelState {
     selected_worktree_base_branch: String,
     selected_thread_id: Option<String>,
     selected_thread_start_mode: Option<AiNewThreadStartMode>,
-    pending_approvals: Vec<AiPendingApproval>,
-    pending_user_inputs: Vec<AiPendingUserInputRequest>,
+    pending_approvals: Arc<[AiPendingApproval]>,
+    pending_user_inputs: Arc<[AiPendingUserInputRequest]>,
     pending_thread_start: Option<AiPendingThreadStart>,
     timeline_total_turn_count: usize,
     timeline_visible_turn_count: usize,
     timeline_hidden_turn_count: usize,
-    timeline_visible_row_ids: Vec<String>,
+    timeline_visible_row_ids: Arc<[String]>,
     timeline_loading: bool,
     show_select_thread_empty_state: bool,
     show_no_turns_empty_state: bool,
@@ -944,7 +944,7 @@ impl DiffViewer {
             })
             .when(!state.pending_user_inputs.is_empty(), |this| {
                 this.child(render_ai_pending_user_inputs_panel(
-                    state.pending_user_inputs.as_slice(),
+                    &state.pending_user_inputs,
                     &self.ai_pending_user_input_answers,
                     view.clone(),
                     is_dark,

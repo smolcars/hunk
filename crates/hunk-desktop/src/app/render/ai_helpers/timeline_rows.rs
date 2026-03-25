@@ -13,6 +13,84 @@ enum AiTimelineItemRole {
 const AI_TIMELINE_CONTENT_LANE_MAX_WIDTH: f32 = 960.0;
 const AI_TIMELINE_USER_CONTENT_LANE_MAX_WIDTH: f32 = 1104.0;
 
+struct AiTimelineRowRenderMetrics {
+    window_started_at: std::time::Instant,
+    row_render_count: usize,
+    message_row_count: usize,
+    tool_row_count: usize,
+    group_row_count: usize,
+    diff_row_count: usize,
+    pending_row_count: usize,
+    animated_row_count: usize,
+    total_row_render_micros: u128,
+}
+
+impl AiTimelineRowRenderMetrics {
+    fn new() -> Self {
+        Self {
+            window_started_at: std::time::Instant::now(),
+            row_render_count: 0,
+            message_row_count: 0,
+            tool_row_count: 0,
+            group_row_count: 0,
+            diff_row_count: 0,
+            pending_row_count: 0,
+            animated_row_count: 0,
+            total_row_render_micros: 0,
+        }
+    }
+}
+
+static AI_TIMELINE_ROW_RENDER_METRICS:
+    std::sync::LazyLock<std::sync::Mutex<AiTimelineRowRenderMetrics>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(AiTimelineRowRenderMetrics::new()));
+
+fn record_ai_timeline_row_render(
+    elapsed: std::time::Duration,
+    row_kind: &'static str,
+    animated: bool,
+) {
+    let Ok(mut metrics) = AI_TIMELINE_ROW_RENDER_METRICS.lock() else {
+        return;
+    };
+    metrics.row_render_count = metrics.row_render_count.saturating_add(1);
+    metrics.total_row_render_micros = metrics
+        .total_row_render_micros
+        .saturating_add(elapsed.as_micros());
+    match row_kind {
+        "message" => metrics.message_row_count = metrics.message_row_count.saturating_add(1),
+        "tool" => metrics.tool_row_count = metrics.tool_row_count.saturating_add(1),
+        "group" => metrics.group_row_count = metrics.group_row_count.saturating_add(1),
+        "diff" => metrics.diff_row_count = metrics.diff_row_count.saturating_add(1),
+        "pending" => metrics.pending_row_count = metrics.pending_row_count.saturating_add(1),
+        _ => {}
+    }
+    if animated {
+        metrics.animated_row_count = metrics.animated_row_count.saturating_add(1);
+    }
+    if metrics.window_started_at.elapsed() < std::time::Duration::from_secs(1) {
+        return;
+    }
+
+    let average_row_render_micros = if metrics.row_render_count == 0 {
+        0
+    } else {
+        metrics.total_row_render_micros / metrics.row_render_count as u128
+    };
+    tracing::debug!(
+        "ai timeline row renders/sec={} avg_row_us={} messages={} tools={} groups={} diffs={} pending={} animated={}",
+        metrics.row_render_count,
+        average_row_render_micros,
+        metrics.message_row_count,
+        metrics.tool_row_count,
+        metrics.group_row_count,
+        metrics.diff_row_count,
+        metrics.pending_row_count,
+        metrics.animated_row_count
+    );
+    *metrics = AiTimelineRowRenderMetrics::new();
+}
+
 struct AiCommandExecutionDisplayDetails {
     command: String,
     cwd: String,
@@ -1122,24 +1200,35 @@ fn render_ai_chat_timeline_row_for_view(
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
+    let started_at = std::time::Instant::now();
     if let Some(pending) = this.ai_pending_steer_for_row_id(row_id) {
-        return render_ai_pending_steer(&pending, is_dark, cx);
+        let element = render_ai_pending_steer(&pending, is_dark, cx);
+        record_ai_timeline_row_render(started_at.elapsed(), "pending", false);
+        return element;
     }
     if let Some(queued) = this.ai_queued_message_for_row_id(row_id) {
-        return render_ai_queued_message(&queued, is_dark, cx);
+        let element = render_ai_queued_message(&queued, is_dark, cx);
+        record_ai_timeline_row_render(started_at.elapsed(), "pending", false);
+        return element;
     }
 
     let Some(row) = this.ai_timeline_row(row_id) else {
-        return div().w_full().h(px(0.0)).into_any_element();
+        let element = div().w_full().h(px(0.0)).into_any_element();
+        record_ai_timeline_row_render(started_at.elapsed(), "empty", false);
+        return element;
     };
     if !ai_timeline_row_is_renderable(this, row) {
-        return div().w_full().h(px(0.0)).into_any_element();
+        let element = div().w_full().h(px(0.0)).into_any_element();
+        record_ai_timeline_row_render(started_at.elapsed(), "empty", false);
+        return element;
     }
 
-    match &row.source {
+    let (element, row_kind, animated) = match &row.source {
         AiTimelineRowSource::Item { item_key } => {
             let Some(item) = this.ai_state_snapshot.items.get(item_key.as_str()) else {
-                return div().w_full().h(px(0.0)).into_any_element();
+                let element = div().w_full().h(px(0.0)).into_any_element();
+                record_ai_timeline_row_render(started_at.elapsed(), "empty", false);
+                return element;
             };
             let role = ai_timeline_item_role(item.kind.as_str());
             match role {
@@ -1240,7 +1329,7 @@ fn render_ai_chat_timeline_row_for_view(
                                     ))
                                 }),
                         );
-                    if is_user {
+                    let element = if is_user {
                         ai_timeline_row_with_animation_in_lane(
                             this,
                             row.id.as_str(),
@@ -1249,10 +1338,12 @@ fn render_ai_chat_timeline_row_for_view(
                         )
                     } else {
                         ai_timeline_row_with_animation(this, row.id.as_str(), row_element)
-                    }
+                    };
+                    (element, "message", true)
                 }
                 AiTimelineItemRole::Tool => {
-                    render_ai_tool_item_row(
+                    (
+                        render_ai_tool_item_row(
                         this,
                         view,
                         row.id.as_str(),
@@ -1260,27 +1351,46 @@ fn render_ai_chat_timeline_row_for_view(
                         is_dark,
                         false,
                         cx,
+                        ),
+                        "tool",
+                        false,
                     )
                 }
             }
         }
         AiTimelineRowSource::Group { group_id } => {
             let Some(group) = this.ai_timeline_group(group_id.as_str()) else {
-                return div().w_full().h(px(0.0)).into_any_element();
+                let element = div().w_full().h(px(0.0)).into_any_element();
+                record_ai_timeline_row_render(started_at.elapsed(), "empty", false);
+                return element;
             };
-            render_ai_timeline_group_row(this, view, row, group, is_dark, cx)
+            (
+                render_ai_timeline_group_row(this, view, row, group, is_dark, cx),
+                "group",
+                true,
+            )
         }
         AiTimelineRowSource::TurnDiff { turn_key } => {
             let Some(diff) = this.ai_state_snapshot.turn_diffs.get(turn_key.as_str()) else {
-                return div().w_full().h(px(0.0)).into_any_element();
+                let element = div().w_full().h(px(0.0)).into_any_element();
+                record_ai_timeline_row_render(started_at.elapsed(), "empty", false);
+                return element;
             };
             let diff_text = diff.trim();
             if diff_text.is_empty() {
-                return div().w_full().h(px(0.0)).into_any_element();
+                let element = div().w_full().h(px(0.0)).into_any_element();
+                record_ai_timeline_row_render(started_at.elapsed(), "empty", false);
+                return element;
             }
-            render_ai_turn_diff_row(this, view, row, diff_text, is_dark, cx)
+            (
+                render_ai_turn_diff_row(this, view, row, diff_text, is_dark, cx),
+                "diff",
+                false,
+            )
         }
-    }
+    };
+    record_ai_timeline_row_render(started_at.elapsed(), row_kind, animated);
+    element
 }
 
 fn ai_timeline_row_with_animation(

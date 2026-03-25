@@ -410,6 +410,7 @@ impl DiffViewer {
             ai_git_progress: None,
             ai_thread_title_refresh_state_by_thread: BTreeMap::new(),
             ai_expanded_thread_sidebar_project_roots: BTreeSet::new(),
+            ai_visible_frame_state: None,
             ai_thread_sidebar_sections: Vec::new(),
             ai_thread_sidebar_rows: Vec::new(),
             ai_thread_sidebar_list_state: ListState::new(0, ListAlignment::Top, px(48.0)),

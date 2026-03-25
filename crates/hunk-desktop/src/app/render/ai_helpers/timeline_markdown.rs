@@ -1,3 +1,72 @@
+struct AiMarkdownRenderMetrics {
+    window_started_at: std::time::Instant,
+    render_count: usize,
+    total_parse_micros: u128,
+    total_selection_surface_micros: u128,
+    total_block_count: usize,
+}
+
+impl AiMarkdownRenderMetrics {
+    fn new() -> Self {
+        Self {
+            window_started_at: std::time::Instant::now(),
+            render_count: 0,
+            total_parse_micros: 0,
+            total_selection_surface_micros: 0,
+            total_block_count: 0,
+        }
+    }
+}
+
+static AI_MARKDOWN_RENDER_METRICS:
+    std::sync::LazyLock<std::sync::Mutex<AiMarkdownRenderMetrics>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(AiMarkdownRenderMetrics::new()));
+
+fn record_ai_markdown_render(
+    parse_elapsed: std::time::Duration,
+    selection_surface_elapsed: std::time::Duration,
+    block_count: usize,
+) {
+    let Ok(mut metrics) = AI_MARKDOWN_RENDER_METRICS.lock() else {
+        return;
+    };
+    metrics.render_count = metrics.render_count.saturating_add(1);
+    metrics.total_parse_micros = metrics
+        .total_parse_micros
+        .saturating_add(parse_elapsed.as_micros());
+    metrics.total_selection_surface_micros = metrics
+        .total_selection_surface_micros
+        .saturating_add(selection_surface_elapsed.as_micros());
+    metrics.total_block_count = metrics.total_block_count.saturating_add(block_count);
+    if metrics.window_started_at.elapsed() < std::time::Duration::from_secs(1) {
+        return;
+    }
+
+    let avg_parse_us = if metrics.render_count == 0 {
+        0
+    } else {
+        metrics.total_parse_micros / metrics.render_count as u128
+    };
+    let avg_selection_surface_us = if metrics.render_count == 0 {
+        0
+    } else {
+        metrics.total_selection_surface_micros / metrics.render_count as u128
+    };
+    let avg_block_count = if metrics.render_count == 0 {
+        0
+    } else {
+        metrics.total_block_count / metrics.render_count
+    };
+    tracing::debug!(
+        "ai markdown renders/sec={} avg_parse_us={} avg_selection_surface_us={} avg_blocks={}",
+        metrics.render_count,
+        avg_parse_us,
+        avg_selection_surface_us,
+        avg_block_count
+    );
+    *metrics = AiMarkdownRenderMetrics::new();
+}
+
 fn ai_markdown_code_line_text(spans: &[hunk_domain::markdown_preview::MarkdownCodeSpan]) -> String {
     let mut text = String::new();
     for span in spans {
@@ -147,11 +216,17 @@ fn ai_render_chat_markdown_message(
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
+    let parse_started_at = std::time::Instant::now();
     let blocks = hunk_domain::markdown_preview::parse_markdown_preview(markdown);
+    let parse_elapsed = parse_started_at.elapsed();
     if blocks.is_empty() {
+        record_ai_markdown_render(parse_elapsed, std::time::Duration::ZERO, 0);
         return div().w_full().text_sm().child("").into_any_element();
     }
+    let selection_surface_started_at = std::time::Instant::now();
     let selection_surfaces = ai_chat_markdown_selection_surfaces(row_id, blocks.as_slice());
+    let selection_surface_elapsed = selection_surface_started_at.elapsed();
+    record_ai_markdown_render(parse_elapsed, selection_surface_elapsed, blocks.len());
 
     v_flex()
         .w_full()

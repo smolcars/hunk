@@ -1110,6 +1110,7 @@ struct DiffViewer {
     ai_git_progress: Option<AiGitProgressState>,
     ai_thread_title_refresh_state_by_thread: BTreeMap<String, AiThreadTitleRefreshState>,
     ai_expanded_thread_sidebar_project_roots: BTreeSet<String>,
+    ai_visible_frame_state: Option<AiVisibleFrameState>,
     ai_thread_sidebar_sections: Vec<AiVisibleThreadProjectSection>,
     ai_thread_sidebar_rows: Vec<AiThreadSidebarRow>,
     ai_thread_sidebar_list_state: ListState,
