@@ -1212,12 +1212,12 @@ fn render_ai_chat_timeline_row_for_view(
     let theme = cx.theme().clone();
     let started_at = std::time::Instant::now();
     if let Some(pending) = this.ai_pending_steer_for_row_id(row_id) {
-        let element = render_ai_pending_steer(&pending, is_dark, cx);
+        let element = render_ai_pending_steer(&pending, is_dark, &theme);
         record_ai_timeline_row_render(started_at.elapsed(), "pending", false);
         return element;
     }
     if let Some(queued) = this.ai_queued_message_for_row_id(row_id) {
-        let element = render_ai_queued_message(&queued, is_dark, cx);
+        let element = render_ai_queued_message(&queued, is_dark, &theme);
         record_ai_timeline_row_render(started_at.elapsed(), "pending", false);
         return element;
     }
