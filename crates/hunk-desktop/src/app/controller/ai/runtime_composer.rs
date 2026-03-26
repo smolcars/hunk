@@ -185,6 +185,10 @@ impl DiffViewer {
             &self.ai_composer_drafts,
             self.current_ai_composer_draft_key().as_ref(),
         );
+        let current_prompt = self.ai_composer_input_state.read(cx).value().to_string();
+        if current_prompt == prompt {
+            return;
+        }
         let ai_composer_state = self.ai_composer_input_state.clone();
         if let Err(error) = Self::update_any_window(cx, move |window, cx| {
             ai_composer_state.update(cx, |state, cx| {
@@ -252,6 +256,7 @@ impl DiffViewer {
             draft.local_images = pending.local_images;
             draft.skill_bindings = pending.skill_bindings;
         }
+        self.invalidate_ai_visible_frame_state_with_reason("thread");
         self.restore_ai_visible_composer_from_current_draft(cx);
     }
 

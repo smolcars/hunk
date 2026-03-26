@@ -127,7 +127,7 @@ enum AiComposerStatusKey {
     Workspace(Option<String>),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiComposerStatusTone {
     Danger,
     Warning,
@@ -202,6 +202,22 @@ struct AiValidatedPrompt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct AiComposerCompletionSyncKey {
+    prompt: String,
+    cursor: usize,
+    session_settings_locked: bool,
+    skills_generation: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AiResolvedCurrentState {
+    current_thread_id: Option<String>,
+    current_thread_workspace_root: Option<PathBuf>,
+    workspace_root: Option<PathBuf>,
+    workspace_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AiPromptSkillReference {
     pub(crate) name: String,
     pub(crate) path: PathBuf,
@@ -249,9 +265,202 @@ struct AiThreadTerminalState {
     pending_input: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct FilesProjectTerminalState {
+    open: bool,
+    follow_output: bool,
+    session: AiTerminalSessionState,
+    pending_input: Option<String>,
+    restore_target: FilesTerminalRestoreTarget,
+}
+
 struct AiHiddenTerminalRuntimeHandle {
     runtime: AiTerminalRuntimeHandle,
     event_task: Task<()>,
+}
+
+#[derive(Debug, Clone)]
+struct AiVisibleThreadProjectSection {
+    project_root: PathBuf,
+    project_label: String,
+    threads: Vec<hunk_codex::state::ThreadSummary>,
+    total_thread_count: usize,
+    hidden_thread_count: usize,
+    expanded: bool,
+}
+
+#[derive(Debug, Clone)]
+enum AiThreadSidebarRowKind {
+    ProjectHeader {
+        project_root: PathBuf,
+        project_label: String,
+        total_thread_count: usize,
+    },
+    Thread {
+        thread: hunk_codex::state::ThreadSummary,
+        workspace_label: String,
+    },
+    EmptyProject {
+        project_root: PathBuf,
+    },
+    ProjectFooter {
+        project_root: PathBuf,
+        hidden_thread_count: usize,
+        expanded: bool,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct AiThreadSidebarRow {
+    kind: AiThreadSidebarRowKind,
+}
+
+#[derive(Debug, Clone)]
+struct AiVisibleFrameState {
+    project_count: usize,
+    visible_thread_count: usize,
+    threads_loading: bool,
+    toolbar_project_label: String,
+    toolbar_repo_label: String,
+    active_branch: String,
+    active_workspace_label: String,
+    pending_approvals: Arc<[AiPendingApproval]>,
+    pending_user_inputs: Arc<[AiPendingUserInputRequest]>,
+    selected_thread_id: Option<String>,
+    pending_thread_start: Option<AiPendingThreadStart>,
+    selected_thread_start_mode: Option<AiNewThreadStartMode>,
+    show_worktree_base_branch_picker: bool,
+    selected_worktree_base_branch: String,
+    timeline_total_turn_count: usize,
+    timeline_visible_turn_count: usize,
+    timeline_hidden_turn_count: usize,
+    timeline_visible_row_ids: Arc<[String]>,
+    timeline_loading: bool,
+    show_select_thread_empty_state: bool,
+    show_no_turns_empty_state: bool,
+    composer_feedback: Option<AiComposerFeedbackState>,
+    composer_attachment_paths: Arc<[PathBuf]>,
+    composer_send_waiting_on_connection: bool,
+    composer_interrupt_available: bool,
+    queued_message_count: usize,
+    model_supports_image_inputs: bool,
+    review_action_blocker: Option<String>,
+    ai_publish_blocker: Option<String>,
+    ai_publish_disabled: bool,
+    ai_open_pr_disabled: bool,
+    ai_managed_worktree_target: Option<WorkspaceTargetSummary>,
+    ai_delete_worktree_blocker: Option<String>,
+    terminal_cwd_label: String,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct AiPerfDurationStats {
+    count: u32,
+    total_us: u64,
+    max_us: u64,
+}
+
+impl AiPerfDurationStats {
+    fn record(&mut self, duration: Duration) {
+        let micros = duration.as_micros().min(u128::from(u64::MAX)) as u64;
+        self.count = self.count.saturating_add(1);
+        self.total_us = self.total_us.saturating_add(micros);
+        self.max_us = self.max_us.max(micros);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiPerfTimelineRowKind {
+    Message,
+    Tool,
+    Group,
+    Diff,
+    Plan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiPerfSidebarRowKind {
+    ProjectHeader,
+    Thread,
+    EmptyProject,
+    ProjectFooter,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AiPerfWindow {
+    app_render: AiPerfDurationStats,
+    footer_render: AiPerfDurationStats,
+    visible_frame_build: AiPerfDurationStats,
+    visible_frame_cache_hits: u32,
+    visible_frame_invalidations: u32,
+    visible_frame_invalidation_reasons: BTreeMap<&'static str, u32>,
+    visible_frame_timeline_rows: AiPerfDurationStats,
+    visible_frame_composer_feedback: AiPerfDurationStats,
+    thread_sidebar_rebuild: AiPerfDurationStats,
+    thread_sidebar_render: AiPerfDurationStats,
+    thread_sidebar_visible_rows_total: u64,
+    thread_sidebar_row_render: AiPerfDurationStats,
+    thread_sidebar_project_header_row_render: AiPerfDurationStats,
+    thread_sidebar_thread_row_render: AiPerfDurationStats,
+    thread_sidebar_empty_project_row_render: AiPerfDurationStats,
+    thread_sidebar_project_footer_row_render: AiPerfDurationStats,
+    timeline_index_rebuild: AiPerfDurationStats,
+    timeline_list_sync_count: u32,
+    timeline_list_sync_row_ids_changed: u32,
+    timeline_list_sync_follow_output_changed: u32,
+    timeline_list_sync_visible_rows_total: u64,
+    timeline_list_render: AiPerfDurationStats,
+    timeline_list_render_visible_rows_total: u64,
+    timeline_row_render: AiPerfDurationStats,
+    timeline_row_skipped: u32,
+    message_row_render: AiPerfDurationStats,
+    tool_row_render: AiPerfDurationStats,
+    group_row_render: AiPerfDurationStats,
+    diff_row_render: AiPerfDurationStats,
+    plan_row_render: AiPerfDurationStats,
+    markdown_cache_hits: u32,
+    markdown_cache_misses: u32,
+    markdown_comrak_parse: AiPerfDurationStats,
+    markdown_transform: AiPerfDurationStats,
+    markdown_code_highlight: AiPerfDurationStats,
+    markdown_code_block_count_total: u64,
+    markdown_code_char_count_total: u64,
+    markdown_parse: AiPerfDurationStats,
+    markdown_selection_surfaces: AiPerfDurationStats,
+    markdown_render_build: AiPerfDurationStats,
+    markdown_render_block_count_total: u64,
+    markdown_render_char_count_total: u64,
+}
+
+#[derive(Debug, Clone)]
+struct AiPerfMetrics {
+    window_started_at: Instant,
+    window: AiPerfWindow,
+}
+
+impl Default for AiPerfMetrics {
+    fn default() -> Self {
+        Self {
+            window_started_at: Instant::now(),
+            window: AiPerfWindow::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct AiComposerFeedbackActivity {
+    label: String,
+    started_at: Instant,
+    animation_key: String,
+}
+
+#[derive(Debug, Clone)]
+enum AiComposerFeedbackState {
+    Status {
+        message: String,
+        tone: AiComposerStatusTone,
+    },
+    Activity(AiComposerFeedbackActivity),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,6 +551,7 @@ struct AiWorkspaceState {
     selected_service_tier: AiServiceTierSelection,
     review_mode_thread_ids: BTreeSet<String>,
     mad_max_mode: bool,
+    draft_workspace_root_override: Option<PathBuf>,
     terminal_open: bool,
     terminal_follow_output: bool,
     terminal_height_px: f32,
@@ -390,6 +600,7 @@ impl Default for AiWorkspaceState {
             selected_service_tier: AiServiceTierSelection::Standard,
             review_mode_thread_ids: BTreeSet::new(),
             mad_max_mode: false,
+            draft_workspace_root_override: None,
             terminal_open: false,
             terminal_follow_output: true,
             terminal_height_px: 220.0,
@@ -413,8 +624,14 @@ struct AiTerminalRuntimeHandle {
 }
 
 struct FilesTerminalRuntimeHandle {
+    project_key: String,
     handle: TerminalSessionHandle,
     generation: usize,
+}
+
+struct FilesHiddenTerminalRuntimeHandle {
+    runtime: FilesTerminalRuntimeHandle,
+    event_task: Task<()>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -503,6 +720,7 @@ enum AiTimelineRowSource {
     Item { item_key: String },
     Group { group_id: String },
     TurnDiff { turn_key: String },
+    TurnPlan { turn_key: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -547,6 +765,13 @@ impl AiTextSelectionSurfaceSpec {
         self.separator_before = separator_before.into();
         self
     }
+}
+
+#[derive(Debug, Clone)]
+struct AiMarkdownRowCacheEntry {
+    markdown: String,
+    blocks: Arc<[MarkdownPreviewBlock]>,
+    selection_surfaces: Arc<[AiTextSelectionSurfaceSpec]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

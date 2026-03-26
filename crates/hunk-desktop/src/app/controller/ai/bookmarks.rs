@@ -31,6 +31,7 @@ impl DiffViewer {
         }
 
         self.persist_state();
+        self.rebuild_ai_thread_sidebar_state();
         cx.notify();
     }
 }

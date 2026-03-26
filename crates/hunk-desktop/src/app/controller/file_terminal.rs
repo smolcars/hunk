@@ -1,4 +1,115 @@
 impl DiffViewer {
+    fn current_files_terminal_owner_key(&self) -> Option<String> {
+        self.current_workspace_project_key()
+    }
+
+    fn files_capture_visible_terminal_state(&self) -> FilesProjectTerminalState {
+        FilesProjectTerminalState {
+            open: self.files_terminal_open,
+            follow_output: self.files_terminal_follow_output,
+            session: self.files_terminal_session.clone(),
+            pending_input: self.files_terminal_pending_input.clone(),
+            restore_target: self.files_terminal_restore_target,
+        }
+    }
+
+    fn files_apply_visible_terminal_state(&mut self, state: FilesProjectTerminalState) {
+        self.files_terminal_open = state.open;
+        self.files_terminal_follow_output = state.follow_output;
+        self.files_terminal_session = state.session;
+        self.files_terminal_pending_input = state.pending_input;
+        self.files_terminal_restore_target = state.restore_target;
+        self.files_terminal_surface_focused = false;
+        self.files_terminal_cursor_blink_generation =
+            self.files_terminal_cursor_blink_generation.saturating_add(1);
+        self.files_terminal_cursor_blink_visible = true;
+        self.files_terminal_cursor_blink_active = false;
+        self.files_terminal_cursor_blink_task = Task::ready(());
+        self.files_terminal_cursor_output_generation =
+            self.files_terminal_cursor_output_generation.saturating_add(1);
+        self.files_terminal_cursor_output_suppressed = false;
+        self.files_terminal_cursor_output_task = Task::ready(());
+        self.files_terminal_grid_size = self
+            .files_terminal_session
+            .screen
+            .as_ref()
+            .map(|screen| (screen.rows, screen.cols));
+    }
+
+    fn files_store_visible_terminal_state_for_project(&mut self, project_key: Option<&str>) {
+        let Some(project_key) = project_key else {
+            return;
+        };
+        self.files_terminal_states_by_project.insert(
+            project_key.to_string(),
+            self.files_capture_visible_terminal_state(),
+        );
+    }
+
+    fn files_restore_visible_terminal_state_for_project(&mut self, project_key: Option<&str>) {
+        let state = project_key
+            .and_then(|project_key| self.files_terminal_states_by_project.get(project_key).cloned())
+            .unwrap_or_default();
+        self.files_apply_visible_terminal_state(state);
+    }
+
+    fn files_park_visible_terminal_runtime_for_project(&mut self, project_key: Option<&str>) {
+        let Some(project_key) = project_key else {
+            return;
+        };
+        let Some(runtime) = self.files_terminal_runtime.take() else {
+            return;
+        };
+        let event_task = std::mem::replace(&mut self.files_terminal_event_task, Task::ready(()));
+        self.files_hidden_terminal_runtimes.insert(
+            project_key.to_string(),
+            FilesHiddenTerminalRuntimeHandle { runtime, event_task },
+        );
+    }
+
+    fn files_promote_hidden_terminal_runtime_for_project(&mut self, project_key: &str) -> bool {
+        let Some(hidden) = self.files_hidden_terminal_runtimes.remove(project_key) else {
+            return false;
+        };
+        self.files_terminal_runtime = Some(hidden.runtime);
+        self.files_terminal_event_task = hidden.event_task;
+        true
+    }
+
+    pub(super) fn files_handle_project_change(
+        &mut self,
+        previous_project_key: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let previous_terminal_owner_key = self
+            .files_terminal_runtime
+            .as_ref()
+            .map(|runtime| runtime.project_key.clone())
+            .or(previous_project_key);
+        let next_terminal_owner_key = self.current_files_terminal_owner_key();
+        if previous_terminal_owner_key == next_terminal_owner_key {
+            return;
+        }
+
+        self.files_store_visible_terminal_state_for_project(previous_terminal_owner_key.as_deref());
+        self.files_park_visible_terminal_runtime_for_project(previous_terminal_owner_key.as_deref());
+        self.files_restore_visible_terminal_state_for_project(next_terminal_owner_key.as_deref());
+
+        if let Some(project_key) = next_terminal_owner_key.as_deref() {
+            if !self.files_promote_hidden_terminal_runtime_for_project(project_key)
+                && self.files_terminal_open
+            {
+                self.ensure_files_terminal_session(cx);
+            }
+        } else {
+            self.files_terminal_open = false;
+            self.files_terminal_surface_focused = false;
+        }
+
+        self.files_sync_terminal_cursor_blink(cx);
+        cx.notify();
+    }
+
     pub(crate) fn files_terminal_is_running(&self) -> bool {
         self.files_terminal_session.status == AiTerminalSessionStatus::Running
     }
@@ -107,10 +218,16 @@ impl DiffViewer {
         self.defer_root_focus(cx);
     }
 
-    fn files_terminal_runtime_is_current(&self, generation: usize) -> bool {
-        self.files_terminal_runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.generation == generation)
+    fn files_terminal_runtime_is_current(&self, project_key: &str, generation: usize) -> bool {
+        if self.files_terminal_runtime.as_ref().is_some_and(|runtime| {
+            runtime.project_key == project_key && runtime.generation == generation
+        }) {
+            return true;
+        }
+
+        self.files_hidden_terminal_runtimes
+            .get(project_key)
+            .is_some_and(|hidden| hidden.runtime.generation == generation)
     }
 
     fn next_files_terminal_runtime_generation(&mut self) -> usize {
@@ -150,11 +267,30 @@ impl DiffViewer {
     }
 
     fn ensure_files_terminal_session(&mut self, cx: &mut Context<Self>) {
-        if self.files_terminal_runtime.is_some() || self.files_terminal_session.screen.is_some() {
+        let Some(project_key) = self.current_files_terminal_owner_key() else {
+            return;
+        };
+        if let Some(active_runtime_project_key) = self
+            .files_terminal_runtime
+            .as_ref()
+            .map(|runtime| runtime.project_key.clone())
+        {
+            if active_runtime_project_key == project_key {
+                return;
+            }
+
+            self.files_park_visible_terminal_runtime_for_project(Some(
+                active_runtime_project_key.as_str(),
+            ));
+        }
+        if self.files_promote_hidden_terminal_runtime_for_project(project_key.as_str()) {
+            return;
+        }
+        if self.files_terminal_session.screen.is_some() {
             return;
         }
 
-        let Some(cwd) = self.repo_root.clone() else {
+        let Some(cwd) = self.primary_repo_root() else {
             self.files_terminal_session.status_message =
                 Some("Open a repository before using the terminal.".to_string());
             self.files_terminal_session.status = AiTerminalSessionStatus::Failed;
@@ -162,7 +298,7 @@ impl DiffViewer {
             return;
         };
 
-        self.start_default_files_terminal_session(cwd, cx);
+        self.start_default_files_terminal_session(cwd, project_key, cx);
     }
 
     pub(crate) fn stop_files_terminal_runtime(&mut self, reason: &str) {
@@ -173,6 +309,33 @@ impl DiffViewer {
             && let Err(error) = runtime.handle.kill()
         {
             error!("failed to stop Files terminal runtime during {reason}: {error:#}");
+        }
+    }
+
+    pub(crate) fn stop_all_files_terminal_runtimes(&mut self, reason: &str) {
+        self.stop_files_terminal_runtime(reason);
+        for (project_key, hidden) in std::mem::take(&mut self.files_hidden_terminal_runtimes) {
+            if let Err(error) = hidden.runtime.handle.kill() {
+                error!(
+                    "failed to stop hidden Files terminal runtime for project {project_key} during {reason}: {error:#}"
+                );
+            }
+        }
+    }
+
+    pub(crate) fn discard_files_terminal_state_for_project(
+        &mut self,
+        project_root: &std::path::Path,
+        reason: &str,
+    ) {
+        let project_key = project_root.to_string_lossy().to_string();
+        self.files_terminal_states_by_project.remove(project_key.as_str());
+        if let Some(hidden) = self.files_hidden_terminal_runtimes.remove(project_key.as_str())
+            && let Err(error) = hidden.runtime.handle.kill()
+        {
+            error!(
+                "failed to stop hidden Files terminal runtime for project {project_key} during {reason}: {error:#}"
+            );
         }
     }
 
@@ -671,7 +834,11 @@ impl DiffViewer {
             return;
         }
 
-        let Some(target_cwd) = self.repo_root.clone() else {
+        let Some(project_key) = self.current_files_terminal_owner_key() else {
+            return;
+        };
+
+        let Some(target_cwd) = self.primary_repo_root() else {
             self.files_terminal_session.status_message =
                 Some("Open a repository before using the terminal.".to_string());
             self.files_terminal_session.status = AiTerminalSessionStatus::Failed;
@@ -700,11 +867,28 @@ impl DiffViewer {
             return;
         }
 
-        self.start_default_files_terminal_session(target_cwd, cx);
+        self.start_default_files_terminal_session(target_cwd, project_key, cx);
     }
 
-    fn start_default_files_terminal_session(&mut self, cwd: PathBuf, cx: &mut Context<Self>) {
-        self.stop_files_terminal_runtime("starting default terminal shell");
+    fn start_default_files_terminal_session(
+        &mut self,
+        cwd: PathBuf,
+        project_key: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(active_runtime_project_key) = self
+            .files_terminal_runtime
+            .as_ref()
+            .map(|runtime| runtime.project_key.clone())
+        {
+            if active_runtime_project_key == project_key {
+                self.stop_files_terminal_runtime("starting default terminal shell");
+            } else {
+                self.files_park_visible_terminal_runtime_for_project(Some(
+                    active_runtime_project_key.as_str(),
+                ));
+            }
+        }
 
         let resolved_shell = crate::terminal_env::resolve_terminal_shell(&self.config.terminal);
         let request = TerminalSpawnRequest::shell(cwd.clone())
@@ -729,8 +913,12 @@ impl DiffViewer {
                 self.files_clear_terminal_cursor_output_suppression(cx);
                 self.files_sync_terminal_cursor_blink(cx);
                 let generation = self.next_files_terminal_runtime_generation();
-                self.files_terminal_runtime = Some(FilesTerminalRuntimeHandle { handle, generation });
-                self.start_files_terminal_event_listener(event_rx, generation, cx);
+                self.files_terminal_runtime = Some(FilesTerminalRuntimeHandle {
+                    project_key: project_key.clone(),
+                    handle,
+                    generation,
+                });
+                self.start_files_terminal_event_listener(event_rx, project_key, generation, cx);
                 self.defer_files_terminal_interaction_focus(cx);
             }
             Err(error) => {
@@ -755,6 +943,7 @@ impl DiffViewer {
     fn start_files_terminal_event_listener(
         &mut self,
         event_rx: std::sync::mpsc::Receiver<TerminalEvent>,
+        project_key: String,
         generation: usize,
         cx: &mut Context<Self>,
     ) {
@@ -775,16 +964,33 @@ impl DiffViewer {
                 };
                 let mut listener_is_current = true;
                 this.update(cx, |this, cx| {
-                    if !this.files_terminal_runtime_is_current(generation) {
+                    if !this.files_terminal_runtime_is_current(project_key.as_str(), generation) {
                         listener_is_current = false;
                         return;
                     }
                     for event in buffered_events {
-                        this.apply_files_terminal_event(event, cx);
+                        let visible_project_key = this
+                            .files_terminal_runtime
+                            .as_ref()
+                            .map(|runtime| runtime.project_key.as_str());
+                        if visible_project_key == Some(project_key.as_str()) {
+                            this.apply_files_terminal_event(event, cx);
+                        } else {
+                            this.apply_hidden_files_terminal_event(project_key.as_str(), event);
+                        }
                     }
-                    if event_stream_disconnected && this.files_terminal_runtime_is_current(generation)
+                    if event_stream_disconnected
+                        && this.files_terminal_runtime_is_current(project_key.as_str(), generation)
                     {
-                        this.files_terminal_runtime = None;
+                        if this
+                            .files_terminal_runtime
+                            .as_ref()
+                            .is_some_and(|runtime| runtime.project_key == project_key)
+                        {
+                            this.files_terminal_runtime = None;
+                        } else {
+                            this.files_hidden_terminal_runtimes.remove(project_key.as_str());
+                        }
                     }
                     cx.notify();
                 });
@@ -842,6 +1048,52 @@ impl DiffViewer {
         }
     }
 
+    fn apply_hidden_files_terminal_event(&mut self, project_key: &str, event: TerminalEvent) {
+        match event {
+            TerminalEvent::Output(output) => {
+                let sanitized = sanitize_ai_terminal_output(output.as_slice());
+                if sanitized.is_empty() {
+                    return;
+                }
+                append_ai_terminal_transcript(
+                    &mut self
+                        .files_terminal_states_by_project
+                        .entry(project_key.to_string())
+                        .or_default()
+                        .session
+                        .transcript,
+                    sanitized,
+                );
+            }
+            TerminalEvent::Screen(screen) => {
+                let state = self
+                    .files_terminal_states_by_project
+                    .entry(project_key.to_string())
+                    .or_default();
+                state.follow_output = screen.display_offset == 0;
+                state.session.screen = Some(screen);
+                state.session.status = AiTerminalSessionStatus::Running;
+                self.flush_hidden_files_terminal_pending_input(project_key);
+            }
+            TerminalEvent::Exit { .. } => {
+                self.files_hidden_terminal_runtimes.remove(project_key);
+                self.files_terminal_states_by_project.remove(project_key);
+            }
+            TerminalEvent::Failed(message) => {
+                let state = self
+                    .files_terminal_states_by_project
+                    .entry(project_key.to_string())
+                    .or_default();
+                state.session.status = AiTerminalSessionStatus::Failed;
+                state.session.status_message = Some(message.clone());
+                append_ai_terminal_transcript(
+                    &mut state.session.transcript,
+                    format!("[terminal error] {message}\n"),
+                );
+            }
+        }
+    }
+
     fn flush_files_terminal_pending_input(&mut self, cx: &mut Context<Self>) {
         if !self.files_terminal_is_running() {
             return;
@@ -869,6 +1121,38 @@ impl DiffViewer {
         cx.notify();
     }
 
+    fn flush_hidden_files_terminal_pending_input(&mut self, project_key: &str) {
+        let input = self
+            .files_terminal_states_by_project
+            .get_mut(project_key)
+            .and_then(|state| state.pending_input.take());
+        let Some(mut input) = input else {
+            return;
+        };
+
+        if !input.ends_with('\n') {
+            input.push('\n');
+        }
+
+        let Some(hidden) = self.files_hidden_terminal_runtimes.get(project_key) else {
+            self.files_terminal_states_by_project
+                .entry(project_key.to_string())
+                .or_default()
+                .pending_input = Some(input.trim_end_matches('\n').to_string());
+            return;
+        };
+
+        if let Err(error) = hidden.runtime.handle.write_input(input.as_bytes()) {
+            let state = self
+                .files_terminal_states_by_project
+                .entry(project_key.to_string())
+                .or_default();
+            state.pending_input = Some(input.trim_end_matches('\n').to_string());
+            state.session.status = AiTerminalSessionStatus::Failed;
+            state.session.status_message = Some(error.to_string());
+        }
+    }
+
     fn files_close_terminal_after_exit(&mut self, cx: &mut Context<Self>) {
         self.files_terminal_open = false;
         self.files_terminal_surface_focused = false;
@@ -876,6 +1160,7 @@ impl DiffViewer {
         self.files_terminal_follow_output = true;
         self.files_terminal_pending_input = None;
         self.files_terminal_session = AiTerminalSessionState::default();
+        self.files_terminal_restore_target = FilesTerminalRestoreTarget::default();
         self.files_terminal_grid_size = None;
         self.files_clear_terminal_cursor_output_suppression(cx);
         self.files_sync_terminal_cursor_blink(cx);

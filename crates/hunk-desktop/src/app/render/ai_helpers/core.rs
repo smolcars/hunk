@@ -297,11 +297,11 @@ fn ai_item_status_label(status: ItemStatus) -> &'static str {
     }
 }
 
-fn ai_item_status_color(status: ItemStatus, cx: &mut Context<DiffViewer>) -> Hsla {
+fn ai_item_status_color(status: ItemStatus, theme: &gpui_component::Theme) -> Hsla {
     match status {
-        ItemStatus::Started => cx.theme().muted_foreground,
-        ItemStatus::Streaming => cx.theme().accent,
-        ItemStatus::Completed => cx.theme().success,
+        ItemStatus::Started => theme.muted_foreground,
+        ItemStatus::Streaming => theme.accent,
+        ItemStatus::Completed => theme.success,
     }
 }
 

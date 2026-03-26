@@ -37,6 +37,56 @@ struct AiTurnDiffSummary {
     total_removed: usize,
 }
 
+fn ai_turn_plan_summary<'a>(
+    state: &'a hunk_codex::state::AiState,
+    turn_key: &str,
+) -> Option<&'a hunk_codex::state::TurnPlanSummary> {
+    state.turn_plans.get(turn_key)
+}
+
+fn ai_turn_plan_is_renderable(plan: &hunk_codex::state::TurnPlanSummary) -> bool {
+    plan.explanation
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        || !plan.steps.is_empty()
+}
+
+fn ai_turn_plan_step_marker(status: hunk_codex::state::TurnPlanStepStatus) -> &'static str {
+    match status {
+        hunk_codex::state::TurnPlanStepStatus::Completed => "[x]",
+        hunk_codex::state::TurnPlanStepStatus::InProgress => "[>]",
+        hunk_codex::state::TurnPlanStepStatus::Pending => "[ ]",
+    }
+}
+
+fn ai_turn_plan_step_style(
+    step: &hunk_codex::state::TurnPlanStepSummary,
+    theme: &gpui_component::Theme,
+) -> StyledText {
+    let text = step.step.clone();
+    let highlight = match step.status {
+        hunk_codex::state::TurnPlanStepStatus::Completed => HighlightStyle {
+            color: Some(theme.muted_foreground),
+            strikethrough: Some(StrikethroughStyle {
+                thickness: px(1.0),
+                ..StrikethroughStyle::default()
+            }),
+            ..HighlightStyle::default()
+        },
+        hunk_codex::state::TurnPlanStepStatus::InProgress => HighlightStyle {
+            color: Some(theme.foreground),
+            font_weight: Some(FontWeight::SEMIBOLD),
+            ..HighlightStyle::default()
+        },
+        hunk_codex::state::TurnPlanStepStatus::Pending => HighlightStyle {
+            color: Some(theme.muted_foreground),
+            ..HighlightStyle::default()
+        },
+    };
+
+    StyledText::new(text.clone()).with_highlights(vec![(0..text.len(), highlight)])
+}
+
 fn ai_timeline_item_role(kind: &str) -> AiTimelineItemRole {
     match kind {
         "userMessage" => AiTimelineItemRole::User,
@@ -79,6 +129,11 @@ fn ai_timeline_row_is_renderable(this: &DiffViewer, row: &AiTimelineRow) -> bool
             .turn_diffs
             .get(turn_key.as_str())
             .is_some_and(|diff| !diff.trim().is_empty()),
+        AiTimelineRowSource::TurnPlan { turn_key } => ai_turn_plan_summary(
+            &this.ai_state_snapshot,
+            turn_key.as_str(),
+        )
+        .is_some_and(ai_turn_plan_is_renderable),
     }
 }
 
@@ -483,8 +538,8 @@ fn ai_tool_detail_section(
     mono: bool,
     max_height: Option<gpui::Pixels>,
     scroll_x: bool,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let surface_id = surface_id.into();
     let scroll_region_id = format!("{surface_id}-scroll");
@@ -499,8 +554,8 @@ fn ai_tool_detail_section(
         .min_w_0()
         .rounded(px(8.0))
         .border_1()
-        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.85, 0.68))
-        .bg(hunk_blend(cx.theme().background, cx.theme().muted, is_dark, 0.10, 0.14))
+        .border_color(hunk_opacity(theme.border, is_dark, 0.85, 0.68))
+        .bg(hunk_blend(theme.background, theme.muted, is_dark, 0.10, 0.14))
         .overflow_hidden()
         .px_2()
         .py_1p5();
@@ -511,10 +566,10 @@ fn ai_tool_detail_section(
         .min_w_full()
         .min_w_0()
         .text_xs()
-        .text_color(cx.theme().muted_foreground)
+        .text_color(theme.muted_foreground)
         .whitespace_normal();
     if mono {
-        text = text.font_family(cx.theme().mono_font_family.clone());
+        text = text.font_family(theme.mono_font_family.clone());
     }
     if scroll_x {
         text = text.whitespace_nowrap();
@@ -525,17 +580,16 @@ fn ai_tool_detail_section(
             .max_w_full()
             .min_w_full()
             .min_w_0()
-            .child(ai_render_selectable_styled_text(
-                this,
-                view,
-                row_id,
-                surface_id,
-                selection_surfaces,
-                ai_text_link_ranges(Vec::new()),
-                StyledText::new(content),
-                is_dark,
-                cx,
-            )),
+                .child(ai_render_selectable_styled_text(
+                    this,
+                    view,
+                    row_id,
+                    surface_id,
+                    selection_surfaces,
+                    ai_text_link_ranges(Vec::new()),
+                    StyledText::new(content),
+                    hunk_text_selection_background(theme, is_dark),
+                )),
     );
 
     let content = match (max_height, scroll_x, needs_vertical_scroll) {
@@ -608,7 +662,7 @@ fn ai_tool_detail_section(
                 .min_w_0()
                 .text_xs()
                 .font_semibold()
-                .text_color(cx.theme().muted_foreground)
+                .text_color(theme.muted_foreground)
                 .whitespace_nowrap()
                 .child(title.to_string()),
         )
@@ -624,15 +678,15 @@ const AI_COMMAND_EXECUTION_MONO_CHAR_WIDTH: f32 = 8.0;
 
 fn ai_command_execution_status_color(
     details: &AiCommandExecutionDisplayDetails,
-    cx: &mut Context<DiffViewer>,
+    theme: &gpui_component::Theme,
 ) -> Hsla {
     match details.exit_code {
-        Some(0) => cx.theme().success,
-        Some(_) => cx.theme().danger,
+        Some(0) => theme.success,
+        Some(_) => theme.danger,
         None => match details.status.as_str() {
-            "completed" => cx.theme().success,
-            "started" | "running" | "streaming" => cx.theme().accent,
-            _ => cx.theme().muted_foreground,
+            "completed" => theme.success,
+            "started" | "running" | "streaming" => theme.accent,
+            _ => theme.muted_foreground,
         },
     }
 }
@@ -722,8 +776,8 @@ fn render_ai_command_execution_details(
     row_id: &str,
     details: &AiCommandExecutionDisplayDetails,
     output: &str,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let terminal_surface_id = ai_timeline_text_surface_id(row_id, "tool-terminal", 0);
     let (preview_text, _truncated) = ai_command_execution_terminal_text(
@@ -738,7 +792,7 @@ fn render_ai_command_execution_details(
     )]);
     let rerun_button_id = format!("ai-rerun-command-exec-{}", row_id.replace('\u{1f}', "--"));
     let copy_button_id = format!("ai-copy-command-exec-{}", row_id.replace('\u{1f}', "--"));
-    let status_color = ai_command_execution_status_color(details, cx);
+    let status_color = ai_command_execution_status_color(details, theme);
     let status_text = details.status.replace('_', " ");
     let transcript_width = ai_command_execution_transcript_width(preview_text.as_str());
     let command_to_rerun = details.command.trim().to_string();
@@ -750,10 +804,10 @@ fn render_ai_command_execution_details(
         .max_w(px(AI_COMMAND_EXECUTION_CARD_MAX_WIDTH))
         .rounded(px(10.0))
         .border_1()
-        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.88, 0.72))
+        .border_color(hunk_opacity(theme.border, is_dark, 0.88, 0.72))
         .bg(hunk_blend(
-            cx.theme().background,
-            cx.theme().secondary,
+            theme.background,
+            theme.secondary,
             is_dark,
             0.24,
             0.16,
@@ -803,7 +857,7 @@ fn render_ai_command_execution_details(
                                         .compact()
                                         .rounded(px(7.0))
                                         .icon(Icon::new(IconName::SquareTerminal).size(px(13.0)))
-                                        .text_color(cx.theme().muted_foreground)
+                                        .text_color(theme.muted_foreground)
                                         .min_w(px(22.0))
                                         .h(px(20.0))
                                         .tooltip("Run in terminal")
@@ -826,7 +880,7 @@ fn render_ai_command_execution_details(
                                         .compact()
                                         .rounded(px(7.0))
                                         .icon(Icon::new(IconName::Copy).size(px(12.0)))
-                                        .text_color(cx.theme().muted_foreground)
+                                        .text_color(theme.muted_foreground)
                                         .min_w(px(22.0))
                                         .h(px(20.0))
                                         .tooltip("Copy command transcript")
@@ -852,10 +906,10 @@ fn render_ai_command_execution_details(
                         .min_w_0()
                         .rounded(px(8.0))
                         .border_1()
-                        .border_color(hunk_opacity(cx.theme().border, is_dark, 0.82, 0.66))
+                        .border_color(hunk_opacity(theme.border, is_dark, 0.82, 0.66))
                         .bg(hunk_blend(
-                            cx.theme().background,
-                            cx.theme().secondary,
+                            theme.background,
+                            theme.secondary,
                             is_dark,
                             0.38,
                             0.24,
@@ -873,8 +927,8 @@ fn render_ai_command_execution_details(
                                         .w(transcript_width)
                                         .min_w(transcript_width)
                                         .text_xs()
-                                        .font_family(cx.theme().mono_font_family.clone())
-                                        .text_color(cx.theme().foreground)
+                                        .font_family(theme.mono_font_family.clone())
+                                        .text_color(theme.foreground)
                                         .child(ai_render_selectable_styled_text(
                                             this,
                                             view,
@@ -883,8 +937,7 @@ fn render_ai_command_execution_details(
                                             selection_surfaces,
                                             ai_text_link_ranges(Vec::new()),
                                             StyledText::new(preview_text),
-                                            is_dark,
-                                            cx,
+                                            hunk_text_selection_background(theme, is_dark),
                                         )),
                                 ),
                         ),
@@ -898,14 +951,14 @@ fn render_ai_compact_diff_summary_row(
     view: Entity<DiffViewer>,
     row_id: &str,
     summary: &AiTurnDiffSummary,
+    theme: &gpui_component::Theme,
     nested: bool,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     const AI_TURN_DIFF_VISIBLE_FILE_LIMIT: usize = 4;
 
-    let disclosure_colors = hunk_disclosure_row(cx.theme(), is_dark);
-    let line_stats_colors = hunk_line_stats(cx.theme(), is_dark);
+    let disclosure_colors = hunk_disclosure_row(theme, is_dark);
+    let line_stats_colors = hunk_line_stats(theme, is_dark);
     let row_id_string = row_id.to_string();
     let file_count_label = if summary.files.len() == 1 {
         "1 file changed".to_string()
@@ -928,7 +981,7 @@ fn render_ai_compact_diff_summary_row(
                     div()
                         .flex_none()
                         .text_sm()
-                        .text_color(cx.theme().muted_foreground)
+                        .text_color(theme.muted_foreground)
                         .child("Edited"),
                 )
                 .child(
@@ -943,7 +996,7 @@ fn render_ai_compact_diff_summary_row(
                                 .truncate()
                                 .text_sm()
                                 .font_semibold()
-                                .text_color(cx.theme().accent)
+                                .text_color(theme.accent)
                                 .child(file_name),
                         )
                         .when_some(directory, |this, directory| {
@@ -953,7 +1006,7 @@ fn render_ai_compact_diff_summary_row(
                                     .min_w_0()
                                     .truncate()
                                     .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
+                                    .text_color(theme.muted_foreground)
                                     .child(directory),
                             )
                         }),
@@ -963,7 +1016,7 @@ fn render_ai_compact_diff_summary_row(
                         .flex_none()
                         .items_center()
                         .gap_1p5()
-                        .font_family(cx.theme().mono_font_family.clone())
+                        .font_family(theme.mono_font_family.clone())
                         .text_xs()
                         .child(
                             div()
@@ -1018,7 +1071,7 @@ fn render_ai_compact_diff_summary_row(
                             this.child(
                                 div()
                                     .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
+                                    .text_color(theme.muted_foreground)
                                     .child(format!("+{hidden_file_count} more files")),
                             )
                         })
@@ -1040,14 +1093,14 @@ fn render_ai_compact_diff_summary_row(
                                         .child(
                                             div()
                                                 .text_xs()
-                                                .font_family(cx.theme().mono_font_family.clone())
+                                                .font_family(theme.mono_font_family.clone())
                                                 .text_color(line_stats_colors.added)
                                                 .child(format!("+{}", summary.total_added)),
                                         )
                                         .child(
                                             div()
                                                 .text_xs()
-                                                .font_family(cx.theme().mono_font_family.clone())
+                                                .font_family(theme.mono_font_family.clone())
                                                 .text_color(line_stats_colors.removed)
                                                 .child(format!("-{}", summary.total_removed)),
                                         ),
@@ -1108,37 +1161,158 @@ fn render_ai_turn_diff_row(
     view: Entity<DiffViewer>,
     row: &AiTimelineRow,
     diff_text: &str,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     let summary = ai_turn_diff_summary(diff_text);
-    render_ai_compact_diff_summary_row(this, view, row.id.as_str(), &summary, false, is_dark, cx)
+    render_ai_compact_diff_summary_row(
+        this,
+        view,
+        row.id.as_str(),
+        &summary,
+        theme,
+        false,
+        is_dark,
+    )
+}
+
+fn render_ai_turn_plan_row(
+    this: &DiffViewer,
+    row: &AiTimelineRow,
+    plan: &hunk_codex::state::TurnPlanSummary,
+    theme: &gpui_component::Theme,
+    is_dark: bool,
+) -> AnyElement {
+    let explanation = plan
+        .explanation
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let steps = plan
+        .steps
+        .iter()
+        .map(|step| {
+            let marker_color = match step.status {
+                hunk_codex::state::TurnPlanStepStatus::Completed => theme.success,
+                hunk_codex::state::TurnPlanStepStatus::InProgress => theme.accent,
+                hunk_codex::state::TurnPlanStepStatus::Pending => theme.muted_foreground,
+            };
+
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .items_start()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_none()
+                        .pt_0p5()
+                        .text_xs()
+                        .font_family(theme.mono_font_family.clone())
+                        .text_color(marker_color)
+                        .child(ai_turn_plan_step_marker(step.status)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .child(ai_turn_plan_step_style(step, theme)),
+                )
+                .into_any_element()
+        })
+        .collect::<Vec<_>>();
+
+    ai_timeline_row_with_animation(
+        this,
+        row.id.as_str(),
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .justify_start()
+            .child(
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .max_w(px(700.0))
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_semibold()
+                            .text_color(theme.foreground)
+                            .child("Updated Plan"),
+                    )
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .min_w_0()
+                            .gap_1p5()
+                            .px_3()
+                            .py_2p5()
+                            .rounded(px(10.0))
+                            .border_1()
+                            .border_color(hunk_opacity(theme.border, is_dark, 0.8, 0.7))
+                            .bg(hunk_blend(
+                                theme.background,
+                                theme.muted,
+                                is_dark,
+                                0.14,
+                                0.18,
+                            ))
+                            .when_some(explanation, |this, explanation| {
+                                this.child(
+                                    div()
+                                        .text_xs()
+                                        .italic()
+                                        .text_color(theme.muted_foreground)
+                                        .child(explanation.to_string()),
+                                )
+                            })
+                            .children(steps),
+                    ),
+            ),
+    )
 }
 
 fn render_ai_chat_timeline_row_for_view(
     this: &DiffViewer,
     row_id: &str,
     view: Entity<DiffViewer>,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
+    let row_render_started_at = Instant::now();
     if let Some(pending) = this.ai_pending_steer_for_row_id(row_id) {
-        return render_ai_pending_steer(&pending, is_dark, cx);
+        let element = render_ai_pending_steer(&pending, is_dark, theme);
+        this.record_ai_timeline_row_render_timing(
+            AiPerfTimelineRowKind::Message,
+            row_render_started_at.elapsed(),
+        );
+        return element;
     }
     if let Some(queued) = this.ai_queued_message_for_row_id(row_id) {
-        return render_ai_queued_message(&queued, is_dark, cx);
+        let element = render_ai_queued_message(&queued, is_dark, theme);
+        this.record_ai_timeline_row_render_timing(
+            AiPerfTimelineRowKind::Message,
+            row_render_started_at.elapsed(),
+        );
+        return element;
     }
 
     let Some(row) = this.ai_timeline_row(row_id) else {
+        this.record_ai_timeline_row_skipped();
         return div().w_full().h(px(0.0)).into_any_element();
     };
     if !ai_timeline_row_is_renderable(this, row) {
+        this.record_ai_timeline_row_skipped();
         return div().w_full().h(px(0.0)).into_any_element();
     }
 
-    match &row.source {
+    let (element, row_kind) = match &row.source {
         AiTimelineRowSource::Item { item_key } => {
             let Some(item) = this.ai_state_snapshot.items.get(item_key.as_str()) else {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             };
             let role = ai_timeline_item_role(item.kind.as_str());
@@ -1212,7 +1386,7 @@ fn render_ai_chat_timeline_row_for_view(
                                                             .compact()
                                                             .rounded(px(7.0))
                                                             .icon(Icon::new(IconName::Copy).size(px(12.0)))
-                                                            .text_color(cx.theme().muted_foreground)
+                                                            .text_color(theme.muted_foreground)
                                                             .min_w(px(22.0))
                                                             .h(px(20.0))
                                                             .tooltip("Copy message")
@@ -1235,12 +1409,12 @@ fn render_ai_chat_timeline_row_for_view(
                                         view.clone(),
                                         row.id.as_str(),
                                         bubble_text,
+                                        theme,
                                         is_dark,
-                                        cx,
                                     ))
                                 }),
                         );
-                    if is_user {
+                    let element = if is_user {
                         ai_timeline_row_with_animation_in_lane(
                             this,
                             row.id.as_str(),
@@ -1249,38 +1423,67 @@ fn render_ai_chat_timeline_row_for_view(
                         )
                     } else {
                         ai_timeline_row_with_animation(this, row.id.as_str(), row_element)
-                    }
+                    };
+                    (element, AiPerfTimelineRowKind::Message)
                 }
                 AiTimelineItemRole::Tool => {
-                    render_ai_tool_item_row(
+                    (
+                        render_ai_tool_item_row(
                         this,
                         view,
                         row.id.as_str(),
                         item,
+                        theme,
                         is_dark,
                         false,
-                        cx,
+                        ),
+                        AiPerfTimelineRowKind::Tool,
                     )
                 }
             }
         }
         AiTimelineRowSource::Group { group_id } => {
             let Some(group) = this.ai_timeline_group(group_id.as_str()) else {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             };
-            render_ai_timeline_group_row(this, view, row, group, is_dark, cx)
+            (
+                render_ai_timeline_group_row(this, view, row, group, theme, is_dark),
+                AiPerfTimelineRowKind::Group,
+            )
         }
         AiTimelineRowSource::TurnDiff { turn_key } => {
             let Some(diff) = this.ai_state_snapshot.turn_diffs.get(turn_key.as_str()) else {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             };
             let diff_text = diff.trim();
             if diff_text.is_empty() {
+                this.record_ai_timeline_row_skipped();
                 return div().w_full().h(px(0.0)).into_any_element();
             }
-            render_ai_turn_diff_row(this, view, row, diff_text, is_dark, cx)
+            (
+                render_ai_turn_diff_row(this, view, row, diff_text, theme, is_dark),
+                AiPerfTimelineRowKind::Diff,
+            )
         }
-    }
+        AiTimelineRowSource::TurnPlan { turn_key } => {
+            let Some(plan) = ai_turn_plan_summary(&this.ai_state_snapshot, turn_key.as_str()) else {
+                this.record_ai_timeline_row_skipped();
+                return div().w_full().h(px(0.0)).into_any_element();
+            };
+            if !ai_turn_plan_is_renderable(plan) {
+                this.record_ai_timeline_row_skipped();
+                return div().w_full().h(px(0.0)).into_any_element();
+            }
+            (
+                render_ai_turn_plan_row(this, row, plan, theme, is_dark),
+                AiPerfTimelineRowKind::Plan,
+            )
+        }
+    };
+    this.record_ai_timeline_row_render_timing(row_kind, row_render_started_at.elapsed());
+    element
 }
 
 fn ai_timeline_row_with_animation(
@@ -1297,6 +1500,7 @@ fn ai_timeline_row_with_animation_in_lane(
     row: gpui::Div,
     lane_max_width: f32,
 ) -> AnyElement {
+    let _ = (this, row_id);
     let row = h_flex()
         .w_full()
         .min_w_0()
@@ -1310,18 +1514,5 @@ fn ai_timeline_row_with_animation_in_lane(
                 .py_1p5()
                 .child(row),
         );
-    if this.reduced_motion_enabled() {
-        row.into_any_element()
-    } else {
-        row.with_animation(
-            row_id.to_string(),
-            Animation::new(this.animation_duration_ms(170))
-                .with_easing(cubic_bezier(0.32, 0.72, 0.0, 1.0)),
-            |this, delta| {
-                let entering = 1.0 - delta;
-                this.top(px(entering * 7.0)).opacity(0.76 + (0.24 * delta))
-            },
-        )
-        .into_any_element()
-    }
+    row.into_any_element()
 }

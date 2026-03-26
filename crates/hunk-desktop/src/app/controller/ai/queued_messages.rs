@@ -328,6 +328,14 @@ impl DiffViewer {
             touched.insert(target_key);
         }
 
+        if self
+            .current_ai_composer_draft_key()
+            .as_ref()
+            .is_some_and(|key| touched.contains(key))
+        {
+            self.invalidate_ai_visible_frame_state_with_reason("thread");
+        }
+
         touched
     }
 

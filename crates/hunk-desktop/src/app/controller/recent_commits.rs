@@ -1,6 +1,19 @@
 impl DiffViewer {
     fn hydrate_recent_commits_cache_if_available(&mut self, cx: &mut Context<Self>) {
-        let Some(cache) = self.state.git_recent_commits_cache.clone() else {
+        let Some(expected_root) = self
+            .project_path
+            .clone()
+            .or_else(|| self.state.active_project_path().cloned())
+        else {
+            return;
+        };
+        let cache_key = expected_root.to_string_lossy().to_string();
+        let Some(cache) = self
+            .state
+            .git_recent_commits_cache_by_repo
+            .get(cache_key.as_str())
+            .cloned()
+        else {
             return;
         };
         let Some(root) = cache.root.clone() else {
@@ -8,13 +21,6 @@ impl DiffViewer {
         };
         let cached_project_root =
             hunk_git::worktree::primary_repo_root(root.as_path()).unwrap_or_else(|_| root.clone());
-        let Some(expected_root) = self
-            .project_path
-            .clone()
-            .or_else(|| self.state.last_project_path.clone())
-        else {
-            return;
-        };
         if cached_project_root != expected_root {
             return;
         }
@@ -58,6 +64,9 @@ impl DiffViewer {
         let Some(root) = self.selected_git_workspace_root() else {
             return;
         };
+        let Some(cache_key) = self.current_workspace_project_key() else {
+            return;
+        };
 
         let mut cache = CachedRecentCommitsState {
             root: Some(root),
@@ -85,7 +94,11 @@ impl DiffViewer {
             cached_unix_time: 0,
         };
 
-        if let Some(previous) = self.state.git_recent_commits_cache.as_ref() {
+        if let Some(previous) = self
+            .state
+            .git_recent_commits_cache_by_repo
+            .get(cache_key.as_str())
+        {
             let mut previous_without_time = previous.clone();
             previous_without_time.cached_unix_time = 0;
             if previous_without_time == cache {
@@ -94,13 +107,23 @@ impl DiffViewer {
         }
 
         cache.cached_unix_time = Self::workflow_cache_unix_time();
-        self.state.git_recent_commits_cache = Some(cache);
+        self.state
+            .git_recent_commits_cache_by_repo
+            .insert(cache_key, cache);
         self.persist_state();
     }
 
     fn clear_recent_commits_cache(&mut self) {
-        if self.state.git_recent_commits_cache.is_some() {
-            self.state.git_recent_commits_cache = None;
+        let Some(cache_key) = self.current_workspace_project_key() else {
+            return;
+        };
+
+        if self
+            .state
+            .git_recent_commits_cache_by_repo
+            .remove(cache_key.as_str())
+            .is_some()
+        {
             self.persist_state();
         }
     }

@@ -8,6 +8,119 @@ impl DiffViewer {
         self.open_project_picker(cx);
     }
 
+    pub(super) fn confirm_remove_workspace_project_action(
+        &mut self,
+        project_path: std::path::PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.state.contains_workspace_project(project_path.as_path()) {
+            self.git_status_message = Some("Project is not part of the workspace.".to_string());
+            cx.notify();
+            return;
+        }
+
+        let project_name =
+            crate::app::project_picker::project_display_name(project_path.as_path());
+        let project_path_label = project_path.display().to_string();
+        let view = cx.entity();
+
+        gpui_component::WindowExt::open_alert_dialog(window, cx, move |alert, _, cx| {
+            alert
+                .width(px(460.0))
+                .title("Remove Project?")
+                .description(format!(
+                    "Remove project '{}' from the workspace? The repository stays on disk and can be added again later.",
+                    project_name
+                ))
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("Remove Project")
+                        .ok_variant(gpui_component::button::ButtonVariant::Danger)
+                        .cancel_text("Cancel")
+                        .show_cancel(true),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .whitespace_normal()
+                        .child(project_path_label.clone()),
+                )
+                .on_ok({
+                    let view = view.clone();
+                    let project_path = project_path.clone();
+                    move |_, window, cx| {
+                        view.update(cx, |this, cx| {
+                            this.remove_workspace_project_by_path(
+                                project_path.as_path(),
+                                window,
+                                cx,
+                            );
+                        });
+                        true
+                    }
+                })
+        });
+    }
+
+    fn remove_workspace_project_by_path(
+        &mut self,
+        project_path: &std::path::Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let removed_project_name =
+            crate::app::project_picker::project_display_name(project_path);
+        let was_active_project = self.project_path.as_deref() == Some(project_path);
+
+        if !self.state.remove_workspace_project(project_path) {
+            self.git_status_message = Some("Project is not part of the workspace.".to_string());
+            cx.notify();
+            return;
+        }
+
+        let next_active_project = self.state.active_project_path().cloned();
+        let removed_last_project = next_active_project.is_none();
+        self.persist_state();
+        self.discard_workspace_project_state(project_path);
+        self.discard_files_terminal_state_for_project(
+            project_path,
+            "removing project from workspace",
+        );
+
+        if was_active_project {
+            if let Some(next_active_project) = next_active_project {
+                self.activate_workspace_project_root(next_active_project, cx);
+            } else {
+                self.reset_to_empty_workspace_state(false, cx);
+            }
+        }
+
+        self.discard_workspace_project_state(project_path);
+        self.update_project_picker_state(window, cx);
+        self.remove_ai_workspace_states_for_project(project_path, cx);
+        self.rebuild_ai_thread_sidebar_state();
+        self.invalidate_ai_visible_frame_state_with_reason("refresh");
+        self.git_status_message = Some(if removed_last_project {
+            "Removed the last project from the workspace.".to_string()
+        } else {
+            format!("Removed '{}' from the workspace.", removed_project_name)
+        });
+        cx.notify();
+    }
+
+    fn remove_ai_workspace_states_for_project(
+        &mut self,
+        project_path: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) {
+        for workspace_key in removed_project_workspace_keys(project_path) {
+            self.shutdown_ai_runtime_for_workspace_blocking(workspace_key.as_str());
+            self.ai_forget_deleted_workspace_state(workspace_key.as_str(), cx);
+        }
+    }
+
     pub(super) fn status_for_path(&self, path: &str) -> Option<FileStatus> {
         if self.workspace_view_mode == WorkspaceViewMode::Diff {
             self.review_file_status_by_path.get(path).copied()
@@ -508,4 +621,18 @@ impl DiffViewer {
             }
         });
     }
+}
+
+fn removed_project_workspace_keys(project_path: &std::path::Path) -> Vec<String> {
+    let mut workspace_keys = std::collections::BTreeSet::from([project_path
+        .to_string_lossy()
+        .to_string()]);
+
+    if let Ok(targets) = hunk_git::worktree::list_workspace_targets(project_path) {
+        for target in targets {
+            workspace_keys.insert(target.root.to_string_lossy().to_string());
+        }
+    }
+
+    workspace_keys.into_iter().collect()
 }

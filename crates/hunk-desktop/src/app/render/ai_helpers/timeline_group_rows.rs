@@ -1,9 +1,9 @@
 fn ai_group_row_style(
     _kind: &str,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
+    theme: &gpui_component::Theme,
 ) -> (Hsla, Hsla, Hsla, Hsla) {
-    let colors = hunk_disclosure_row(cx.theme(), is_dark);
+    let colors = hunk_disclosure_row(theme, is_dark);
     (
         colors.title,
         colors.summary,
@@ -17,9 +17,9 @@ fn render_ai_tool_item_row(
     view: Entity<DiffViewer>,
     row_id: &str,
     item: &hunk_codex::state::ItemSummary,
+    theme: &gpui_component::Theme,
     is_dark: bool,
     nested: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     if item.kind == "fileChange" && let Some(summary) = ai_file_change_summary(item) {
         return render_ai_compact_diff_summary_row(
@@ -27,9 +27,9 @@ fn render_ai_tool_item_row(
             view,
             row_id,
             &summary,
+            theme,
             nested,
             is_dark,
-            cx,
         );
     }
 
@@ -43,7 +43,7 @@ fn render_ai_tool_item_row(
     let compact_summary = ai_tool_compact_summary(item, content_text);
     let summary_uses_mono = item.kind == "commandExecution";
     let status = ai_item_status_label(item.status);
-    let status_color = ai_item_status_color(item.status, cx);
+    let status_color = ai_item_status_color(item.status, theme);
     let show_status = item.status != hunk_codex::state::ItemStatus::Completed;
     let command_details = (item.kind == "commandExecution")
         .then(|| ai_command_execution_display_details(item))
@@ -57,7 +57,7 @@ fn render_ai_tool_item_row(
     let expanded = has_details && this.ai_expanded_timeline_row_ids.contains(row_id);
     let show_toggle = has_details;
     let row_id_string = row_id.to_string();
-    let disclosure_colors = hunk_disclosure_row(cx.theme(), is_dark);
+    let disclosure_colors = hunk_disclosure_row(theme, is_dark);
     let hover_bg_color = disclosure_colors.hover_background;
     let chevron_color = disclosure_colors.chevron;
 
@@ -105,7 +105,7 @@ fn render_ai_tool_item_row(
                     .truncate()
                     .child(summary);
                 if summary_uses_mono {
-                    summary_element = summary_element.font_family(cx.theme().mono_font_family.clone());
+                    summary_element = summary_element.font_family(theme.mono_font_family.clone());
                 }
                 title_row = title_row.child(summary_element);
             }
@@ -147,8 +147,8 @@ fn render_ai_tool_item_row(
                 row_id,
                 details,
                 raw_content_text.trim_end(),
+                theme,
                 is_dark,
-                cx,
             )
         })
         .unwrap_or_else(|| {
@@ -168,8 +168,8 @@ fn render_ai_tool_item_row(
                 true,
                 Some(px(240.0)),
                 false,
+                theme,
                 is_dark,
-                cx,
             )
         });
 
@@ -214,8 +214,8 @@ fn render_ai_timeline_group_row(
     view: Entity<DiffViewer>,
     row: &AiTimelineRow,
     group: &AiTimelineGroup,
+    theme: &gpui_component::Theme,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
     if group.kind == "file_change_batch"
         && let Some(summary) = ai_file_change_group_summary(this, group)
@@ -225,15 +225,15 @@ fn render_ai_timeline_group_row(
             view,
             row.id.as_str(),
             &summary,
+            theme,
             false,
             is_dark,
-            cx,
         );
     }
 
     let expanded = this.ai_expanded_timeline_row_ids.contains(row.id.as_str());
     let (title_color, summary_color, hover_bg_color, chevron_color) =
-        ai_group_row_style(group.kind.as_str(), is_dark, cx);
+        ai_group_row_style(group.kind.as_str(), is_dark, theme);
     let row_id = row.id.clone();
 
     let children = group
@@ -250,9 +250,9 @@ fn render_ai_timeline_group_row(
                 view.clone(),
                 child_row_id.as_str(),
                 item,
+                theme,
                 is_dark,
                 true,
-                cx,
             ))
         })
         .collect::<Vec<_>>();

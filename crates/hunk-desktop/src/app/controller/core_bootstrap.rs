@@ -44,15 +44,6 @@ impl DiffViewer {
         }
     }
 
-    fn load_legacy_last_project_path(config_store: &ConfigStore) -> Option<PathBuf> {
-        let raw = std::fs::read_to_string(config_store.path()).ok()?;
-        let value = raw.parse::<toml::Value>().ok()?;
-        value
-            .get("last_project_path")
-            .and_then(toml::Value::as_str)
-            .map(PathBuf::from)
-    }
-
     fn apply_theme_preference(&self, window: &mut Window, cx: &mut Context<Self>) {
         let mode = match self.config.theme {
             ThemePreference::System => ThemeMode::from(window.appearance()),
@@ -88,13 +79,27 @@ impl DiffViewer {
         }
     }
 
-    fn set_last_project_path(&mut self, project_path: Option<PathBuf>) {
-        if self.state.last_project_path == project_path {
+    fn set_active_workspace_project_path(&mut self, project_path: Option<PathBuf>) {
+        let changed = match project_path {
+            Some(project_path) => self.state.activate_workspace_project(project_path),
+            None => {
+                let previous_active = self.state.active_workspace_project_path.clone();
+                self.state.active_workspace_project_path = None;
+                self.state.normalize_workspace_state();
+                self.state.active_workspace_project_path != previous_active
+            }
+        };
+        if !changed {
             return;
         }
-
-        self.state.last_project_path = project_path;
         self.persist_state();
+    }
+
+    fn current_workspace_project_key(&self) -> Option<String> {
+        self.project_path
+            .as_ref()
+            .or(self.repo_root.as_ref())
+            .map(|path| path.to_string_lossy().to_string())
     }
 
     fn workflow_cache_unix_time() -> i64 {
@@ -118,7 +123,16 @@ impl DiffViewer {
     }
 
     fn hydrate_workflow_cache_if_available(&mut self, cx: &mut Context<Self>) {
-        let Some(cache) = self.state.git_workflow_cache.clone() else {
+        let Some(expected_root) = self
+            .project_path
+            .clone()
+            .or_else(|| self.state.active_project_path().cloned())
+        else {
+            return;
+        };
+        let cache_key = expected_root.to_string_lossy().to_string();
+        let Some(cache) = self.state.git_workflow_cache_by_repo.get(cache_key.as_str()).cloned()
+        else {
             return;
         };
         let Some(root) = cache.root.clone() else {
@@ -126,13 +140,6 @@ impl DiffViewer {
         };
         let cached_project_root =
             hunk_git::worktree::primary_repo_root(root.as_path()).unwrap_or_else(|_| root.clone());
-        let Some(expected_root) = self
-            .project_path
-            .clone()
-            .or_else(|| self.state.last_project_path.clone())
-        else {
-            return;
-        };
         if cached_project_root != expected_root {
             return;
         }
@@ -196,6 +203,7 @@ impl DiffViewer {
         self.sync_branch_picker_state(cx);
         self.sync_ai_worktree_base_branch_picker_state(cx);
         self.refresh_workspace_targets_from_git_state(cx);
+        self.sync_git_workspace_with_primary_state();
         self.repo_discovery_failed = false;
         self.error_message = None;
         debug!(
@@ -209,6 +217,9 @@ impl DiffViewer {
 
     fn persist_workflow_cache(&mut self) {
         let Some(root) = self.repo_root.clone() else {
+            return;
+        };
+        let Some(cache_key) = self.current_workspace_project_key() else {
             return;
         };
 
@@ -245,7 +256,7 @@ impl DiffViewer {
             cached_unix_time: 0,
         };
 
-        if let Some(previous) = self.state.git_workflow_cache.as_ref() {
+        if let Some(previous) = self.state.git_workflow_cache_by_repo.get(cache_key.as_str()) {
             let mut previous_without_time = previous.clone();
             previous_without_time.cached_unix_time = 0;
             if previous_without_time == cache {
@@ -254,7 +265,9 @@ impl DiffViewer {
         }
 
         cache.cached_unix_time = Self::workflow_cache_unix_time();
-        self.state.git_workflow_cache = Some(cache);
+        self.state
+            .git_workflow_cache_by_repo
+            .insert(cache_key, cache);
         self.persist_state();
     }
 
@@ -270,22 +283,9 @@ impl DiffViewer {
         let (state_store, mut state) = Self::load_app_state();
         let preferred_ai_session = hunk_domain::state::AiThreadSessionState::preferred_defaults();
         let database_store = Self::load_database_store();
-        if state.last_project_path.is_none()
-            && let Some(config_store) = config_store.as_ref()
-            && let Some(last_project_path) = Self::load_legacy_last_project_path(config_store)
-        {
-            state.last_project_path = Some(last_project_path);
-            if let Some(state_store) = state_store.as_ref()
-                && let Err(err) = state_store.save(&state)
-            {
-                error!(
-                    "failed to migrate app state to {}: {err:#}",
-                    state_store.path().display()
-                );
-            }
-        }
-        let last_project_path = state.last_project_path.clone();
-        let initial_ai_workspace_key = last_project_path
+        state.normalize_workspace_state();
+        let initial_project_path = state.active_project_path().cloned();
+        let initial_ai_workspace_key = initial_project_path
             .as_ref()
             .map(|path| path.to_string_lossy().to_string());
         let initial_ai_mad_max_mode = initial_ai_workspace_key
@@ -299,22 +299,58 @@ impl DiffViewer {
             .copied()
             .unwrap_or(true);
         let branch_picker_state = cx.new(|cx| {
-            SelectState::new(BranchPickerDelegate::default(), None, window, cx).searchable(true)
+            HunkPickerState::new(
+                BranchPickerDelegate::default(),
+                None,
+                "Find a branch",
+                window,
+                cx,
+            )
         });
         let ai_worktree_base_branch_picker_state = cx.new(|cx| {
-            SelectState::new(BranchPickerDelegate::default(), None, window, cx).searchable(true)
+            HunkPickerState::new(
+                BranchPickerDelegate::default(),
+                None,
+                "Choose a base branch",
+                window,
+                cx,
+            )
+        });
+        let project_picker_state = cx.new(|cx| {
+            HunkPickerState::new(
+                ProjectPickerDelegate::default(),
+                None,
+                "Find a project",
+                window,
+                cx,
+            )
         });
         let workspace_target_picker_state = cx.new(|cx| {
-            SelectState::new(WorkspaceTargetPickerDelegate::default(), None, window, cx)
-                .searchable(true)
+            HunkPickerState::new(
+                WorkspaceTargetPickerDelegate::default(),
+                None,
+                "Find a branch or project",
+                window,
+                cx,
+            )
         });
         let review_left_picker_state = cx.new(|cx| {
-            SelectState::new(ReviewComparePickerDelegate::default(), None, window, cx)
-                .searchable(true)
+            HunkPickerState::new(
+                ReviewComparePickerDelegate::default(),
+                None,
+                "Find a branch or worktree",
+                window,
+                cx,
+            )
         });
         let review_right_picker_state = cx.new(|cx| {
-            SelectState::new(ReviewComparePickerDelegate::default(), None, window, cx)
-                .searchable(true)
+            HunkPickerState::new(
+                ReviewComparePickerDelegate::default(),
+                None,
+                "Find a branch or worktree",
+                window,
+                cx,
+            )
         });
         let branch_input_state = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Create or activate branch")
@@ -369,7 +405,7 @@ impl DiffViewer {
             active_comment_editor_row: None,
             comment_input_state,
             comment_status_message: None,
-            project_path: last_project_path,
+            project_path: initial_project_path,
             repo_root: None,
             workspace_targets: Vec::new(),
             active_workspace_target_id: None,
@@ -404,9 +440,15 @@ impl DiffViewer {
             ai_interrupt_restore_queued_thread_ids: BTreeSet::new(),
             ai_scroll_timeline_to_bottom: false,
             ai_timeline_follow_output: true,
-            ai_thread_list_scroll_handle: ScrollHandle::default(),
             ai_git_progress: None,
             ai_thread_title_refresh_state_by_thread: BTreeMap::new(),
+            ai_expanded_thread_sidebar_project_roots: BTreeSet::new(),
+            ai_visible_frame_state: None,
+            ai_thread_sidebar_sections: Vec::new(),
+            ai_thread_sidebar_rows: Vec::new(),
+            ai_thread_sidebar_list_state: ListState::new(0, ListAlignment::Top, px(48.0)),
+            ai_thread_sidebar_row_count: 0,
+            ai_timeline_list_view: None,
             ai_timeline_list_state: ListState::new(0, ListAlignment::Top, px(360.0)),
             ai_timeline_list_row_count: 0,
             ai_timeline_visible_turn_limit_by_thread: BTreeMap::new(),
@@ -415,6 +457,7 @@ impl DiffViewer {
             ai_timeline_rows_by_id: BTreeMap::new(),
             ai_timeline_groups_by_id: BTreeMap::new(),
             ai_timeline_group_parent_by_child_row_id: BTreeMap::new(),
+            ai_markdown_row_cache: Mutex::new(BTreeMap::new()),
             ai_in_progress_turn_started_at: BTreeMap::new(),
             ai_composer_activity_elapsed_second: None,
             ai_expanded_timeline_row_ids: BTreeSet::new(),
@@ -432,6 +475,7 @@ impl DiffViewer {
             ai_experimental_features: Vec::new(),
             ai_collaboration_modes: Vec::new(),
             ai_skills: Vec::new(),
+            ai_skills_generation: 0,
             ai_include_hidden_models: initial_ai_include_hidden_models,
             ai_selected_model: preferred_ai_session.model,
             ai_selected_effort: preferred_ai_session.effort,
@@ -445,9 +489,11 @@ impl DiffViewer {
             ai_attachment_picker_task: Task::ready(()),
             ai_workspace_states: BTreeMap::new(),
             ai_hidden_runtimes: BTreeMap::new(),
+            ai_runtime_starting_workspace_key: None,
             ai_worker_thread: None,
             ai_command_tx: None,
             ai_worker_workspace_key: None,
+            ai_draft_workspace_root_override: None,
             ai_draft_workspace_target_id: None,
             ai_terminal_states_by_thread: BTreeMap::new(),
             ai_hidden_terminal_runtimes: BTreeMap::new(),
@@ -473,6 +519,9 @@ impl DiffViewer {
             ai_terminal_cursor_output_generation: 0,
             ai_terminal_runtime_generation: 0,
             ai_terminal_stop_requested: false,
+            workspace_project_states: BTreeMap::new(),
+            files_terminal_states_by_project: BTreeMap::new(),
+            files_hidden_terminal_runtimes: BTreeMap::new(),
             files_terminal_open: false,
             files_terminal_follow_output: true,
             files_terminal_height_px: 220.0,
@@ -511,6 +560,7 @@ impl DiffViewer {
             ai_composer_skill_completion_selected_ix: 0,
             ai_composer_skill_completion_dismissed_token: None,
             ai_composer_skill_completion_scroll_handle: ScrollHandle::default(),
+            ai_composer_completion_sync_key: None,
             ai_worktree_base_branch_picker_state,
             ai_composer_input_state,
             ai_review_mode_active: false,
@@ -522,6 +572,7 @@ impl DiffViewer {
             ai_composer_status_generation_by_key: BTreeMap::new(),
             files: Vec::new(),
             file_status_by_path: BTreeMap::new(),
+            project_picker_state,
             workspace_target_picker_state,
             review_left_picker_state,
             review_right_picker_state,
@@ -614,8 +665,10 @@ impl DiffViewer {
             fps: 0.0,
             frame_sample_count: 0,
             frame_sample_started_at: Instant::now(),
+            ignore_next_frame_sample: false,
             fps_epoch: 0,
             fps_task: Task::ready(()),
+            ai_perf_metrics: RefCell::new(AiPerfMetrics::default()),
             repo_discovery_failed: false,
             error_message: None,
             sidebar_collapsed: false,
@@ -662,16 +715,13 @@ impl DiffViewer {
         .detach();
 
         let ai_composer_state = view.ai_composer_input_state.clone();
-        cx.observe(&ai_composer_state, |this, _, cx| {
-            this.sync_ai_composer_completion_menus(cx);
-        })
-        .detach();
         cx.subscribe(&ai_composer_state, |this, _, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.sync_ai_visible_composer_prompt_to_draft(cx);
                 this.ai_composer_file_completion_dismissed_token = None;
                 this.ai_composer_slash_command_dismissed_token = None;
                 this.ai_composer_skill_completion_dismissed_token = None;
+                this.sync_ai_composer_completion_menus(cx);
             }
             if matches!(event, InputEvent::Blur) {
                 this.ai_composer_file_completion_menu = None;
@@ -748,6 +798,13 @@ impl DiffViewer {
             let Some(view) = weak_view.upgrade() else {
                 return;
             };
+            if let Some(action) = hunk_picker_action_for_keystroke(&event.keystroke) {
+                let handled =
+                    view.update(cx, |this, cx| this.handle_hunk_picker_keystroke(action, window, cx));
+                if handled {
+                    return;
+                }
+            }
             if let Some(action) = file_quick_open_action_for_keystroke(&event.keystroke) {
                 let handled = view.update(cx, |this, cx| {
                     this.handle_file_quick_open_keystroke(action, window, cx)
@@ -776,8 +833,8 @@ impl DiffViewer {
         let branch_picker_state = view.branch_picker_state.clone();
         cx.subscribe(
             &branch_picker_state,
-            |this, _, event: &SelectEvent<BranchPickerDelegate>, cx| {
-                let SelectEvent::Confirm(branch_name) = event;
+            |this, _, event: &HunkPickerEvent<BranchPickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(branch_name) = event;
                 let Some(branch_name) = branch_name.clone() else {
                     return;
                 };
@@ -792,8 +849,8 @@ impl DiffViewer {
         let ai_worktree_base_branch_picker_state = view.ai_worktree_base_branch_picker_state.clone();
         cx.subscribe(
             &ai_worktree_base_branch_picker_state,
-            |this, _, event: &SelectEvent<BranchPickerDelegate>, cx| {
-                let SelectEvent::Confirm(branch_name) = event;
+            |this, _, event: &HunkPickerEvent<BranchPickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(branch_name) = event;
                 let Some(branch_name) = branch_name.clone() else {
                     return;
                 };
@@ -802,11 +859,28 @@ impl DiffViewer {
         )
         .detach();
 
+        let project_picker_state = view.project_picker_state.clone();
+        cx.subscribe(
+            &project_picker_state,
+            |this, _, event: &HunkPickerEvent<ProjectPickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(project_path) = event;
+                let Some(project_path) = project_path.clone() else {
+                    return;
+                };
+                let project_path = PathBuf::from(project_path);
+                if this.project_path.as_ref() == Some(&project_path) {
+                    return;
+                }
+                this.activate_workspace_project_root(project_path, cx);
+            },
+        )
+        .detach();
+
         let workspace_target_picker_state = view.workspace_target_picker_state.clone();
         cx.subscribe(
             &workspace_target_picker_state,
-            |this, _, event: &SelectEvent<WorkspaceTargetPickerDelegate>, cx| {
-                let SelectEvent::Confirm(target_id) = event;
+            |this, _, event: &HunkPickerEvent<WorkspaceTargetPickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(target_id) = event;
                 let Some(target_id) = target_id.clone() else {
                     return;
                 };
@@ -818,11 +892,13 @@ impl DiffViewer {
         )
         .detach();
 
+        view.initialize_ai_timeline_list_view(cx);
         view.install_list_scroll_handlers(cx);
         view.subscribe_review_compare_picker_states(cx);
 
         view.update_branch_picker_state(window, cx);
         view.update_ai_worktree_base_branch_picker_state(window, cx);
+        view.update_project_picker_state(window, cx);
         view.update_workspace_target_picker_state(window, cx);
         view.update_review_compare_picker_states(window, cx);
         view.apply_theme_preference(window, cx);
@@ -836,10 +912,12 @@ impl DiffViewer {
         view.restore_active_workspace_target_root_from_state(cx);
         view.request_snapshot_refresh(cx);
         view.request_recent_commits_refresh(false, cx);
+        view.prewarm_preview_highlighting(cx);
         view.preload_ai_runtime_on_startup(cx);
         view.start_auto_refresh(cx);
         view.start_repo_watch(cx);
         view.start_fps_monitor(cx);
+        view.rebuild_ai_thread_sidebar_state();
         view.prune_expired_comments();
         view.refresh_comments_cache_from_store();
         view
@@ -862,8 +940,6 @@ impl DiffViewer {
             let weak_view = weak_view.clone();
             move |_, _, cx| {
                 let weak_view = weak_view.clone();
-                // GPUI invokes the scroll handler while the list state is mutably borrowed.
-                // Defer follow-output recomputation until that borrow is released.
                 cx.defer(move |cx| {
                     let Some(view) = weak_view.upgrade() else {
                         return;
@@ -878,5 +954,35 @@ impl DiffViewer {
                 });
             }
         });
+    }
+
+    fn initialize_ai_timeline_list_view(&mut self, cx: &mut Context<Self>) {
+        if self.ai_timeline_list_view.is_some() {
+            return;
+        }
+
+        let root_view = cx.entity().downgrade();
+        let list_state = self.ai_timeline_list_state.clone();
+        self.ai_timeline_list_view =
+            Some(cx.new(|_| render::AiTimelineListView::new(root_view, list_state)));
+    }
+
+    fn prewarm_preview_highlighting(&self, cx: &mut Context<Self>) {
+        cx.spawn(async move |_, cx| {
+            let elapsed = cx.background_executor().spawn(async move {
+                let started_at = Instant::now();
+                let _ = hunk_language::preview_highlight_spans_for_language_hint(
+                    Some("rust"),
+                    "fn warm_preview_highlight_registry() {}\n",
+                );
+                started_at.elapsed()
+            });
+            let elapsed = elapsed.await;
+            debug!(
+                "prewarmed preview highlighting registry in {}ms",
+                elapsed.as_millis()
+            );
+        })
+        .detach();
     }
 }

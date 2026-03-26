@@ -33,8 +33,12 @@ impl DiffViewer {
                         this.request_visible_row_segment_prefetch(visible_row, true, cx);
                     }
 
+                    if this.workspace_view_mode == WorkspaceViewMode::Ai {
+                        this.roll_ai_perf_sample_if_due();
+                    }
                     let next_epoch = this.next_fps_epoch();
                     this.schedule_fps_sample(next_epoch, cx);
+                    this.ignore_next_frame_sample = true;
                     cx.notify();
                 });
             }

@@ -9,6 +9,8 @@ use hunk_codex::state::ReducerEvent;
 use hunk_codex::state::ServerRequestDecision;
 use hunk_codex::state::StreamEvent;
 use hunk_codex::state::ThreadLifecycleStatus;
+use hunk_codex::state::TurnPlanStepStatus;
+use hunk_codex::state::TurnPlanStepSummary;
 use hunk_codex::state::TurnStatus;
 use hunk_codex::state::turn_storage_key;
 
@@ -112,6 +114,82 @@ fn ordered_stream_application_updates_all_entities() {
         .get("s1")
         .expect("server request must exist");
     assert_eq!(server_request.item_id.as_deref(), Some("i1"));
+}
+
+#[test]
+fn turn_plan_updates_replace_steps_and_preserve_creation_sequence() {
+    let mut state = AiState::default();
+
+    state.apply_stream_events(vec![
+        event(
+            1,
+            Some("thread-start:t1"),
+            ReducerEvent::ThreadStarted {
+                thread_id: "t1".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                created_at: Some(10),
+                updated_at: Some(10),
+            },
+        ),
+        event(
+            2,
+            Some("turn-start:r1"),
+            ReducerEvent::TurnStarted {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+            },
+        ),
+        event(
+            3,
+            Some("turn-plan:r1:1"),
+            ReducerEvent::TurnPlanUpdated {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+                explanation: Some("First pass".to_string()),
+                steps: vec![
+                    TurnPlanStepSummary {
+                        step: "Inspect the reducer".to_string(),
+                        status: TurnPlanStepStatus::InProgress,
+                    },
+                    TurnPlanStepSummary {
+                        step: "Render the checklist".to_string(),
+                        status: TurnPlanStepStatus::Pending,
+                    },
+                ],
+            },
+        ),
+        event(
+            4,
+            Some("turn-plan:r1:2"),
+            ReducerEvent::TurnPlanUpdated {
+                thread_id: "t1".to_string(),
+                turn_id: "r1".to_string(),
+                explanation: Some("Second pass".to_string()),
+                steps: vec![
+                    TurnPlanStepSummary {
+                        step: "Inspect the reducer".to_string(),
+                        status: TurnPlanStepStatus::Completed,
+                    },
+                    TurnPlanStepSummary {
+                        step: "Render the checklist".to_string(),
+                        status: TurnPlanStepStatus::InProgress,
+                    },
+                ],
+            },
+        ),
+    ]);
+
+    let plan = state
+        .turn_plans
+        .get(turn_storage_key("t1", "r1").as_str())
+        .expect("turn plan should exist");
+    assert_eq!(plan.explanation.as_deref(), Some("Second pass"));
+    assert_eq!(plan.created_sequence, 3);
+    assert_eq!(plan.last_sequence, 4);
+    assert_eq!(plan.steps.len(), 2);
+    assert_eq!(plan.steps[0].status, TurnPlanStepStatus::Completed);
+    assert_eq!(plan.steps[1].status, TurnPlanStepStatus::InProgress);
 }
 
 #[test]

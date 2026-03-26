@@ -116,6 +116,7 @@ impl DiffViewer {
     }
 
     fn render_app_footer(&self, cx: &mut Context<Self>) -> AnyElement {
+        let render_started_at = Instant::now();
         let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
         let files_selected = self.workspace_view_mode == WorkspaceViewMode::Files;
@@ -185,7 +186,7 @@ impl DiffViewer {
             },
         );
 
-        h_flex()
+        let element = h_flex()
             .w_full()
             .h_10()
             .items_center()
@@ -376,19 +377,30 @@ impl DiffViewer {
                             .child(footer_summary),
                     ),
             )
-            .into_any_element()
+            .into_any_element();
+        if ai_selected {
+            self.record_ai_footer_render_timing(render_started_at.elapsed());
+        }
+        element
     }
 }
 
 impl Render for DiffViewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let render_started_at = Instant::now();
         let current_scroll_offset = self.diff_list_state.scroll_px_offset_for_scrollbar();
         if self.last_diff_scroll_offset != Some(current_scroll_offset) {
             self.last_diff_scroll_offset = Some(current_scroll_offset);
             self.last_scroll_activity_at = Instant::now();
         }
-        self.frame_sample_count = self.frame_sample_count.saturating_add(1);
-        v_flex()
+        if self.ignore_next_frame_sample {
+            self.ignore_next_frame_sample = false;
+        } else {
+            self.frame_sample_count = self.frame_sample_count.saturating_add(1);
+        }
+        let ai_selected = self.workspace_view_mode == WorkspaceViewMode::Ai;
+        let ai_view_state = ai_selected.then(|| self.visible_ai_frame_state());
+        let element = v_flex()
             .size_full()
             .relative()
             .key_context(self.workspace_view_mode.root_key_context())
@@ -424,7 +436,7 @@ impl Render for DiffViewer {
             .when(!cfg!(target_os = "macos"), |this| {
                 this.child(self.render_in_app_menu_bar(cx))
             })
-            .child(self.render_toolbar(cx))
+            .child(self.render_toolbar(ai_view_state.as_ref(), cx))
             .child(
                 div()
                     .flex_1()
@@ -434,7 +446,9 @@ impl Render for DiffViewer {
                         WorkspaceViewMode::Files => self.render_file_workspace_screen(window, cx),
                         WorkspaceViewMode::Diff => self.render_diff_workspace_screen(cx),
                         WorkspaceViewMode::GitWorkspace => self.render_git_workspace_screen(cx),
-                        WorkspaceViewMode::Ai => self.render_ai_workspace_screen(cx),
+                        WorkspaceViewMode::Ai => {
+                            self.render_ai_workspace_screen(ai_view_state.clone(), cx)
+                        }
                     }),
             )
             .child(self.render_app_footer(cx))
@@ -451,5 +465,10 @@ impl Render for DiffViewer {
             })
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_notification_layer(window, cx))
+            .into_any_element();
+        if ai_selected {
+            self.record_ai_app_render_timing(render_started_at.elapsed());
+        }
+        element
     }
 }

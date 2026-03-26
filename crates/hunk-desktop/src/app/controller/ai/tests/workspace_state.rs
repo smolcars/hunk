@@ -381,50 +381,6 @@
     }
 
     #[test]
-    fn visible_terminal_state_binds_to_first_selected_thread_after_pending_creation() {
-        let visible_state = AiThreadTerminalState {
-            open: true,
-            session: AiTerminalSessionState {
-                status: AiTerminalSessionStatus::Idle,
-                ..AiTerminalSessionState::default()
-            },
-            ..AiThreadTerminalState::default()
-        };
-
-        assert!(should_bind_visible_terminal_state_to_new_thread(
-            None,
-            Some("thread-1"),
-            false,
-            &visible_state,
-        ));
-    }
-
-    #[test]
-    fn visible_terminal_state_does_not_bind_when_target_thread_already_has_saved_state() {
-        let visible_state = AiThreadTerminalState {
-            open: true,
-            ..AiThreadTerminalState::default()
-        };
-
-        assert!(!should_bind_visible_terminal_state_to_new_thread(
-            None,
-            Some("thread-1"),
-            true,
-            &visible_state,
-        ));
-    }
-
-    #[test]
-    fn default_terminal_state_does_not_bind_to_new_thread() {
-        assert!(!should_bind_visible_terminal_state_to_new_thread(
-            None,
-            Some("thread-1"),
-            false,
-            &AiThreadTerminalState::default(),
-        ));
-    }
-
-    #[test]
     fn restore_ai_workspace_state_after_failure_reopens_pending_new_thread_draft() {
         let mut workspace_state = AiWorkspaceState {
             new_thread_draft_active: false,
@@ -881,6 +837,84 @@
                 PathBuf::from("/repo/worktrees/task-2"),
             ]
         );
+    }
+
+    #[test]
+    fn workspace_catalog_inputs_include_all_projects_and_skip_visible_workspace_root() {
+        let repo_a_targets = vec![
+            workspace_target(
+                "primary",
+                WorkspaceTargetKind::PrimaryCheckout,
+                "/repo-a",
+                "Primary Checkout",
+            ),
+            workspace_target(
+                "worktree:task-a",
+                WorkspaceTargetKind::LinkedWorktree,
+                "/repo-a/worktrees/task-a",
+                "task-a",
+            ),
+        ];
+        let repo_b_targets = vec![
+            workspace_target(
+                "primary",
+                WorkspaceTargetKind::PrimaryCheckout,
+                "/repo-b",
+                "Primary Checkout",
+            ),
+            workspace_target(
+                "worktree:task-b",
+                WorkspaceTargetKind::LinkedWorktree,
+                "/repo-b/worktrees/task-b",
+                "task-b",
+            ),
+        ];
+
+        let inputs = ai_workspace_catalog_inputs_from_target_sets(
+            &[repo_a_targets, repo_b_targets],
+            &[],
+            Some("/repo-b/worktrees/task-b"),
+        );
+
+        assert_eq!(
+            inputs.known_workspace_keys,
+            BTreeSet::from([
+                "/repo-a".to_string(),
+                "/repo-a/worktrees/task-a".to_string(),
+                "/repo-b".to_string(),
+                "/repo-b/worktrees/task-b".to_string(),
+            ])
+        );
+        assert_eq!(
+            inputs.workspace_roots,
+            vec![
+                PathBuf::from("/repo-a"),
+                PathBuf::from("/repo-a/worktrees/task-a"),
+                PathBuf::from("/repo-b"),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_catalog_inputs_keep_fallback_project_roots_for_projects_without_targets() {
+        let repo_a_targets = vec![workspace_target(
+            "primary",
+            WorkspaceTargetKind::PrimaryCheckout,
+            "/repo-a",
+            "Primary Checkout",
+        )];
+
+        let inputs = ai_workspace_catalog_inputs_from_target_sets(
+            &[repo_a_targets],
+            &[PathBuf::from("/repo-b")],
+            Some("/repo-a"),
+        );
+
+        assert_eq!(
+            inputs.known_workspace_keys,
+            BTreeSet::from(["/repo-a".to_string(), "/repo-b".to_string(),])
+        );
+        assert_eq!(inputs.workspace_roots, vec![PathBuf::from("/repo-b")]);
     }
 
     #[test]

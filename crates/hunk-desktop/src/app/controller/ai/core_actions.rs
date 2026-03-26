@@ -1,5 +1,6 @@
 impl DiffViewer {
     const AI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(33);
+    const AI_EVENT_IDLE_FOREGROUND_INTERVAL: Duration = Duration::from_secs(1);
 
     pub(super) fn preload_ai_runtime_on_startup(&mut self, cx: &mut Context<Self>) {
         if self.ai_workspace_key().is_none() {
@@ -26,6 +27,7 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("Open a workspace before using AI.".to_string());
+            self.invalidate_ai_visible_frame_state_with_reason("runtime");
             cx.notify();
             return;
         };
@@ -33,6 +35,9 @@ impl DiffViewer {
         if self.ai_command_tx.is_some()
             && self.ai_worker_workspace_key.as_deref() == Some(worker_workspace_key.as_str())
         {
+            return;
+        }
+        if self.ai_runtime_start_is_in_flight_for_workspace(worker_workspace_key.as_str()) {
             return;
         }
         if self.ai_command_tx.is_some() {
@@ -53,6 +58,7 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("Unable to resolve the Codex home directory.".to_string());
+            self.invalidate_ai_visible_frame_state_with_reason("runtime");
             cx.notify();
             return;
         };
@@ -62,6 +68,7 @@ impl DiffViewer {
             self.ai_connection_state = AiConnectionState::Failed;
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some(error);
+            self.invalidate_ai_visible_frame_state_with_reason("runtime");
             cx.notify();
             return;
         }
@@ -72,11 +79,13 @@ impl DiffViewer {
         start_config.include_hidden_models = self.ai_include_hidden_models;
 
         let worker = spawn_ai_worker(start_config, command_rx, event_tx);
+        self.mark_ai_runtime_start_in_flight(worker_workspace_key.as_str());
 
         self.ai_connection_state = AiConnectionState::Connecting;
         self.ai_bootstrap_loading = true;
         self.ai_error_message = None;
         self.ai_status_message = Some("Starting Codex App Server...".to_string());
+        self.invalidate_ai_visible_frame_state_with_reason("runtime");
         let listener_workspace_key = worker_workspace_key.clone();
         self.ai_command_tx = Some(command_tx);
         self.ai_worker_thread = Some(worker);
@@ -135,6 +144,7 @@ impl DiffViewer {
         self.ai_scroll_timeline_to_bottom = false;
         self.ai_expanded_timeline_row_ids.clear();
         self.ai_text_selection = None;
+        self.invalidate_ai_visible_frame_state_with_reason("thread");
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
         } else {
@@ -195,11 +205,61 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some(project_root) = self.ai_visible_project_root().or_else(|| self.primary_repo_root())
+        else {
+            self.ai_new_thread_start_mode = start_mode;
+            self.ai_draft_workspace_root_override = None;
+            self.ai_draft_workspace_target_id = self
+                .primary_workspace_target_id()
+                .or_else(|| self.workspace_targets.first().map(|target| target.id.clone()));
+            self.sync_ai_worktree_base_branch_from_repo();
+            self.sync_ai_worktree_base_branch_picker_state(cx);
+            self.sync_ai_workspace_target_from_catalog(cx);
+            self.ai_create_thread_action(window, cx);
+            return;
+        };
+        self.ai_start_thread_draft_for_project_root(project_root, start_mode, window, cx);
+    }
+
+    pub(super) fn ai_start_thread_draft_for_project_root(
+        &mut self,
+        project_root: PathBuf,
+        start_mode: AiNewThreadStartMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.ai_new_thread_start_mode = start_mode;
-        self.ai_draft_workspace_target_id = self
-            .primary_workspace_target_id()
-            .or_else(|| self.workspace_targets.first().map(|target| target.id.clone()));
-        self.sync_ai_worktree_base_branch_from_repo();
+        self.ai_draft_workspace_root_override = Some(project_root.clone());
+        self.ai_draft_workspace_target_id = hunk_git::worktree::list_workspace_targets(
+            project_root.as_path(),
+        )
+        .ok()
+        .and_then(|targets| {
+            targets
+                .into_iter()
+                .find(|target| {
+                    matches!(
+                        target.kind,
+                        hunk_git::worktree::WorkspaceTargetKind::PrimaryCheckout
+                    )
+                })
+                .map(|target| target.id)
+        });
+        if start_mode == AiNewThreadStartMode::Worktree {
+            let project_matches_non_ai_root = self
+                .primary_repo_root()
+                .is_some_and(|root| root == project_root);
+            if project_matches_non_ai_root {
+                self.sync_ai_worktree_base_branch_from_repo();
+            } else {
+                self.ai_worktree_base_branch_name =
+                    resolve_default_base_branch_name(project_root.as_path())
+                        .ok()
+                        .flatten();
+            }
+        } else {
+            self.ai_worktree_base_branch_name = None;
+        }
         self.sync_ai_worktree_base_branch_picker_state(cx);
         self.sync_ai_workspace_target_from_catalog(cx);
         self.ai_create_thread_action(window, cx);
@@ -234,6 +294,7 @@ impl DiffViewer {
             draft.local_images.clear();
             draft.skill_bindings.clear();
         }
+        self.invalidate_ai_visible_frame_state_with_reason("thread");
         if let Err(error) = Self::update_any_window(cx, |window, cx| {
             ai_composer_state.update(cx, |state, cx| {
                 state.set_value("", window, cx);
@@ -338,6 +399,7 @@ impl DiffViewer {
             draft.local_images = queued.local_images.clone();
             draft.skill_bindings = queued.skill_bindings.clone();
         }
+        self.invalidate_ai_visible_frame_state_with_reason("thread");
         self.ai_composer_input_state.update(cx, |state, cx| {
             state.set_value(queued.prompt, window, cx);
             state.focus(window, cx);
@@ -384,6 +446,9 @@ impl DiffViewer {
                 this.update(cx, |this, cx| {
                     let selected_count = selected_paths.len();
                     let added = this.ai_add_composer_local_images(selected_paths);
+                    if added > 0 {
+                        this.invalidate_ai_visible_frame_state_with_reason("thread");
+                    }
                     if let Some(message) =
                         ai_attachment_status_message(selected_count, added)
                     {
@@ -407,6 +472,7 @@ impl DiffViewer {
             removed = draft.local_images.len() != before;
         }
         if removed {
+            self.invalidate_ai_visible_frame_state_with_reason("thread");
             cx.notify();
         }
     }
@@ -432,6 +498,9 @@ impl DiffViewer {
 
         let dropped_count = dropped_paths.len();
         let added = self.ai_add_composer_local_images(dropped_paths);
+        if added > 0 {
+            self.invalidate_ai_visible_frame_state_with_reason("thread");
+        }
         if let Some(message) = ai_attachment_status_message(dropped_count, added) {
             self.set_current_ai_composer_status(message, cx);
         }
@@ -569,6 +638,7 @@ impl DiffViewer {
         self.ai_selected_model = model_id;
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
+        self.invalidate_ai_visible_frame_state_with_reason("settings");
         cx.notify();
     }
 
@@ -616,6 +686,7 @@ impl DiffViewer {
         }
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
+        self.invalidate_ai_visible_frame_state_with_reason("settings");
         cx.notify();
     }
 
@@ -706,6 +777,7 @@ impl DiffViewer {
             Some(thread_id.clone()),
             cx,
         );
+        self.invalidate_ai_visible_frame_state_with_reason("thread");
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
         }
@@ -720,6 +792,7 @@ impl DiffViewer {
     pub(super) fn ai_scroll_timeline_to_bottom_action(&mut self, cx: &mut Context<Self>) {
         self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = true;
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
         self.flush_ai_timeline_scroll_request();
         cx.notify();
     }
@@ -761,6 +834,7 @@ impl DiffViewer {
         } else {
             self.ai_expanded_timeline_row_ids.insert(row_id);
         }
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
         if let Some(selected_thread_id) = self.ai_selected_thread_id.as_deref() {
             let visible_row_ids = current_ai_renderable_visible_row_ids(self, selected_thread_id);
             reset_ai_timeline_list_measurements(self, visible_row_ids.len());

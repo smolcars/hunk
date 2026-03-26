@@ -1,39 +1,78 @@
 impl DiffViewer {
-    pub(super) fn current_ai_thread_id(&self) -> Option<String> {
+    fn resolve_ai_current_state(&self) -> AiResolvedCurrentState {
         let selected_thread_workspace_root = self
             .ai_selected_thread_id
             .as_deref()
-            .and_then(|thread_id| self.ai_thread_workspace_root(thread_id));
+            .and_then(|thread_id| {
+                self.ai_state_snapshot
+                    .threads
+                    .get(thread_id)
+                    .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
+                    .map(|thread| std::path::PathBuf::from(thread.cwd.as_str()))
+                    .or_else(|| self.ai_thread_workspace_root(thread_id))
+            });
         let fallback_workspace_key = current_visible_thread_fallback_workspace_key(
             self.ai_worker_workspace_key.as_deref(),
             selected_thread_workspace_root.as_deref(),
             self.ai_workspace_key_for_draft().as_deref(),
         );
-        current_visible_thread_id_from_snapshot(
+        let current_thread_id = current_visible_thread_id_from_snapshot(
             &self.ai_state_snapshot,
             self.ai_selected_thread_id.as_deref(),
             fallback_workspace_key.as_deref(),
             self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection,
-        )
+        );
+        let current_thread_workspace_root = current_thread_id
+            .as_deref()
+            .and_then(|thread_id| {
+                self.ai_state_snapshot
+                    .threads
+                    .get(thread_id)
+                    .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
+                    .map(|thread| std::path::PathBuf::from(thread.cwd.as_str()))
+            })
+            .or_else(|| selected_thread_workspace_root.clone());
+        let workspace_root = if self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection
+        {
+            self.ai_draft_workspace_root()
+        } else {
+            current_thread_workspace_root
+                .clone()
+                .or_else(|| self.ai_draft_workspace_root())
+        };
+        let workspace_key = workspace_root
+            .as_ref()
+            .map(|cwd| cwd.to_string_lossy().to_string());
+
+        AiResolvedCurrentState {
+            current_thread_id,
+            current_thread_workspace_root,
+            workspace_root,
+            workspace_key,
+        }
     }
 
-    pub(crate) fn ai_pending_thread_start_for_timeline(&self) -> Option<AiPendingThreadStart> {
+    pub(super) fn current_ai_thread_id(&self) -> Option<String> {
+        self.resolve_ai_current_state().current_thread_id
+    }
+
+    pub(crate) fn ai_pending_thread_start_for_timeline_with_context(
+        &self,
+        current_thread_id: Option<&str>,
+        workspace_key: Option<&str>,
+    ) -> Option<AiPendingThreadStart> {
         let pending = self.ai_pending_thread_start.clone()?;
-        if self.ai_workspace_key().as_deref() != Some(pending.workspace_key.as_str()) {
+        if workspace_key != Some(pending.workspace_key.as_str()) {
             return None;
         }
-        let selected_thread_id = self.current_ai_thread_id();
         if let Some(thread_id) = pending.thread_id.as_deref() {
             if ai_state_has_user_message_for_thread(&self.ai_state_snapshot, thread_id) {
                 return None;
             }
-            if selected_thread_id
-                .as_deref()
-                .is_some_and(|selected_thread_id| selected_thread_id != thread_id)
-            {
+            if current_thread_id.is_some_and(|selected_thread_id| selected_thread_id != thread_id) {
                 return None;
             }
-        } else if selected_thread_id.is_some() {
+        } else if current_thread_id.is_some() {
             return None;
         }
         Some(pending)
@@ -49,6 +88,10 @@ impl DiffViewer {
     }
 
     fn ai_draft_workspace_root(&self) -> Option<std::path::PathBuf> {
+        if let Some(workspace_root) = self.ai_draft_workspace_root_override.clone() {
+            return Some(workspace_root);
+        }
+
         if let Some(target_id) = self.ai_draft_workspace_target_id.as_deref()
             && let Some(target) = self
                 .workspace_targets
@@ -105,6 +148,7 @@ impl DiffViewer {
         }
         self.ai_worktree_base_branch_name = Some(branch_name);
         self.sync_ai_worktree_base_branch_picker_state(cx);
+        self.invalidate_ai_visible_frame_state_with_reason("workspace");
         cx.notify();
     }
 
@@ -116,37 +160,67 @@ impl DiffViewer {
         self.ai_worktree_base_branch_name.as_deref()
     }
 
+    pub(crate) fn ai_show_worktree_base_branch_picker(&self) -> bool {
+        self.ai_new_thread_draft_active
+            && !self.ai_pending_new_thread_selection
+            && self.ai_new_thread_start_mode == AiNewThreadStartMode::Worktree
+    }
+
     fn ai_workspace_key_for_draft(&self) -> Option<String> {
         self.ai_draft_workspace_root()
             .map(|path| path.to_string_lossy().to_string())
     }
 
     pub(crate) fn ai_workspace_cwd(&self) -> Option<std::path::PathBuf> {
-        if self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection {
-            return self.ai_draft_workspace_root();
+        self.resolve_ai_current_state().workspace_root
+    }
+
+    pub(crate) fn ai_visible_project_root(&self) -> Option<std::path::PathBuf> {
+        let resolved = self.resolve_ai_current_state();
+        self.ai_visible_project_root_with_context(
+            resolved.current_thread_id.as_deref(),
+            resolved.workspace_root.as_deref(),
+        )
+    }
+
+    pub(crate) fn ai_visible_project_root_with_context(
+        &self,
+        current_thread_id: Option<&str>,
+        workspace_root: Option<&std::path::Path>,
+    ) -> Option<std::path::PathBuf> {
+        if let Some(thread_id) = current_thread_id {
+            return self.ai_thread_project_root(thread_id);
         }
 
-        if let Some(thread_id) = self.ai_selected_thread_id.as_deref()
-            && let Some(thread_root) = self.ai_thread_workspace_root(thread_id)
-            && ai_thread_workspace_matches_current_project(
-                thread_root.as_path(),
-                self.workspace_targets.as_slice(),
-                self.project_path.as_deref(),
-                self.repo_root.as_deref(),
-            )
-        {
-            return Some(thread_root);
-        }
-
-        self.ai_draft_workspace_root()
+        let workspace_root = workspace_root?;
+        let workspace_project_roots = ai_workspace_project_roots(
+            self.state.workspace_project_paths.as_slice(),
+            self.project_path.as_deref(),
+            self.repo_root.as_deref(),
+        );
+        ai_workspace_project_root_for_thread_root(
+            workspace_root,
+            workspace_project_roots.as_slice(),
+        )
     }
 
     fn ai_workspace_key(&self) -> Option<String> {
-        self.ai_workspace_cwd()
-            .map(|cwd| cwd.to_string_lossy().to_string())
+        self.resolve_ai_current_state().workspace_key
     }
 
     fn sync_ai_workspace_target_from_catalog(&mut self, _: &mut Context<Self>) {
+        if let Some(workspace_root) = self.ai_draft_workspace_root_override.as_deref() {
+            let next_target_id = self
+                .workspace_targets
+                .iter()
+                .find(|target| target.root.as_path() == workspace_root)
+                .map(|target| target.id.clone());
+            if self.ai_draft_workspace_target_id != next_target_id {
+                self.ai_draft_workspace_target_id = next_target_id;
+            }
+            return;
+        }
+
         let next_target_id = self
             .ai_draft_workspace_target_id
             .clone()
@@ -162,7 +236,10 @@ impl DiffViewer {
         }
     }
 
-    pub(crate) fn ai_active_workspace_label(&self) -> String {
+    pub(crate) fn ai_active_workspace_label_with_root(
+        &self,
+        workspace_root: Option<&std::path::Path>,
+    ) -> String {
         if self.ai_new_thread_draft_active
             && !self.ai_pending_new_thread_selection
             && self.ai_new_thread_start_mode == AiNewThreadStartMode::Worktree
@@ -170,31 +247,17 @@ impl DiffViewer {
             return "New Worktree".to_string();
         }
 
-        let Some(workspace_root) = self.ai_workspace_cwd() else {
+        let Some(workspace_root) = workspace_root else {
             return "Primary Checkout".to_string();
         };
 
-        self.workspace_targets
-            .iter()
-            .find(|target| target.root == workspace_root)
-            .map(|target| target.display_name.clone())
-            .or_else(|| {
-                workspace_root
-                    .file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-            })
-            .filter(|label| !label.is_empty())
-            .unwrap_or_else(|| workspace_root.display().to_string())
+        self.ai_workspace_label_for_root(workspace_root)
     }
 
-    pub(crate) fn ai_thread_workspace_label(&self, thread_id: &str) -> String {
-        let Some(workspace_root) = self.ai_thread_workspace_root(thread_id) else {
-            return "Unknown Workspace".to_string();
-        };
-
+    pub(crate) fn ai_workspace_label_for_root(&self, workspace_root: &std::path::Path) -> String {
         self.workspace_targets
             .iter()
-            .find(|target| target.root == workspace_root)
+            .find(|target| target.root.as_path() == workspace_root)
             .map(|target| target.display_name.clone())
             .or_else(|| {
                 workspace_root
@@ -229,19 +292,27 @@ impl DiffViewer {
         )
     }
 
-    pub(crate) fn ai_active_workspace_branch_name(&self) -> String {
+    pub(crate) fn ai_active_workspace_branch_name_with_root(
+        &self,
+        workspace_root: Option<&std::path::Path>,
+    ) -> String {
         if self.ai_new_thread_draft_active
             && !self.ai_pending_new_thread_selection
             && self.ai_new_thread_start_mode == AiNewThreadStartMode::Worktree
         {
+            let default_base_branch_name = self
+                .ai_draft_workspace_root()
+                .as_deref()
+                .and_then(|root| resolve_default_base_branch_name(root).ok().flatten());
             return self
                 .ai_selected_worktree_base_branch_name()
+                .or(default_base_branch_name.as_deref())
                 .or_else(|| self.primary_checked_out_branch_name())
                 .unwrap_or(self.branch_name.as_str())
                 .to_string();
         }
 
-        let Some(workspace_root) = self.ai_workspace_cwd() else {
+        let Some(workspace_root) = workspace_root else {
             return self
                 .primary_checked_out_branch_name()
                 .unwrap_or(self.branch_name.as_str())
@@ -250,7 +321,7 @@ impl DiffViewer {
 
         self.workspace_targets
             .iter()
-            .find(|target| target.root == workspace_root)
+            .find(|target| target.root.as_path() == workspace_root)
             .map(|target| target.branch_name.clone())
             .unwrap_or_else(|| {
                 self.primary_checked_out_branch_name()
@@ -394,6 +465,7 @@ impl DiffViewer {
             mad_max_mode: workspace_mad_max_mode(&self.state, workspace_key),
             ..AiWorkspaceState::default()
         };
+        next.draft_workspace_root_override = workspace_key.map(PathBuf::from);
         let persisted = resolved_ai_thread_session_state(&self.state, None, workspace_key);
         next.selected_model = persisted.model;
         next.selected_effort = persisted.effort;
@@ -444,6 +516,7 @@ impl DiffViewer {
             selected_service_tier: self.ai_selected_service_tier,
             review_mode_thread_ids: self.ai_review_mode_thread_ids.clone(),
             mad_max_mode: self.ai_mad_max_mode,
+            draft_workspace_root_override: self.ai_draft_workspace_root_override.clone(),
             terminal_open: self.ai_terminal_open,
             terminal_follow_output: self.ai_terminal_follow_output,
             terminal_height_px: self.ai_terminal_height_px,
@@ -492,6 +565,10 @@ impl DiffViewer {
         self.ai_models = state.models;
         self.ai_experimental_features = state.experimental_features;
         self.ai_collaboration_modes = state.collaboration_modes;
+        if self.ai_skills != state.skills {
+            self.ai_skills_generation = self.ai_skills_generation.saturating_add(1);
+            self.ai_composer_completion_sync_key = None;
+        }
         self.ai_skills = state.skills;
         self.ai_include_hidden_models = state.include_hidden_models;
         self.ai_selected_model = state.selected_model;
@@ -500,11 +577,13 @@ impl DiffViewer {
         self.ai_selected_service_tier = state.selected_service_tier;
         self.ai_review_mode_thread_ids = state.review_mode_thread_ids;
         self.ai_mad_max_mode = state.mad_max_mode;
+        self.ai_draft_workspace_root_override = state.draft_workspace_root_override;
         self.ai_terminal_open = state.terminal_open;
         self.ai_terminal_follow_output = state.terminal_follow_output;
         self.ai_terminal_height_px = state.terminal_height_px;
         self.ai_terminal_input_draft = state.terminal_input_draft;
         self.ai_terminal_session = state.terminal_session;
+        self.invalidate_ai_visible_frame_state_with_reason("workspace");
         self.ai_text_selection = None;
         self.rebuild_ai_timeline_indexes();
         self.sync_ai_in_progress_turn_started_at();
@@ -554,6 +633,7 @@ impl DiffViewer {
         self.restore_ai_queued_messages_to_drafts(restored_queued_messages);
         self.prune_ai_composer_drafts();
         self.prune_ai_composer_statuses();
+        self.rebuild_ai_thread_sidebar_state();
         reset_ai_timeline_list_measurements(self, 0);
     }
 
@@ -578,6 +658,7 @@ impl DiffViewer {
         let Some(workspace_key) = self.ai_worker_workspace_key.clone() else {
             return;
         };
+        self.clear_ai_runtime_start_in_flight_for_workspace(Some(workspace_key.as_str()));
         let Some(command_tx) = self.ai_command_tx.take() else {
             self.ai_worker_workspace_key = None;
             return;
@@ -616,6 +697,7 @@ impl DiffViewer {
         self.ai_event_task = handle.event_task;
         self.ai_event_epoch = handle.generation;
         self.ai_worker_workspace_key = Some(workspace_key.to_string());
+        self.clear_ai_runtime_start_in_flight_for_workspace(Some(workspace_key));
         true
     }
 
@@ -630,6 +712,28 @@ impl DiffViewer {
 
     fn ai_runtime_listener_is_current(&self, workspace_key: &str, generation: usize) -> bool {
         self.ai_runtime_listener_generation(workspace_key) == Some(generation)
+    }
+
+    fn ai_runtime_start_is_in_flight_for_workspace(&self, workspace_key: &str) -> bool {
+        self.ai_runtime_starting_workspace_key.as_deref() == Some(workspace_key)
+    }
+
+    fn mark_ai_runtime_start_in_flight(&mut self, workspace_key: &str) {
+        self.ai_runtime_starting_workspace_key = Some(workspace_key.to_string());
+    }
+
+    fn clear_ai_runtime_start_in_flight_for_workspace(&mut self, workspace_key: Option<&str>) {
+        let should_clear = match (
+            self.ai_runtime_starting_workspace_key.as_deref(),
+            workspace_key,
+        ) {
+            (_, None) => true,
+            (Some(in_flight), Some(workspace_key)) => in_flight == workspace_key,
+            (None, Some(_)) => false,
+        };
+        if should_clear {
+            self.ai_runtime_starting_workspace_key = None;
+        }
     }
 
     fn update_background_ai_workspace_state<F>(&mut self, workspace_key: &str, update: F)
@@ -941,6 +1045,8 @@ impl DiffViewer {
         if let Some(command_tx) = self.ai_command_tx.take() {
             let _ = command_tx.send(AiWorkerCommand::Shutdown);
         }
+        let visible_workspace_key = self.ai_worker_workspace_key.clone();
+        self.clear_ai_runtime_start_in_flight_for_workspace(visible_workspace_key.as_deref());
         self.ai_worker_workspace_key = None;
         self.join_ai_worker_thread("dropping DiffViewer");
         for (_, hidden) in std::mem::take(&mut self.ai_hidden_runtimes) {
@@ -956,6 +1062,7 @@ impl DiffViewer {
             if let Some(command_tx) = self.ai_command_tx.take() {
                 let _ = command_tx.send(AiWorkerCommand::Shutdown);
             }
+            self.clear_ai_runtime_start_in_flight_for_workspace(Some(workspace_key));
             self.ai_worker_workspace_key = None;
             self.ai_connection_state = AiConnectionState::Disconnected;
             self.ai_bootstrap_loading = false;
@@ -1037,6 +1144,7 @@ impl DiffViewer {
             self.ai_bootstrap_loading = false;
             self.ai_error_message = Some("AI worker channel disconnected.".to_string());
             self.ai_command_tx = None;
+            self.clear_ai_runtime_start_in_flight_for_workspace(Some(workspace_key));
             self.ai_worker_workspace_key = None;
             self.join_ai_worker_thread("worker channel disconnect");
             cx.notify();

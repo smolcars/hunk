@@ -60,6 +60,29 @@ pub struct TurnSummary {
     pub last_sequence: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnPlanStepStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnPlanStepSummary {
+    pub step: String,
+    pub status: TurnPlanStepStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnPlanSummary {
+    pub thread_id: String,
+    pub turn_id: String,
+    pub explanation: Option<String>,
+    pub steps: Vec<TurnPlanStepSummary>,
+    pub created_sequence: u64,
+    pub last_sequence: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemSummary {
     pub id: String,
@@ -144,6 +167,12 @@ pub enum ReducerEvent {
         turn_id: String,
         diff: String,
     },
+    TurnPlanUpdated {
+        thread_id: String,
+        turn_id: String,
+        explanation: Option<String>,
+        steps: Vec<TurnPlanStepSummary>,
+    },
     ServerRequestResolved {
         request_id: String,
         item_id: Option<String>,
@@ -182,6 +211,7 @@ pub struct AiState {
     pub turns: BTreeMap<String, TurnSummary>,
     pub items: BTreeMap<String, ItemSummary>,
     pub turn_diffs: BTreeMap<String, String>,
+    pub turn_plans: BTreeMap<String, TurnPlanSummary>,
     pub server_requests: BTreeMap<String, ServerRequestSummary>,
     pub active_thread_by_cwd: BTreeMap<String, String>,
     seen_dedupe_keys: BTreeSet<String>,
@@ -476,6 +506,57 @@ impl AiState {
                     turn_storage_key(thread_id.as_str(), turn_id.as_str()),
                     sequence,
                 );
+                ApplyOutcome::Applied
+            }
+            ReducerEvent::TurnPlanUpdated {
+                thread_id,
+                turn_id,
+                explanation,
+                steps,
+            } => {
+                self.ensure_turn_summary(
+                    thread_id.as_str(),
+                    turn_id.as_str(),
+                    TurnStatus::InProgress,
+                );
+                let turn_key = turn_storage_key(thread_id.as_str(), turn_id.as_str());
+                let explanation = explanation
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty());
+                let steps = steps
+                    .into_iter()
+                    .filter_map(|step| {
+                        let text = step.step.trim().to_string();
+                        (!text.is_empty()).then_some(TurnPlanStepSummary {
+                            step: text,
+                            status: step.status,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                match self.turn_plans.entry(turn_key) {
+                    std::collections::btree_map::Entry::Occupied(mut entry) => {
+                        if sequence < entry.get().last_sequence {
+                            return ApplyOutcome::Stale;
+                        }
+
+                        let plan = entry.get_mut();
+                        plan.thread_id = thread_id;
+                        plan.turn_id = turn_id;
+                        plan.explanation = explanation;
+                        plan.steps = steps;
+                        plan.last_sequence = sequence;
+                    }
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(TurnPlanSummary {
+                            thread_id,
+                            turn_id,
+                            explanation,
+                            steps,
+                            created_sequence: sequence,
+                            last_sequence: sequence,
+                        });
+                    }
+                }
                 ApplyOutcome::Applied
             }
             ReducerEvent::ServerRequestResolved {

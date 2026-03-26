@@ -1,5 +1,6 @@
 use comrak::nodes::{ListType, NodeCodeBlock, NodeLink, NodeList, NodeValue};
 use hunk_language::preview_highlight_spans_for_language_hint;
+use std::time::{Duration, Instant};
 
 type ComrakNode<'a> = comrak::nodes::Node<'a>;
 
@@ -85,20 +86,43 @@ pub struct MarkdownCodeSpan {
     pub token: MarkdownCodeTokenKind,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct MarkdownPreviewParseStats {
+    pub comrak_parse: Duration,
+    pub transform: Duration,
+    pub code_highlight: Duration,
+    pub code_block_count: usize,
+    pub code_char_count: usize,
+}
+
 pub fn parse_markdown_preview(markdown: &str) -> Vec<MarkdownPreviewBlock> {
+    parse_markdown_preview_with_stats(markdown).0
+}
+
+pub fn parse_markdown_preview_with_stats(
+    markdown: &str,
+) -> (Vec<MarkdownPreviewBlock>, MarkdownPreviewParseStats) {
     if markdown.trim().is_empty() {
-        return Vec::new();
+        return (Vec::new(), MarkdownPreviewParseStats::default());
     }
 
     let arena = comrak::Arena::new();
     let options = markdown_parse_options();
+    let comrak_parse_started_at = Instant::now();
     let root = comrak::parse_document(&arena, markdown, &options);
+    let comrak_parse = comrak_parse_started_at.elapsed();
 
+    let transform_started_at = Instant::now();
+    let mut stats = MarkdownPreviewParseStats {
+        comrak_parse,
+        ..MarkdownPreviewParseStats::default()
+    };
     let mut blocks = Vec::new();
     for node in root.children() {
-        parse_flow_node(node, &mut blocks);
+        parse_flow_node(node, &mut blocks, &mut stats);
     }
-    blocks
+    stats.transform = transform_started_at.elapsed();
+    (blocks, stats)
 }
 
 fn markdown_parse_options() -> comrak::Options<'static> {
@@ -111,7 +135,11 @@ fn markdown_parse_options() -> comrak::Options<'static> {
     options
 }
 
-fn parse_flow_node(node: ComrakNode<'_>, out: &mut Vec<MarkdownPreviewBlock>) {
+fn parse_flow_node(
+    node: ComrakNode<'_>,
+    out: &mut Vec<MarkdownPreviewBlock>,
+    stats: &mut MarkdownPreviewParseStats,
+) {
     let data = node.data();
     match &data.value {
         NodeValue::Heading(heading) => {
@@ -142,15 +170,17 @@ fn parse_flow_node(node: ComrakNode<'_>, out: &mut Vec<MarkdownPreviewBlock>) {
         }
         NodeValue::CodeBlock(code) => {
             let language = code_block_language_hint(code);
+            let literal = code.literal.as_str();
             out.push(MarkdownPreviewBlock::CodeBlock {
                 language: language.clone(),
-                lines: highlight_code_lines(language.as_deref(), code.literal.as_str()),
+                lines: highlight_code_lines(language.as_deref(), literal, stats),
             });
         }
         NodeValue::Math(math) => {
+            let literal = math.literal.as_str();
             out.push(MarkdownPreviewBlock::CodeBlock {
                 language: Some("math".to_string()),
-                lines: highlight_code_lines(None, math.literal.as_str()),
+                lines: highlight_code_lines(None, literal, stats),
             });
         }
         NodeValue::ThematicBreak => out.push(MarkdownPreviewBlock::ThematicBreak),
@@ -513,7 +543,14 @@ fn spans_end_with_whitespace(spans: &[MarkdownInlineSpan]) -> bool {
         .is_some_and(char::is_whitespace)
 }
 
-fn highlight_code_lines(language: Option<&str>, code: &str) -> Vec<Vec<MarkdownCodeSpan>> {
+fn highlight_code_lines(
+    language: Option<&str>,
+    code: &str,
+    stats: &mut MarkdownPreviewParseStats,
+) -> Vec<Vec<MarkdownCodeSpan>> {
+    stats.code_block_count = stats.code_block_count.saturating_add(1);
+    stats.code_char_count = stats.code_char_count.saturating_add(code.len());
+
     let line_texts = code.lines().collect::<Vec<_>>();
     if line_texts.is_empty() {
         return vec![vec![MarkdownCodeSpan {
@@ -533,6 +570,7 @@ fn highlight_code_lines(language: Option<&str>, code: &str) -> Vec<Vec<MarkdownC
         .map(|(line, (line_start, _))| char_byte_offsets(line, *line_start))
         .collect::<Vec<_>>();
 
+    let highlight_started_at = Instant::now();
     for span in preview_highlight_spans_for_language_hint(language, code) {
         let token = MarkdownCodeTokenKind::from(span.token);
         for (line_index, (line_start, line_end)) in line_offsets.iter().enumerate() {
@@ -550,6 +588,9 @@ fn highlight_code_lines(language: Option<&str>, code: &str) -> Vec<Vec<MarkdownC
             );
         }
     }
+    stats.code_highlight = stats
+        .code_highlight
+        .saturating_add(highlight_started_at.elapsed());
 
     line_texts
         .into_iter()

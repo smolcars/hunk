@@ -150,6 +150,93 @@
     }
 
     #[test]
+    fn snapshot_thread_change_detection_ignores_item_only_updates() {
+        let mut previous = AiState::default();
+        previous.threads.insert(
+            "thread-a".to_string(),
+            ThreadSummary {
+                id: "thread-a".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Thread".to_string()),
+                status: ThreadLifecycleStatus::Active,
+                created_at: 1,
+                updated_at: 2,
+                last_sequence: 3,
+            },
+        );
+
+        let next = previous.clone();
+
+        assert!(!ai_snapshot_threads_changed(&previous, &next));
+        assert!(!ai_snapshot_removed_thread_ids(&previous, &next));
+        assert!(!ai_snapshot_removed_retainable_terminal_threads(
+            &previous, &next
+        ));
+    }
+
+    #[test]
+    fn snapshot_thread_change_detection_flags_removed_threads() {
+        let mut previous = AiState::default();
+        previous.threads.insert(
+            "thread-a".to_string(),
+            ThreadSummary {
+                id: "thread-a".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Thread".to_string()),
+                status: ThreadLifecycleStatus::Active,
+                created_at: 1,
+                updated_at: 2,
+                last_sequence: 3,
+            },
+        );
+
+        let next = AiState::default();
+
+        assert!(ai_snapshot_threads_changed(&previous, &next));
+        assert!(ai_snapshot_removed_thread_ids(&previous, &next));
+        assert!(ai_snapshot_removed_retainable_terminal_threads(
+            &previous, &next
+        ));
+    }
+
+    #[test]
+    fn snapshot_terminal_retainable_detection_flags_archived_threads() {
+        let mut previous = AiState::default();
+        previous.threads.insert(
+            "thread-a".to_string(),
+            ThreadSummary {
+                id: "thread-a".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Thread".to_string()),
+                status: ThreadLifecycleStatus::Active,
+                created_at: 1,
+                updated_at: 2,
+                last_sequence: 3,
+            },
+        );
+
+        let mut next = previous.clone();
+        next.threads.insert(
+            "thread-a".to_string(),
+            ThreadSummary {
+                id: "thread-a".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Thread".to_string()),
+                status: ThreadLifecycleStatus::Archived,
+                created_at: 1,
+                updated_at: 4,
+                last_sequence: 5,
+            },
+        );
+
+        assert!(ai_snapshot_threads_changed(&previous, &next));
+        assert!(!ai_snapshot_removed_thread_ids(&previous, &next));
+        assert!(ai_snapshot_removed_retainable_terminal_threads(
+            &previous, &next
+        ));
+    }
+
+    #[test]
     fn workspace_draft_preserves_empty_selection_even_with_active_thread() {
         let mut state = AiState::default();
         state.threads.insert(
@@ -174,7 +261,7 @@
     }
 
     #[test]
-    fn thread_latest_timeline_sequence_uses_turn_and_item_sequences() {
+    fn thread_latest_timeline_sequence_uses_turn_item_and_plan_sequences() {
         let mut state = AiState::default();
         state.threads.insert(
             "thread-a".to_string(),
@@ -210,8 +297,22 @@
                 last_sequence: 11,
             },
         );
+        state.turn_plans.insert(
+            hunk_codex::state::turn_storage_key("thread-a", "turn-a"),
+            hunk_codex::state::TurnPlanSummary {
+                thread_id: "thread-a".to_string(),
+                turn_id: "turn-a".to_string(),
+                explanation: Some("Updated plan".to_string()),
+                steps: vec![hunk_codex::state::TurnPlanStepSummary {
+                    step: "Fix ordering".to_string(),
+                    status: hunk_codex::state::TurnPlanStepStatus::InProgress,
+                }],
+                created_sequence: 5,
+                last_sequence: 13,
+            },
+        );
 
-        assert_eq!(thread_latest_timeline_sequence(&state, "thread-a"), 11);
+        assert_eq!(thread_latest_timeline_sequence(&state, "thread-a"), 13);
         assert_eq!(thread_latest_timeline_sequence(&state, "missing"), 0);
     }
 

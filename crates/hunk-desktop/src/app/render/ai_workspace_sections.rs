@@ -1,8 +1,8 @@
+#[derive(Clone)]
 struct AiThreadSidebarState {
-    threads: Vec<hunk_codex::state::ThreadSummary>,
+    project_count: usize,
     threads_loading: bool,
     selected_thread_id: Option<String>,
-    new_thread_menu_action_context: FocusHandle,
 }
 
 struct AiTimelinePanelState {
@@ -12,17 +12,16 @@ struct AiTimelinePanelState {
     selected_worktree_base_branch: String,
     selected_thread_id: Option<String>,
     selected_thread_start_mode: Option<AiNewThreadStartMode>,
-    pending_approvals: Vec<AiPendingApproval>,
-    pending_user_inputs: Vec<AiPendingUserInputRequest>,
+    pending_approvals: Arc<[AiPendingApproval]>,
+    pending_user_inputs: Arc<[AiPendingUserInputRequest]>,
     pending_thread_start: Option<AiPendingThreadStart>,
     timeline_total_turn_count: usize,
     timeline_visible_turn_count: usize,
     timeline_hidden_turn_count: usize,
-    timeline_visible_row_ids: Vec<String>,
+    timeline_visible_row_ids: Arc<[String]>,
     timeline_loading: bool,
     show_select_thread_empty_state: bool,
     show_no_turns_empty_state: bool,
-    ai_timeline_list_state: ListState,
     ai_timeline_follow_output: bool,
     ai_publish_blocker: Option<String>,
     ai_publish_disabled: bool,
@@ -121,7 +120,7 @@ fn render_ai_header_metric_chip(
 
 impl DiffViewer {
     fn render_ai_workspace_content(
-        &self,
+        &mut self,
         view: Entity<Self>,
         sections: AiWorkspaceContentSections<'_>,
         is_dark: bool,
@@ -166,13 +165,41 @@ impl DiffViewer {
     }
 
     fn render_ai_thread_sidebar_panel(
-        &self,
+        &mut self,
         view: Entity<Self>,
         state: &AiThreadSidebarState,
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        v_flex()
+        let render_started_at = Instant::now();
+        self.sync_ai_thread_sidebar_list_state();
+        let list_state = self.ai_thread_sidebar_list_state.clone();
+        let visible_row_count = self.ai_thread_sidebar_rows.len();
+        let row_state = state.clone();
+        let list_view = view.clone();
+        let list = list(list_state.clone(), {
+            cx.processor(move |this, ix: usize, _window, cx| {
+                let Some(row) = this.ai_thread_sidebar_rows().get(ix).cloned() else {
+                    return div().into_any_element();
+                };
+                this.render_ai_thread_sidebar_list_row(
+                    list_view.clone(),
+                    &row_state,
+                    row,
+                    ix == 0,
+                    is_dark,
+                    cx,
+                )
+            })
+        })
+        .size_full()
+        .map(|mut list| {
+            list.style().restrict_scroll_to_axis = Some(true);
+            list
+        })
+        .with_sizing_behavior(ListSizingBehavior::Auto);
+
+        let element = v_flex()
             .size_full()
             .min_h_0()
             .bg(cx.theme().sidebar)
@@ -192,12 +219,27 @@ impl DiffViewer {
                             .text_color(cx.theme().muted_foreground)
                             .child("Threads"),
                     )
-                    .child(
+                    .child({
+                        let view = view.clone();
                         h_flex()
                             .items_center()
-                            .gap_1()
+                            .gap_1p5()
                             .child({
                                 let view = view.clone();
+                                Button::new("ai-add-project")
+                                    .compact()
+                                    .outline()
+                                    .rounded(px(999.0))
+                                    .with_size(gpui_component::Size::Small)
+                                    .icon(Icon::new(HunkIconName::FolderPlus).size(px(14.0)))
+                                    .label("Add Project")
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.open_project_picker(cx);
+                                        });
+                                    })
+                            })
+                            .child(
                                 Button::new("ai-thread-refresh")
                                     .ghost()
                                     .compact()
@@ -214,95 +256,351 @@ impl DiffViewer {
                                         view.update(cx, |this, cx| {
                                             this.ai_refresh_threads(cx);
                                         });
-                                    })
-                            })
-                            .child({
-                                let action_context = state.new_thread_menu_action_context.clone();
-                                Button::new("ai-thread-new")
-                                    .compact()
-                                    .primary()
-                                    .rounded(px(999.0))
-                                    .with_size(gpui_component::Size::Small)
-                                    .dropdown_caret(true)
-                                    .label("New")
-                                    .min_w(px(52.0))
-                                    .dropdown_menu(move |menu, _, _| {
-                                        menu.action_context(action_context.clone())
-                                            .item(
-                                                PopupMenuItem::new("Local thread")
-                                                    .action(Box::new(AiNewThread)),
-                                            )
-                                            .item(
-                                                PopupMenuItem::new("Worktree thread")
-                                                    .action(Box::new(AiNewWorktreeThread)),
-                                            )
-                                    })
-                            }),
-                    ),
+                                    }),
+                            )
+                    }),
             )
             .child(
                 div()
                     .flex_1()
                     .min_h_0()
-                    .relative()
                     .child(
                         div()
-                            .id("ai-thread-list-scroll-area")
                             .size_full()
-                            .track_scroll(&self.ai_thread_list_scroll_handle)
-                            .overflow_y_scroll()
+                            .overflow_y_scrollbar()
+                            .px_2()
+                            .pb_3()
+                            .when(state.threads_loading, |this| {
+                                this.child(render_ai_thread_list_loading_skeleton(is_dark, cx))
+                            })
+                            .when(state.project_count == 0 && !state.threads_loading, |this| {
+                                this.child(
+                                    v_flex()
+                                        .w_full()
+                                        .items_center()
+                                        .pt_8()
+                                        .px_3()
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(hunk_opacity(
+                                                    cx.theme().muted_foreground,
+                                                    is_dark,
+                                                    0.86,
+                                                    0.96,
+                                                ))
+                                                .child("No threads in this workspace yet."),
+                                        ),
+                                )
+                            })
+                            .when(state.project_count > 0 && !state.threads_loading, |this| {
+                                this.child(list)
+                            }),
+                    ),
+            )
+            .into_any_element();
+        self.record_ai_thread_sidebar_render_timing(render_started_at.elapsed(), visible_row_count);
+        element
+    }
+
+    fn sync_ai_thread_sidebar_list_state(&mut self) {
+        let row_count = self.ai_thread_sidebar_rows.len();
+        if self.ai_thread_sidebar_row_count == row_count {
+            return;
+        }
+
+        let previous_top = self.ai_thread_sidebar_list_state.logical_scroll_top();
+        self.ai_thread_sidebar_list_state.reset(row_count);
+        let item_ix = if row_count == 0 {
+            0
+        } else {
+            previous_top.item_ix.min(row_count.saturating_sub(1))
+        };
+        let offset_in_item = if row_count == 0 || item_ix != previous_top.item_ix {
+            px(0.)
+        } else {
+            previous_top.offset_in_item
+        };
+        self.ai_thread_sidebar_list_state.scroll_to(ListOffset {
+            item_ix,
+            offset_in_item,
+        });
+        self.ai_thread_sidebar_row_count = row_count;
+    }
+
+    fn render_ai_thread_sidebar_list_row(
+        &self,
+        view: Entity<Self>,
+        state: &AiThreadSidebarState,
+        row: AiThreadSidebarRow,
+        is_first: bool,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let render_started_at = Instant::now();
+        let (element, row_kind) = match row.kind {
+            AiThreadSidebarRowKind::ProjectHeader {
+                project_root,
+                project_label,
+                total_thread_count,
+            } => (
+                self.render_ai_thread_project_header_row(
+                    view,
+                    project_root,
+                    project_label,
+                    total_thread_count,
+                    is_first,
+                    is_dark,
+                    cx,
+                ),
+                AiPerfSidebarRowKind::ProjectHeader,
+            ),
+            AiThreadSidebarRowKind::Thread {
+                thread,
+                workspace_label,
+            } => {
+                let bookmarked = self.ai_thread_is_bookmarked(thread.id.as_str());
+                (
+                    render_ai_thread_sidebar_row(
+                        thread,
+                        workspace_label,
+                        state.selected_thread_id.as_deref(),
+                        bookmarked,
+                        view,
+                        is_dark,
+                        cx,
+                    ),
+                    AiPerfSidebarRowKind::Thread,
+                )
+            }
+            AiThreadSidebarRowKind::EmptyProject { project_root } => (
+                self.render_ai_thread_project_empty_row(project_root, is_dark, cx),
+                AiPerfSidebarRowKind::EmptyProject,
+            ),
+            AiThreadSidebarRowKind::ProjectFooter {
+                project_root,
+                hidden_thread_count,
+                expanded,
+            } => (
+                self.render_ai_thread_project_footer_row(
+                    view,
+                    project_root,
+                    hidden_thread_count,
+                    expanded,
+                    cx,
+                ),
+                AiPerfSidebarRowKind::ProjectFooter,
+            ),
+        };
+        self.record_ai_thread_sidebar_row_render_timing(row_kind, render_started_at.elapsed());
+        element
+    }
+
+#[allow(clippy::too_many_arguments)]
+    fn render_ai_thread_project_header_row(
+        &self,
+        view: Entity<Self>,
+        project_root: PathBuf,
+        project_label: String,
+        total_thread_count: usize,
+        is_first: bool,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let project_key = project_root.to_string_lossy().to_string();
+        let thread_count_label = if total_thread_count == 1 {
+            "1 thread".to_string()
+        } else {
+            format!("{total_thread_count} threads")
+        };
+
+        h_flex()
+            .w_full()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .when(!is_first, |this| {
+                this.pt_3().border_t_1().border_color(hunk_opacity(
+                    cx.theme().border,
+                    is_dark,
+                    0.64,
+                    0.84,
+                ))
+            })
+            .when(is_first, |this| this.pt_1())
+            .pb_1()
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_start()
+                    .gap_1p5()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
                             .child(
-                                v_flex()
-                                    .w_full()
-                                    .gap_0p5()
-                                    .px_2()
-                                    .pb_3()
-                                    .when(state.threads_loading, |this| {
-                                        this.child(render_ai_thread_list_loading_skeleton(is_dark, cx))
-                                    })
-                                    .when(state.threads.is_empty() && !state.threads_loading, |this| {
-                                        this.child(
-                                            v_flex()
-                                                .w_full()
-                                                .items_center()
-                                                .pt_8()
-                                                .px_3()
-                                                .child(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(hunk_opacity(
-                                                            cx.theme().muted_foreground,
-                                                            is_dark,
-                                                            0.86,
-                                                            0.96,
-                                                        ))
-                                                        .child("No threads in this repo yet."),
-                                                ),
-                                        )
-                                    })
-                                    .children(state.threads.iter().cloned().map(|thread| {
-                                        let workspace_label =
-                                            self.ai_thread_workspace_label(thread.id.as_str());
-                                        let bookmarked =
-                                            self.ai_thread_is_bookmarked(thread.id.as_str());
-                                        render_ai_thread_sidebar_row(
-                                            thread,
-                                            workspace_label,
-                                            state.selected_thread_id.as_deref(),
-                                            bookmarked,
-                                            view.clone(),
-                                            is_dark,
-                                            cx,
-                                        )
-                                    })),
+                                div()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .truncate()
+                                    .child(project_label),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(thread_count_label),
                             ),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        {
+                            let new_button_view = view.clone();
+                            let new_button_project_root = project_root.clone();
+                            Button::new(format!("ai-thread-project-actions-{project_key}"))
+                                .compact()
+                                .outline()
+                                .rounded(px(999.0))
+                                .with_size(gpui_component::Size::Small)
+                                .icon(Icon::new(HunkIconName::NotebookPen).size(px(14.0)))
+                                .label("New")
+                                .dropdown_caret(true)
+                                .dropdown_menu(move |menu, _, _| {
+                                    menu.item(
+                                        PopupMenuItem::new("New Thread").on_click({
+                                            let view = new_button_view.clone();
+                                            let project_root = new_button_project_root.clone();
+                                            move |_, window, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_start_thread_draft_for_project_root(
+                                                        project_root.clone(),
+                                                        AiNewThreadStartMode::Local,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                    )
+                                    .item(
+                                        PopupMenuItem::new("New Worktree").on_click({
+                                            let view = new_button_view.clone();
+                                            let project_root = new_button_project_root.clone();
+                                            move |_, window, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_start_thread_draft_for_project_root(
+                                                        project_root.clone(),
+                                                        AiNewThreadStartMode::Worktree,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                    )
+                                })
+                        },
+                    )
+                    .child(
+                        Button::new(format!("ai-thread-project-remove-{project_key}"))
+                            .compact()
+                            .danger()
+                            .rounded(px(999.0))
+                            .with_size(gpui_component::Size::Small)
+                            .icon(Icon::new(IconName::Delete).size(px(14.0)))
+                            .label("Remove")
+                            .on_click({
+                                let view = view.clone();
+                                let project_root = project_root.clone();
+                                move |_, window, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.confirm_remove_workspace_project_action(
+                                            project_root.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }),
                     ),
             )
             .into_any_element()
     }
 
-    fn render_ai_timeline_panel(
+    fn render_ai_thread_project_empty_row(
         &self,
+        project_root: PathBuf,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let project_key = project_root.to_string_lossy().to_string();
+        div()
+            .id(format!("ai-thread-project-empty-{project_key}"))
+            .w_full()
+            .pl_5()
+            .pb_2()
+            .text_xs()
+            .text_color(hunk_opacity(
+                cx.theme().muted_foreground,
+                is_dark,
+                0.84,
+                0.94,
+            ))
+            .child("No threads")
+            .into_any_element()
+    }
+
+    fn render_ai_thread_project_footer_row(
+        &self,
+        view: Entity<Self>,
+        project_root: PathBuf,
+        hidden_thread_count: usize,
+        expanded: bool,
+        _cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let project_key = project_root.to_string_lossy().to_string();
+        let toggle_label = if expanded {
+            "Show less".to_string()
+        } else if hidden_thread_count == 1 {
+            "Show 1 more".to_string()
+        } else {
+            format!("Show {hidden_thread_count} more")
+        };
+
+        h_flex()
+            .w_full()
+            .pl_5()
+            .pb_2()
+            .child(
+                Button::new(format!("ai-thread-section-toggle-{project_key}"))
+                    .ghost()
+                    .compact()
+                    .with_size(gpui_component::Size::Small)
+                    .icon(Icon::new(if expanded {
+                        IconName::ChevronUp
+                    } else {
+                        IconName::ChevronDown
+                    })
+                    .size(px(12.0)))
+                    .label(toggle_label)
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            this.ai_toggle_thread_sidebar_project_expanded(project_key.clone(), cx);
+                        });
+                    }),
+            )
+            .into_any_element()
+    }
+
+    fn render_ai_timeline_panel(
+        &mut self,
         view: Entity<Self>,
         state: &AiTimelinePanelState,
         is_dark: bool,
@@ -469,20 +767,25 @@ impl DiffViewer {
                                         .child("Base Branch"),
                                 )
                                 .child(
-                                    Select::new(&self.ai_worktree_base_branch_picker_state)
+                                    render_hunk_picker(
+                                        &self.ai_worktree_base_branch_picker_state,
+                                        HunkPickerConfig::new(
+                                            "ai-worktree-base-branch-picker",
+                                            state.selected_worktree_base_branch.clone(),
+                                        )
                                         .with_size(gpui_component::Size::Small)
-                                        .placeholder(state.selected_worktree_base_branch.clone())
-                                        .search_placeholder("Choose a base branch")
                                         .rounded(px(8.0))
-                                        .w(px(220.0))
-                                        .bg(hunk_opacity(
+                                        .width(px(220.0))
+                                        .background(hunk_opacity(
                                             cx.theme().background,
                                             is_dark,
                                             0.82,
                                             0.98,
                                         ))
                                         .border_color(cx.theme().border)
-                                        .disabled(self.git_controls_busy() || self.branches.is_empty())
+                                        .disabled(
+                                            self.git_controls_busy() || self.branches.is_empty(),
+                                        )
                                         .empty(
                                             h_flex()
                                                 .h(px(72.0))
@@ -491,6 +794,8 @@ impl DiffViewer {
                                                 .text_color(cx.theme().muted_foreground)
                                                 .child("No branches available."),
                                         ),
+                                        cx,
+                                    ),
                                 ),
                         )
                     })
@@ -711,7 +1016,7 @@ impl DiffViewer {
             })
             .when(!state.pending_user_inputs.is_empty(), |this| {
                 this.child(render_ai_pending_user_inputs_panel(
-                    state.pending_user_inputs.as_slice(),
+                    &state.pending_user_inputs,
                     &self.ai_pending_user_input_answers,
                     view.clone(),
                     is_dark,
@@ -722,32 +1027,41 @@ impl DiffViewer {
     }
 
     fn render_ai_timeline_rows(
-        &self,
+        &mut self,
         view: Entity<Self>,
         state: &AiTimelinePanelState,
         thread_id: String,
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let timeline_row_ids_for_list = state.timeline_visible_row_ids.clone();
-        let timeline_list_state = state.ai_timeline_list_state.clone();
-        let view_for_list = view.clone();
-        let timeline_list = list(timeline_list_state.clone(), {
-            cx.processor(move |this, ix: usize, _window, cx| {
-                let Some(row_id) = timeline_row_ids_for_list.get(ix) else {
-                    return div().w_full().h(px(0.0)).into_any_element();
-                };
-                render_ai_chat_timeline_row_for_view(
-                    this,
-                    row_id.as_str(),
-                    view_for_list.clone(),
-                    is_dark,
-                    cx,
-                )
+        let timeline_list_view = self
+            .ai_timeline_list_view
+            .get_or_insert_with(|| {
+                cx.new(|_| {
+                    AiTimelineListView::new(view.downgrade(), self.ai_timeline_list_state.clone())
+                })
             })
-        })
-        .size_full()
-        .with_sizing_behavior(ListSizingBehavior::Auto);
+            .clone();
+        let (row_ids_changed, follow_output_changed) = {
+            let list_view_state = timeline_list_view.read(cx);
+            (
+                list_view_state.timeline_visible_row_ids.as_ref()
+                    != state.timeline_visible_row_ids.as_ref(),
+                list_view_state.ai_timeline_follow_output != state.ai_timeline_follow_output,
+            )
+        };
+        self.record_ai_timeline_list_sync(
+            row_ids_changed,
+            follow_output_changed,
+            state.timeline_visible_row_ids.len(),
+        );
+        timeline_list_view.update(cx, |this: &mut AiTimelineListView, cx| {
+            this.sync_state(
+                state.timeline_visible_row_ids.clone(),
+                state.ai_timeline_follow_output,
+                cx,
+            );
+        });
 
         v_flex()
             .flex_1()
@@ -840,52 +1154,12 @@ impl DiffViewer {
                 )
             })
             .when(!state.timeline_visible_row_ids.is_empty(), |this| {
-                let view = view.clone();
-                let ai_timeline_follow_output = state.ai_timeline_follow_output;
-                let timeline_list_state = timeline_list_state.clone();
                 this.child(
                     div()
                         .flex_1()
                         .min_h_0()
                         .relative()
-                        .child(div().size_full().child(timeline_list))
-                        .child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .right_0()
-                                .bottom_0()
-                                .w(px(16.0))
-                                .child(
-                                    Scrollbar::vertical(&timeline_list_state)
-                                        .scrollbar_show(ScrollbarShow::Always),
-                                ),
-                        )
-                        .when(!ai_timeline_follow_output, |this| {
-                            let view = view.clone();
-                            this.child(
-                                div()
-                                    .absolute()
-                                    .right(px(16.0))
-                                    .bottom(px(8.0))
-                                    .left_0()
-                                    .flex()
-                                    .justify_center()
-                                    .child(
-                                        Button::new("ai-timeline-scroll-to-bottom")
-                                            .compact()
-                                            .primary()
-                                            .with_size(gpui_component::Size::Small)
-                                            .icon(Icon::new(IconName::ChevronDown).size(px(14.0)))
-                                            .tooltip("Scroll to the bottom")
-                                            .on_click(move |_, _, cx| {
-                                                view.update(cx, |this, cx| {
-                                                    this.ai_scroll_timeline_to_bottom_action(cx);
-                                                });
-                                            }),
-                                    ),
-                            )
-                        }),
+                        .child(timeline_list_view.clone()),
                 )
             })
             .into_any_element()

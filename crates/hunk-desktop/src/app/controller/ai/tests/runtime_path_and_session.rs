@@ -251,7 +251,9 @@ fn workspace_mad_max_mode_defaults_to_true_when_missing() {
 #[test]
 fn workspace_mad_max_mode_reads_per_workspace_flags() {
     let state = AppState {
-        last_project_path: None,
+        legacy_last_project_path: None,
+        workspace_project_paths: Default::default(),
+        active_workspace_project_path: None,
         last_workspace_target_by_repo: Default::default(),
         review_compare_selection_by_repo: Default::default(),
         ai_bookmarked_thread_ids: Default::default(),
@@ -264,8 +266,8 @@ fn workspace_mad_max_mode_reads_per_workspace_flags() {
         ai_workspace_include_hidden_models: Default::default(),
         ai_workspace_session_overrides: Default::default(),
         ai_thread_session_overrides: Default::default(),
-        git_workflow_cache: None,
-        git_recent_commits_cache: None,
+        git_workflow_cache_by_repo: Default::default(),
+        git_recent_commits_cache_by_repo: Default::default(),
     };
     assert!(!workspace_mad_max_mode(&state, Some("/repo-a")));
     assert!(!workspace_mad_max_mode(&state, Some("/repo-b")));
@@ -294,7 +296,9 @@ fn workspace_include_hidden_models_defaults_to_true_when_missing() {
 #[test]
 fn workspace_include_hidden_models_reads_per_workspace_flags() {
     let state = AppState {
-        last_project_path: None,
+        legacy_last_project_path: None,
+        workspace_project_paths: Default::default(),
+        active_workspace_project_path: None,
         last_workspace_target_by_repo: Default::default(),
         review_compare_selection_by_repo: Default::default(),
         ai_bookmarked_thread_ids: Default::default(),
@@ -307,8 +311,8 @@ fn workspace_include_hidden_models_reads_per_workspace_flags() {
         .collect(),
         ai_workspace_session_overrides: Default::default(),
         ai_thread_session_overrides: Default::default(),
-        git_workflow_cache: None,
-        git_recent_commits_cache: None,
+        git_workflow_cache_by_repo: Default::default(),
+        git_recent_commits_cache_by_repo: Default::default(),
     };
     assert!(workspace_include_hidden_models(&state, Some("/repo-a")));
     assert!(!workspace_include_hidden_models(&state, Some("/repo-b")));

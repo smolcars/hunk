@@ -131,8 +131,8 @@ impl DiffViewer {
         let review_left_picker_state = self.review_left_picker_state.clone();
         cx.subscribe(
             &review_left_picker_state,
-            |this, _, event: &SelectEvent<ReviewComparePickerDelegate>, cx| {
-                let SelectEvent::Confirm(source_id) = event;
+            |this, _, event: &HunkPickerEvent<ReviewComparePickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(source_id) = event;
                 let Some(source_id) = source_id.clone() else {
                     return;
                 };
@@ -144,8 +144,8 @@ impl DiffViewer {
         let review_right_picker_state = self.review_right_picker_state.clone();
         cx.subscribe(
             &review_right_picker_state,
-            |this, _, event: &SelectEvent<ReviewComparePickerDelegate>, cx| {
-                let SelectEvent::Confirm(source_id) = event;
+            |this, _, event: &HunkPickerEvent<ReviewComparePickerDelegate>, cx| {
+                let HunkPickerEvent::Confirm(source_id) = event;
                 let Some(source_id) = source_id.clone() else {
                     return;
                 };
@@ -156,7 +156,7 @@ impl DiffViewer {
     }
 
     fn sync_review_compare_picker_state(
-        picker_state: &Entity<SelectState<ReviewComparePickerDelegate>>,
+        picker_state: &Entity<HunkPickerState<ReviewComparePickerDelegate>>,
         delegate: ReviewComparePickerDelegate,
         selected_source_id: Option<&str>,
         window: &mut Window,

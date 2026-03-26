@@ -68,6 +68,26 @@ fn ai_select_previous_completion_item(
 }
 
 impl DiffViewer {
+    fn current_ai_composer_completion_context(
+        &self,
+        cx: &Context<Self>,
+    ) -> (AiComposerCompletionSyncKey, bool) {
+        let (prompt, cursor) = {
+            let input = self.ai_composer_input_state.read(cx);
+            (input.value().to_string(), input.cursor())
+        };
+        let key = AiComposerCompletionSyncKey {
+            prompt,
+            cursor,
+            session_settings_locked: self.ai_composer_session_settings_locked(),
+            skills_generation: self.ai_skills_generation,
+        };
+        let menus_open = self.ai_composer_file_completion_menu.is_some()
+            || self.ai_composer_slash_command_menu.is_some()
+            || self.ai_composer_skill_completion_menu.is_some();
+        (key, menus_open)
+    }
+
     fn ai_composer_completion_menu_token(
         menu: &AiComposerFileCompletionMenuState,
     ) -> ActivePrefixedToken {
@@ -88,13 +108,10 @@ impl DiffViewer {
 
     fn current_ai_composer_file_completion_candidate(
         &self,
-        cx: &Context<Self>,
+        sync_key: &AiComposerCompletionSyncKey,
     ) -> Option<AiComposerFileCompletionMenuState> {
-        let input = self.ai_composer_input_state.read(cx);
-        let text = input.value().to_string();
-        let cursor = input.cursor();
         self.ai_composer_file_completion_provider
-            .menu_state(text.as_str(), cursor)
+            .menu_state(sync_key.prompt.as_str(), sync_key.cursor)
     }
 
     fn ai_composer_slash_command_menu_token(
@@ -108,15 +125,12 @@ impl DiffViewer {
 
     fn current_ai_composer_slash_command_candidate(
         &self,
-        cx: &Context<Self>,
+        sync_key: &AiComposerCompletionSyncKey,
     ) -> Option<crate::app::AiComposerSlashCommandMenuState> {
-        let input = self.ai_composer_input_state.read(cx);
-        let text = input.value().to_string();
-        let cursor = input.cursor();
         crate::app::ai_composer_commands::slash_command_menu_state(
-            text.as_str(),
-            cursor,
-            self.ai_composer_session_settings_locked(),
+            sync_key.prompt.as_str(),
+            sync_key.cursor,
+            sync_key.session_settings_locked,
         )
     }
 
@@ -129,22 +143,38 @@ impl DiffViewer {
 
     fn current_ai_composer_skill_completion_candidate(
         &self,
-        cx: &Context<Self>,
+        sync_key: &AiComposerCompletionSyncKey,
     ) -> Option<AiComposerSkillCompletionMenuState> {
-        let input = self.ai_composer_input_state.read(cx);
-        let text = input.value().to_string();
-        let cursor = input.cursor();
-        skill_completion_menu_state(self.ai_skills.as_slice(), text.as_str(), cursor)
+        skill_completion_menu_state(
+            self.ai_skills.as_slice(),
+            sync_key.prompt.as_str(),
+            sync_key.cursor,
+        )
     }
 
     pub(super) fn sync_ai_composer_completion_menus(&mut self, cx: &mut Context<Self>) {
-        self.sync_ai_composer_file_completion_menu(cx);
-        self.sync_ai_composer_slash_command_menu(cx);
-        self.sync_ai_composer_skill_completion_menu(cx);
+        let (sync_key, _) = self.current_ai_composer_completion_context(cx);
+        if self.ai_composer_completion_sync_key.as_ref() == Some(&sync_key) {
+            return;
+        }
+
+        self.ai_composer_completion_sync_key = Some(sync_key.clone());
+        self.sync_ai_composer_file_completion_menu_with_key(&sync_key, cx);
+        self.sync_ai_composer_slash_command_menu_with_key(&sync_key, cx);
+        self.sync_ai_composer_skill_completion_menu_with_key(&sync_key, cx);
     }
 
     pub(super) fn sync_ai_composer_file_completion_menu(&mut self, cx: &mut Context<Self>) {
-        let next_menu = self.current_ai_composer_file_completion_candidate(cx);
+        let (sync_key, _) = self.current_ai_composer_completion_context(cx);
+        self.sync_ai_composer_file_completion_menu_with_key(&sync_key, cx);
+    }
+
+    fn sync_ai_composer_file_completion_menu_with_key(
+        &mut self,
+        sync_key: &AiComposerCompletionSyncKey,
+        cx: &mut Context<Self>,
+    ) {
+        let next_menu = self.current_ai_composer_file_completion_candidate(sync_key);
         let next_token = next_menu
             .as_ref()
             .map(Self::ai_composer_completion_menu_token);
@@ -186,8 +216,12 @@ impl DiffViewer {
         }
     }
 
-    pub(super) fn sync_ai_composer_slash_command_menu(&mut self, cx: &mut Context<Self>) {
-        let next_menu = self.current_ai_composer_slash_command_candidate(cx);
+    fn sync_ai_composer_slash_command_menu_with_key(
+        &mut self,
+        sync_key: &AiComposerCompletionSyncKey,
+        cx: &mut Context<Self>,
+    ) {
+        let next_menu = self.current_ai_composer_slash_command_candidate(sync_key);
         let next_token = next_menu
             .as_ref()
             .map(Self::ai_composer_slash_command_menu_token);
@@ -230,7 +264,16 @@ impl DiffViewer {
     }
 
     pub(super) fn sync_ai_composer_skill_completion_menu(&mut self, cx: &mut Context<Self>) {
-        let next_menu = self.current_ai_composer_skill_completion_candidate(cx);
+        let (sync_key, _) = self.current_ai_composer_completion_context(cx);
+        self.sync_ai_composer_skill_completion_menu_with_key(&sync_key, cx);
+    }
+
+    fn sync_ai_composer_skill_completion_menu_with_key(
+        &mut self,
+        sync_key: &AiComposerCompletionSyncKey,
+        cx: &mut Context<Self>,
+    ) {
+        let next_menu = self.current_ai_composer_skill_completion_candidate(sync_key);
         let next_token = next_menu
             .as_ref()
             .map(Self::ai_composer_skill_completion_menu_token);

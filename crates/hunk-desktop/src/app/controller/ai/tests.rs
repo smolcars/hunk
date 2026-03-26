@@ -12,6 +12,7 @@ mod ai_tests {
     use super::ai_attachment_status_message;
     use super::ai_branch_name_for_thread;
     use super::ai_completion_reload_workspace_root;
+    use super::ai_workspace_catalog_inputs_from_target_sets;
     use super::ai_composer_draft_key;
     use super::ai_composer_prompt_for_target;
     use super::ai_composer_retained_thread_ids;
@@ -59,7 +60,9 @@ mod ai_tests {
     use super::seed_ai_workspace_preferences;
     use super::selected_git_workspace_review_compare_selection_ids;
     use super::update_persisted_review_compare_selection;
-    use super::should_bind_visible_terminal_state_to_new_thread;
+    use super::ai_snapshot_removed_retainable_terminal_threads;
+    use super::ai_snapshot_removed_thread_ids;
+    use super::ai_snapshot_threads_changed;
     use super::should_follow_timeline_output;
     use super::should_reset_ai_timeline_measurements;
     use super::should_scroll_timeline_to_bottom_on_new_activity;
@@ -95,9 +98,6 @@ mod ai_tests {
     use crate::app::AiPromptSkillReference;
     use crate::app::AiQueuedUserMessage;
     use crate::app::AiQueuedUserMessageStatus;
-    use crate::app::AiTerminalSessionState;
-    use crate::app::AiTerminalSessionStatus;
-    use crate::app::AiThreadTerminalState;
     use crate::app::AiTextSelection;
     use crate::app::AiTextSelectionSurfaceSpec;
     use crate::app::AiThreadTitleRefreshState;

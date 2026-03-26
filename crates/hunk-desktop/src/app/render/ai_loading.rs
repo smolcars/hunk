@@ -451,9 +451,9 @@ fn render_ai_pending_thread_start(
 fn render_ai_pending_steer(
     pending: &AiPendingSteer,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
+    theme: &gpui_component::Theme,
 ) -> AnyElement {
-    let pending_colors = hunk_pending_message(cx.theme(), is_dark);
+    let pending_colors = hunk_pending_message(theme, is_dark);
     let elapsed_seconds = pending.started_at.elapsed().as_secs();
     let attachment_status = match pending.local_images.len() {
         0 => "No attachments".to_string(),
@@ -542,9 +542,9 @@ fn render_ai_pending_steer(
 fn render_ai_queued_message(
     queued: &AiQueuedUserMessage,
     is_dark: bool,
-    cx: &mut Context<DiffViewer>,
+    theme: &gpui_component::Theme,
 ) -> AnyElement {
-    let pending_colors = hunk_pending_message(cx.theme(), is_dark);
+    let pending_colors = hunk_pending_message(theme, is_dark);
     let elapsed_seconds = queued.queued_at.elapsed().as_secs();
     let attachment_status = match queued.local_images.len() {
         0 => "No attachments".to_string(),
@@ -592,7 +592,7 @@ fn render_ai_queued_message(
                         .child(
                             div()
                                 .text_xs()
-                                .text_color(cx.theme().accent)
+                                .text_color(theme.accent)
                                 .child("queued, waiting for current turn to finish."),
                         )
                         .child(

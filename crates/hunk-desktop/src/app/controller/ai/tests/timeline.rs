@@ -226,6 +226,60 @@
     }
 
     #[test]
+    fn timeline_row_ids_with_height_changes_tracks_turn_plan_updates() {
+        let mut previous = AiState::default();
+        previous.turns.insert(
+            hunk_codex::state::turn_storage_key("thread-1", "turn-1"),
+            hunk_codex::state::TurnSummary {
+                id: "turn-1".to_string(),
+                thread_id: "thread-1".to_string(),
+                status: hunk_codex::state::TurnStatus::InProgress,
+                last_sequence: 1,
+            },
+        );
+        previous.turn_plans.insert(
+            hunk_codex::state::turn_storage_key("thread-1", "turn-1"),
+            hunk_codex::state::TurnPlanSummary {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                explanation: Some("Inspect the reducer".to_string()),
+                steps: vec![hunk_codex::state::TurnPlanStepSummary {
+                    step: "Inspect notifications".to_string(),
+                    status: hunk_codex::state::TurnPlanStepStatus::InProgress,
+                }],
+                created_sequence: 2,
+                last_sequence: 2,
+            },
+        );
+
+        let mut next = previous.clone();
+        next.turn_plans.insert(
+            hunk_codex::state::turn_storage_key("thread-1", "turn-1"),
+            hunk_codex::state::TurnPlanSummary {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                explanation: Some("Render the checklist".to_string()),
+                steps: vec![hunk_codex::state::TurnPlanStepSummary {
+                    step: "Inspect notifications".to_string(),
+                    status: hunk_codex::state::TurnPlanStepStatus::Completed,
+                }],
+                created_sequence: 2,
+                last_sequence: 3,
+            },
+        );
+
+        let changed_row_ids =
+            timeline_row_ids_with_height_changes(&previous, &next, "thread-1");
+        assert_eq!(
+            changed_row_ids,
+            BTreeSet::from([format!(
+                "turn-plan:{}",
+                hunk_codex::state::turn_storage_key("thread-1", "turn-1")
+            ),]),
+        );
+    }
+
+    #[test]
     fn timeline_measurements_reset_when_thread_or_visible_rows_change() {
         let row_ids = vec!["row-1".to_string(), "row-2".to_string()];
         assert!(should_reset_ai_timeline_measurements(

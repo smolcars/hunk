@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -27,12 +27,12 @@ use gpui_component::{
     menu::AppMenuBar,
     resizable::{h_resizable, resizable_panel},
     scroll::ScrollableElement,
-    select::{SelectEvent, SelectState},
     v_flex,
 };
 use tracing::error;
 
 mod hunk_assets;
+mod hunk_picker;
 
 use hunk_assets::HunkAssets;
 pub(crate) use hunk_assets::HunkIconName;
@@ -95,6 +95,13 @@ use data::{
     DiffRowSegmentCache, DiffStreamRowMeta, FileRowRange, RepoTreeNode, RepoTreeNodeKind,
     RepoTreeRow, WorkspaceSwitchAction, WorkspaceViewMode,
 };
+use hunk_picker::{
+    HunkPickerAction, HunkPickerConfig, HunkPickerEvent, HunkPickerState,
+    hunk_picker_action_for_keystroke, render_hunk_picker,
+};
+use project_picker::{
+    ProjectPickerDelegate, build_project_picker_delegate, project_picker_selected_index,
+};
 use refresh_policy::{
     GitWorkspaceRefreshRequest, SnapshotRefreshBehavior, SnapshotRefreshPriority,
     SnapshotRefreshRequest, diff_state_changed, line_stats_paths_from_dirty_paths,
@@ -114,6 +121,7 @@ use workspace_target_picker::{
 use workspace_view::{SHORTCUT_CONTEXT_SELECTABLE_WORKSPACE, SHORTCUT_CONTEXT_TREE_WORKSPACE};
 
 const FPS_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
+const AI_PERF_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 const AUTO_REFRESH_SCROLL_DEBOUNCE: Duration = Duration::from_millis(500);
 const DIFF_MONO_CHAR_WIDTH: f32 = 8.0;
 const DIFF_LINE_NUMBER_MIN_DIGITS: u32 = 3;
@@ -155,6 +163,7 @@ mod ai_thread_flow;
 mod branch_activation;
 mod branch_picker;
 mod fuzzy_match;
+mod project_picker;
 mod refresh_policy;
 mod review_compare_picker;
 mod workspace_target_picker;
@@ -979,6 +988,74 @@ impl RepoTreeState {
     }
 }
 
+struct WorkspaceProjectState {
+    repo_root: Option<PathBuf>,
+    workspace_targets: Vec<WorkspaceTargetSummary>,
+    active_workspace_target_id: Option<String>,
+    git_workspace: GitWorkspaceState,
+    review_compare_sources: Vec<ReviewCompareSourceOption>,
+    review_default_left_source_id: Option<String>,
+    review_default_right_source_id: Option<String>,
+    review_left_source_id: Option<String>,
+    review_right_source_id: Option<String>,
+    branch_name: String,
+    branch_has_upstream: bool,
+    branch_ahead_count: usize,
+    branch_behind_count: usize,
+    working_copy_commit_id: Option<String>,
+    branches: Vec<LocalBranch>,
+    git_working_tree_scroll_handle: ScrollHandle,
+    recent_commits_scroll_handle: ScrollHandle,
+    files: Vec<ChangedFile>,
+    file_status_by_path: BTreeMap<String, FileStatus>,
+    last_commit_subject: Option<String>,
+    recent_commits: Vec<RecentCommitSummary>,
+    recent_commits_error: Option<String>,
+    collapsed_files: BTreeSet<String>,
+    selected_path: Option<String>,
+    selected_status: Option<FileStatus>,
+    diff_rows: Vec<SideBySideRow>,
+    diff_row_metadata: Vec<DiffStreamRowMeta>,
+    diff_row_segment_cache: Vec<Option<DiffRowSegmentCache>>,
+    diff_visible_file_header_lookup: Vec<Option<usize>>,
+    diff_visible_hunk_header_lookup: Vec<Option<usize>>,
+    file_row_ranges: Vec<FileRowRange>,
+    file_line_stats: BTreeMap<String, LineStats>,
+    diff_list_state: ListState,
+    review_files: Vec<ChangedFile>,
+    review_file_status_by_path: BTreeMap<String, FileStatus>,
+    review_file_line_stats: BTreeMap<String, LineStats>,
+    review_overall_line_stats: LineStats,
+    review_compare_loading: bool,
+    review_compare_error: Option<String>,
+    overall_line_stats: LineStats,
+    last_git_workspace_fingerprint: Option<RepoSnapshotFingerprint>,
+    recent_commits_loading: bool,
+    last_recent_commits_fingerprint: Option<RecentCommitsFingerprint>,
+    last_snapshot_fingerprint: Option<RepoSnapshotFingerprint>,
+    repo_tree: RepoTreeState,
+    file_editor_tabs: Vec<FileEditorTab>,
+    active_file_editor_tab_id: Option<usize>,
+    next_file_editor_tab_id: usize,
+    file_editor_tab_scroll_handle: ScrollHandle,
+    files_editor: native_files_editor::SharedFilesEditor,
+    file_quick_open_visible: bool,
+    file_quick_open_matches: Vec<String>,
+    file_quick_open_selected_ix: usize,
+    editor_path: Option<String>,
+    editor_error: Option<String>,
+    editor_dirty: bool,
+    editor_last_saved_text: Option<String>,
+    editor_markdown_preview_blocks: Vec<MarkdownPreviewBlock>,
+    editor_markdown_preview_revision: usize,
+    editor_markdown_preview: bool,
+    editor_search_visible: bool,
+    selection_anchor_row: Option<usize>,
+    selection_head_row: Option<usize>,
+    last_visible_row_start: Option<usize>,
+    last_diff_scroll_offset: Option<gpui::Point<gpui::Pixels>>,
+}
+
 struct DiffViewer {
     config_store: Option<ConfigStore>,
     config: AppConfig,
@@ -1032,9 +1109,15 @@ struct DiffViewer {
     ai_interrupt_restore_queued_thread_ids: BTreeSet<String>,
     ai_scroll_timeline_to_bottom: bool,
     ai_timeline_follow_output: bool,
-    ai_thread_list_scroll_handle: ScrollHandle,
     ai_git_progress: Option<AiGitProgressState>,
     ai_thread_title_refresh_state_by_thread: BTreeMap<String, AiThreadTitleRefreshState>,
+    ai_expanded_thread_sidebar_project_roots: BTreeSet<String>,
+    ai_visible_frame_state: Option<AiVisibleFrameState>,
+    ai_thread_sidebar_sections: Vec<AiVisibleThreadProjectSection>,
+    ai_thread_sidebar_rows: Vec<AiThreadSidebarRow>,
+    ai_thread_sidebar_list_state: ListState,
+    ai_thread_sidebar_row_count: usize,
+    ai_timeline_list_view: Option<Entity<render::AiTimelineListView>>,
     ai_timeline_list_state: ListState,
     ai_timeline_list_row_count: usize,
     ai_timeline_visible_turn_limit_by_thread: BTreeMap<String, usize>,
@@ -1043,6 +1126,7 @@ struct DiffViewer {
     ai_timeline_rows_by_id: BTreeMap<String, AiTimelineRow>,
     ai_timeline_groups_by_id: BTreeMap<String, AiTimelineGroup>,
     ai_timeline_group_parent_by_child_row_id: BTreeMap<String, String>,
+    ai_markdown_row_cache: Mutex<BTreeMap<String, AiMarkdownRowCacheEntry>>,
     ai_in_progress_turn_started_at: BTreeMap<String, Instant>,
     ai_composer_activity_elapsed_second: Option<u64>,
     ai_expanded_timeline_row_ids: BTreeSet<String>,
@@ -1060,6 +1144,7 @@ struct DiffViewer {
     ai_experimental_features: Vec<codex_app_server_protocol::ExperimentalFeature>,
     ai_collaboration_modes: Vec<codex_app_server_protocol::CollaborationModeMask>,
     ai_skills: Vec<SkillMetadata>,
+    ai_skills_generation: usize,
     ai_include_hidden_models: bool,
     ai_selected_model: Option<String>,
     ai_selected_effort: Option<String>,
@@ -1073,9 +1158,11 @@ struct DiffViewer {
     ai_attachment_picker_task: Task<()>,
     ai_workspace_states: BTreeMap<String, AiWorkspaceState>,
     ai_hidden_runtimes: BTreeMap<String, AiHiddenRuntimeHandle>,
+    ai_runtime_starting_workspace_key: Option<String>,
     ai_worker_thread: Option<JoinHandle<()>>,
     ai_command_tx: Option<mpsc::Sender<AiWorkerCommand>>,
     ai_worker_workspace_key: Option<String>,
+    ai_draft_workspace_root_override: Option<PathBuf>,
     ai_draft_workspace_target_id: Option<String>,
     ai_terminal_states_by_thread: BTreeMap<String, AiThreadTerminalState>,
     ai_hidden_terminal_runtimes: BTreeMap<String, AiHiddenTerminalRuntimeHandle>,
@@ -1101,6 +1188,9 @@ struct DiffViewer {
     ai_terminal_cursor_output_generation: usize,
     ai_terminal_runtime_generation: usize,
     ai_terminal_stop_requested: bool,
+    workspace_project_states: BTreeMap<String, WorkspaceProjectState>,
+    files_terminal_states_by_project: BTreeMap<String, FilesProjectTerminalState>,
+    files_hidden_terminal_runtimes: BTreeMap<String, FilesHiddenTerminalRuntimeHandle>,
     files_terminal_open: bool,
     files_terminal_follow_output: bool,
     files_terminal_height_px: f32,
@@ -1139,7 +1229,8 @@ struct DiffViewer {
     ai_composer_skill_completion_selected_ix: usize,
     ai_composer_skill_completion_dismissed_token: Option<ActivePrefixedToken>,
     ai_composer_skill_completion_scroll_handle: ScrollHandle,
-    ai_worktree_base_branch_picker_state: Entity<SelectState<BranchPickerDelegate>>,
+    ai_composer_completion_sync_key: Option<AiComposerCompletionSyncKey>,
+    ai_worktree_base_branch_picker_state: Entity<HunkPickerState<BranchPickerDelegate>>,
     ai_composer_input_state: Entity<InputState>,
     ai_review_mode_active: bool,
     ai_review_mode_thread_ids: BTreeSet<String>,
@@ -1150,10 +1241,11 @@ struct DiffViewer {
     ai_composer_status_generation_by_key: BTreeMap<AiComposerStatusKey, usize>,
     files: Vec<ChangedFile>,
     file_status_by_path: BTreeMap<String, FileStatus>,
-    workspace_target_picker_state: Entity<SelectState<WorkspaceTargetPickerDelegate>>,
-    review_left_picker_state: Entity<SelectState<ReviewComparePickerDelegate>>,
-    review_right_picker_state: Entity<SelectState<ReviewComparePickerDelegate>>,
-    branch_picker_state: Entity<SelectState<BranchPickerDelegate>>,
+    project_picker_state: Entity<HunkPickerState<ProjectPickerDelegate>>,
+    workspace_target_picker_state: Entity<HunkPickerState<WorkspaceTargetPickerDelegate>>,
+    review_left_picker_state: Entity<HunkPickerState<ReviewComparePickerDelegate>>,
+    review_right_picker_state: Entity<HunkPickerState<ReviewComparePickerDelegate>>,
+    branch_picker_state: Entity<HunkPickerState<BranchPickerDelegate>>,
     branch_input_state: Entity<InputState>,
     branch_input_has_text: bool,
     commit_input_state: Entity<InputState>,
@@ -1242,8 +1334,10 @@ struct DiffViewer {
     fps: f32,
     frame_sample_count: u32,
     frame_sample_started_at: Instant,
+    ignore_next_frame_sample: bool,
     fps_epoch: usize,
     fps_task: Task<()>,
+    ai_perf_metrics: RefCell<AiPerfMetrics>,
     repo_discovery_failed: bool,
     error_message: Option<String>,
     sidebar_collapsed: bool,
@@ -1287,7 +1381,7 @@ impl Drop for DiffViewer {
         }
         self.files_editor.borrow_mut().shutdown();
         self.stop_all_ai_terminal_runtimes("dropping app");
-        self.stop_files_terminal_runtime("dropping app");
+        self.stop_all_files_terminal_runtimes("dropping app");
         self.shutdown_ai_worker_blocking();
     }
 }

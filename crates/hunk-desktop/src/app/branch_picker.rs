@@ -1,14 +1,9 @@
-use gpui::{
-    App, Context, IntoElement, ParentElement as _, SharedString, Styled as _, Task, Window, div,
-};
-use gpui_component::{
-    ActiveTheme as _, IndexPath, StyledExt as _, h_flex,
-    select::{SelectDelegate, SelectItem},
-    v_flex,
-};
+use gpui::{AnyElement, App, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
+use gpui_component::{ActiveTheme as _, StyledExt as _, h_flex, v_flex};
 use hunk_git::git::LocalBranch;
 
 use super::fuzzy_match::{is_match_boundary, segment_prefix_position, subsequence_match_score};
+use super::hunk_picker::{HunkPickerDelegate, HunkPickerItem};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BranchPickerItem {
@@ -33,7 +28,7 @@ impl BranchPickerItem {
     }
 }
 
-impl SelectItem for BranchPickerItem {
+impl HunkPickerItem for BranchPickerItem {
     type Value = String;
 
     fn title(&self) -> SharedString {
@@ -44,9 +39,9 @@ impl SelectItem for BranchPickerItem {
         &self.value
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(&self, cx: &mut App) -> AnyElement {
         let detail_color = cx.theme().muted_foreground;
-        let current_color = cx.theme().accent;
+        let current_color = cx.theme().foreground;
 
         let mut row = h_flex()
             .w_full()
@@ -76,7 +71,7 @@ impl SelectItem for BranchPickerItem {
             );
         }
 
-        row
+        row.into_any_element()
     }
 }
 
@@ -95,36 +90,29 @@ impl BranchPickerDelegate {
     }
 }
 
-impl SelectDelegate for BranchPickerDelegate {
+impl HunkPickerDelegate for BranchPickerDelegate {
     type Item = BranchPickerItem;
 
-    fn items_count(&self, _: usize) -> usize {
+    fn items_count(&self) -> usize {
         self.matched_items.len()
     }
 
-    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
-        self.matched_items.get(ix.row)
+    fn item(&self, ix: usize) -> Option<&Self::Item> {
+        self.matched_items.get(ix)
     }
 
-    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    fn position<V>(&self, value: &V) -> Option<usize>
     where
-        Self::Item: SelectItem<Value = V>,
+        Self::Item: HunkPickerItem<Value = V>,
         V: PartialEq,
     {
         self.matched_items
             .iter()
             .position(|item| item.value() == value)
-            .map(|row| IndexPath::default().row(row))
     }
 
-    fn perform_search(
-        &mut self,
-        query: &str,
-        _: &mut Window,
-        _: &mut Context<gpui_component::select::SelectState<Self>>,
-    ) -> Task<()> {
+    fn perform_search(&mut self, query: &str) {
         self.matched_items = matched_branch_items(&self.items, query);
-        Task::ready(())
     }
 }
 
@@ -139,18 +127,14 @@ pub(crate) fn build_branch_picker_delegate(branches: &[LocalBranch]) -> BranchPi
 pub(crate) fn branch_picker_selected_index(
     branches: &[LocalBranch],
     active_branch_name: Option<&str>,
-) -> Option<IndexPath> {
+) -> Option<usize> {
     if let Some(active_branch_name) = active_branch_name {
         return branches
             .iter()
-            .position(|branch| branch.name == active_branch_name)
-            .map(|row| IndexPath::default().row(row));
+            .position(|branch| branch.name == active_branch_name);
     }
 
-    branches
-        .iter()
-        .position(|branch| branch.is_current)
-        .map(|row| IndexPath::default().row(row))
+    branches.iter().position(|branch| branch.is_current)
 }
 
 #[cfg(test)]

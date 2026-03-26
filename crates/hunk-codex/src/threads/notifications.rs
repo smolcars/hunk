@@ -191,6 +191,33 @@ impl ThreadService {
                     });
                 }
             }
+            ServerNotification::TurnPlanUpdated(notification) => {
+                if self.is_known_thread(&notification.thread_id) {
+                    self.apply_event(ReducerEvent::TurnPlanUpdated {
+                        thread_id: notification.thread_id,
+                        turn_id: notification.turn_id,
+                        explanation: notification.explanation,
+                        steps: notification
+                            .plan
+                            .into_iter()
+                            .map(|step| crate::state::TurnPlanStepSummary {
+                                step: step.step,
+                                status: match step.status {
+                                    codex_app_server_protocol::TurnPlanStepStatus::Pending => {
+                                        crate::state::TurnPlanStepStatus::Pending
+                                    }
+                                    codex_app_server_protocol::TurnPlanStepStatus::InProgress => {
+                                        crate::state::TurnPlanStepStatus::InProgress
+                                    }
+                                    codex_app_server_protocol::TurnPlanStepStatus::Completed => {
+                                        crate::state::TurnPlanStepStatus::Completed
+                                    }
+                                },
+                            })
+                            .collect(),
+                    });
+                }
+            }
             ServerNotification::ItemStarted(notification) => {
                 if self.is_known_thread(&notification.thread_id) {
                     self.apply_item_snapshot(
@@ -608,6 +635,9 @@ impl ThreadService {
             });
         self.state
             .turn_diffs
+            .retain(|turn_key, _| !removed_turn_keys.contains(turn_key));
+        self.state
+            .turn_plans
             .retain(|turn_key, _| !removed_turn_keys.contains(turn_key));
     }
 

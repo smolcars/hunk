@@ -1,7 +1,8 @@
 const AI_COMPOSER_FILE_COMPLETION_MENU_GAP_Y: f32 = 12.0;
 
 struct AiComposerPanelState {
-    composer_attachment_paths: Vec<PathBuf>,
+    composer_feedback: Option<AiComposerFeedbackState>,
+    composer_attachment_paths: Arc<[PathBuf]>,
     composer_attachment_count: usize,
     model_supports_image_inputs: bool,
     review_mode_active: bool,
@@ -89,11 +90,210 @@ impl DiffViewer {
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let feedback_strip =
+            ai_render_composer_feedback_strip(state.composer_feedback.as_ref(), self, is_dark, cx);
+        let usage_popover = state.usage_popover_open.then(|| {
+            h_flex()
+                .w_full()
+                .justify_center()
+                .child(self.render_ai_usage_popover_card(view.clone(), is_dark, cx))
+                .into_any_element()
+        });
         let composer_drop_border_color = state.composer_drop_border_color;
         let composer_drop_bg = state.composer_drop_bg;
         let footer_group_gap = px(6.0);
         let footer_button_gap = px(2.0);
         let completion_colors = hunk_completion_menu(cx.theme(), is_dark);
+        let attachment_chips = (!state.composer_attachment_paths.is_empty()).then(|| {
+            h_flex()
+                .w_full()
+                .items_center()
+                .gap_1()
+                .flex_wrap()
+                .children(state.composer_attachment_paths.iter().enumerate().map(
+                    |(index, path)| {
+                        let remove_view = view.clone();
+                        let remove_path = path.clone();
+                        let path_display = path.display().to_string();
+                        let attachment_name =
+                            ai_composer_attachment_display_name(path.as_path());
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .rounded(px(999.0))
+                            .border_1()
+                            .border_color(hunk_opacity(cx.theme().border, is_dark, 0.70, 0.60))
+                            .bg(hunk_blend(cx.theme().background, cx.theme().muted, is_dark, 0.14, 0.18))
+                            .px_2()
+                            .py_1p5()
+                            .child(Icon::new(IconName::File).size(px(12.0)))
+                            .child(
+                                div()
+                                    .max_w(px(180.0))
+                                    .text_xs()
+                                    .truncate()
+                                    .child(attachment_name),
+                            )
+                            .child(
+                                Button::new(("ai-remove-composer-attachment", index))
+                                    .compact()
+                                    .ghost()
+                                    .rounded(px(999.0))
+                                    .with_size(gpui_component::Size::Small)
+                                    .icon(Icon::new(IconName::Close).size(px(12.0)))
+                                    .tooltip(format!("Remove {path_display}"))
+                                    .on_click(move |_, _, cx| {
+                                        remove_view.update(cx, |this, cx| {
+                                            this.ai_remove_composer_attachment_action(
+                                                remove_path.clone(),
+                                                cx,
+                                            );
+                                        });
+                                    }),
+                            )
+                            .into_any_element()
+                    },
+                ))
+                .into_any_element()
+        });
+        let input_shell = div()
+            .relative()
+            .key_context("AiComposer AiWorkspace")
+            .on_action(cx.listener(Self::ai_queue_prompt_action))
+            .on_action(cx.listener(Self::ai_edit_last_queued_prompt_action))
+            .child(
+                Input::new(&self.ai_composer_input_state)
+                    .appearance(false)
+                    .bordered(false)
+                    .focus_bordered(false)
+                    .w_full()
+                    .h(px(100.0)),
+            )
+            .when_some(self.ai_composer_file_completion_menu.clone(), |this, menu| {
+                this.child(
+                    self.render_ai_composer_file_completion_menu(view.clone(), menu, is_dark, cx),
+                )
+            })
+            .when_some(self.ai_composer_slash_command_menu.clone(), |this, menu| {
+                this.child(
+                    self.render_ai_composer_slash_command_menu(view.clone(), menu, is_dark, cx),
+                )
+            })
+            .when_some(self.ai_composer_skill_completion_menu.clone(), |this, menu| {
+                this.child(
+                    self.render_ai_composer_skill_completion_menu(view.clone(), menu, is_dark, cx),
+                )
+            })
+            .into_any_element();
+        let footer = h_flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .justify_between()
+            .gap(footer_group_gap)
+            .flex_wrap()
+            .child(
+                h_flex()
+                    .min_w_0()
+                    .items_center()
+                    .gap(footer_button_gap)
+                    .flex_wrap()
+                    .child({
+                        let view = view.clone();
+                        let model_supports_image_inputs = state.model_supports_image_inputs;
+                        Button::new("ai-open-attachment-picker")
+                            .compact()
+                            .ghost()
+                            .rounded(px(999.0))
+                            .with_size(gpui_component::Size::Small)
+                            .label("📎")
+                            .tooltip(if model_supports_image_inputs {
+                                "Attach local screenshots/images to the next prompt."
+                            } else {
+                                "Selected model does not support image attachments."
+                            })
+                            .disabled(!model_supports_image_inputs)
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.ai_open_attachment_picker_action(cx);
+                                });
+                            })
+                    })
+                    .child(render_ai_session_controls_panel_for_view(
+                        self,
+                        view.clone(),
+                        state.selected_thread_mode_for_picker,
+                        state.thread_mode_picker_editable,
+                        state.session_controls_read_only,
+                        cx,
+                    ))
+                    .child(ai_render_composer_status_chip(
+                        ai_composer_mode_badge_label(state.current_mode_label.as_str()).as_str(),
+                        ai_composer_mode_badge_icon(state.current_mode_label.as_str()),
+                        completion_colors.row_selected_border,
+                        completion_colors.accent_soft_background,
+                        cx.theme().foreground,
+                    ))
+                    .when(state.fast_mode_enabled, |this| {
+                        this.child(ai_render_composer_status_chip(
+                            "Fast",
+                            Some(HunkIconName::Rocket),
+                            completion_colors.row_selected_border,
+                            completion_colors.accent_soft_background,
+                            cx.theme().foreground,
+                        ))
+                    }),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .justify_end()
+                    .gap(footer_button_gap)
+                    .child({
+                        let view = view.clone();
+                        if state.composer_interrupt_available {
+                            Button::new("ai-interrupt-turn")
+                                .compact()
+                                .primary()
+                                .rounded(px(999.0))
+                                .with_size(gpui_component::Size::Small)
+                                .icon(Icon::new(IconName::Close).size(px(16.0)))
+                                .tooltip("Interrupt run")
+                                .on_click(move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_interrupt_turn_action(cx);
+                                    });
+                                })
+                        } else {
+                            let composer_send_waiting_on_connection =
+                                state.composer_send_waiting_on_connection;
+                            let review_mode_active = state.review_mode_active;
+                            let review_action_tooltip = state.review_action_blocker.clone().unwrap_or_else(|| {
+                                "Review the current working-copy changes for correctness and regressions.".to_string()
+                            });
+                            Button::new("ai-send-prompt")
+                                .compact()
+                                .primary()
+                                .rounded(px(999.0))
+                                .with_size(gpui_component::Size::Small)
+                                .icon(Icon::new(IconName::ArrowUp).size(px(16.0)))
+                                .tooltip(if composer_send_waiting_on_connection {
+                                    "Wait for Codex to finish connecting.".to_string()
+                                } else if review_mode_active {
+                                    review_action_tooltip
+                                } else {
+                                    "Send prompt".to_string()
+                                })
+                                .disabled(composer_send_waiting_on_connection)
+                                .on_click(move |_, window, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_send_prompt_action(window, cx);
+                                    });
+                                })
+                        }
+                    }),
+            )
+            .into_any_element();
         h_flex()
             .w_full()
             .justify_center()
@@ -105,16 +305,11 @@ impl DiffViewer {
                     .w_full()
                     .max_w(px(AI_COMPOSER_SURFACE_MAX_WIDTH))
                     .gap_2()
-                    .when_some(ai_render_composer_feedback_strip(self, is_dark, cx), |this, strip| {
+                    .when_some(feedback_strip, |this, strip| {
                         this.child(strip)
                     })
-                    .when(state.usage_popover_open, |this| {
-                        this.child(
-                            h_flex()
-                                .w_full()
-                                .justify_center()
-                                .child(self.render_ai_usage_popover_card(view.clone(), is_dark, cx)),
-                        )
+                    .when_some(usage_popover, |this, popover| {
+                        this.child(popover)
                     })
                     .child(
                         v_flex()
@@ -142,61 +337,8 @@ impl DiffViewer {
                                     cx.stop_propagation();
                                 },
                             ))
-                            .when(!state.composer_attachment_paths.is_empty(), |this| {
-                                this.child(
-                                    h_flex()
-                                        .w_full()
-                                        .items_center()
-                                        .gap_1()
-                                        .flex_wrap()
-                                        .children(state.composer_attachment_paths.iter().enumerate().map(
-                                            |(index, path)| {
-                                                let remove_view = view.clone();
-                                                let remove_path = path.clone();
-                                                let path_display = path.display().to_string();
-                                                let attachment_name =
-                                                    ai_composer_attachment_display_name(path.as_path());
-                                                h_flex()
-                                                    .items_center()
-                                                    .gap_1()
-                                                    .rounded(px(999.0))
-                                                    .border_1()
-                                                    .border_color(hunk_opacity(cx.theme().border, is_dark, 0.70, 0.60))
-                                                    .bg(hunk_blend(cx.theme().background, cx.theme().muted, is_dark, 0.14, 0.18))
-                                                    .px_2()
-                                                    .py_1p5()
-                                                    .child(Icon::new(IconName::File).size(px(12.0)))
-                                                    .child(
-                                                        div()
-                                                            .max_w(px(180.0))
-                                                            .text_xs()
-                                                            .truncate()
-                                                            .child(attachment_name),
-                                                    )
-                                                    .child(
-                                                        Button::new((
-                                                            "ai-remove-composer-attachment",
-                                                            index,
-                                                        ))
-                                                        .compact()
-                                                        .ghost()
-                                                        .rounded(px(999.0))
-                                                        .with_size(gpui_component::Size::Small)
-                                                        .icon(Icon::new(IconName::Close).size(px(12.0)))
-                                                        .tooltip(format!("Remove {path_display}"))
-                                                        .on_click(move |_, _, cx| {
-                                                            remove_view.update(cx, |this, cx| {
-                                                                this.ai_remove_composer_attachment_action(
-                                                                    remove_path.clone(),
-                                                                    cx,
-                                                                );
-                                                            });
-                                                        })
-                                                    )
-                                                    .into_any_element()
-                                            },
-                                        )),
-                                )
+                            .when_some(attachment_chips, |this, chips| {
+                                this.child(chips)
                             })
                             .when(
                                 state.composer_attachment_count > 0
@@ -218,183 +360,8 @@ impl DiffViewer {
                                     )
                                 },
                             )
-                            .child(
-                                div()
-                                    .relative()
-                                    .key_context("AiComposer AiWorkspace")
-                                    .on_action(cx.listener(Self::ai_queue_prompt_action))
-                                    .on_action(cx.listener(Self::ai_edit_last_queued_prompt_action))
-                                    .child(
-                                        Input::new(&self.ai_composer_input_state)
-                                            .appearance(false)
-                                            .bordered(false)
-                                            .focus_bordered(false)
-                                            .w_full()
-                                            .h(px(100.0)),
-                                    )
-                                    .when_some(
-                                        self.ai_composer_file_completion_menu.clone(),
-                                        |this, menu| {
-                                            this.child(
-                                                self.render_ai_composer_file_completion_menu(
-                                                    view.clone(),
-                                                    menu,
-                                                    is_dark,
-                                                    cx,
-                                                ),
-                                            )
-                                        },
-                                    )
-                                    .when_some(
-                                        self.ai_composer_slash_command_menu.clone(),
-                                        |this, menu| {
-                                            this.child(
-                                                self.render_ai_composer_slash_command_menu(
-                                                    view.clone(),
-                                                    menu,
-                                                    is_dark,
-                                                    cx,
-                                                ),
-                                            )
-                                        },
-                                    )
-                                    .when_some(
-                                        self.ai_composer_skill_completion_menu.clone(),
-                                        |this, menu| {
-                                            this.child(
-                                                self.render_ai_composer_skill_completion_menu(
-                                                    view.clone(),
-                                                    menu,
-                                                    is_dark,
-                                                    cx,
-                                                ),
-                                            )
-                                        },
-                                    ),
-                            )
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .min_w_0()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap(footer_group_gap)
-                                    .flex_wrap()
-                                    .child(
-                                        h_flex()
-                                            .min_w_0()
-                                            .items_center()
-                                            .gap(footer_button_gap)
-                                            .flex_wrap()
-                                            .child({
-                                                let view = view.clone();
-                                                let model_supports_image_inputs =
-                                                    state.model_supports_image_inputs;
-                                                Button::new("ai-open-attachment-picker")
-                                                    .compact()
-                                                    .ghost()
-                                                    .rounded(px(999.0))
-                                                    .with_size(gpui_component::Size::Small)
-                                                    .label("📎")
-                                                    .tooltip(if model_supports_image_inputs {
-                                                        "Attach local screenshots/images to the next prompt."
-                                                    } else {
-                                                        "Selected model does not support image attachments."
-                                                    })
-                                                    .disabled(!model_supports_image_inputs)
-                                                    .on_click(move |_, _, cx| {
-                                                        view.update(cx, |this, cx| {
-                                                            this.ai_open_attachment_picker_action(cx);
-                                                        });
-                                                    })
-                                            })
-                                            .child(render_ai_session_controls_panel_for_view(
-                                                self,
-                                                view.clone(),
-                                                state.selected_thread_mode_for_picker,
-                                                state.thread_mode_picker_editable,
-                                                state.session_controls_read_only,
-                                                cx,
-                                            ))
-                                            .child(ai_render_composer_status_chip(
-                                                ai_composer_mode_badge_label(
-                                                    state.current_mode_label.as_str(),
-                                                )
-                                                .as_str(),
-                                                ai_composer_mode_badge_icon(
-                                                    state.current_mode_label.as_str(),
-                                                ),
-                                                completion_colors.row_selected_border,
-                                                completion_colors.accent_soft_background,
-                                                cx.theme().foreground,
-                                            ))
-                                            .when(state.fast_mode_enabled, |this| {
-                                                this.child(ai_render_composer_status_chip(
-                                                    "Fast",
-                                                    Some(HunkIconName::Rocket),
-                                                    completion_colors.row_selected_border,
-                                                    completion_colors.accent_soft_background,
-                                                    cx.theme().foreground,
-                                                ))
-                                            }),
-                                    )
-                                    .child(
-                                        h_flex()
-                                            .items_center()
-                                            .justify_end()
-                                            .gap(footer_button_gap)
-                                            .child({
-                                                let view = view.clone();
-                                                if state.composer_interrupt_available {
-                                                    Button::new("ai-interrupt-turn")
-                                                        .compact()
-                                                        .primary()
-                                                        .rounded(px(999.0))
-                                                        .with_size(gpui_component::Size::Small)
-                                                        .icon(Icon::new(IconName::Close).size(px(16.0)))
-                                                        .tooltip("Interrupt run")
-                                                        .on_click(move |_, _, cx| {
-                                                            view.update(cx, |this, cx| {
-                                                                this.ai_interrupt_turn_action(cx);
-                                                            });
-                                                        })
-                                                } else {
-                                                    let composer_send_waiting_on_connection =
-                                                        state.composer_send_waiting_on_connection;
-                                                    let review_mode_active =
-                                                        state.review_mode_active;
-                                                    let review_action_tooltip = state
-                                                        .review_action_blocker
-                                                        .clone()
-                                                        .unwrap_or_else(|| {
-                                                            "Review the current working-copy changes for correctness and regressions.".to_string()
-                                                        });
-                                                    Button::new("ai-send-prompt")
-                                                        .compact()
-                                                        .primary()
-                                                        .rounded(px(999.0))
-                                                        .with_size(gpui_component::Size::Small)
-                                                        .icon(Icon::new(IconName::ArrowUp).size(px(16.0)))
-                                                        .tooltip(
-                                                            if composer_send_waiting_on_connection {
-                                                                "Wait for Codex to finish connecting."
-                                                                    .to_string()
-                                                            } else if review_mode_active {
-                                                                review_action_tooltip
-                                                            } else {
-                                                                "Send prompt".to_string()
-                                                            },
-                                                        )
-                                                        .disabled(composer_send_waiting_on_connection)
-                                                        .on_click(move |_, window, cx| {
-                                                            view.update(cx, |this, cx| {
-                                                                this.ai_send_prompt_action(window, cx);
-                                                            });
-                                                        })
-                                                }
-                                            }),
-                                    ),
-                            )
+                            .child(input_shell)
+                            .child(footer)
                             .when(
                                 state.composer_interrupt_available
                                     || state.queued_message_count > 0,
@@ -893,25 +860,21 @@ fn ai_activity_elapsed_label(duration: Duration) -> String {
     }
 }
 
-struct AiComposerActivityDisplay {
-    label: &'static str,
-    elapsed: Duration,
-    animation_key: String,
-}
-
 fn ai_render_composer_feedback_strip(
+    feedback: Option<&AiComposerFeedbackState>,
     this: &DiffViewer,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> Option<AnyElement> {
-    if let Some(status) = this.current_ai_composer_status_message()
-        && let Some(tone) = ai_composer_status_tone(status)
-    {
-        return Some(ai_render_composer_status_strip(status, tone, is_dark, cx));
+    match feedback {
+        Some(AiComposerFeedbackState::Status { message, tone }) => {
+            Some(ai_render_composer_status_strip(message.as_str(), *tone, is_dark, cx))
+        }
+        Some(AiComposerFeedbackState::Activity(activity)) => {
+            Some(ai_render_composer_activity_strip(this, activity, is_dark, cx))
+        }
+        None => None,
     }
-
-    ai_current_composer_activity(this)
-        .map(|activity| ai_render_composer_activity_strip(this, &activity, is_dark, cx))
 }
 
 fn ai_render_composer_status_strip(
@@ -938,44 +901,9 @@ fn ai_render_composer_status_strip(
         .into_any_element()
 }
 
-fn ai_current_composer_activity(this: &DiffViewer) -> Option<AiComposerActivityDisplay> {
-    let thread_id = this.current_ai_thread_id()?;
-    let turn_id = this.current_ai_in_progress_turn_id(thread_id.as_str())?;
-    let tracking_key = format!("{thread_id}::{turn_id}");
-    let started_at = this.ai_in_progress_turn_started_at.get(tracking_key.as_str())?;
-    let label = this
-        .ai_state_snapshot
-        .items
-        .values()
-        .filter(|item| {
-            item.thread_id == thread_id && item.turn_id == turn_id && item.status != ItemStatus::Completed
-        })
-        .max_by_key(|item| item.last_sequence)
-        .map(|item| ai_composer_activity_label_for_kind(item.kind.as_str()))
-        .unwrap_or("Working");
-
-    Some(AiComposerActivityDisplay {
-        label,
-        elapsed: started_at.elapsed(),
-        animation_key: tracking_key,
-    })
-}
-
-fn ai_composer_activity_label_for_kind(kind: &str) -> &'static str {
-    match kind {
-        "reasoning" => "Thinking",
-        "commandExecution" => "Running",
-        "fileChange" => "Editing",
-        "dynamicToolCall" | "mcpToolCall" | "collabAgentToolCall" => "Tool",
-        "webSearch" => "Searching",
-        "agentMessage" | "plan" => "Writing",
-        _ => "Working",
-    }
-}
-
 fn ai_render_composer_activity_strip(
     this: &DiffViewer,
-    activity: &AiComposerActivityDisplay,
+    activity: &AiComposerFeedbackActivity,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {
@@ -995,7 +923,7 @@ fn ai_render_composer_activity_strip(
                         .text_xs()
                         .font_semibold()
                         .text_color(cx.theme().muted_foreground)
-                        .child(activity.label),
+                        .child(activity.label.clone()),
                 )
                 .when(!this.reduced_motion_enabled(), |this| {
                     this.child(
@@ -1007,7 +935,7 @@ fn ai_render_composer_activity_strip(
                             .text_xs()
                             .font_semibold()
                             .text_color(shimmer_color)
-                            .child(activity.label)
+                            .child(activity.label.clone())
                             .with_animation(
                                 format!("ai-composer-text-sheen-{}", activity.animation_key),
                                 Animation::new(shimmer_duration)
@@ -1037,7 +965,7 @@ fn ai_render_composer_activity_strip(
             div()
                 .text_xs()
                 .text_color(hunk_opacity(cx.theme().muted_foreground, is_dark, 0.84, 0.76))
-                .child(ai_activity_elapsed_label(activity.elapsed)),
+                .child(ai_activity_elapsed_label(activity.started_at.elapsed())),
         )
         .into_any_element()
 }

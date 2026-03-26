@@ -32,6 +32,8 @@ mod ai_helper_tests {
     use crate::app::terminal_cursor::ai_terminal_effective_cursor_shape;
     use crate::app::terminal_cursor::ai_terminal_cursor_shape_blinks;
     use crate::app::terminal_cursor::ai_terminal_cursor_visible_for_paint;
+    use super::ai_turn_plan_is_renderable;
+    use super::ai_turn_plan_step_marker;
     use super::AiCommandExecutionDisplayDetails;
     use crate::app::markdown_links::markdown_inline_text_and_link_ranges;
     use hunk_terminal::TerminalCellSnapshot;
@@ -47,6 +49,9 @@ mod ai_helper_tests {
     use hunk_codex::state::ItemSummary;
     use hunk_codex::state::ThreadSummary;
     use hunk_codex::state::ThreadLifecycleStatus;
+    use hunk_codex::state::TurnPlanStepStatus;
+    use hunk_codex::state::TurnPlanStepSummary;
+    use hunk_codex::state::TurnPlanSummary;
     use hunk_domain::markdown_preview::MarkdownCodeSpan;
     use hunk_domain::markdown_preview::MarkdownCodeTokenKind;
     use hunk_domain::markdown_preview::MarkdownPreviewBlock;
@@ -150,6 +155,45 @@ mod ai_helper_tests {
         assert_eq!(ai_item_display_label("userMessage"), "User");
         assert_eq!(ai_item_display_label("agentMessage"), "Agent");
         assert_eq!(ai_item_display_label("unknownKind"), "unknownKind");
+    }
+
+    #[test]
+    fn turn_plan_renderability_and_markers_follow_status() {
+        let empty_plan = TurnPlanSummary {
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            explanation: None,
+            steps: Vec::new(),
+            created_sequence: 1,
+            last_sequence: 1,
+        };
+        let populated_plan = TurnPlanSummary {
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            explanation: Some("Updated".to_string()),
+            steps: vec![
+                TurnPlanStepSummary {
+                    step: "Done".to_string(),
+                    status: TurnPlanStepStatus::Completed,
+                },
+                TurnPlanStepSummary {
+                    step: "Now".to_string(),
+                    status: TurnPlanStepStatus::InProgress,
+                },
+                TurnPlanStepSummary {
+                    step: "Later".to_string(),
+                    status: TurnPlanStepStatus::Pending,
+                },
+            ],
+            created_sequence: 1,
+            last_sequence: 2,
+        };
+
+        assert!(!ai_turn_plan_is_renderable(&empty_plan));
+        assert!(ai_turn_plan_is_renderable(&populated_plan));
+        assert_eq!(ai_turn_plan_step_marker(TurnPlanStepStatus::Completed), "[x]");
+        assert_eq!(ai_turn_plan_step_marker(TurnPlanStepStatus::InProgress), "[>]");
+        assert_eq!(ai_turn_plan_step_marker(TurnPlanStepStatus::Pending), "[ ]");
     }
 
     #[test]

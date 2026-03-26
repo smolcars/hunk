@@ -1,4 +1,42 @@
 impl DiffViewer {
+    fn local_branches_from_cached_branches(
+        cached_branches: &[CachedLocalBranchState],
+    ) -> Vec<LocalBranch> {
+        cached_branches
+            .iter()
+            .map(|branch| LocalBranch {
+                name: branch.name.clone(),
+                is_current: branch.is_current,
+                tip_unix_time: branch.tip_unix_time,
+                attached_workspace_target_id: branch.attached_workspace_target_id.clone(),
+                attached_workspace_target_root: branch.attached_workspace_target_root.clone(),
+                attached_workspace_target_label: branch.attached_workspace_target_label.clone(),
+            })
+            .collect()
+    }
+
+    fn ai_worktree_base_branch_picker_branches(&self) -> Vec<LocalBranch> {
+        let Some(draft_root) = self.ai_draft_workspace_root() else {
+            return self.branches.clone();
+        };
+        let draft_project_root = hunk_git::worktree::primary_repo_root(draft_root.as_path())
+            .unwrap_or_else(|_| draft_root.clone());
+        let draft_project_key = draft_project_root.to_string_lossy().to_string();
+        if self.project_path.as_ref() == Some(&draft_project_root) {
+            return self.branches.clone();
+        }
+
+        if let Some(project_state) = self.workspace_project_states.get(draft_project_key.as_str()) {
+            return project_state.branches.clone();
+        }
+
+        self.state
+            .git_workflow_cache_by_repo
+            .get(draft_project_key.as_str())
+            .map(|cache| Self::local_branches_from_cached_branches(&cache.branches))
+            .unwrap_or_default()
+    }
+
     fn update_branch_picker_state(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let delegate = build_branch_picker_delegate(&self.git_workspace.branches);
         let selected_index =
@@ -18,9 +56,10 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let delegate = build_branch_picker_delegate(&self.branches);
+        let branches = self.ai_worktree_base_branch_picker_branches();
+        let delegate = build_branch_picker_delegate(&branches);
         let selected_index = branch_picker_selected_index(
-            &self.branches,
+            &branches,
             self.ai_selected_worktree_base_branch_name(),
         );
         Self::set_index_picker_state(
@@ -50,9 +89,10 @@ impl DiffViewer {
 
     fn sync_ai_worktree_base_branch_picker_state(&mut self, cx: &mut Context<Self>) {
         let ai_worktree_base_branch_picker_state = self.ai_worktree_base_branch_picker_state.clone();
-        let delegate = build_branch_picker_delegate(&self.branches);
+        let branches = self.ai_worktree_base_branch_picker_branches();
+        let delegate = build_branch_picker_delegate(&branches);
         let selected_index = branch_picker_selected_index(
-            &self.branches,
+            &branches,
             self.ai_selected_worktree_base_branch_name(),
         );
 
@@ -99,13 +139,13 @@ impl DiffViewer {
     }
 
     fn set_index_picker_state<D>(
-        picker_state: &Entity<SelectState<D>>,
+        picker_state: &Entity<HunkPickerState<D>>,
         delegate: D,
-        selected_index: Option<gpui_component::IndexPath>,
+        selected_index: Option<usize>,
         window: &mut Window,
         cx: &mut App,
     ) where
-        D: gpui_component::select::SelectDelegate + Clone + 'static,
+        D: crate::app::hunk_picker::HunkPickerDelegate,
     {
         picker_state.update(cx, |state, cx| {
             state.set_items(delegate, window, cx);
@@ -114,13 +154,13 @@ impl DiffViewer {
     }
 
     fn sync_index_picker_state<D>(
-        picker_state: Entity<SelectState<D>>,
+        picker_state: Entity<HunkPickerState<D>>,
         delegate: D,
-        selected_index: Option<gpui_component::IndexPath>,
+        selected_index: Option<usize>,
         error_context: &'static str,
         cx: &mut Context<Self>,
     ) where
-        D: gpui_component::select::SelectDelegate + Clone + 'static,
+        D: crate::app::hunk_picker::HunkPickerDelegate,
     {
         if let Err(err) = Self::update_any_window(cx, move |window, cx| {
             Self::set_index_picker_state(
@@ -133,6 +173,41 @@ impl DiffViewer {
         }) {
             error!("{error_context}: {err:#}");
         }
+    }
+
+    fn apply_picker_action<D>(
+        picker_state: &Entity<HunkPickerState<D>>,
+        action: HunkPickerAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool
+    where
+        D: crate::app::hunk_picker::HunkPickerDelegate,
+    {
+        if !picker_state.read(cx).is_open() {
+            return false;
+        }
+
+        picker_state.update(cx, |state, cx| state.apply_action(action, window, cx))
+    }
+
+    pub(super) fn handle_hunk_picker_keystroke(
+        &mut self,
+        action: HunkPickerAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        Self::apply_picker_action(&self.project_picker_state, action, window, cx)
+            || Self::apply_picker_action(&self.workspace_target_picker_state, action, window, cx)
+            || Self::apply_picker_action(&self.branch_picker_state, action, window, cx)
+            || Self::apply_picker_action(
+                &self.ai_worktree_base_branch_picker_state,
+                action,
+                window,
+                cx,
+            )
+            || Self::apply_picker_action(&self.review_left_picker_state, action, window, cx)
+            || Self::apply_picker_action(&self.review_right_picker_state, action, window, cx)
     }
 
     fn workspace_catalog_source_root(&self) -> Option<PathBuf> {
