@@ -11,10 +11,7 @@ start-windows-release:
     pwsh ./scripts/run_windows_release.ps1
 
 start-linux:
-    ./scripts/run_linux_dev.sh
-
-start-linux-release:
-    ./scripts/run_linux_release.sh
+    CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" cargo run -p hunk-desktop
     
 fmt:
     cargo fmt --all

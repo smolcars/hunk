@@ -64,7 +64,7 @@ just start-linux
 just start-windows
 ```
 
-Those helpers resolve `CARGO_TARGET_DIR` correctly, apply the macOS SDK wrapper when needed, and stage the bundled Windows Codex runtime automatically.
+Those helpers resolve `CARGO_TARGET_DIR` correctly, apply the macOS SDK wrapper when needed, and stage the bundled Windows Codex runtime automatically where required.
 
 If you want the raw macOS cargo command, use:
 
