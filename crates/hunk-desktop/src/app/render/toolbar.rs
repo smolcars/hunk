@@ -6,34 +6,25 @@ impl DiffViewer {
     ) -> impl IntoElement {
         let view = cx.entity();
         let ai_selected = self.workspace_view_mode == WorkspaceViewMode::Ai;
-        let project_label = if let Some(state) = ai_view_state {
-            state.toolbar_project_label.clone()
-        } else {
-            self.project_path
-                .clone()
-                .or_else(|| self.repo_root.clone())
-                .as_deref()
-                .map(crate::app::project_picker::project_display_name)
-                .unwrap_or_else(|| self.project_display_name())
-        };
-        let repo_label = if let Some(state) = ai_view_state {
-            state.toolbar_repo_label.clone()
-        } else {
-            self.repo_root
-                .as_ref()
-                .map(|path| path.display().to_string())
-                .unwrap_or_else(|| "No Git repository found".to_string())
-        };
         let is_dark = cx.theme().mode.is_dark();
         let git_selected = self.workspace_view_mode == WorkspaceViewMode::GitWorkspace;
         let review_selected = self.workspace_view_mode == WorkspaceViewMode::Diff;
-        let active_branch = if let Some(state) = ai_view_state {
-            state.active_branch.clone()
-        } else {
-            self.primary_checked_out_branch_name()
-                .unwrap_or(self.branch_name.as_str())
-                .to_string()
-        };
+        let project_label = self
+            .project_path
+            .clone()
+            .or_else(|| self.repo_root.clone())
+            .as_deref()
+            .map(crate::app::project_picker::project_display_name)
+            .unwrap_or_else(|| self.project_display_name());
+        let repo_label = self
+            .repo_root
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "No Git repository found".to_string());
+        let active_branch = self
+            .primary_checked_out_branch_name()
+            .unwrap_or(self.branch_name.as_str())
+            .to_string();
         let chip_colors = hunk_toolbar_chip(cx.theme(), is_dark);
         let toolbar_button_bg = hunk_dropdown_fill(cx.theme(), is_dark);
         let visible_line_stats = self.active_diff_overall_line_stats();
@@ -44,40 +35,30 @@ impl DiffViewer {
         } else {
             self.files.len()
         };
-        let ai_workspace_branch = ai_view_state.map(|state| state.active_branch.clone());
         let ai_pending_approval_count = ai_view_state.map(|state| state.pending_approvals.len());
         let ai_pending_user_input_count =
             ai_view_state.map(|state| state.pending_user_inputs.len());
         let (ai_connection_status_label, ai_connection_status_color) =
             ai_connection_label(self.ai_connection_state, cx);
-        let left = h_flex()
-            .flex_1()
-            .min_w_0()
-            .items_center()
-            .gap_2()
-            .overflow_x_hidden()
-            .child(
-                h_flex()
-                    .items_center()
-                    .min_w(px(if ai_selected { 180.0 } else { 260.0 }))
-                    .max_w(px(if ai_selected { 220.0 } else { 320.0 }))
-                    .px_1()
-                    .py_0p5()
-                    .rounded_md()
-                    .bg(chip_colors.background)
-                    .border_1()
-                    .border_color(chip_colors.border)
-                    .child(if ai_selected {
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_sm()
-                            .font_medium()
-                            .text_color(cx.theme().foreground)
-                            .child(project_label)
-                            .into_any_element()
-                    } else {
-                        render_hunk_picker(
+        let left = if self.workspace_view_mode.shows_toolbar_workspace_identity() {
+            h_flex()
+                .flex_1()
+                .min_w_0()
+                .items_center()
+                .gap_2()
+                .overflow_x_hidden()
+                .child(
+                    h_flex()
+                        .items_center()
+                        .min_w(px(260.0))
+                        .max_w(px(320.0))
+                        .px_1()
+                        .py_0p5()
+                        .rounded_md()
+                        .bg(chip_colors.background)
+                        .border_1()
+                        .border_color(chip_colors.border)
+                        .child(render_hunk_picker(
                             &self.project_picker_state,
                             HunkPickerConfig::new("project-picker", project_label)
                                 .with_size(gpui_component::Size::Small)
@@ -96,49 +77,62 @@ impl DiffViewer {
                                         .child("No projects in this workspace."),
                                 ),
                             cx,
-                        )
-                    }),
-            )
-            .child(
-                h_flex()
-                    .items_center()
-                    .px_2()
-                    .py_0p5()
-                    .rounded_md()
-                    .bg(chip_colors.background)
-                    .border_1()
-                    .border_color(chip_colors.border)
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_medium()
-                            .text_color(cx.theme().foreground)
-                            .child(active_branch),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .flex_none()
-                    .min_w_0()
-                    .max_w(px(560.0))
-                    .items_center()
-                    .gap_1()
-                    .px_2()
-                    .py_0p5()
-                    .rounded_md()
-                    .bg(chip_colors.background)
-                    .border_1()
-                    .border_color(chip_colors.border)
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_sm()
-                            .text_color(cx.theme().foreground.opacity(0.82))
-                            .child(repo_label),
-                    ),
-            )
-            .into_any_element();
+                        )),
+                )
+                .child(
+                    h_flex()
+                        .items_center()
+                        .px_2()
+                        .py_0p5()
+                        .rounded_md()
+                        .bg(chip_colors.background)
+                        .border_1()
+                        .border_color(chip_colors.border)
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_medium()
+                                .text_color(cx.theme().foreground)
+                                .child(active_branch),
+                        ),
+                )
+                .child(
+                    h_flex()
+                        .flex_none()
+                        .min_w_0()
+                        .max_w(px(560.0))
+                        .items_center()
+                        .gap_1()
+                        .px_2()
+                        .py_0p5()
+                        .rounded_md()
+                        .bg(chip_colors.background)
+                        .border_1()
+                        .border_color(chip_colors.border)
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .text_sm()
+                                .text_color(cx.theme().foreground.opacity(0.82))
+                                .child(repo_label),
+                        ),
+                )
+                .into_any_element()
+        } else {
+            h_flex()
+                .flex_1()
+                .min_w_0()
+                .items_center()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_medium()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Codex Workspace"),
+                )
+                .into_any_element()
+        };
 
         let right = h_flex()
             .flex_none()
@@ -209,7 +203,7 @@ impl DiffViewer {
                     cx,
                 ))
             })
-            .when(!git_selected, |this| {
+            .when(self.workspace_view_mode.shows_toolbar_change_summary(), |this| {
                 this.child(self.render_line_stats("overall", visible_line_stats, cx))
                     .child(
                         div()
@@ -219,16 +213,7 @@ impl DiffViewer {
                     )
             })
             .when(ai_selected, |this| {
-                this.when_some(ai_workspace_branch.clone(), |this, branch_name| {
-                    this.child(render_ai_header_metric_chip(
-                        "Branch",
-                        branch_name,
-                        cx.theme().accent,
-                        is_dark,
-                        cx,
-                    ))
-                })
-                .when_some(ai_pending_approval_count, |this, count| {
+                this.when_some(ai_pending_approval_count, |this, count| {
                     this.child(render_ai_header_metric_chip(
                         "Approvals",
                         count.to_string(),

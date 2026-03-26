@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET_DIR="$("$ROOT_DIR/scripts/resolve_cargo_target_dir.sh" "$ROOT_DIR")"
+TARGET_DIR="$ROOT_DIR/target"
 TARGET_TRIPLE="aarch64-apple-darwin"
 VERSION_LABEL="${HUNK_RELEASE_VERSION:-$("$ROOT_DIR/scripts/resolve_hunk_version.sh")}"
 DIST_DIR="$TARGET_DIR/dist"
@@ -208,7 +208,6 @@ echo "Building macOS app bundle..." >&2
 
 (
   cd "$ROOT_DIR"
-  export CARGO_TARGET_DIR="$TARGET_DIR"
   export SDKROOT="$MACOS_SDKROOT"
   export CC="$MACOS_CC"
   export CXX="$MACOS_CXX"

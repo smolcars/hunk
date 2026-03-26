@@ -2,7 +2,7 @@ set windows-shell := ["pwsh", "-Command"]
 set export
 
 start-mac:
-    CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" ./scripts/run_with_macos_sdk_env.sh cargo run -p hunk-desktop
+    ./scripts/run_with_macos_sdk_env.sh cargo run -p hunk-desktop
 
 start-windows:
     pwsh ./scripts/run_windows_dev.ps1
@@ -11,19 +11,19 @@ start-windows-release:
     pwsh ./scripts/run_windows_release.ps1
 
 start-linux:
-    CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" cargo run -p hunk-desktop
+    cargo run -p hunk-desktop
     
 fmt:
     cargo fmt --all
 
 build:
-    CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop
+    ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop
 
 build-worktree worktree:
     ./scripts/build_worktree.sh {{worktree}}
 
 release:
-    CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --release
+    ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --release
 
 build-linux:
     ./scripts/build_linux.sh
@@ -35,14 +35,14 @@ build-linux-icon:
     ./scripts/build_linux_icon.sh
 
 bundle:
-    CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --release --locked
+    ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --release --locked
     cd crates/hunk-desktop && \
-        CARGO_TARGET_DIR="$(../../scripts/resolve_cargo_target_dir.sh)" ../../scripts/run_with_macos_sdk_env.sh cargo packager \
+        ../../scripts/run_with_macos_sdk_env.sh cargo packager \
             -p hunk-desktop \
             --manifest-path Cargo.toml \
             --release \
             -f app \
-            --out-dir "$(../../scripts/resolve_cargo_target_dir.sh)/packager"
+            --out-dir ../../target/packager
 
 package-macos-release:
     ./scripts/package_macos_release.sh
@@ -74,7 +74,7 @@ package-windows-release:
 prod:
     osascript -e 'tell application "Hunk" to quit' || true
     just bundle
-    open "$(./scripts/resolve_cargo_target_dir.sh)/packager/Hunk.app"
+    open "./target/packager/Hunk.app"
 
 validate-codex-runtime:
     ./scripts/validate_codex_runtime_bundle.sh
@@ -89,4 +89,4 @@ phase12-macos-smoke:
     ./scripts/install_codex_runtime_macos.sh
     ./scripts/validate_codex_runtime_bundle.sh --strict --platform macos
     ./scripts/stage_codex_runtime_macos.sh
-    CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" ./scripts/run_with_macos_sdk_env.sh cargo test -p hunk-codex --test real_runtime_smoke -- --ignored
+    ./scripts/run_with_macos_sdk_env.sh cargo test -p hunk-codex --test real_runtime_smoke -- --ignored

@@ -26,6 +26,7 @@ mod ai_tests {
     use super::apply_ai_thread_catalog_to_workspace_state;
     use super::background_branch_name_for_new_thread;
     use super::bundled_codex_executable_candidates;
+    use super::cached_workspace_branch_name_for_root;
     use super::codex_runtime_binary_name;
     use super::codex_runtime_platform_dir;
     use super::current_visible_thread_fallback_workspace_key;
@@ -77,6 +78,7 @@ mod ai_tests {
     use super::timeline_turn_ids_by_thread;
     use super::timeline_visible_row_ids_for_turns;
     use super::timeline_visible_turn_ids;
+    use super::workspace_target_summary_for_root;
     use super::workspace_include_hidden_models;
     use super::workspace_mad_max_mode;
     use super::AiComposerShortcut;
@@ -118,6 +120,8 @@ mod ai_tests {
     use hunk_domain::state::AiServiceTierSelection;
     use hunk_domain::state::AiThreadSessionState;
     use hunk_domain::state::AppState;
+    use hunk_domain::state::CachedLocalBranchState;
+    use hunk_domain::state::CachedWorkflowState;
     use hunk_domain::state::ReviewCompareSelectionState;
     use hunk_git::git::LocalBranch;
     use hunk_git::worktree::WorkspaceTargetKind;

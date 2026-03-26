@@ -13,7 +13,7 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - Tests always in crate-level `tests` directories (for example `crates/hunk-git/tests`)
 - Make sure workspace clippy passes
 - Make sure workspace builds pass
-- Always resolve `CARGO_TARGET_DIR` via `./scripts/resolve_cargo_target_dir.sh` or the existing `just` recipes so builds, clippy runs, and tests write only to the shared `target-shared` directory and save disk space across worktrees.
+- Use Cargo's default `target/` directory instead of overriding `CARGO_TARGET_DIR`.
 - On macOS, run cargo via `./scripts/run_with_macos_sdk_env.sh` so build scripts can link against the SDK `iconv` stubs without ad hoc env exports.
 - For CARGO_HOME check this path /Volumes/hulk/dev/cache/cargo or the default CARGO_HOME path for rust, nowhere else on the machine.
 - Do not run clippy and tests over and over again, run them after you finished your work and make sure they pass at the end. Just once is enough.

@@ -202,39 +202,12 @@ impl DiffViewer {
             let threads_loading = self.ai_bootstrap_loading && visible_thread_count == 0;
             (project_count, visible_thread_count, threads_loading)
         };
-        let (toolbar_project_label, toolbar_repo_label, active_branch, active_workspace_label) = {
-            let toolbar_project_label = self
-                .ai_visible_project_root_with_context(
-                    resolved.current_thread_id.as_deref(),
-                    resolved.workspace_root.as_deref(),
-                )
-                .or_else(|| self.repo_root.clone())
-                .as_deref()
-                .map(crate::app::project_picker::project_display_name)
-                .unwrap_or_else(|| {
-                    self.repo_root
-                        .as_ref()
-                        .or(self.project_path.as_ref())
-                        .and_then(|path| path.file_name())
-                        .map(|name| name.to_string_lossy().to_string())
-                        .filter(|label| !label.is_empty())
-                        .unwrap_or_else(|| "Hunk".to_string())
-                });
-            let toolbar_repo_label = resolved
-                .workspace_root
-                .as_ref()
-                .map(|path| path.display().to_string())
-                .unwrap_or_else(|| "No Git repository found".to_string());
+        let (active_branch, active_workspace_label) = {
             let active_branch =
                 self.ai_active_workspace_branch_name_with_root(resolved.workspace_root.as_deref());
             let active_workspace_label =
                 self.ai_active_workspace_label_with_root(resolved.workspace_root.as_deref());
-            (
-                toolbar_project_label,
-                toolbar_repo_label,
-                active_branch,
-                active_workspace_label,
-            )
+            (active_branch, active_workspace_label)
         };
         let (pending_approvals, pending_user_inputs) = {
             (
@@ -460,8 +433,6 @@ impl DiffViewer {
             project_count,
             visible_thread_count,
             threads_loading,
-            toolbar_project_label,
-            toolbar_repo_label,
             active_branch,
             active_workspace_label,
             pending_approvals: pending_approvals.into(),

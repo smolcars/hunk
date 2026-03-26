@@ -4,4 +4,3 @@ assets/codex-runtime/macos
 assets/codex-runtime/linux
 assets/codex-runtime/windows
 .DS_Store
-target-shared/

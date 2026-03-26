@@ -7,7 +7,7 @@ HUNK_LINUX_RELEASE_COMMON_SOURCED=1
 
 ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 TARGET_TRIPLE="${HUNK_LINUX_TARGET:-x86_64-unknown-linux-gnu}"
-TARGET_DIR="${CARGO_TARGET_DIR:-$("$ROOT_DIR/scripts/resolve_cargo_target_dir.sh" "$ROOT_DIR")}"
+TARGET_DIR="${TARGET_DIR:-$ROOT_DIR/target}"
 VERSION_LABEL="${HUNK_RELEASE_VERSION:-$("$ROOT_DIR/scripts/resolve_hunk_version.sh")}"
 PRODUCT_NAME="${HUNK_LINUX_PRODUCT_NAME:-Hunk}"
 PACKAGE_NAME="${HUNK_LINUX_PACKAGE_NAME:-hunk-desktop}"
@@ -292,7 +292,6 @@ prepare_linux_release_build_inputs() {
   echo "Building Linux release binary..." >&2
   (
     cd "$ROOT_DIR"
-    export CARGO_TARGET_DIR="$TARGET_DIR"
     "$ROOT_DIR/scripts/build_linux.sh" --target "$TARGET_TRIPLE"
   )
 }

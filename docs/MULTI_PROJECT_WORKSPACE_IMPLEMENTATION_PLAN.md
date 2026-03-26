@@ -548,7 +548,7 @@ Mitigation:
 - [x] `./scripts/run_with_macos_sdk_env.sh cargo build --workspace`
 - [x] `./scripts/run_with_macos_sdk_env.sh cargo clippy --workspace --all-targets -- -D warnings`
 - [x] `./scripts/run_with_macos_sdk_env.sh cargo test --workspace`
-- [x] Use `./scripts/resolve_cargo_target_dir.sh` or existing `just` recipes so all commands write to `target-shared`.
+- [x] Use Cargo's default `target/` directory instead of overriding `CARGO_TARGET_DIR`.
 
 ## File and Module Impact
 

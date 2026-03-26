@@ -30,6 +30,14 @@ impl WorkspaceViewMode {
         matches!(self, Self::Files | Self::Diff)
     }
 
+    pub(super) const fn shows_toolbar_workspace_identity(self) -> bool {
+        !matches!(self, Self::Ai)
+    }
+
+    pub(super) const fn shows_toolbar_change_summary(self) -> bool {
+        matches!(self, Self::Files | Self::Diff)
+    }
+
     pub(crate) const fn shortcut_context(self) -> &'static str {
         match self {
             Self::Files => SHORTCUT_CONTEXT_FILES_WORKSPACE,

@@ -55,6 +55,18 @@ fn ai_mode_does_not_enable_sidebar_or_diff_stream() {
 }
 
 #[test]
+fn ai_mode_hides_primary_workspace_toolbar_treatment() {
+    assert!(!WorkspaceViewMode::Ai.shows_toolbar_workspace_identity());
+    assert!(!WorkspaceViewMode::Ai.shows_toolbar_change_summary());
+    assert!(WorkspaceViewMode::Files.shows_toolbar_workspace_identity());
+    assert!(WorkspaceViewMode::Files.shows_toolbar_change_summary());
+    assert!(WorkspaceViewMode::Diff.shows_toolbar_workspace_identity());
+    assert!(WorkspaceViewMode::Diff.shows_toolbar_change_summary());
+    assert!(WorkspaceViewMode::GitWorkspace.shows_toolbar_workspace_identity());
+    assert!(!WorkspaceViewMode::GitWorkspace.shows_toolbar_change_summary());
+}
+
+#[test]
 fn workspace_modes_expose_distinct_shortcut_contexts() {
     assert_eq!(
         WorkspaceViewMode::Files.shortcut_context(),

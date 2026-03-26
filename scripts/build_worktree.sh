@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET_DIR="$("$ROOT_DIR/scripts/resolve_cargo_target_dir.sh" "$ROOT_DIR")"
 WORKTREE_QUERY="${1:-}"
 
 if [[ -z "$WORKTREE_QUERY" ]]; then
@@ -32,9 +31,16 @@ if [[ "${#MATCHES[@]}" -gt 1 ]]; then
 fi
 
 WORKTREE="${MATCHES[0]}"
-printf 'Building %s with shared target dir %s\n' "$WORKTREE" "$TARGET_DIR"
+printf 'Building %s with its default Cargo target directory\n' "$WORKTREE"
 
-cargo build \
-  --target-dir "$TARGET_DIR" \
-  -p hunk-desktop \
-  --manifest-path "$WORKTREE/Cargo.toml"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  (
+    cd "$WORKTREE"
+    "$ROOT_DIR/scripts/run_with_macos_sdk_env.sh" cargo build -p hunk-desktop
+  )
+else
+  (
+    cd "$WORKTREE"
+    cargo build -p hunk-desktop
+  )
+fi

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_PATH="${1:-$ROOT_DIR/assets/codex-runtime/macos/codex}"
-TARGET_DIR="$("$ROOT_DIR/scripts/resolve_cargo_target_dir.sh" "$ROOT_DIR")"
+TARGET_DIR="$ROOT_DIR/target"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "error: this staging script is for macOS only" >&2

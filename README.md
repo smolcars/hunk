@@ -64,13 +64,12 @@ just start-linux
 just start-windows
 ```
 
-Those helpers resolve `CARGO_TARGET_DIR` correctly, apply the macOS SDK wrapper when needed, and stage the bundled Windows Codex runtime automatically where required.
+Those helpers apply the macOS SDK wrapper when needed and stage the bundled Windows Codex runtime automatically where required.
 
 If you want the raw macOS cargo command, use:
 
 ```bash
-CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" \
-  ./scripts/run_with_macos_sdk_env.sh cargo run -p hunk-desktop
+./scripts/run_with_macos_sdk_env.sh cargo run -p hunk-desktop
 ```
 
 Launch from anywhere, then use `File > Open Project...` (or `Cmd/Ctrl+Shift+O`) to choose a Git repository.
@@ -92,20 +91,17 @@ Hunk treats the primary checkout and each linked Git worktree as separate worksp
 On macOS:
 
 ```bash
-CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" \
-  ./scripts/run_with_macos_sdk_env.sh cargo build --workspace
-CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" \
-  ./scripts/run_with_macos_sdk_env.sh cargo test --workspace
-CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" \
-  ./scripts/run_with_macos_sdk_env.sh cargo clippy --workspace --all-targets -- -D warnings
+./scripts/run_with_macos_sdk_env.sh cargo build --workspace
+./scripts/run_with_macos_sdk_env.sh cargo test --workspace
+./scripts/run_with_macos_sdk_env.sh cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-On Linux and Windows, run the same Cargo commands with `CARGO_TARGET_DIR` resolved through [`scripts/resolve_cargo_target_dir.sh`](./scripts/resolve_cargo_target_dir.sh) or the `just` recipes so builds land in `target-shared`.
+On Linux and Windows, run the same Cargo commands directly or use the `just` recipes so Cargo writes to its default `target/` directory.
 
 Example:
 
 ```bash
-CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" cargo test --workspace
+cargo test --workspace
 ```
 
 ### For Production builds
@@ -113,7 +109,7 @@ CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" cargo test --workspa
 ```bash
 cargo install cargo-packager
 just bundle
-open "$(./scripts/resolve_cargo_target_dir.sh)/packager/Hunk.app"
+open ./target/packager/Hunk.app
 ```
 
 Cross-platform binary build helpers:
@@ -202,8 +198,7 @@ Download and stage the pinned macOS runtime:
 ./scripts/install_codex_runtime_macos.sh
 ./scripts/validate_codex_runtime_bundle.sh --strict --platform macos
 ./scripts/stage_codex_runtime_macos.sh
-CARGO_TARGET_DIR="$(./scripts/resolve_cargo_target_dir.sh)" \
-  ./scripts/run_with_macos_sdk_env.sh cargo test -p hunk-codex --test real_runtime_smoke -- --ignored
+./scripts/run_with_macos_sdk_env.sh cargo test -p hunk-codex --test real_runtime_smoke -- --ignored
 just bundle
 ```
 

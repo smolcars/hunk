@@ -255,9 +255,13 @@ impl DiffViewer {
     }
 
     pub(crate) fn ai_workspace_label_for_root(&self, workspace_root: &std::path::Path) -> String {
-        self.workspace_targets
-            .iter()
-            .find(|target| target.root.as_path() == workspace_root)
+        workspace_target_summary_for_root(
+            workspace_root,
+            &self.workspace_targets,
+            self.workspace_project_states
+                .values()
+                .map(|state| state.workspace_targets.as_slice()),
+        )
             .map(|target| target.display_name.clone())
             .or_else(|| {
                 workspace_root
@@ -319,10 +323,20 @@ impl DiffViewer {
                 .to_string();
         };
 
-        self.workspace_targets
-            .iter()
-            .find(|target| target.root.as_path() == workspace_root)
+        workspace_target_summary_for_root(
+            workspace_root,
+            &self.workspace_targets,
+            self.workspace_project_states
+                .values()
+                .map(|state| state.workspace_targets.as_slice()),
+        )
             .map(|target| target.branch_name.clone())
+            .or_else(|| {
+                cached_workspace_branch_name_for_root(
+                    workspace_root,
+                    &self.state.git_workflow_cache_by_repo,
+                )
+            })
             .unwrap_or_else(|| {
                 self.primary_checked_out_branch_name()
                     .unwrap_or(self.branch_name.as_str())
@@ -1208,6 +1222,47 @@ impl DiffViewer {
 
         added
     }
+}
+
+fn workspace_target_summary_for_root<'a, I>(
+    workspace_root: &std::path::Path,
+    current_workspace_targets: &'a [WorkspaceTargetSummary],
+    other_workspace_targets: I,
+) -> Option<&'a WorkspaceTargetSummary>
+where
+    I: IntoIterator<Item = &'a [WorkspaceTargetSummary]>,
+{
+    current_workspace_targets
+        .iter()
+        .find(|target| target.root.as_path() == workspace_root)
+        .or_else(|| {
+            other_workspace_targets.into_iter().find_map(|targets| {
+                targets
+                    .iter()
+                    .find(|target| target.root.as_path() == workspace_root)
+            })
+        })
+}
+
+fn cached_workspace_branch_name_for_root(
+    workspace_root: &std::path::Path,
+    workflow_cache_by_repo: &std::collections::BTreeMap<String, CachedWorkflowState>,
+) -> Option<String> {
+    let project_root = hunk_git::worktree::primary_repo_root(workspace_root).ok()?;
+    let project_key = project_root.to_string_lossy().to_string();
+    let workflow = workflow_cache_by_repo.get(project_key.as_str())?;
+
+    workflow
+        .branches
+        .iter()
+        .find(|branch| branch.attached_workspace_target_root.as_deref() == Some(workspace_root))
+        .map(|branch| branch.name.clone())
+        .or_else(|| {
+            (workspace_root == project_root.as_path())
+                .then(|| workflow.branch_name.trim())
+                .filter(|branch_name| !branch_name.is_empty())
+                .map(str::to_string)
+        })
 }
 
 fn ai_in_progress_turn_tracking_key(thread_id: &str, turn_id: &str) -> String {

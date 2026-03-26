@@ -320,8 +320,6 @@ struct AiVisibleFrameState {
     project_count: usize,
     visible_thread_count: usize,
     threads_loading: bool,
-    toolbar_project_label: String,
-    toolbar_repo_label: String,
     active_branch: String,
     active_workspace_label: String,
     pending_approvals: Arc<[AiPendingApproval]>,

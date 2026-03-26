@@ -106,12 +106,12 @@ function Invoke-CargoPackagerWithManifestOverride {
 }
 
 $rootDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$resolveTargetDirScript = Join-Path $PSScriptRoot "resolve_cargo_target_dir.ps1"
 $validateBundleScript = Join-Path $PSScriptRoot "validate_windows_release_bundle.ps1"
 $cargoTomlPath = Join-Path $rootDir "crates/hunk-desktop/Cargo.toml"
 $cargoLockPath = Join-Path $rootDir "Cargo.lock"
 $desktopCrateDir = Split-Path $cargoTomlPath -Parent
 $targetTriple = "x86_64-pc-windows-msvc"
+$targetDir = Join-Path $rootDir "target"
 $versionLabel = if ($env:HUNK_RELEASE_VERSION) {
     $env:HUNK_RELEASE_VERSION
 } else {
@@ -124,11 +124,8 @@ $versionLabel = if ($env:HUNK_RELEASE_VERSION) {
 $windowsPackagerVersion = Get-WindowsPackagerVersion -Version $versionLabel
 
 Push-Location $rootDir
-$originalCargoTargetDir = $env:CARGO_TARGET_DIR
 try {
-    $targetDir = (& $resolveTargetDirScript -RootDir $rootDir).Trim()
     $packagerOutDir = Join-Path $targetDir "packager"
-    $env:CARGO_TARGET_DIR = $targetDir
     Write-Host "Downloading bundled Codex runtime for Windows..."
     & ./scripts/download_codex_runtime_windows.ps1 | Out-Null
     Write-Host "Validating bundled Codex runtime for Windows..."
@@ -147,11 +144,6 @@ try {
         -PackagerOutDir $packagerOutDir
     & $validateBundleScript -RootDir $rootDir -PackagerOutDir $packagerOutDir
 } finally {
-    if ($null -eq $originalCargoTargetDir) {
-        Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
-    } else {
-        $env:CARGO_TARGET_DIR = $originalCargoTargetDir
-    }
     Pop-Location
 }
 

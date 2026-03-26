@@ -3,11 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then
-  CARGO_TARGET_DIR="$("$ROOT_DIR/scripts/resolve_cargo_target_dir.sh" "$ROOT_DIR")"
-  export CARGO_TARGET_DIR
-fi
-
 run_hunk() {
   (
     cd "$ROOT_DIR"
