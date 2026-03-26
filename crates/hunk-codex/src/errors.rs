@@ -6,6 +6,12 @@ use thiserror::Error;
 pub enum CodexIntegrationError {
     #[error("invalid websocket endpoint: {0}")]
     InvalidEndpoint(String),
+    #[error("invalid path '{path}': {source}")]
+    InvalidPath {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
     #[error("host process io failure: {0}")]
     HostProcessIo(#[source] io::Error),
     #[error("json serialization failure: {0}")]

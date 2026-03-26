@@ -146,6 +146,7 @@ fn run_initialize_handshake(socket: &mut WebSocket<TcpStream>) {
         initialize.id,
         serde_json::json!({
             "userAgent": "hunk-windows-thread-list-compat-test",
+            "codexHome": "/tmp/hunk-codex-test-home",
             "platformFamily": "windows",
             "platformOs": "windows",
         }),

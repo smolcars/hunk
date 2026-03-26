@@ -231,6 +231,7 @@ fn connect_initialized_session(port: u16) -> JsonRpcSession {
 fn initialize_response_json() -> Value {
     serde_json::json!({
         "userAgent": "hunk-thread-service-reconcile-test-server",
+        "codexHome": "/tmp/hunk-codex-test-home",
         "platformFamily": "windows",
         "platformOs": "windows"
     })

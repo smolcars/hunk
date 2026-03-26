@@ -9,6 +9,7 @@ fn lifecycle_status_from_thread_status(status: &ThreadStatus) -> ThreadLifecycle
 fn thread_item_kind(item: &ThreadItem) -> &'static str {
     match item {
         ThreadItem::UserMessage { .. } => "userMessage",
+        ThreadItem::HookPrompt { .. } => "hookPrompt",
         ThreadItem::AgentMessage { .. } => "agentMessage",
         ThreadItem::Plan { .. } => "plan",
         ThreadItem::Reasoning { .. } => "reasoning",
@@ -263,6 +264,7 @@ fn thread_item_seed_content(item: &ThreadItem) -> Option<String> {
         }
         ThreadItem::DynamicToolCall { .. }
         | ThreadItem::CollabAgentToolCall { .. }
+        | ThreadItem::HookPrompt { .. }
         | ThreadItem::ImageView { .. }
         | ThreadItem::ContextCompaction { .. } => None,
     }

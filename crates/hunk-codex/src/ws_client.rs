@@ -108,6 +108,10 @@ impl JsonRpcSession {
             .map_err(CodexIntegrationError::Serialization)?;
 
         let response_value = self.request(api::method::INITIALIZE, Some(params), timeout)?;
+        // The app-server now reports its resolved `$CODEX_HOME` in the initialize
+        // response. Hunk currently keeps using its own configured `codex_home`
+        // for host launch and rollout lookup, but we still deserialize the field
+        // here to stay compatible with the upstream protocol schema.
         let response: InitializeResponse =
             serde_json::from_value(response_value).map_err(CodexIntegrationError::Serialization)?;
 

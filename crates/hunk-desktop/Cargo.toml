@@ -59,8 +59,8 @@ hunk-terminal = { path = "../hunk-terminal" }
 hunk-editor = { path = "../hunk-editor" }
 hunk-language = { path = "../hunk-language" }
 hunk-text = { path = "../hunk-text" }
-codex-app-server-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.116.0" }
-codex-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.116.0" }
+codex-app-server-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.117.0" }
+codex-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.117.0" }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 git2 = { version = "0.20", features = ["https", "ssh", "vendored-libgit2", "vendored-openssl"] }

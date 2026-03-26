@@ -839,6 +839,7 @@ fn expect_request(socket: &mut WebSocket<TcpStream>, method: &str) -> JSONRPCReq
 fn initialize_response_json() -> serde_json::Value {
     serde_json::json!({
         "userAgent": "hunk-test-server",
+        "codexHome": "/tmp/hunk-codex-test-home",
         "platformFamily": "windows",
         "platformOs": "windows"
     })

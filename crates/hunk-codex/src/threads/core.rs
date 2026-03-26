@@ -289,7 +289,18 @@ impl ThreadService {
         enabled: bool,
         timeout: Duration,
     ) -> Result<SkillsConfigWriteResponse> {
-        let params = SkillsConfigWriteParams { path, enabled };
+        let absolute_path = path
+            .clone()
+            .try_into()
+            .map_err(|source| CodexIntegrationError::InvalidPath {
+                path: path.display().to_string(),
+                source,
+            })?;
+        let params = SkillsConfigWriteParams {
+            path: Some(absolute_path),
+            name: None,
+            enabled,
+        };
         self.request_with_notifications(
             session,
             api::method::SKILLS_CONFIG_WRITE,
