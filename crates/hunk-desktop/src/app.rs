@@ -1334,6 +1334,7 @@ struct DiffViewer {
     fps: f32,
     frame_sample_count: u32,
     frame_sample_started_at: Instant,
+    ignore_next_frame_sample: bool,
     fps_epoch: usize,
     fps_task: Task<()>,
     ai_perf_metrics: RefCell<AiPerfMetrics>,

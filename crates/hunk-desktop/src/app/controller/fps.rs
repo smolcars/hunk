@@ -38,6 +38,7 @@ impl DiffViewer {
                     }
                     let next_epoch = this.next_fps_epoch();
                     this.schedule_fps_sample(next_epoch, cx);
+                    this.ignore_next_frame_sample = true;
                     cx.notify();
                 });
             }

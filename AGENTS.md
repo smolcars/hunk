@@ -28,6 +28,7 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - GPUI paths bench https://gpui-ce.github.io/examples/paths-bench/
 - Lessons learned note for terminal focus restoration: `docs/Lessons Learned.md`
 - Use frontend-skill whenever you're doing designs
+- Frames must take no more than 8ms (120fps)
 
 Important paths:
 - `crates/hunk-codex`: Codex host/process integration, thread service, and AI reducer/state logic.

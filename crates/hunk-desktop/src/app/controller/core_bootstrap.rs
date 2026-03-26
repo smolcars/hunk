@@ -665,6 +665,7 @@ impl DiffViewer {
             fps: 0.0,
             frame_sample_count: 0,
             frame_sample_started_at: Instant::now(),
+            ignore_next_frame_sample: false,
             fps_epoch: 0,
             fps_task: Task::ready(()),
             ai_perf_metrics: RefCell::new(AiPerfMetrics::default()),

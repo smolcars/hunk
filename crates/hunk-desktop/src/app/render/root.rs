@@ -393,7 +393,11 @@ impl Render for DiffViewer {
             self.last_diff_scroll_offset = Some(current_scroll_offset);
             self.last_scroll_activity_at = Instant::now();
         }
-        self.frame_sample_count = self.frame_sample_count.saturating_add(1);
+        if self.ignore_next_frame_sample {
+            self.ignore_next_frame_sample = false;
+        } else {
+            self.frame_sample_count = self.frame_sample_count.saturating_add(1);
+        }
         let ai_selected = self.workspace_view_mode == WorkspaceViewMode::Ai;
         let ai_view_state = ai_selected.then(|| self.visible_ai_frame_state());
         let element = v_flex()
