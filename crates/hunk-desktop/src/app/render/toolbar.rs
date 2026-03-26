@@ -1,30 +1,34 @@
 impl DiffViewer {
-    fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let render_started_at = Instant::now();
+    fn render_toolbar(
+        &self,
+        ai_view_state: Option<&AiVisibleFrameState>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let view = cx.entity();
         let ai_selected = self.workspace_view_mode == WorkspaceViewMode::Ai;
-        let project_root = if ai_selected {
-            self.ai_visible_project_root().or_else(|| self.repo_root.clone())
+        let project_label = if let Some(state) = ai_view_state {
+            state.toolbar_project_label.clone()
         } else {
-            self.project_path.clone().or_else(|| self.repo_root.clone())
+            self.project_path
+                .clone()
+                .or_else(|| self.repo_root.clone())
+                .as_deref()
+                .map(crate::app::project_picker::project_display_name)
+                .unwrap_or_else(|| self.project_display_name())
         };
-        let project_label = project_root
-            .as_deref()
-            .map(crate::app::project_picker::project_display_name)
-            .unwrap_or_else(|| self.project_display_name());
-        let repo_label = if ai_selected {
-            self.ai_workspace_cwd()
+        let repo_label = if let Some(state) = ai_view_state {
+            state.toolbar_repo_label.clone()
         } else {
-            self.repo_root.clone()
-        }
-        .as_ref()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "No Git repository found".to_string());
+            self.repo_root
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "No Git repository found".to_string())
+        };
         let is_dark = cx.theme().mode.is_dark();
         let git_selected = self.workspace_view_mode == WorkspaceViewMode::GitWorkspace;
         let review_selected = self.workspace_view_mode == WorkspaceViewMode::Diff;
-        let active_branch = if ai_selected {
-            self.ai_active_workspace_branch_name()
+        let active_branch = if let Some(state) = ai_view_state {
+            state.active_branch.clone()
         } else {
             self.primary_checked_out_branch_name()
                 .unwrap_or(self.branch_name.as_str())
@@ -40,18 +44,14 @@ impl DiffViewer {
         } else {
             self.files.len()
         };
-        let ai_workspace_branch = ai_selected.then(|| self.ai_active_workspace_branch_name());
-        let ai_pending_approval_count = ai_selected.then(|| self.ai_visible_pending_approvals().len());
+        let ai_workspace_branch = ai_view_state.map(|state| state.active_branch.clone());
+        let ai_pending_approval_count = ai_view_state.map(|state| state.pending_approvals.len());
         let ai_pending_user_input_count =
-            ai_selected.then(|| self.ai_visible_pending_user_inputs().len());
+            ai_view_state.map(|state| state.pending_user_inputs.len());
         let (ai_connection_status_label, ai_connection_status_color) =
             ai_connection_label(self.ai_connection_state, cx);
         let ai_perf_label = ai_selected.then(|| self.ai_perf_toolbar_label()).flatten();
-        if ai_selected {
-            self.record_ai_toolbar_prep_timing(render_started_at.elapsed());
-        }
 
-        let left_started_at = Instant::now();
         let left = h_flex()
             .flex_1()
             .min_w_0()
@@ -141,11 +141,7 @@ impl DiffViewer {
                     ),
             )
             .into_any_element();
-        if ai_selected {
-            self.record_ai_toolbar_left_render_timing(left_started_at.elapsed());
-        }
 
-        let right_started_at = Instant::now();
         let right = h_flex()
             .flex_none()
             .items_center()
@@ -294,11 +290,8 @@ impl DiffViewer {
                 )
             })
             .into_any_element();
-        if ai_selected {
-            self.record_ai_toolbar_right_render_timing(right_started_at.elapsed());
-        }
 
-        let element = h_flex()
+        h_flex()
             .w_full()
             .h_11()
             .items_center()
@@ -310,11 +303,7 @@ impl DiffViewer {
             .bg(cx.theme().background)
             .child(left)
             .child(right)
-            .into_any_element();
-        if ai_selected {
-            self.record_ai_toolbar_render_timing(render_started_at.elapsed());
-        }
-        element
+            .into_any_element()
     }
 
     fn project_display_name(&self) -> String {

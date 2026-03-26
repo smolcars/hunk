@@ -183,28 +183,8 @@ impl DiffViewer {
         update(&mut metrics.window);
     }
 
-    pub(super) fn record_ai_root_render_timing(&self, duration: Duration) {
-        self.update_ai_perf_window(|window| window.root_render.record(duration));
-    }
-
     pub(super) fn record_ai_app_render_timing(&self, duration: Duration) {
         self.update_ai_perf_window(|window| window.app_render.record(duration));
-    }
-
-    pub(super) fn record_ai_toolbar_render_timing(&self, duration: Duration) {
-        self.update_ai_perf_window(|window| window.toolbar_render.record(duration));
-    }
-
-    pub(super) fn record_ai_toolbar_prep_timing(&self, duration: Duration) {
-        self.update_ai_perf_window(|window| window.toolbar_prep.record(duration));
-    }
-
-    pub(super) fn record_ai_toolbar_left_render_timing(&self, duration: Duration) {
-        self.update_ai_perf_window(|window| window.toolbar_left_render.record(duration));
-    }
-
-    pub(super) fn record_ai_toolbar_right_render_timing(&self, duration: Duration) {
-        self.update_ai_perf_window(|window| window.toolbar_right_render.record(duration));
     }
 
     pub(super) fn record_ai_footer_render_timing(&self, duration: Duration) {

@@ -8,37 +8,45 @@ impl DiffViewer {
     ) {
         let event_rx = event_rx;
         self.ai_event_task = cx.spawn(async move |this, cx| {
+            let mut last_idle_foreground_update_at =
+                std::time::Instant::now() - Self::AI_EVENT_IDLE_FOREGROUND_INTERVAL;
             loop {
                 let (buffered_events, event_stream_disconnected) =
                     drain_ai_worker_events(&event_rx);
 
                 if buffered_events.is_empty() && !event_stream_disconnected {
-                    if let Some(this) = this.upgrade() {
-                        let mut listener_is_current = true;
-                        this.update(cx, |this, cx| {
-                            if !this
-                                .ai_runtime_listener_is_current(workspace_key.as_str(), generation)
-                            {
-                                listener_is_current = false;
+                    if last_idle_foreground_update_at.elapsed()
+                        >= Self::AI_EVENT_IDLE_FOREGROUND_INTERVAL
+                    {
+                        if let Some(this) = this.upgrade() {
+                            let mut listener_is_current = true;
+                            this.update(cx, |this, cx| {
+                                if !this.ai_runtime_listener_is_current(
+                                    workspace_key.as_str(),
+                                    generation,
+                                ) {
+                                    listener_is_current = false;
+                                    return;
+                                }
+                                if this.ai_worker_workspace_key.as_deref()
+                                    != Some(workspace_key.as_str())
+                                {
+                                    return;
+                                }
+                                let activity_elapsed_second_changed =
+                                    this.sync_ai_composer_activity_elapsed_second();
+                                if activity_elapsed_second_changed {
+                                    this.maybe_refresh_selected_thread_metadata(cx);
+                                    cx.notify();
+                                }
+                            });
+                            if !listener_is_current {
                                 return;
                             }
-                            if this.ai_worker_workspace_key.as_deref()
-                                != Some(workspace_key.as_str())
-                            {
-                                return;
-                            }
-                            let activity_elapsed_second_changed =
-                                this.sync_ai_composer_activity_elapsed_second();
-                            if activity_elapsed_second_changed {
-                                this.maybe_refresh_selected_thread_metadata(cx);
-                                cx.notify();
-                            }
-                        });
-                        if !listener_is_current {
+                        } else {
                             return;
                         }
-                    } else {
-                        return;
+                        last_idle_foreground_update_at = std::time::Instant::now();
                     }
                     cx.background_executor()
                         .timer(Self::AI_EVENT_POLL_INTERVAL)
@@ -91,6 +99,7 @@ impl DiffViewer {
                             should_stop = true;
                         }
                     });
+                    last_idle_foreground_update_at = std::time::Instant::now();
                     if !listener_is_current || should_stop {
                         return;
                     }

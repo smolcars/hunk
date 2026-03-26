@@ -395,6 +395,7 @@ impl Render for DiffViewer {
         }
         self.frame_sample_count = self.frame_sample_count.saturating_add(1);
         let ai_selected = self.workspace_view_mode == WorkspaceViewMode::Ai;
+        let ai_view_state = ai_selected.then(|| self.visible_ai_frame_state());
         let element = v_flex()
             .size_full()
             .relative()
@@ -431,7 +432,7 @@ impl Render for DiffViewer {
             .when(!cfg!(target_os = "macos"), |this| {
                 this.child(self.render_in_app_menu_bar(cx))
             })
-            .child(self.render_toolbar(cx))
+            .child(self.render_toolbar(ai_view_state.as_ref(), cx))
             .child(
                 div()
                     .flex_1()
@@ -441,7 +442,9 @@ impl Render for DiffViewer {
                         WorkspaceViewMode::Files => self.render_file_workspace_screen(window, cx),
                         WorkspaceViewMode::Diff => self.render_diff_workspace_screen(cx),
                         WorkspaceViewMode::GitWorkspace => self.render_git_workspace_screen(cx),
-                        WorkspaceViewMode::Ai => self.render_ai_workspace_screen(cx),
+                        WorkspaceViewMode::Ai => {
+                            self.render_ai_workspace_screen(ai_view_state.clone(), cx)
+                        }
                     }),
             )
             .child(self.render_app_footer(cx))

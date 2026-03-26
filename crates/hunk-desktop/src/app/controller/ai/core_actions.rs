@@ -1,5 +1,6 @@
 impl DiffViewer {
     const AI_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(33);
+    const AI_EVENT_IDLE_FOREGROUND_INTERVAL: Duration = Duration::from_secs(1);
 
     pub(super) fn preload_ai_runtime_on_startup(&mut self, cx: &mut Context<Self>) {
         if self.ai_workspace_key().is_none() {
@@ -293,6 +294,7 @@ impl DiffViewer {
             draft.local_images.clear();
             draft.skill_bindings.clear();
         }
+        self.invalidate_ai_visible_frame_state_with_reason("thread");
         if let Err(error) = Self::update_any_window(cx, |window, cx| {
             ai_composer_state.update(cx, |state, cx| {
                 state.set_value("", window, cx);
@@ -397,6 +399,7 @@ impl DiffViewer {
             draft.local_images = queued.local_images.clone();
             draft.skill_bindings = queued.skill_bindings.clone();
         }
+        self.invalidate_ai_visible_frame_state_with_reason("thread");
         self.ai_composer_input_state.update(cx, |state, cx| {
             state.set_value(queued.prompt, window, cx);
             state.focus(window, cx);
@@ -443,6 +446,9 @@ impl DiffViewer {
                 this.update(cx, |this, cx| {
                     let selected_count = selected_paths.len();
                     let added = this.ai_add_composer_local_images(selected_paths);
+                    if added > 0 {
+                        this.invalidate_ai_visible_frame_state_with_reason("thread");
+                    }
                     if let Some(message) =
                         ai_attachment_status_message(selected_count, added)
                     {
@@ -466,6 +472,7 @@ impl DiffViewer {
             removed = draft.local_images.len() != before;
         }
         if removed {
+            self.invalidate_ai_visible_frame_state_with_reason("thread");
             cx.notify();
         }
     }
@@ -491,6 +498,9 @@ impl DiffViewer {
 
         let dropped_count = dropped_paths.len();
         let added = self.ai_add_composer_local_images(dropped_paths);
+        if added > 0 {
+            self.invalidate_ai_visible_frame_state_with_reason("thread");
+        }
         if let Some(message) = ai_attachment_status_message(dropped_count, added) {
             self.set_current_ai_composer_status(message, cx);
         }

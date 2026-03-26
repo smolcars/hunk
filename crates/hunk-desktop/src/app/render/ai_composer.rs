@@ -2,7 +2,7 @@ const AI_COMPOSER_FILE_COMPLETION_MENU_GAP_Y: f32 = 12.0;
 
 struct AiComposerPanelState {
     composer_feedback: Option<AiComposerFeedbackState>,
-    composer_attachment_paths: Vec<PathBuf>,
+    composer_attachment_paths: Arc<[PathBuf]>,
     composer_attachment_count: usize,
     model_supports_image_inputs: bool,
     review_mode_active: bool,

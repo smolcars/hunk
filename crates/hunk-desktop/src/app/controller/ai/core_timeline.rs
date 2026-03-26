@@ -192,6 +192,25 @@ impl DiffViewer {
             .map(|section| section.total_thread_count)
             .sum::<usize>();
         let threads_loading = self.ai_bootstrap_loading && visible_thread_count == 0;
+        let toolbar_project_label = self
+            .ai_visible_project_root()
+            .or_else(|| self.repo_root.clone())
+            .as_deref()
+            .map(crate::app::project_picker::project_display_name)
+            .unwrap_or_else(|| {
+                self.repo_root
+                    .as_ref()
+                    .or(self.project_path.as_ref())
+                    .and_then(|path| path.file_name())
+                    .map(|name| name.to_string_lossy().to_string())
+                    .filter(|label| !label.is_empty())
+                    .unwrap_or_else(|| "Hunk".to_string())
+            });
+        let toolbar_repo_label = self
+            .ai_workspace_cwd()
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "No Git repository found".to_string());
         let active_branch = self.ai_active_workspace_branch_name();
         let active_workspace_label = self.ai_active_workspace_label();
         let pending_approvals = self.ai_visible_pending_approvals();
@@ -233,6 +252,10 @@ impl DiffViewer {
         self.record_ai_visible_frame_composer_feedback_timing(
             composer_feedback_started_at.elapsed(),
         );
+        let composer_attachment_paths = self
+            .current_ai_composer_draft()
+            .map(|draft| Arc::<[PathBuf]>::from(draft.local_images.clone()))
+            .unwrap_or_else(|| Arc::<[PathBuf]>::from(Vec::<PathBuf>::new()));
         let composer_send_waiting_on_connection =
             crate::app::controller::ai_prompt_send_waiting_on_connection(
                 self.ai_connection_state,
@@ -342,6 +365,8 @@ impl DiffViewer {
             project_count,
             visible_thread_count,
             threads_loading,
+            toolbar_project_label,
+            toolbar_repo_label,
             active_branch,
             active_workspace_label,
             pending_approvals: pending_approvals.into(),
@@ -359,6 +384,7 @@ impl DiffViewer {
             show_select_thread_empty_state,
             show_no_turns_empty_state,
             composer_feedback,
+            composer_attachment_paths,
             composer_send_waiting_on_connection,
             composer_interrupt_available,
             queued_message_count,

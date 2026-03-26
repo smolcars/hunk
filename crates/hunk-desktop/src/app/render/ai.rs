@@ -27,7 +27,11 @@ fn ai_terminal_shell_label(config: &AppConfig) -> String {
 }
 
 impl DiffViewer {
-    fn render_ai_workspace_screen(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_ai_workspace_screen(
+        &mut self,
+        ai_view_state: Option<AiVisibleFrameState>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         if self.repo_discovery_failed {
             return self.render_open_project_empty_state(cx);
         }
@@ -47,16 +51,15 @@ impl DiffViewer {
                 .into_any_element();
         }
 
-        let render_started_at = Instant::now();
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
-        let ai_view_state = self.visible_ai_frame_state();
+        let ai_view_state = ai_view_state.unwrap_or_else(|| self.visible_ai_frame_state());
         let show_global_loading_overlay = self.ai_bootstrap_loading;
         let selected_thread_id = ai_view_state.selected_thread_id.clone();
         let (selected_thread_mode_for_picker, thread_mode_picker_editable) = self
             .ai_thread_mode_picker_state(ai_view_state.selected_thread_start_mode);
         let ai_timeline_follow_output = self.ai_timeline_follow_output;
-        let composer_attachment_paths = self.current_ai_composer_local_images();
+        let composer_attachment_paths = ai_view_state.composer_attachment_paths.clone();
         let composer_attachment_count = composer_attachment_paths.len();
         let ai_commit_and_push_loading = self.git_action_loading_named("Commit and Push");
         let ai_open_pr_loading = self.git_action_loading_named("Open PR");
@@ -171,7 +174,7 @@ impl DiffViewer {
             cx,
         );
 
-        let element = div()
+        div()
             .size_full()
             .relative()
             .child(workspace)
@@ -181,9 +184,7 @@ impl DiffViewer {
             .when_some(self.ai_git_progress.clone(), |this, progress| {
                 this.child(render_ai_git_progress_overlay(&progress, is_dark, cx))
             })
-            .into_any_element();
-        self.record_ai_root_render_timing(render_started_at.elapsed());
-        element
+            .into_any_element()
     }
 
     fn render_ai_usage_popover_card(
