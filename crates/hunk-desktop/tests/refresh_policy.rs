@@ -9,7 +9,8 @@ use refresh_policy::{
     GitWorkspaceRefreshRequest, SnapshotRefreshBehavior, SnapshotRefreshPriority,
     SnapshotRefreshRequest, diff_state_changed, line_stats_paths_from_dirty_paths,
     missing_line_stat_paths, post_git_action_refresh_plan, repo_watch_refresh_request,
-    should_refresh_line_stats_after_snapshot, should_reload_diff_after_snapshot,
+    should_bootstrap_empty_files_workspace_editor, should_refresh_line_stats_after_snapshot,
+    should_reload_diff_after_snapshot, should_reload_empty_files_workspace_tree,
     should_reload_repo_tree_after_snapshot, should_request_startup_git_workspace_refresh,
     should_run_cold_start_reconcile, should_scroll_selected_after_reload,
 };
@@ -73,6 +74,34 @@ fn repo_tree_reload_only_tracks_file_list_changes_or_root_switches() {
     assert!(should_reload_repo_tree_after_snapshot(true, false, false));
     assert!(should_reload_repo_tree_after_snapshot(false, true, true));
     assert!(!should_reload_repo_tree_after_snapshot(false, true, false));
+}
+
+#[test]
+fn empty_files_workspace_tree_reload_only_happens_in_files_view() {
+    assert!(should_reload_empty_files_workspace_tree(true, true, false));
+    assert!(!should_reload_empty_files_workspace_tree(
+        true, false, false
+    ));
+    assert!(!should_reload_empty_files_workspace_tree(true, true, true));
+    assert!(!should_reload_empty_files_workspace_tree(
+        false, true, false
+    ));
+}
+
+#[test]
+fn empty_files_workspace_editor_bootstrap_runs_only_once() {
+    assert!(should_bootstrap_empty_files_workspace_editor(
+        true, true, false
+    ));
+    assert!(!should_bootstrap_empty_files_workspace_editor(
+        true, false, false
+    ));
+    assert!(!should_bootstrap_empty_files_workspace_editor(
+        true, true, true
+    ));
+    assert!(!should_bootstrap_empty_files_workspace_editor(
+        false, true, false
+    ));
 }
 
 #[test]

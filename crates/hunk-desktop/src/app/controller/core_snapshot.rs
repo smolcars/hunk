@@ -37,6 +37,7 @@ impl DiffViewer {
             self.reset_recent_commits_state();
             self.hydrate_recent_commits_cache_if_available(cx);
         }
+        self.bootstrap_files_workspace_if_needed(cx);
         self.rebuild_ai_thread_sidebar_state();
         self.start_repo_watch(cx);
         self.request_snapshot_refresh_internal(SnapshotRefreshRequest::user(true), cx);
@@ -779,6 +780,8 @@ impl DiffViewer {
             if should_reload_repo_tree {
                 self.request_repo_tree_reload(cx);
             }
+
+            self.bootstrap_files_workspace_if_needed(cx);
 
             if !should_reload_diff_after_snapshot(
                 self.workspace_view_mode.supports_diff_stream(),

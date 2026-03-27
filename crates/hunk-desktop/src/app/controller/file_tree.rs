@@ -20,6 +20,64 @@ impl DiffViewer {
             .is_some_and(|repo_root| repo_root.join(path).exists())
     }
 
+    fn preferred_files_workspace_path(&self) -> Option<String> {
+        self.editor_path
+            .clone()
+            .or_else(|| self.selected_path.clone())
+            .or_else(|| self.file_editor_tabs.first().map(|tab| tab.path.clone()))
+            .or_else(|| {
+                self.files
+                    .iter()
+                    .find(|file| file.status != FileStatus::Deleted)
+                    .map(|file| file.path.clone())
+            })
+            .filter(|path| self.path_exists_in_primary_checkout(path.as_str()))
+            .or_else(|| {
+                self.file_editor_tabs
+                    .iter()
+                    .map(|tab| tab.path.clone())
+                    .find(|path| self.path_exists_in_primary_checkout(path.as_str()))
+            })
+            .or_else(|| {
+                self.files
+                    .iter()
+                    .find(|file| {
+                        file.status != FileStatus::Deleted
+                            && self.path_exists_in_primary_checkout(file.path.as_str())
+                    })
+                    .map(|file| file.path.clone())
+            })
+    }
+
+    pub(super) fn bootstrap_files_workspace_if_needed(&mut self, cx: &mut Context<Self>) {
+        if should_reload_empty_files_workspace_tree(
+            self.workspace_view_mode == WorkspaceViewMode::Files,
+            self.repo_tree.nodes.is_empty(),
+            self.repo_tree.loading,
+        ) {
+            self.request_repo_tree_reload(cx);
+        }
+
+        if !should_bootstrap_empty_files_workspace_editor(
+            self.workspace_view_mode == WorkspaceViewMode::Files,
+            self.editor_path.is_none(),
+            self.editor_loading,
+        ) {
+            return;
+        }
+
+        let Some(path) = self.preferred_files_workspace_path() else {
+            self.selected_path = None;
+            self.selected_status = None;
+            self.clear_editor_state(cx);
+            return;
+        };
+
+        self.selected_path = Some(path.clone());
+        self.selected_status = self.status_for_path(path.as_str());
+        self.request_file_editor_reload(path, cx);
+    }
+
     pub(super) fn toggle_sidebar_tree_action(
         &mut self,
         _: &ToggleSidebarTree,
@@ -131,35 +189,7 @@ impl DiffViewer {
                 self.request_repo_tree_reload(cx);
             }
 
-            let target_path = self
-                .editor_path
-                .clone()
-                .or_else(|| self.selected_path.clone())
-                .or_else(|| self.file_editor_tabs.first().map(|tab| tab.path.clone()))
-                .or_else(|| {
-                    self.files
-                        .iter()
-                        .find(|file| file.status != FileStatus::Deleted)
-                        .map(|file| file.path.clone())
-                });
-            let target_path = target_path
-                .filter(|path| self.path_exists_in_primary_checkout(path.as_str()))
-                .or_else(|| {
-                    self.file_editor_tabs
-                        .iter()
-                        .map(|tab| tab.path.clone())
-                        .find(|path| self.path_exists_in_primary_checkout(path.as_str()))
-                })
-                .or_else(|| {
-                    self.files
-                        .iter()
-                        .find(|file| {
-                            file.status != FileStatus::Deleted
-                                && self.path_exists_in_primary_checkout(file.path.as_str())
-                        })
-                        .map(|file| file.path.clone())
-                });
-            if let Some(path) = target_path {
+            if let Some(path) = self.preferred_files_workspace_path() {
                 self.selected_path = Some(path.clone());
                 self.selected_status = self.status_for_path(path.as_str());
                 self.request_file_editor_reload(path, cx);
