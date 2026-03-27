@@ -86,6 +86,20 @@ fn ai_format_shortcut_label(shortcut: &str) -> String {
         .join(" ")
 }
 
+fn ai_project_open_target_icon(target: project_open::ProjectOpenTargetId) -> Icon {
+    let icon = match target {
+        project_open::ProjectOpenTargetId::VsCode => Icon::new(HunkIconName::VisualStudioCode),
+        project_open::ProjectOpenTargetId::Cursor => Icon::new(HunkIconName::Cursor),
+        project_open::ProjectOpenTargetId::Zed => Icon::new(HunkIconName::Zed),
+        project_open::ProjectOpenTargetId::Xcode => Icon::new(HunkIconName::Xcode),
+        project_open::ProjectOpenTargetId::AndroidStudio => {
+            Icon::new(HunkIconName::AndroidStudio)
+        }
+        project_open::ProjectOpenTargetId::FileManager => Icon::new(IconName::FolderClosed),
+    };
+    icon.size(px(14.0))
+}
+
 fn render_ai_header_metric_chip(
     label: &'static str,
     value: String,
@@ -806,6 +820,71 @@ impl DiffViewer {
                             .text_color(cx.theme().muted_foreground)
                             .child(format!("Branch: {}", state.active_branch)),
                     )
+                    .child({
+                        let view_for_primary = view.clone();
+                        let view_for_menu = view.clone();
+                        let available_project_open_targets =
+                            self.available_project_open_targets.clone();
+                        let preferred_project_open_target = self.preferred_project_open_target();
+                        let primary_project_open_target = preferred_project_open_target
+                            .or_else(|| available_project_open_targets.first().copied());
+                        let project_open_tooltip = self.ai_project_open_tooltip();
+                        let project_open_disabled = self.ai_project_open_path().is_none()
+                            || primary_project_open_target.is_none();
+                        DropdownButton::new("ai-open-project-dropdown")
+                            .button(
+                                Button::new("ai-open-project")
+                                    .compact()
+                                    .outline()
+                                    .with_size(gpui_component::Size::Small)
+                                    .rounded(px(8.0))
+                                    .when_some(primary_project_open_target, |this, target| {
+                                        this.icon(ai_project_open_target_icon(target))
+                                    })
+                                    .label("Open")
+                                    .tooltip(project_open_tooltip)
+                                    .disabled(project_open_disabled)
+                                    .on_click(move |_, _, cx| {
+                                        view_for_primary.update(cx, |this, cx| {
+                                            this.open_ai_workspace_in_preferred_project_target(cx);
+                                        });
+                                    }),
+                            )
+                            .compact()
+                            .outline()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .disabled(project_open_disabled)
+                            .dropdown_menu(move |menu, _, _| {
+                                if available_project_open_targets.is_empty() {
+                                    return menu.item(
+                                        PopupMenuItem::new(
+                                            "No supported editors or file managers found",
+                                        )
+                                        .disabled(true),
+                                    );
+                                }
+
+                                available_project_open_targets.iter().copied().fold(
+                                    menu,
+                                    |menu, target| {
+                                        let view = view_for_menu.clone();
+                                        menu.item(
+                                            PopupMenuItem::new(target.display_label())
+                                                .icon(ai_project_open_target_icon(target))
+                                                .on_click(move |_, _, cx| {
+                                                    view.update(cx, |this, cx| {
+                                                        this.open_ai_workspace_in_project_target(
+                                                            target, cx,
+                                                        );
+                                                    });
+                                                }),
+                                        )
+                                    },
+                                )
+                            })
+                            .into_any_element()
+                    })
                     .child({
                         let view = view.clone();
                         let push_label = format!("Commit and Push to {}", state.active_branch);

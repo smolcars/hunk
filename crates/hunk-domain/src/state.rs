@@ -122,6 +122,7 @@ pub struct AppState {
     pub legacy_last_project_path: Option<PathBuf>,
     pub workspace_project_paths: Vec<PathBuf>,
     pub active_workspace_project_path: Option<PathBuf>,
+    pub preferred_project_open_target_id: Option<String>,
     pub last_workspace_target_by_repo: BTreeMap<String, String>,
     pub review_compare_selection_by_repo: BTreeMap<String, ReviewCompareSelectionState>,
     pub ai_bookmarked_thread_ids: BTreeSet<String>,

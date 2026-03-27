@@ -164,6 +164,7 @@ mod ai_thread_flow;
 mod branch_activation;
 mod branch_picker;
 mod fuzzy_match;
+mod project_open;
 mod project_picker;
 mod refresh_policy;
 mod review_compare_picker;
@@ -1240,6 +1241,7 @@ struct DiffViewer {
     ai_composer_status_by_draft: BTreeMap<AiComposerDraftKey, String>,
     ai_composer_status_generation: usize,
     ai_composer_status_generation_by_key: BTreeMap<AiComposerStatusKey, usize>,
+    available_project_open_targets: Vec<project_open::ProjectOpenTargetId>,
     files: Vec<ChangedFile>,
     file_status_by_path: BTreeMap<String, FileStatus>,
     project_picker_state: Entity<HunkPickerState<ProjectPickerDelegate>>,

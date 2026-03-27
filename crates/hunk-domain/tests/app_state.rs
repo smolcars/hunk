@@ -16,6 +16,7 @@ fn app_state_defaults_workspace_state_to_empty() {
     let state = AppState::default();
     assert!(state.workspace_project_paths.is_empty());
     assert_eq!(state.active_workspace_project_path, None);
+    assert_eq!(state.preferred_project_open_target_id, None);
     assert!(state.last_workspace_target_by_repo.is_empty());
     assert!(state.review_compare_selection_by_repo.is_empty());
     assert!(state.ai_bookmarked_thread_ids.is_empty());
@@ -33,6 +34,7 @@ fn app_state_parses_without_workspace_fields() {
     let state: AppState = toml::from_str(raw).expect("state without fields should parse");
     assert!(state.workspace_project_paths.is_empty());
     assert_eq!(state.active_workspace_project_path, None);
+    assert_eq!(state.preferred_project_open_target_id, None);
     assert!(state.last_workspace_target_by_repo.is_empty());
     assert!(state.review_compare_selection_by_repo.is_empty());
     assert!(state.ai_bookmarked_thread_ids.is_empty());
@@ -86,6 +88,7 @@ fn app_state_round_trips_workspace_fields() {
             PathBuf::from("/tmp/hunk-repo-b"),
         ],
         active_workspace_project_path: Some(PathBuf::from("/tmp/hunk-repo-b")),
+        preferred_project_open_target_id: Some("zed".to_string()),
         last_workspace_target_by_repo: [(
             "/tmp/hunk-repo".to_string(),
             "worktree:feature".to_string(),

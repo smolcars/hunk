@@ -54,6 +54,7 @@ use hunk_git::network::{
 include!("core.rs");
 include!("core_runtime.rs");
 include!("markdown_links.rs");
+include!("project_open.rs");
 include!("git_ops_review.rs");
 include!("git_ops.rs");
 include!("recent_commits.rs");

@@ -570,6 +570,7 @@ impl DiffViewer {
             ai_composer_status_by_draft: BTreeMap::new(),
             ai_composer_status_generation: 0,
             ai_composer_status_generation_by_key: BTreeMap::new(),
+            available_project_open_targets: crate::app::project_open::resolve_available_project_open_targets(),
             files: Vec::new(),
             file_status_by_path: BTreeMap::new(),
             project_picker_state,
