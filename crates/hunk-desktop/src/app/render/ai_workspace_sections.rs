@@ -744,40 +744,32 @@ impl DiffViewer {
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let selected_thread_project_label = state
+            .selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.ai_visible_project_root_with_context(Some(thread_id), None))
+            .as_deref()
+            .map(crate::app::project_picker::project_display_name);
         h_flex()
             .w_full()
             .items_center()
-            .justify_between()
             .gap_2()
             .child(
                 h_flex()
                     .flex_1()
                     .min_w_0()
                     .items_center()
-                    .gap_1()
-                    .child(div().text_sm().font_semibold().child("Timeline:"))
-                    .when_some(state.selected_thread_id.clone(), |this, thread_id| {
-                        let thread_id_hover_color = cx.theme().foreground;
-                        let copy_thread_id = thread_id.clone();
-                        let view = view.clone();
+                    .gap_2()
+                    .when_some(selected_thread_project_label, |this, project_label| {
                         this.child(
                             div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .hover(move |style| {
-                                    style.text_color(thread_id_hover_color).cursor_pointer()
-                                })
-                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.ai_copy_thread_id_action(
-                                            copy_thread_id.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                })
-                                .child(thread_id),
+                                .min_w_0()
+                                .text_base()
+                                .font_semibold()
+                                .text_color(cx.theme().foreground)
+                                .whitespace_nowrap()
+                                .truncate()
+                                .child(project_label),
                         )
                     })
                     .when_some(state.selected_thread_start_mode, |this, start_mode| {
@@ -786,69 +778,74 @@ impl DiffViewer {
             )
             .child(
                 h_flex()
-                    .flex_none()
-                    .items_center()
-                    .gap_2()
+                    .flex_1()
+                    .justify_end()
                     .child(
-                        div()
-                            .text_xs()
-                            .font_family(cx.theme().mono_font_family.clone())
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("Target: {}", state.workspace_label)),
-                    )
-                    .when(state.show_worktree_base_branch_picker, |this| {
-                        this.child(
-                            h_flex()
-                                .items_center()
-                                .gap_1p5()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .font_semibold()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child("Base Branch"),
-                                )
-                                .child(
-                                    render_hunk_picker(
-                                        &self.ai_worktree_base_branch_picker_state,
-                                        HunkPickerConfig::new(
-                                            "ai-worktree-base-branch-picker",
-                                            state.selected_worktree_base_branch.clone(),
-                                        )
-                                        .with_size(gpui_component::Size::Small)
-                                        .rounded(px(8.0))
-                                        .width(px(220.0))
-                                        .background(hunk_opacity(
-                                            cx.theme().background,
-                                            is_dark,
-                                            0.82,
-                                            0.98,
-                                        ))
-                                        .border_color(cx.theme().border)
-                                        .disabled(
-                                            self.git_controls_busy() || self.branches.is_empty(),
-                                        )
-                                        .empty(
-                                            h_flex()
-                                                .h(px(72.0))
-                                                .justify_center()
-                                                .text_sm()
+                        h_flex()
+                            .flex_none()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family(cx.theme().mono_font_family.clone())
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("Target: {}", state.workspace_label)),
+                            )
+                            .when(state.show_worktree_base_branch_picker, |this| {
+                                this.child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_1p5()
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .font_semibold()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child("No branches available."),
+                                                .child("Base Branch"),
+                                        )
+                                        .child(
+                                            render_hunk_picker(
+                                                &self.ai_worktree_base_branch_picker_state,
+                                                HunkPickerConfig::new(
+                                                    "ai-worktree-base-branch-picker",
+                                                    state.selected_worktree_base_branch.clone(),
+                                                )
+                                                .with_size(gpui_component::Size::Small)
+                                                .rounded(px(8.0))
+                                                .width(px(220.0))
+                                                .background(hunk_opacity(
+                                                    cx.theme().background,
+                                                    is_dark,
+                                                    0.82,
+                                                    0.98,
+                                                ))
+                                                .border_color(cx.theme().border)
+                                                .disabled(
+                                                    self.git_controls_busy()
+                                                        || self.branches.is_empty(),
+                                                )
+                                                .empty(
+                                                    h_flex()
+                                                        .h(px(72.0))
+                                                        .justify_center()
+                                                        .text_sm()
+                                                        .text_color(cx.theme().muted_foreground)
+                                                        .child("No branches available."),
+                                                ),
+                                                cx,
+                                            ),
                                         ),
-                                        cx,
-                                    ),
-                                ),
-                        )
-                    })
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_family(cx.theme().mono_font_family.clone())
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("Branch: {}", state.active_branch)),
-                    )
-                    .child({
+                                )
+                            })
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family(cx.theme().mono_font_family.clone())
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("Branch: {}", state.active_branch)),
+                            )
+                            .child({
                         let view_for_primary = view.clone();
                         let view_for_menu = view.clone();
                         let available_project_open_targets =
@@ -992,7 +989,8 @@ impl DiffViewer {
                                 .text_color(cx.theme().danger)
                                 .child("Full access enabled"),
                         )
-                    }),
+                            }),
+                    ),
             )
             .into_any_element()
     }

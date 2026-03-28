@@ -842,21 +842,6 @@ impl DiffViewer {
         cx.notify();
     }
 
-    pub(super) fn ai_copy_thread_id_action(
-        &mut self,
-        thread_id: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.write_to_clipboard(gpui::ClipboardItem::new_string(thread_id.clone()));
-        let message = format!("Copied thread ID: {thread_id}");
-        gpui_component::WindowExt::push_notification(
-            window,
-            crate::app::notifications::success(message),
-            cx,
-        );
-        cx.notify();
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -140,8 +140,7 @@ const FILE_EDITOR_TAB_LIMIT: usize = 8;
 pub(crate) const FILES_WORKSPACE_RAIL_HEIGHT: f32 = 32.0;
 const ABOUT_HUNK_VERSION_LABEL: &str = concat!("Version ", env!("CARGO_PKG_VERSION"));
 const ABOUT_HUNK_DESCRIPTION_LINE_ONE: &str = "A fast diff viewer and Codex orchestrator.";
-const ABOUT_HUNK_DESCRIPTION_LINE_TWO: &str =
-    "Hunk is built in GPUI and aims to be very fast.";
+const ABOUT_HUNK_DESCRIPTION_LINE_TWO: &str = "Hunk is built in GPUI and aims to be very fast.";
 const MARKDOWN_PREVIEW_DEBOUNCE: Duration = Duration::from_millis(200);
 const DIFF_SEGMENT_PREFETCH_RADIUS_ROWS: usize = 120;
 const DIFF_SEGMENT_PREFETCH_STEP_ROWS: usize = 24;
