@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 use crate::backend::TerminalVt;
-use crate::input::TerminalPointerInput;
+use crate::input::{TerminalKeyInput, TerminalPointerInput};
 use crate::snapshot::{TerminalScreenSnapshot, TerminalScroll};
 
 const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -92,6 +92,7 @@ enum TerminalControl {
     Resize { rows: u16, cols: u16 },
     Scroll(TerminalScroll),
     WriteInput(Vec<u8>),
+    WriteKeyInput(TerminalKeyInput),
     WritePaste(String),
     ReportFocus(bool),
     WritePointerInput(TerminalPointerInput),
@@ -122,6 +123,11 @@ impl TerminalSessionHandle {
     pub fn write_input(&self, input: &[u8]) -> Result<()> {
         self.send_control(TerminalControl::WriteInput(input.to_vec()))
             .context("send terminal input")
+    }
+
+    pub fn write_key_input(&self, input: TerminalKeyInput) -> Result<()> {
+        self.send_control(TerminalControl::WriteKeyInput(input))
+            .context("send terminal key input")
     }
 
     pub fn write_paste(&self, text: &str) -> Result<()> {
@@ -267,6 +273,19 @@ pub fn spawn_terminal_session(
                     if let Err(error) = write_terminal_bytes(writer.as_mut(), input.as_slice()) {
                         let _ = event_tx.send(TerminalEvent::Failed(format!(
                             "Failed to write terminal input: {error}"
+                        )));
+                    }
+                }
+                Ok(TerminalActorInput::Control(TerminalControl::WriteKeyInput(input))) => {
+                    if child_exit_reported {
+                        continue;
+                    }
+                    let Some(bytes) = vt.key_input_bytes(&input) else {
+                        continue;
+                    };
+                    if let Err(error) = write_terminal_bytes(writer.as_mut(), bytes.as_slice()) {
+                        let _ = event_tx.send(TerminalEvent::Failed(format!(
+                            "Failed to write terminal key input: {error}"
                         )));
                     }
                 }

@@ -2,9 +2,13 @@
 
 ## Status
 
-- Proposed
+- In Progress
 - Owner: Hunk
 - Last Updated: 2026-03-28
+- Phase 1 complete
+- Phase 2 complete
+- Phase 3 complete
+- Phase 4 in progress
 
 ## Summary
 
@@ -242,12 +246,12 @@ A forked `libghostty-rs` that Hunk can depend on during the rewrite.
 
 ### TODO
 
-- [ ] Refactor `crates/hunk-terminal/src/session.rs` into smaller modules without changing behavior.
-- [ ] Move snapshot types out of the current Alacritty-specific file into `src/snapshot.rs`.
-- [ ] Introduce a backend-agnostic terminal engine interface inside `crates/hunk-terminal`.
-- [ ] Keep the current Alacritty-backed code only as temporary migration scaffolding inside the branch.
-- [ ] Move PTY hosting code into its own module so the backend swap does not touch PTY concerns.
-- [ ] Keep the public `spawn_terminal_session` API stable so `hunk-desktop` does not need to change yet.
+- [x] Refactor `crates/hunk-terminal/src/session.rs` into smaller modules without changing behavior.
+- [x] Move snapshot types out of the current Alacritty-specific file into `src/snapshot.rs`.
+- [x] Introduce a backend-agnostic terminal engine interface inside `crates/hunk-terminal`.
+- [x] Keep the current Alacritty-backed code only as temporary migration scaffolding inside the branch.
+- [x] Move PTY hosting code into its own module so the backend swap does not touch PTY concerns.
+- [x] Keep the public `spawn_terminal_session` API stable so `hunk-desktop` does not need to change yet.
 
 ### Files To Touch
 
@@ -269,18 +273,18 @@ A Ghostty-backed engine exists in `hunk-terminal` and can replace the old engine
 
 ### TODO
 
-- [ ] Add the forked `libghostty-vt` dependency to `crates/hunk-terminal/Cargo.toml`.
-- [ ] Add a backend module such as `src/backend/ghostty.rs`.
-- [ ] Implement Ghostty terminal construction, resize, scroll, and byte ingestion.
-- [ ] Build a snapshot adapter from Ghostty render/state APIs into Hunk's:
+- [x] Add the forked `libghostty-vt` dependency to `crates/hunk-terminal/Cargo.toml`.
+- [x] Add a backend module such as `src/backend/ghostty.rs`.
+- [x] Implement Ghostty terminal construction, resize, scroll, and byte ingestion.
+- [x] Build a snapshot adapter from Ghostty render/state APIs into Hunk's:
   - `TerminalScreenSnapshot`
   - `TerminalCellSnapshot`
   - `TerminalDamageSnapshot`
   - `TerminalCursorSnapshot`
   - `TerminalModeSnapshot`
-- [ ] Support the same scrollback semantics Hunk currently exposes to the GPUI layer.
-- [ ] Support transcript accumulation for fallback/error states exactly as today.
-- [ ] Keep the existing Alacritty-backed code compiling only until the Ghostty adapter is complete.
+- [x] Support the same scrollback semantics Hunk currently exposes to the GPUI layer.
+- [x] Support transcript accumulation for fallback/error states exactly as today.
+- [x] Keep the existing Alacritty-backed code compiling only until the Ghostty adapter is complete.
 
 ### Files To Touch
 
@@ -302,18 +306,18 @@ The runtime uses a single-owner actor that is valid for Ghostty's threading rule
 
 ### TODO
 
-- [ ] Replace the current shared VT state pattern with a terminal actor thread.
-- [ ] Keep the current event surface:
+- [x] Replace the current shared VT state pattern with a terminal actor thread.
+- [x] Keep the current event surface:
   - `Output`
   - `Screen`
   - `Exit`
   - `Failed`
-- [ ] Move all Ghostty access inside the actor thread.
-- [ ] Ensure PTY reads, PTY writes, query responses, and resize events all stay on the actor side.
-- [ ] Preserve runtime generation and parking behavior used by:
+- [x] Move all Ghostty access inside the actor thread.
+- [x] Ensure PTY reads, PTY writes, query responses, and resize events all stay on the actor side.
+- [x] Preserve runtime generation and parking behavior used by:
   - AI terminals by thread
   - Files terminals by project
-- [ ] Keep hidden runtime parking/promoting behavior intact during workspace and thread switches.
+- [x] Keep hidden runtime parking/promoting behavior intact during workspace and thread switches.
 
 ### Files To Touch
 
@@ -335,14 +339,15 @@ Ghostty-backed input handling owns key, mouse, paste, and focus encoding, with m
 
 ### TODO
 
-- [ ] Add an input encoding layer in `hunk-terminal`, likely in `src/input.rs`.
-- [ ] Replace the custom key/mouse/focus protocol code in `crates/hunk-desktop/src/app/controller/ai/terminal_protocol.rs`.
-- [ ] Keep the GPUI event-to-grid-point conversion in `hunk-desktop`.
-- [ ] Introduce a semantic terminal input command path from `hunk-desktop` into `hunk-terminal` so desktop no longer sends pre-encoded protocol bytes for interactive events.
-- [ ] Move terminal protocol byte generation into `hunk-terminal` so `hunk-desktop` no longer knows terminal protocol details.
-- [ ] Encode mouse input inside the terminal actor using Ghostty's mouse API against the live terminal instance.
-- [ ] Do not use `TerminalModeSnapshot` as the final source of truth for mouse protocol encoding decisions.
-- [ ] Keep snapshot-driven keyboard, paste, and focus helpers only where they remain stateless and correct.
+- [x] Add an input encoding layer in `hunk-terminal`, likely in `src/input.rs`.
+- [x] Replace the custom key/mouse/focus protocol code in `crates/hunk-desktop/src/app/controller/ai/terminal_protocol.rs`.
+- [x] Keep the GPUI event-to-grid-point conversion in `hunk-desktop`.
+- [x] Introduce a semantic terminal input command path from `hunk-desktop` into `hunk-terminal` so desktop no longer sends pre-encoded protocol bytes for interactive events.
+- [x] Move terminal protocol byte generation into `hunk-terminal` so `hunk-desktop` no longer knows terminal protocol details for mouse, paste, and focus events.
+- [x] Encode mouse input inside the terminal actor using Ghostty's mouse API against the live terminal instance.
+- [x] Do not use `TerminalModeSnapshot` as the final source of truth for mouse protocol encoding decisions.
+- [ ] Move keyboard encoding into the terminal actor and back it with Ghostty's key encoder for the supported GPUI keystroke surface.
+- [ ] Keep only the narrow compatibility glue needed for Hunk-specific shell shortcuts that GPUI/Ghostty do not represent directly.
 - [ ] Support at minimum:
   - plain text input
   - bracketed paste
@@ -353,7 +358,7 @@ Ghostty-backed input handling owns key, mouse, paste, and focus encoding, with m
   - wheel input
   - alternate scroll behavior
 - [ ] Preserve current selection bypass behavior when `Shift` is used.
-- [ ] Delete temporary snapshot-driven mouse helpers once actor-side mouse encoding is live.
+- [x] Delete temporary snapshot-driven mouse helpers once actor-side mouse encoding is live.
 
 ### Files To Touch
 

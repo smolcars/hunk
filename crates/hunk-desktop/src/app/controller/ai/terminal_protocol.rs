@@ -123,6 +123,19 @@ fn ai_terminal_uses_copy_shortcut(keystroke: &gpui::Keystroke) -> bool {
     }
 }
 
+fn ai_terminal_key_input_for_keystroke(
+    keystroke: &gpui::Keystroke,
+    _mode: Option<hunk_terminal::TerminalModeSnapshot>,
+) -> Option<hunk_terminal::TerminalKeyInput> {
+    let keystroke = hunk_terminal::TerminalKeystroke {
+        key: keystroke.key.as_str(),
+        key_char: keystroke.key_char.as_deref(),
+        modifiers: ai_terminal_input_modifiers(keystroke.modifiers),
+    };
+    hunk_terminal::terminal_key_input(&keystroke)
+}
+
+#[cfg(test)]
 fn ai_terminal_input_bytes_for_keystroke(
     keystroke: &gpui::Keystroke,
     mode: Option<hunk_terminal::TerminalModeSnapshot>,

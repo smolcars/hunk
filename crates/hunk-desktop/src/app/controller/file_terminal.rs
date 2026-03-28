@@ -495,10 +495,10 @@ impl DiffViewer {
             return self.files_paste_terminal_from_clipboard(cx);
         }
 
-        let Some(bytes) = ai_terminal_input_bytes_for_keystroke(keystroke, terminal_mode) else {
+        let Some(input) = ai_terminal_key_input_for_keystroke(keystroke, terminal_mode) else {
             return false;
         };
-        self.files_write_terminal_bytes(bytes.as_slice(), cx)
+        self.files_write_terminal_key_input(input, cx)
     }
 
     fn files_terminal_dispatch_synthesized_keystroke(
@@ -777,6 +777,29 @@ impl DiffViewer {
         };
 
         if let Err(error) = runtime.handle.write_pointer_input(input) {
+            self.files_terminal_session.status_message = Some(error.to_string());
+            self.files_terminal_session.status = AiTerminalSessionStatus::Failed;
+            cx.notify();
+            return true;
+        }
+
+        self.files_terminal_session.status_message = None;
+        true
+    }
+
+    fn files_write_terminal_key_input(
+        &mut self,
+        input: hunk_terminal::TerminalKeyInput,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.files_terminal_is_running() {
+            return false;
+        }
+        let Some(runtime) = self.files_terminal_runtime.as_ref() else {
+            return false;
+        };
+
+        if let Err(error) = runtime.handle.write_key_input(input) {
             self.files_terminal_session.status_message = Some(error.to_string());
             self.files_terminal_session.status = AiTerminalSessionStatus::Failed;
             cx.notify();

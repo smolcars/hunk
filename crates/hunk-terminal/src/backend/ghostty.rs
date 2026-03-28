@@ -8,8 +8,8 @@ use libghostty_vt::{
 };
 
 use crate::input::{
-    TerminalGridPoint, TerminalInputModifiers, TerminalMouseButton, TerminalPointerInput,
-    terminal_paste_input_bytes,
+    TerminalGridPoint, TerminalInputModifiers, TerminalKeyInput, TerminalMouseButton,
+    TerminalPointerInput, terminal_key_input_bytes, terminal_paste_input_bytes,
 };
 use crate::snapshot::{
     TerminalCellSnapshot, TerminalColorSnapshot, TerminalCursorShapeSnapshot,
@@ -29,6 +29,7 @@ pub(crate) struct GhosttyTerminalVt {
     render_state: RenderState<'static>,
     row_iterator: RowIterator<'static>,
     cell_iterator: CellIterator<'static>,
+    key_encoder: key::Encoder<'static>,
     mouse_encoder: mouse::Encoder<'static>,
 }
 
@@ -49,6 +50,7 @@ impl GhosttyTerminalVt {
             render_state: RenderState::new().expect("create libghostty-vt render state"),
             row_iterator: RowIterator::new().expect("create libghostty-vt row iterator"),
             cell_iterator: CellIterator::new().expect("create libghostty-vt cell iterator"),
+            key_encoder: key::Encoder::new().expect("create libghostty-vt key encoder"),
             mouse_encoder: mouse::Encoder::new().expect("create libghostty-vt mouse encoder"),
         }
     }
@@ -123,6 +125,10 @@ impl GhosttyTerminalVt {
             .mode(Mode::BRACKETED_PASTE)
             .expect("read libghostty-vt bracketed paste mode");
         terminal_paste_input_bytes(text, bracketed)
+    }
+
+    pub(crate) fn key_input_bytes(&mut self, input: &TerminalKeyInput) -> Option<Vec<u8>> {
+        terminal_key_input_bytes(input, &self.terminal, &mut self.key_encoder)
     }
 
     pub(crate) fn pointer_input_bytes(&mut self, input: TerminalPointerInput) -> Vec<Vec<u8>> {
