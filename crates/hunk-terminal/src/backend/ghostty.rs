@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
 use libghostty_vt::{
-    RenderState, Terminal, TerminalOptions, ffi,
+    RenderState, Terminal, TerminalOptions, ffi, focus, key, mouse,
     render::{CellIterator, Colors, CursorVisualStyle, RowIterator, Snapshot},
     style::RgbColor,
     terminal::{Mode, ScrollViewport},
 };
 
+use crate::input::{
+    TerminalGridPoint, TerminalInputModifiers, TerminalMouseButton, TerminalPointerInput,
+    terminal_paste_input_bytes,
+};
 use crate::snapshot::{
     TerminalCellSnapshot, TerminalColorSnapshot, TerminalCursorShapeSnapshot,
     TerminalCursorSnapshot, TerminalDamageSnapshot, TerminalModeSnapshot,
@@ -19,11 +23,13 @@ const ALACRITTY_WIDE_CHAR_SPACER_FLAG: u16 = 0b0000_0000_0100_0000;
 const ALACRITTY_LEADING_WIDE_CHAR_SPACER_FLAG: u16 = 0b0000_0100_0000_0000;
 
 pub(crate) struct GhosttyTerminalVt {
+    cols: u16,
     rows: u16,
     terminal: Terminal<'static, 'static>,
     render_state: RenderState<'static>,
     row_iterator: RowIterator<'static>,
     cell_iterator: CellIterator<'static>,
+    mouse_encoder: mouse::Encoder<'static>,
 }
 
 impl GhosttyTerminalVt {
@@ -32,6 +38,7 @@ impl GhosttyTerminalVt {
         let cols = cols.max(1);
 
         Self {
+            cols,
             rows,
             terminal: Terminal::new(TerminalOptions {
                 cols,
@@ -42,6 +49,7 @@ impl GhosttyTerminalVt {
             render_state: RenderState::new().expect("create libghostty-vt render state"),
             row_iterator: RowIterator::new().expect("create libghostty-vt row iterator"),
             cell_iterator: CellIterator::new().expect("create libghostty-vt cell iterator"),
+            mouse_encoder: mouse::Encoder::new().expect("create libghostty-vt mouse encoder"),
         }
     }
 
@@ -61,8 +69,9 @@ impl GhosttyTerminalVt {
 
     pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Arc<TerminalScreenSnapshot> {
         self.rows = rows.max(1);
+        self.cols = cols.max(1);
         self.terminal
-            .resize(cols.max(1), self.rows, 0, 0)
+            .resize(self.cols, self.rows, 0, 0)
             .expect("resize libghostty-vt terminal");
         self.snapshot()
     }
@@ -83,6 +92,182 @@ impl GhosttyTerminalVt {
         });
         self.snapshot()
     }
+
+    pub(crate) fn focus_input_bytes(&self, focused: bool) -> Option<Vec<u8>> {
+        if !self
+            .terminal
+            .mode(Mode::FOCUS_EVENT)
+            .expect("read libghostty-vt focus event mode")
+        {
+            return None;
+        }
+
+        let mut bytes = [0_u8; 8];
+        let written = match if focused {
+            focus::Event::Gained
+        } else {
+            focus::Event::Lost
+        }
+        .encode(&mut bytes)
+        {
+            Ok(written) => written,
+            Err(_) => return None,
+        };
+
+        Some(bytes[..written].to_vec())
+    }
+
+    pub(crate) fn paste_input_bytes(&self, text: &str) -> Vec<u8> {
+        let bracketed = self
+            .terminal
+            .mode(Mode::BRACKETED_PASTE)
+            .expect("read libghostty-vt bracketed paste mode");
+        terminal_paste_input_bytes(text, bracketed)
+    }
+
+    pub(crate) fn pointer_input_bytes(&mut self, input: TerminalPointerInput) -> Vec<Vec<u8>> {
+        match input {
+            TerminalPointerInput::Button {
+                point,
+                button,
+                modifiers,
+                pressed,
+            } => self
+                .mouse_report_bytes(
+                    point,
+                    Some(button),
+                    if pressed {
+                        mouse::Action::Press
+                    } else {
+                        mouse::Action::Release
+                    },
+                    modifiers,
+                    false,
+                )
+                .into_iter()
+                .collect(),
+            TerminalPointerInput::Move {
+                point,
+                button,
+                modifiers,
+            } => self
+                .mouse_report_bytes(
+                    point,
+                    button,
+                    mouse::Action::Motion,
+                    modifiers,
+                    button.is_some(),
+                )
+                .into_iter()
+                .collect(),
+            TerminalPointerInput::Scroll {
+                point,
+                scroll_lines,
+                modifiers,
+            } => {
+                if scroll_lines == 0 {
+                    return Vec::new();
+                }
+
+                let Some(report) = self.mouse_report_bytes_raw(
+                    point,
+                    Some(if scroll_lines > 0 {
+                        mouse::Button::Four
+                    } else {
+                        mouse::Button::Five
+                    }),
+                    mouse::Action::Press,
+                    modifiers,
+                    false,
+                ) else {
+                    return Vec::new();
+                };
+
+                std::iter::repeat_n(report, scroll_lines.unsigned_abs() as usize).collect()
+            }
+        }
+    }
+
+    fn mouse_report_bytes(
+        &mut self,
+        point: TerminalGridPoint,
+        button: Option<TerminalMouseButton>,
+        action: mouse::Action,
+        modifiers: TerminalInputModifiers,
+        any_button_pressed: bool,
+    ) -> Option<Vec<u8>> {
+        self.mouse_report_bytes_raw(
+            point,
+            button.map(terminal_mouse_button),
+            action,
+            modifiers,
+            any_button_pressed,
+        )
+    }
+
+    fn mouse_report_bytes_raw(
+        &mut self,
+        point: TerminalGridPoint,
+        button: Option<mouse::Button>,
+        action: mouse::Action,
+        modifiers: TerminalInputModifiers,
+        any_button_pressed: bool,
+    ) -> Option<Vec<u8>> {
+        if point.line < 0 {
+            return None;
+        }
+
+        self.mouse_encoder
+            .set_options_from_terminal(&self.terminal)
+            .set_size(mouse::EncoderSize {
+                screen_width: u32::from(self.cols),
+                screen_height: u32::from(self.rows),
+                cell_width: 1,
+                cell_height: 1,
+                padding_top: 0,
+                padding_bottom: 0,
+                padding_left: 0,
+                padding_right: 0,
+            })
+            .set_any_button_pressed(any_button_pressed)
+            .set_track_last_cell(false);
+
+        let mut event = mouse::Event::new().ok()?;
+        event
+            .set_action(action)
+            .set_button(button)
+            .set_mods(terminal_mouse_mods(modifiers))
+            .set_position(mouse::Position {
+                x: point.column as f32,
+                y: point.line as f32,
+            });
+
+        let mut bytes = Vec::new();
+        self.mouse_encoder.encode_to_vec(&event, &mut bytes).ok()?;
+        if bytes.is_empty() { None } else { Some(bytes) }
+    }
+}
+
+fn terminal_mouse_button(button: TerminalMouseButton) -> mouse::Button {
+    match button {
+        TerminalMouseButton::Left => mouse::Button::Left,
+        TerminalMouseButton::Middle => mouse::Button::Middle,
+        TerminalMouseButton::Right => mouse::Button::Right,
+    }
+}
+
+fn terminal_mouse_mods(modifiers: TerminalInputModifiers) -> key::Mods {
+    let mut mods = key::Mods::empty();
+    if modifiers.shift {
+        mods |= key::Mods::SHIFT;
+    }
+    if modifiers.alt {
+        mods |= key::Mods::ALT;
+    }
+    if modifiers.control {
+        mods |= key::Mods::CTRL;
+    }
+    mods
 }
 
 fn build_snapshot(

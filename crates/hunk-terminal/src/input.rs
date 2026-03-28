@@ -1,4 +1,4 @@
-use libghostty_vt::{focus, mouse};
+use libghostty_vt::focus;
 
 use crate::TerminalModeSnapshot;
 
@@ -31,6 +31,26 @@ pub struct TerminalKeystroke<'a> {
     pub modifiers: TerminalInputModifiers,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalPointerInput {
+    Button {
+        point: TerminalGridPoint,
+        button: TerminalMouseButton,
+        modifiers: TerminalInputModifiers,
+        pressed: bool,
+    },
+    Move {
+        point: TerminalGridPoint,
+        button: Option<TerminalMouseButton>,
+        modifiers: TerminalInputModifiers,
+    },
+    Scroll {
+        point: TerminalGridPoint,
+        scroll_lines: i32,
+        modifiers: TerminalInputModifiers,
+    },
+}
+
 pub fn terminal_focus_input_bytes(
     focused: bool,
     mode: Option<TerminalModeSnapshot>,
@@ -54,38 +74,32 @@ pub fn terminal_focus_input_bytes(
     Some(bytes[..written].to_vec())
 }
 
-pub fn terminal_mouse_button_input_bytes(
+pub fn terminal_mouse_button_input(
     point: TerminalGridPoint,
     button: TerminalMouseButton,
     modifiers: TerminalInputModifiers,
     pressed: bool,
     mode: Option<TerminalModeSnapshot>,
-) -> Option<Vec<u8>> {
+) -> Option<TerminalPointerInput> {
     let mode = mode.unwrap_or_default();
     if modifiers.shift || !mode.mouse_mode {
         return None;
     }
 
-    terminal_mouse_report(
+    Some(TerminalPointerInput::Button {
         point,
-        Some(button),
-        if pressed {
-            mouse::Action::Press
-        } else {
-            mouse::Action::Release
-        },
+        button,
         modifiers,
-        mode,
-        false,
-    )
+        pressed,
+    })
 }
 
-pub fn terminal_mouse_move_input_bytes(
+pub fn terminal_mouse_move_input(
     point: TerminalGridPoint,
     button: Option<TerminalMouseButton>,
     modifiers: TerminalInputModifiers,
     mode: Option<TerminalModeSnapshot>,
-) -> Option<Vec<u8>> {
+) -> Option<TerminalPointerInput> {
     let mode = mode.unwrap_or_default();
     if modifiers.shift || (!mode.mouse_motion && !mode.mouse_drag) {
         return None;
@@ -94,43 +108,29 @@ pub fn terminal_mouse_move_input_bytes(
         return None;
     }
 
-    terminal_mouse_report(
-        point,
+    Some(TerminalPointerInput::Move {
         button,
-        mouse::Action::Motion,
+        point,
         modifiers,
-        mode,
-        button.is_some(),
-    )
+    })
 }
 
-pub fn terminal_mouse_scroll_input_bytes(
+pub fn terminal_mouse_scroll_input(
     point: TerminalGridPoint,
     scroll_lines: i32,
     modifiers: TerminalInputModifiers,
     mode: Option<TerminalModeSnapshot>,
-) -> Option<Vec<Vec<u8>>> {
+) -> Option<TerminalPointerInput> {
     let mode = mode.unwrap_or_default();
     if modifiers.shift || !mode.mouse_mode || scroll_lines == 0 {
         return None;
     }
 
-    let button = if scroll_lines > 0 {
-        mouse::Button::Four
-    } else {
-        mouse::Button::Five
-    };
-
-    let report = terminal_mouse_report_raw(
+    Some(TerminalPointerInput::Scroll {
         point,
-        Some(button),
-        mouse::Action::Press,
+        scroll_lines,
         modifiers,
-        mode,
-        false,
-    )?;
-
-    Some(std::iter::repeat_n(report, scroll_lines.unsigned_abs() as usize).collect())
+    })
 }
 
 pub fn terminal_alt_scroll_input_bytes(
@@ -330,112 +330,4 @@ fn terminal_control_byte(key: &str) -> Option<u8> {
         b'_' => Some(0x1f),
         _ => None,
     }
-}
-
-fn terminal_mouse_report(
-    point: TerminalGridPoint,
-    button: Option<TerminalMouseButton>,
-    action: mouse::Action,
-    modifiers: TerminalInputModifiers,
-    mode: TerminalModeSnapshot,
-    any_button_pressed: bool,
-) -> Option<Vec<u8>> {
-    let button = button.map(terminal_mouse_button);
-    terminal_mouse_report_raw(point, button, action, modifiers, mode, any_button_pressed)
-}
-
-fn terminal_mouse_report_raw(
-    point: TerminalGridPoint,
-    button: Option<mouse::Button>,
-    action: mouse::Action,
-    modifiers: TerminalInputModifiers,
-    mode: TerminalModeSnapshot,
-    any_button_pressed: bool,
-) -> Option<Vec<u8>> {
-    if point.line < 0 {
-        return None;
-    }
-
-    let mut encoder = mouse::Encoder::new().ok()?;
-    encoder
-        .set_tracking_mode(terminal_mouse_tracking_mode(mode))
-        .set_format(terminal_mouse_format(mode))
-        .set_size(mouse::EncoderSize {
-            screen_width: point.column.saturating_add(1) as u32,
-            screen_height: usize::try_from(point.line).ok()?.saturating_add(1) as u32,
-            cell_width: 1,
-            cell_height: 1,
-            padding_top: 0,
-            padding_bottom: 0,
-            padding_left: 0,
-            padding_right: 0,
-        })
-        .set_any_button_pressed(any_button_pressed)
-        .set_track_last_cell(false);
-
-    let mut event = mouse::Event::new().ok()?;
-    event
-        .set_action(action)
-        .set_mods(terminal_mouse_mods(modifiers))
-        .set_position(mouse::Position {
-            x: point.column as f32,
-            y: point.line as f32,
-        });
-
-    match button {
-        Some(button) => {
-            event.set_button(Some(button));
-        }
-        None => {
-            event.set_button(None);
-        }
-    }
-
-    let mut bytes = Vec::new();
-    encoder.encode_to_vec(&event, &mut bytes).ok()?;
-    if bytes.is_empty() { None } else { Some(bytes) }
-}
-
-fn terminal_mouse_button(button: TerminalMouseButton) -> mouse::Button {
-    match button {
-        TerminalMouseButton::Left => mouse::Button::Left,
-        TerminalMouseButton::Middle => mouse::Button::Middle,
-        TerminalMouseButton::Right => mouse::Button::Right,
-    }
-}
-
-fn terminal_mouse_tracking_mode(mode: TerminalModeSnapshot) -> mouse::TrackingMode {
-    if mode.mouse_motion {
-        mouse::TrackingMode::Any
-    } else if mode.mouse_drag {
-        mouse::TrackingMode::Button
-    } else if mode.mouse_mode {
-        mouse::TrackingMode::Normal
-    } else {
-        mouse::TrackingMode::None
-    }
-}
-
-fn terminal_mouse_format(mode: TerminalModeSnapshot) -> mouse::Format {
-    if mode.sgr_mouse {
-        mouse::Format::Sgr
-    } else if mode.utf8_mouse {
-        mouse::Format::Utf8
-    } else {
-        mouse::Format::X10
-    }
-}
-
-fn terminal_mouse_mods(modifiers: TerminalInputModifiers) -> libghostty_vt::key::Mods {
-    let mut mods = libghostty_vt::key::Mods::empty();
-    if modifiers.shift {
-        mods |= libghostty_vt::key::Mods::SHIFT;
-    }
-    if modifiers.alt {
-        mods |= libghostty_vt::key::Mods::ALT;
-    }
-    if modifiers.control {
-        mods |= libghostty_vt::key::Mods::CTRL;
-    }
-    mods
 }

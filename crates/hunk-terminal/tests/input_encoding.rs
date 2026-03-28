@@ -1,8 +1,8 @@
 use hunk_terminal::{
     TerminalGridPoint, TerminalInputModifiers, TerminalKeystroke, TerminalModeSnapshot,
-    terminal_alt_scroll_input_bytes, terminal_focus_input_bytes, terminal_keystroke_input_bytes,
-    terminal_mouse_button_input_bytes, terminal_mouse_move_input_bytes,
-    terminal_mouse_scroll_input_bytes, terminal_paste_input_bytes,
+    TerminalMouseButton, TerminalPointerInput, terminal_alt_scroll_input_bytes,
+    terminal_focus_input_bytes, terminal_keystroke_input_bytes, terminal_mouse_button_input,
+    terminal_mouse_move_input, terminal_mouse_scroll_input, terminal_paste_input_bytes,
 };
 
 #[test]
@@ -228,14 +228,19 @@ fn terminal_mouse_reports_prefer_sgr_and_skip_shift_override() {
     };
 
     assert_eq!(
-        terminal_mouse_button_input_bytes(
+        terminal_mouse_button_input(
             point,
-            hunk_terminal::TerminalMouseButton::Left,
+            TerminalMouseButton::Left,
             TerminalInputModifiers::default(),
             true,
             Some(mode),
         ),
-        Some(b"\x1b[<0;3;5M".to_vec())
+        Some(TerminalPointerInput::Button {
+            point,
+            button: TerminalMouseButton::Left,
+            modifiers: TerminalInputModifiers::default(),
+            pressed: true,
+        })
     );
 
     let modifiers = TerminalInputModifiers {
@@ -243,9 +248,9 @@ fn terminal_mouse_reports_prefer_sgr_and_skip_shift_override() {
         ..TerminalInputModifiers::default()
     };
     assert_eq!(
-        terminal_mouse_button_input_bytes(
+        terminal_mouse_button_input(
             point,
-            hunk_terminal::TerminalMouseButton::Left,
+            TerminalMouseButton::Left,
             modifiers,
             true,
             Some(mode),
@@ -259,20 +264,24 @@ fn terminal_mouse_move_reports_follow_drag_and_motion_modes() {
     let point = TerminalGridPoint { line: 1, column: 1 };
 
     assert_eq!(
-        terminal_mouse_move_input_bytes(
+        terminal_mouse_move_input(
             point,
-            Some(hunk_terminal::TerminalMouseButton::Left),
+            Some(TerminalMouseButton::Left),
             TerminalInputModifiers::default(),
             Some(TerminalModeSnapshot {
                 mouse_drag: true,
                 ..TerminalModeSnapshot::default()
             }),
         ),
-        Some(b"\x1b[M@\"\"".to_vec())
+        Some(TerminalPointerInput::Move {
+            point,
+            button: Some(TerminalMouseButton::Left),
+            modifiers: TerminalInputModifiers::default(),
+        })
     );
 
     assert_eq!(
-        terminal_mouse_move_input_bytes(
+        terminal_mouse_move_input(
             point,
             None,
             TerminalInputModifiers::default(),
@@ -287,7 +296,7 @@ fn terminal_mouse_move_reports_follow_drag_and_motion_modes() {
 
 #[test]
 fn terminal_scroll_reports_repeat_for_each_line() {
-    let reports = terminal_mouse_scroll_input_bytes(
+    let input = terminal_mouse_scroll_input(
         TerminalGridPoint { line: 2, column: 4 },
         -3,
         TerminalInputModifiers::default(),
@@ -296,10 +305,16 @@ fn terminal_scroll_reports_repeat_for_each_line() {
             ..TerminalModeSnapshot::default()
         }),
     )
-    .expect("mouse mode should produce reports");
+    .expect("mouse mode should produce pointer input");
 
-    assert_eq!(reports.len(), 3);
-    assert!(reports.iter().all(|report| report == b"\x1b[Ma%#"));
+    assert_eq!(
+        input,
+        TerminalPointerInput::Scroll {
+            point: TerminalGridPoint { line: 2, column: 4 },
+            scroll_lines: -3,
+            modifiers: TerminalInputModifiers::default(),
+        }
+    );
 }
 
 #[test]
@@ -321,7 +336,7 @@ fn terminal_alt_scroll_requires_alt_screen_mode() {
 #[test]
 fn terminal_scroll_reports_ignore_zero_scroll_delta() {
     assert_eq!(
-        terminal_mouse_scroll_input_bytes(
+        terminal_mouse_scroll_input(
             TerminalGridPoint { line: 0, column: 0 },
             0,
             TerminalInputModifiers::default(),

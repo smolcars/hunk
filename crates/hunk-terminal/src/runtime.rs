@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 use crate::backend::TerminalVt;
+use crate::input::TerminalPointerInput;
 use crate::snapshot::{TerminalScreenSnapshot, TerminalScroll};
 
 const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -91,6 +92,9 @@ enum TerminalControl {
     Resize { rows: u16, cols: u16 },
     Scroll(TerminalScroll),
     WriteInput(Vec<u8>),
+    WritePaste(String),
+    ReportFocus(bool),
+    WritePointerInput(TerminalPointerInput),
 }
 
 enum TerminalActorInput {
@@ -118,6 +122,21 @@ impl TerminalSessionHandle {
     pub fn write_input(&self, input: &[u8]) -> Result<()> {
         self.send_control(TerminalControl::WriteInput(input.to_vec()))
             .context("send terminal input")
+    }
+
+    pub fn write_paste(&self, text: &str) -> Result<()> {
+        self.send_control(TerminalControl::WritePaste(text.to_string()))
+            .context("send terminal paste")
+    }
+
+    pub fn report_focus(&self, focused: bool) -> Result<()> {
+        self.send_control(TerminalControl::ReportFocus(focused))
+            .context("send terminal focus event")
+    }
+
+    pub fn write_pointer_input(&self, input: TerminalPointerInput) -> Result<()> {
+        self.send_control(TerminalControl::WritePointerInput(input))
+            .context("send terminal pointer input")
     }
 
     pub fn scroll_display(&self, scroll: TerminalScroll) -> Result<()> {
@@ -249,6 +268,44 @@ pub fn spawn_terminal_session(
                         let _ = event_tx.send(TerminalEvent::Failed(format!(
                             "Failed to write terminal input: {error}"
                         )));
+                    }
+                }
+                Ok(TerminalActorInput::Control(TerminalControl::WritePaste(text))) => {
+                    if child_exit_reported {
+                        continue;
+                    }
+                    let input = vt.paste_input_bytes(text.as_str());
+                    if let Err(error) = write_terminal_bytes(writer.as_mut(), input.as_slice()) {
+                        let _ = event_tx.send(TerminalEvent::Failed(format!(
+                            "Failed to write terminal paste: {error}"
+                        )));
+                    }
+                }
+                Ok(TerminalActorInput::Control(TerminalControl::ReportFocus(focused))) => {
+                    if child_exit_reported {
+                        continue;
+                    }
+                    let Some(input) = vt.focus_input_bytes(focused) else {
+                        continue;
+                    };
+                    if let Err(error) = write_terminal_bytes(writer.as_mut(), input.as_slice()) {
+                        let _ = event_tx.send(TerminalEvent::Failed(format!(
+                            "Failed to write terminal focus event: {error}"
+                        )));
+                    }
+                }
+                Ok(TerminalActorInput::Control(TerminalControl::WritePointerInput(input))) => {
+                    if child_exit_reported {
+                        continue;
+                    }
+                    for report in vt.pointer_input_bytes(input) {
+                        if let Err(error) = write_terminal_bytes(writer.as_mut(), report.as_slice())
+                        {
+                            let _ = event_tx.send(TerminalEvent::Failed(format!(
+                                "Failed to write terminal pointer input: {error}"
+                            )));
+                            break;
+                        }
                     }
                 }
                 Ok(TerminalActorInput::PtyOutput(bytes)) => {
