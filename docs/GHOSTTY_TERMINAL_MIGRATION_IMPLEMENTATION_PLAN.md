@@ -22,7 +22,7 @@ The migration is worth doing if the goal is to stop owning terminal protocol det
 
 - Ghostty-owned VT parsing
 - Ghostty-owned key encoding
-- Ghostty-owned mouse encoding
+- Ghostty-owned mouse encoding from the live terminal state
 - better terminal metadata and damage tracking
 - less Hunk-specific protocol code to debug over time
 
@@ -186,6 +186,31 @@ For the first cut, keep Hunk's public snapshot/event types stable:
 
 Ghostty should initially feed those types through an adapter. Only after the cutover should we decide whether to expose Ghostty-specific shapes directly.
 
+### Input Encoding Rule
+
+The migration should separate:
+
+- GPUI event interpretation owned by `hunk-desktop`
+- terminal protocol byte generation owned by `hunk-terminal`
+
+That split is especially important for mouse input.
+
+Keyboard, paste, and focus reporting can be modeled as largely stateless input helpers in `hunk-terminal`.
+
+Mouse reporting should not be treated the same way. The final migration target is:
+
+- desktop converts pointer coordinates into terminal grid positions
+- desktop sends semantic mouse events to `hunk-terminal`
+- the terminal actor encodes mouse bytes against the live Ghostty terminal instance
+
+Do not treat `TerminalModeSnapshot` as the long-term source of truth for mouse protocol encoding. It is useful for rendering and temporary migration scaffolding, but it is too lossy to be the final authority for:
+
+- mouse format selection
+- tracking mode selection
+- any future Ghostty mouse features such as pixel reporting
+
+Temporary snapshot-driven helpers are acceptable only to keep the branch compiling while the actor-side input path is introduced.
+
 ## Phase 0: Fork Hardening
 
 ### Deliverable
@@ -306,14 +331,18 @@ The runtime uses a single-owner actor that is valid for Ghostty's threading rule
 
 ### Deliverable
 
-Ghostty owns key, mouse, paste, and focus encoding.
+Ghostty-backed input handling owns key, mouse, paste, and focus encoding, with mouse reports generated inside the terminal actor from the live Ghostty terminal.
 
 ### TODO
 
 - [ ] Add an input encoding layer in `hunk-terminal`, likely in `src/input.rs`.
 - [ ] Replace the custom key/mouse/focus protocol code in `crates/hunk-desktop/src/app/controller/ai/terminal_protocol.rs`.
 - [ ] Keep the GPUI event-to-grid-point conversion in `hunk-desktop`.
+- [ ] Introduce a semantic terminal input command path from `hunk-desktop` into `hunk-terminal` so desktop no longer sends pre-encoded protocol bytes for interactive events.
 - [ ] Move terminal protocol byte generation into `hunk-terminal` so `hunk-desktop` no longer knows terminal protocol details.
+- [ ] Encode mouse input inside the terminal actor using Ghostty's mouse API against the live terminal instance.
+- [ ] Do not use `TerminalModeSnapshot` as the final source of truth for mouse protocol encoding decisions.
+- [ ] Keep snapshot-driven keyboard, paste, and focus helpers only where they remain stateless and correct.
 - [ ] Support at minimum:
   - plain text input
   - bracketed paste
@@ -324,6 +353,7 @@ Ghostty owns key, mouse, paste, and focus encoding.
   - wheel input
   - alternate scroll behavior
 - [ ] Preserve current selection bypass behavior when `Shift` is used.
+- [ ] Delete temporary snapshot-driven mouse helpers once actor-side mouse encoding is live.
 
 ### Files To Touch
 
@@ -335,6 +365,7 @@ Ghostty owns key, mouse, paste, and focus encoding.
 ### Exit Criteria
 
 - Hunk no longer owns terminal protocol encoding logic in `hunk-desktop`.
+- Mouse protocol bytes are no longer reconstructed from `TerminalModeSnapshot`.
 - Common TUIs behave at least as well as the current implementation.
 
 ## Phase 5: Switch Hunk To Ghostty In-Branch
@@ -469,13 +500,21 @@ Mitigation:
 - Land backend swapping first.
 - Reuse `docs/TERMINAL_SHELL_COMPATIBILITY_IMPLEMENTATION_PLAN.md` for environment parity work.
 
+### Risk 6: Snapshot-based mouse reconstruction diverges from Ghostty's real terminal state
+
+Mitigation:
+
+- Treat snapshot-driven mouse encoding as temporary scaffolding only.
+- Move mouse encoding into the actor before calling Phase 4 complete.
+- Validate mouse-heavy TUIs after the actor-side input path is in place.
+
 ## Recommended Execution Order
 
 1. Harden the fork and make Hunk depend on a pinned fork commit.
 2. Refactor `hunk-terminal` into backend-friendly modules.
 3. Add Ghostty snapshot translation while keeping Alacritty code only as temporary branch scaffolding.
 4. Refactor to the actor-thread ownership model.
-5. Move terminal input encoding into `hunk-terminal` and back it with Ghostty.
+5. Move terminal input encoding into `hunk-terminal`, and move mouse encoding fully into the actor-backed Ghostty path.
 6. Switch Hunk to the Ghostty backend in the migration branch.
 7. Run the parity and validation pass.
 8. Delete the Alacritty backend.

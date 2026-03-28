@@ -785,7 +785,7 @@ impl DiffViewer {
         let Some(bytes) = ai_terminal_focus_bytes(focused, mode) else {
             return;
         };
-        let _ = self.files_write_terminal_bytes(bytes, cx);
+        let _ = self.files_write_terminal_bytes(bytes.as_slice(), cx);
     }
 
     fn files_paste_terminal_from_clipboard(&mut self, cx: &mut Context<Self>) -> bool {

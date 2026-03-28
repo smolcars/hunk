@@ -4,65 +4,11 @@ struct AiTerminalGridPoint {
     column: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AiTerminalMouseFormat {
-    Sgr,
-    Normal { utf8: bool },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AiTerminalMouseButtonCode {
-    LeftButton = 0,
-    MiddleButton = 1,
-    RightButton = 2,
-    LeftMove = 32,
-    MiddleMove = 33,
-    RightMove = 34,
-    NoneMove = 35,
-    ScrollUp = 64,
-    ScrollDown = 65,
-}
-
-impl AiTerminalMouseButtonCode {
-    fn from_button(button: MouseButton) -> Option<Self> {
-        match button {
-            MouseButton::Left => Some(Self::LeftButton),
-            MouseButton::Middle => Some(Self::MiddleButton),
-            MouseButton::Right => Some(Self::RightButton),
-            MouseButton::Navigate(_) => None,
-        }
-    }
-
-    fn from_move_button(button: Option<MouseButton>) -> Option<Self> {
-        match button {
-            Some(MouseButton::Left) => Some(Self::LeftMove),
-            Some(MouseButton::Middle) => Some(Self::MiddleMove),
-            Some(MouseButton::Right) => Some(Self::RightMove),
-            Some(MouseButton::Navigate(_)) => None,
-            None => Some(Self::NoneMove),
-        }
-    }
-
-    fn from_scroll_lines(scroll_lines: i32) -> Option<Self> {
-        if scroll_lines > 0 {
-            Some(Self::ScrollUp)
-        } else if scroll_lines < 0 {
-            Some(Self::ScrollDown)
-        } else {
-            None
-        }
-    }
-}
-
 fn ai_terminal_focus_bytes(
     focused: bool,
     mode: Option<hunk_terminal::TerminalModeSnapshot>,
-) -> Option<&'static [u8]> {
-    if !mode.unwrap_or_default().focus_in_out {
-        return None;
-    }
-
-    Some(if focused { b"\x1b[I" } else { b"\x1b[O" })
+) -> Option<Vec<u8>> {
+    hunk_terminal::terminal_focus_input_bytes(focused, mode)
 }
 
 #[cfg(test)]
@@ -93,13 +39,13 @@ fn ai_terminal_mouse_button_bytes(
     pressed: bool,
     mode: Option<hunk_terminal::TerminalModeSnapshot>,
 ) -> Option<Vec<u8>> {
-    let mode = mode.unwrap_or_default();
-    if modifiers.shift || !mode.mouse_mode {
-        return None;
-    }
-
-    let button = AiTerminalMouseButtonCode::from_button(button)?;
-    ai_terminal_mouse_report(point, button, pressed, modifiers, mode)
+    hunk_terminal::terminal_mouse_button_input_bytes(
+        ai_terminal_terminal_grid_point(point),
+        ai_terminal_mouse_button(button)?,
+        ai_terminal_input_modifiers(modifiers),
+        pressed,
+        mode,
+    )
 }
 
 fn ai_terminal_mouse_move_bytes(
@@ -108,17 +54,12 @@ fn ai_terminal_mouse_move_bytes(
     modifiers: gpui::Modifiers,
     mode: Option<hunk_terminal::TerminalModeSnapshot>,
 ) -> Option<Vec<u8>> {
-    let mode = mode.unwrap_or_default();
-    if modifiers.shift || (!mode.mouse_motion && !mode.mouse_drag) {
-        return None;
-    }
-
-    let button = AiTerminalMouseButtonCode::from_move_button(button)?;
-    if mode.mouse_drag && matches!(button, AiTerminalMouseButtonCode::NoneMove) {
-        return None;
-    }
-
-    ai_terminal_mouse_report(point, button, true, modifiers, mode)
+    hunk_terminal::terminal_mouse_move_input_bytes(
+        ai_terminal_terminal_grid_point(point),
+        button.and_then(ai_terminal_mouse_button),
+        ai_terminal_input_modifiers(modifiers),
+        mode,
+    )
 }
 
 fn ai_terminal_mouse_scroll_bytes(
@@ -127,15 +68,11 @@ fn ai_terminal_mouse_scroll_bytes(
     modifiers: gpui::Modifiers,
     mode: Option<hunk_terminal::TerminalModeSnapshot>,
 ) -> Option<Vec<Vec<u8>>> {
-    let mode = mode.unwrap_or_default();
-    if modifiers.shift || !mode.mouse_mode {
-        return None;
-    }
-
-    let button = AiTerminalMouseButtonCode::from_scroll_lines(scroll_lines)?;
-    let report = ai_terminal_mouse_report(point, button, true, modifiers, mode)?;
-    Some(
-        std::iter::repeat_n(report, scroll_lines.unsigned_abs() as usize).collect::<Vec<_>>(),
+    hunk_terminal::terminal_mouse_scroll_input_bytes(
+        ai_terminal_terminal_grid_point(point),
+        scroll_lines,
+        ai_terminal_input_modifiers(modifiers),
+        mode,
     )
 }
 
@@ -143,124 +80,11 @@ fn ai_terminal_alt_scroll_bytes(
     scroll_lines: i32,
     mode: Option<hunk_terminal::TerminalModeSnapshot>,
 ) -> Option<Vec<u8>> {
-    let mode = mode.unwrap_or_default();
-    if !mode.alt_screen || !mode.alternate_scroll || mode.mouse_mode || scroll_lines == 0 {
-        return None;
-    }
-
-    let command = if scroll_lines > 0 { b'A' } else { b'B' };
-    let mut bytes = Vec::with_capacity(scroll_lines.unsigned_abs() as usize * 3);
-    for _ in 0..scroll_lines.abs() {
-        bytes.extend_from_slice(&[0x1b, b'O', command]);
-    }
-    Some(bytes)
-}
-
-fn ai_terminal_mouse_report(
-    point: AiTerminalGridPoint,
-    button: AiTerminalMouseButtonCode,
-    pressed: bool,
-    modifiers: gpui::Modifiers,
-    mode: hunk_terminal::TerminalModeSnapshot,
-) -> Option<Vec<u8>> {
-    if point.line < 0 {
-        return None;
-    }
-
-    let format = if mode.sgr_mouse {
-        AiTerminalMouseFormat::Sgr
-    } else {
-        AiTerminalMouseFormat::Normal {
-            utf8: mode.utf8_mouse,
-        }
-    };
-    let mut modifier_bits = 0;
-    if modifiers.shift {
-        modifier_bits += 4;
-    }
-    if modifiers.alt {
-        modifier_bits += 8;
-    }
-    if modifiers.control {
-        modifier_bits += 16;
-    }
-
-    match format {
-        AiTerminalMouseFormat::Sgr => Some(
-            ai_terminal_sgr_mouse_report(point, button as u8 + modifier_bits, pressed)
-                .into_bytes(),
-        ),
-        AiTerminalMouseFormat::Normal { utf8 } => {
-            let button_code = if pressed {
-                button as u8 + modifier_bits
-            } else {
-                3 + modifier_bits
-            };
-            ai_terminal_normal_mouse_report(point, button_code, utf8)
-        }
-    }
-}
-
-fn ai_terminal_normal_mouse_report(
-    point: AiTerminalGridPoint,
-    button: u8,
-    utf8: bool,
-) -> Option<Vec<u8>> {
-    let max_point = if utf8 { 2015 } else { 223 };
-    let line = usize::try_from(point.line).ok()?;
-    if line >= max_point || point.column >= max_point {
-        return None;
-    }
-
-    let mut bytes = vec![b'\x1b', b'[', b'M', 32 + button];
-
-    if utf8 && point.column >= 95 {
-        bytes.extend_from_slice(ai_terminal_utf8_mouse_position_bytes(point.column).as_slice());
-    } else {
-        bytes.push(32 + 1 + point.column as u8);
-    }
-
-    if utf8 && line >= 95 {
-        bytes.extend_from_slice(ai_terminal_utf8_mouse_position_bytes(line).as_slice());
-    } else {
-        bytes.push(32 + 1 + line as u8);
-    }
-
-    Some(bytes)
-}
-
-fn ai_terminal_utf8_mouse_position_bytes(position: usize) -> [u8; 2] {
-    let value = 32 + 1 + position;
-    let first = 0xC0 + value / 64;
-    let second = 0x80 + (value & 63);
-    [first as u8, second as u8]
-}
-
-fn ai_terminal_sgr_mouse_report(
-    point: AiTerminalGridPoint,
-    button: u8,
-    pressed: bool,
-) -> String {
-    let suffix = if pressed { 'M' } else { 'm' };
-    format!(
-        "\x1b[<{};{};{}{}",
-        button,
-        point.column + 1,
-        point.line + 1,
-        suffix
-    )
+    hunk_terminal::terminal_alt_scroll_input_bytes(scroll_lines, mode)
 }
 
 fn ai_terminal_paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
-    if bracketed {
-        let mut bytes = Vec::with_capacity(text.len() + 12);
-        bytes.extend_from_slice(b"\x1b[200~");
-        bytes.extend_from_slice(text.as_bytes());
-        bytes.extend_from_slice(b"\x1b[201~");
-        bytes
-    } else {
-        text.as_bytes().to_vec()
-    }
+    hunk_terminal::terminal_paste_input_bytes(text, bracketed)
 }
 
 fn ai_terminal_viewport_scroll_for_keystroke(
@@ -314,197 +138,38 @@ fn ai_terminal_input_bytes_for_keystroke(
     keystroke: &gpui::Keystroke,
     mode: Option<hunk_terminal::TerminalModeSnapshot>,
 ) -> Option<Vec<u8>> {
-    if keystroke.modifiers.platform || keystroke.modifiers.function {
-        return None;
-    }
-
-    let mode = mode.unwrap_or_default();
-
-    match keystroke.key.as_str() {
-        "enter" => return Some(vec![b'\r']),
-        "tab" => {
-            return Some(if keystroke.modifiers.shift {
-                b"\x1b[Z".to_vec()
-            } else {
-                vec![b'\t']
-            });
-        }
-        "backspace" if keystroke.modifiers.alt && !keystroke.modifiers.control => {
-            return Some(vec![0x1b, 0x7f])
-        }
-        "backspace" => return Some(vec![0x7f]),
-        "escape" => return Some(vec![0x1b]),
-        "home"
-            if keystroke.modifiers.shift
-                && !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && mode.alt_screen =>
-        {
-            return Some(b"\x1b[1;2H".to_vec())
-        }
-        "end"
-            if keystroke.modifiers.shift
-                && !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && mode.alt_screen =>
-        {
-            return Some(b"\x1b[1;2F".to_vec())
-        }
-        "pageup"
-            if keystroke.modifiers.shift
-                && !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && mode.alt_screen =>
-        {
-            return Some(b"\x1b[5;2~".to_vec())
-        }
-        "pagedown"
-            if keystroke.modifiers.shift
-                && !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && mode.alt_screen =>
-        {
-            return Some(b"\x1b[6;2~".to_vec())
-        }
-        "up"
-            if !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && !keystroke.modifiers.shift =>
-        {
-            return Some(if mode.app_cursor {
-                b"\x1bOA".to_vec()
-            } else {
-                b"\x1b[A".to_vec()
-            })
-        }
-        "down"
-            if !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && !keystroke.modifiers.shift =>
-        {
-            return Some(if mode.app_cursor {
-                b"\x1bOB".to_vec()
-            } else {
-                b"\x1b[B".to_vec()
-            })
-        }
-        "right"
-            if !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && !keystroke.modifiers.shift =>
-        {
-            return Some(if mode.app_cursor {
-                b"\x1bOC".to_vec()
-            } else {
-                b"\x1b[C".to_vec()
-            })
-        }
-        "left"
-            if !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && !keystroke.modifiers.shift =>
-        {
-            return Some(if mode.app_cursor {
-                b"\x1bOD".to_vec()
-            } else {
-                b"\x1b[D".to_vec()
-            })
-        }
-        "left"
-            if !keystroke.modifiers.shift
-                && ((keystroke.modifiers.alt && !keystroke.modifiers.control)
-                    || (keystroke.modifiers.control && !keystroke.modifiers.alt)) =>
-        {
-            return Some(b"\x1bb".to_vec())
-        }
-        "right"
-            if !keystroke.modifiers.shift
-                && ((keystroke.modifiers.alt && !keystroke.modifiers.control)
-                    || (keystroke.modifiers.control && !keystroke.modifiers.alt)) =>
-        {
-            return Some(b"\x1bf".to_vec())
-        }
-        "home"
-            if !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && !keystroke.modifiers.shift =>
-        {
-            return Some(if mode.app_cursor {
-                b"\x1bOH".to_vec()
-            } else {
-                b"\x1b[H".to_vec()
-            })
-        }
-        "end"
-            if !keystroke.modifiers.control
-                && !keystroke.modifiers.alt
-                && !keystroke.modifiers.shift =>
-        {
-            return Some(if mode.app_cursor {
-                b"\x1bOF".to_vec()
-            } else {
-                b"\x1b[F".to_vec()
-            })
-        }
-        "up" => return Some(b"\x1b[A".to_vec()),
-        "down" => return Some(b"\x1b[B".to_vec()),
-        "right" => return Some(b"\x1b[C".to_vec()),
-        "left" => return Some(b"\x1b[D".to_vec()),
-        "home" => return Some(b"\x1b[H".to_vec()),
-        "end" => return Some(b"\x1b[F".to_vec()),
-        "pageup" => return Some(b"\x1b[5~".to_vec()),
-        "pagedown" => return Some(b"\x1b[6~".to_vec()),
-        "delete" if keystroke.modifiers.control && !keystroke.modifiers.alt => {
-            return Some(b"\x1bd".to_vec())
-        }
-        "delete" => return Some(b"\x1b[3~".to_vec()),
-        "space" => {
-            if keystroke.modifiers.control {
-                return Some(vec![0x00]);
-            }
-        }
-        _ => {}
-    }
-
-    if keystroke.modifiers.control
-        && !keystroke.modifiers.alt
-        && !keystroke.modifiers.shift
-        && let Some(control) = ai_terminal_control_byte(keystroke.key.as_str())
-    {
-        return Some(vec![control]);
-    }
-
-    let text = keystroke
-        .key_char
-        .as_deref()
-        .unwrap_or(keystroke.key.as_str());
-    if text.is_empty() {
-        return None;
-    }
-
-    let mut bytes = Vec::with_capacity(text.len() + usize::from(keystroke.modifiers.alt));
-    if keystroke.modifiers.alt {
-        bytes.push(0x1b);
-    }
-    bytes.extend_from_slice(text.as_bytes());
-    Some(bytes)
+    let keystroke = hunk_terminal::TerminalKeystroke {
+        key: keystroke.key.as_str(),
+        key_char: keystroke.key_char.as_deref(),
+        modifiers: ai_terminal_input_modifiers(keystroke.modifiers),
+    };
+    hunk_terminal::terminal_keystroke_input_bytes(&keystroke, mode)
 }
 
-fn ai_terminal_control_byte(key: &str) -> Option<u8> {
-    if key.len() == 1 {
-        let byte = key.as_bytes()[0];
-        return match byte.to_ascii_lowercase() {
-            b'a'..=b'z' => Some((byte.to_ascii_lowercase() - b'a') + 1),
-            b'[' => Some(0x1b),
-            b'\\' => Some(0x1c),
-            b']' => Some(0x1d),
-            b'^' => Some(0x1e),
-            b'_' => Some(0x1f),
-            _ => None,
-        };
+fn ai_terminal_terminal_grid_point(point: AiTerminalGridPoint) -> hunk_terminal::TerminalGridPoint {
+    hunk_terminal::TerminalGridPoint {
+        line: point.line,
+        column: point.column,
     }
+}
 
-    None
+fn ai_terminal_input_modifiers(modifiers: gpui::Modifiers) -> hunk_terminal::TerminalInputModifiers {
+    hunk_terminal::TerminalInputModifiers {
+        shift: modifiers.shift,
+        alt: modifiers.alt,
+        control: modifiers.control,
+        platform: modifiers.platform,
+        function: modifiers.function,
+    }
+}
+
+fn ai_terminal_mouse_button(button: MouseButton) -> Option<hunk_terminal::TerminalMouseButton> {
+    match button {
+        MouseButton::Left => Some(hunk_terminal::TerminalMouseButton::Left),
+        MouseButton::Middle => Some(hunk_terminal::TerminalMouseButton::Middle),
+        MouseButton::Right => Some(hunk_terminal::TerminalMouseButton::Right),
+        MouseButton::Navigate(_) => None,
+    }
 }
 
 fn ai_terminal_uses_desktop_clipboard_shortcut(keystroke: &gpui::Keystroke) -> bool {
@@ -800,7 +465,7 @@ mod terminal_protocol_tests {
                     ..TerminalModeSnapshot::default()
                 }),
             ),
-            Some(&b"\x1b[I"[..])
+            Some(b"\x1b[I".to_vec())
         );
         assert_eq!(ai_terminal_focus_bytes(false, None), None);
     }
