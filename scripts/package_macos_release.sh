@@ -35,17 +35,71 @@ validate_macos_binary_dependencies() {
       printf '%s\n' "$linked_libraries" >&2
       exit 1
     fi
+    if [[ "$candidate_path" == "$APP_EXECUTABLE_PATH" ]] \
+      && printf '%s\n' "$linked_libraries" | grep -F '@rpath/libghostty-vt.dylib' >/dev/null \
+      && ! otool -l "$candidate_path" | grep -F '@executable_path/../Frameworks' >/dev/null; then
+      echo "error: macOS app binary still depends on @rpath/libghostty-vt.dylib without an app-bundle LC_RPATH" >&2
+      printf '%s\n' "$linked_libraries" >&2
+      exit 1
+    fi
   done
 
   echo "Verified macOS app binary dependencies are self-contained." >&2
 }
 
+resolve_macos_runtime_dylib() {
+  local install_name="$1"
+  local search_root="$TARGET_DIR/$TARGET_TRIPLE/release/build"
+  local resolved_path=""
+
+  case "$install_name" in
+    @rpath/libghostty-vt.dylib)
+      if [[ ! -d "$search_root" ]]; then
+        search_root="$TARGET_DIR/release/build"
+      fi
+      if [[ -d "$search_root" ]]; then
+        resolved_path="$(find "$search_root" -path '*/out/ghostty-install/lib/libghostty-vt.dylib' | sort | head -n 1)"
+      fi
+      ;;
+  esac
+
+  [[ -n "$resolved_path" ]] || return 1
+  printf '%s\n' "$resolved_path"
+}
+
 list_non_system_macos_dylibs() {
   local binary_path="$1"
-  otool -L "$binary_path" \
-    | tail -n +2 \
-    | awk '{print $1}' \
-    | grep -E '^/(opt/homebrew|usr/local|opt/local|nix/store)/' || true
+  local install_name resolved_path
+
+  while IFS= read -r install_name; do
+    [[ -n "$install_name" ]] || continue
+    if [[ "$install_name" =~ ^/(opt/homebrew|usr/local|opt/local|nix/store)/ ]]; then
+      printf '%s\n' "$install_name"
+      continue
+    fi
+    if resolved_path="$(resolve_macos_runtime_dylib "$install_name")"; then
+      printf '%s\n' "$resolved_path"
+    fi
+  done < <(
+    otool -L "$binary_path" \
+      | tail -n +2 \
+      | awk '{print $1}'
+  )
+}
+
+ensure_macos_bundle_rpath() {
+  local binary_path="$1"
+  local bundle_rpath='@executable_path/../Frameworks'
+
+  if ! otool -L "$binary_path" | grep -F '@rpath/libghostty-vt.dylib' >/dev/null; then
+    return
+  fi
+
+  if otool -l "$binary_path" | grep -F "$bundle_rpath" >/dev/null; then
+    return
+  fi
+
+  install_name_tool -add_rpath "$bundle_rpath" "$binary_path"
 }
 
 bundle_macos_non_system_dylibs() {
@@ -65,6 +119,7 @@ bundle_macos_non_system_dylibs() {
   fi
 
   mkdir -p "$APP_FRAMEWORKS_DIR"
+  ensure_macos_bundle_rpath "$root_binary"
   echo "Bundling non-system macOS dylibs into Hunk.app..." >&2
 
   while [[ $index -lt ${#dylib_queue[@]} ]]; do
