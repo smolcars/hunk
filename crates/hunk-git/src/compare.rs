@@ -13,6 +13,7 @@ use crate::worktree::repo_relative_path_is_within_managed_worktrees;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompareSource {
     WorkspaceTarget { target_id: String, root: PathBuf },
+    WorkspaceTargetHead { target_id: String, root: PathBuf },
     Branch { name: String },
 }
 
@@ -98,6 +99,10 @@ pub fn compare_branch_source_id(branch_name: &str) -> String {
 
 pub fn compare_workspace_target_source_id(target_id: &str) -> String {
     format!("workspace:{target_id}")
+}
+
+pub fn compare_workspace_target_head_source_id(target_id: &str) -> String {
+    format!("workspace-head:{target_id}")
 }
 
 pub fn resolve_default_base_branch_name(repo_root: &Path) -> Result<Option<String>> {
@@ -300,6 +305,13 @@ fn resolve_compare_source(
             Ok(ResolvedCompareSource {
                 workspace_root: Some(root.clone()),
                 head_tree_oid,
+            })
+        }
+        CompareSource::WorkspaceTargetHead { root, .. } => {
+            let workspace_repo = open_repository(root)?;
+            Ok(ResolvedCompareSource {
+                workspace_root: None,
+                head_tree_oid: head_tree_oid(&workspace_repo)?,
             })
         }
         CompareSource::Branch { name } => Ok(ResolvedCompareSource {

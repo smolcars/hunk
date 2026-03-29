@@ -67,7 +67,7 @@ fn background_branch_name_for_worktree_skips_missing_generation() {
 }
 
 #[test]
-fn review_compare_selection_ids_for_workspace_root_prefers_base_branch_over_worktree_branch() {
+fn review_compare_selection_ids_for_workspace_root_uses_workspace_head_pair() {
     let mut primary = workspace_target(
         "primary",
         WorkspaceTargetKind::PrimaryCheckout,
@@ -87,9 +87,10 @@ fn review_compare_selection_ids_for_workspace_root_prefers_base_branch_over_work
     let workspace_targets = vec![primary.clone(), worktree.clone()];
     let sources = vec![
         ReviewCompareSourceOption::from_workspace_target(&primary),
+        ReviewCompareSourceOption::from_workspace_target_head(&primary),
         ReviewCompareSourceOption::from_workspace_target(&worktree),
+        ReviewCompareSourceOption::from_workspace_target_head(&worktree),
         ReviewCompareSourceOption::from_branch(&local_branch("main", false)),
-        ReviewCompareSourceOption::from_branch(&local_branch("feature/task-1", true)),
     ];
 
     assert_eq!(
@@ -97,15 +98,13 @@ fn review_compare_selection_ids_for_workspace_root_prefers_base_branch_over_work
             &sources,
             &workspace_targets,
             std::path::Path::new("/repo/worktrees/task-1"),
-            Some("main"),
-            Some("main"),
         ),
-        Some((Some("branch:main".to_string()), Some(sources[1].id.clone()))),
+        Some((Some(sources[3].id.clone()), Some(sources[2].id.clone()))),
     );
 }
 
 #[test]
-fn review_compare_selection_ids_for_workspace_root_falls_back_to_worktree_branch() {
+fn review_compare_selection_ids_for_workspace_root_falls_back_when_head_source_missing() {
     let mut primary = workspace_target(
         "primary",
         WorkspaceTargetKind::PrimaryCheckout,
@@ -134,8 +133,6 @@ fn review_compare_selection_ids_for_workspace_root_falls_back_to_worktree_branch
             &sources,
             &workspace_targets,
             std::path::Path::new("/repo/worktrees/task-1"),
-            Some("release/1.0"),
-            Some("main"),
         ),
         Some((
             Some("branch:feature/task-1".to_string()),
@@ -165,9 +162,10 @@ fn selected_git_workspace_review_compare_selection_ids_uses_active_workspace_tar
     let workspace_targets = vec![primary.clone(), worktree.clone()];
     let sources = vec![
         ReviewCompareSourceOption::from_workspace_target(&primary),
+        ReviewCompareSourceOption::from_workspace_target_head(&primary),
         ReviewCompareSourceOption::from_workspace_target(&worktree),
+        ReviewCompareSourceOption::from_workspace_target_head(&worktree),
         ReviewCompareSourceOption::from_branch(&local_branch("main", false)),
-        ReviewCompareSourceOption::from_branch(&local_branch("feature/task-1", true)),
     ];
 
     assert_eq!(
@@ -175,9 +173,8 @@ fn selected_git_workspace_review_compare_selection_ids_uses_active_workspace_tar
             &sources,
             &workspace_targets,
             Some(std::path::Path::new("/repo/worktrees/task-1")),
-            Some("main"),
         ),
-        Some((Some("branch:main".to_string()), Some(sources[1].id.clone()))),
+        Some((Some(sources[3].id.clone()), Some(sources[2].id.clone()))),
     );
 }
 

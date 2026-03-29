@@ -13,64 +13,54 @@ fn review_compare_branch_source_id(
         .map(|source| source.id.clone())
 }
 
+fn review_compare_workspace_source_id(
+    sources: &[ReviewCompareSourceOption],
+    target_id: &str,
+    kind: crate::app::review_compare_picker::ReviewCompareSourceKind,
+) -> Option<String> {
+    sources
+        .iter()
+        .find(|source| {
+            source.kind == kind && source.workspace_target_id.as_deref() == Some(target_id)
+        })
+        .map(|source| source.id.clone())
+}
+
 fn review_compare_selection_ids_for_workspace_root(
     sources: &[ReviewCompareSourceOption],
     workspace_targets: &[hunk_git::worktree::WorkspaceTargetSummary],
     workspace_root: &std::path::Path,
-    preferred_base_branch_name: Option<&str>,
-    default_base_branch_name: Option<&str>,
 ) -> Option<(Option<String>, Option<String>)> {
     let target = workspace_targets
         .iter()
         .find(|target| target.root.as_path() == workspace_root)?;
-    let right_source_id = sources
-        .iter()
-        .find(|source| source.workspace_target_id.as_deref() == Some(target.id.as_str()))
-        .map(|source| source.id.clone())?;
-
-    let preferred_base_branch_name = preferred_base_branch_name
-        .map(str::trim)
-        .filter(|branch_name| !branch_name.is_empty());
-    let default_base_branch_name = default_base_branch_name
-        .map(str::trim)
-        .filter(|branch_name| !branch_name.is_empty());
-
-    let left_source_id = preferred_base_branch_name
-        .and_then(|branch_name| {
-            review_compare_branch_source_id(sources, branch_name, Some(right_source_id.as_str()))
-        })
-        .or_else(|| {
-            default_base_branch_name.and_then(|branch_name| {
-                review_compare_branch_source_id(sources, branch_name, Some(right_source_id.as_str()))
-            })
-        })
-        .or_else(|| {
-            if matches!(target.branch_name.as_str(), "detached" | "unborn") {
-                None
-            } else {
-                review_compare_branch_source_id(
-                    sources,
-                    target.branch_name.as_str(),
-                    Some(right_source_id.as_str()),
-                )
-            }
-        })
-        .or_else(|| {
-            sources
-                .iter()
-                .find(|source| {
-                    source.workspace_target_id.as_deref()
-                        == Some(hunk_git::worktree::PRIMARY_WORKSPACE_TARGET_ID)
-                        && source.id != right_source_id
-                })
-                .map(|source| source.id.clone())
-        })
-        .or_else(|| {
-            sources
-                .iter()
-                .find(|source| source.id != right_source_id)
-                .map(|source| source.id.clone())
-        });
+    let right_source_id = review_compare_workspace_source_id(
+        sources,
+        target.id.as_str(),
+        crate::app::review_compare_picker::ReviewCompareSourceKind::WorkspaceTarget,
+    )?;
+    let left_source_id = review_compare_workspace_source_id(
+        sources,
+        target.id.as_str(),
+        crate::app::review_compare_picker::ReviewCompareSourceKind::WorkspaceTargetHead,
+    )
+    .or_else(|| {
+        if matches!(target.branch_name.as_str(), "detached" | "unborn") {
+            None
+        } else {
+            review_compare_branch_source_id(
+                sources,
+                target.branch_name.as_str(),
+                Some(right_source_id.as_str()),
+            )
+        }
+    })
+    .or_else(|| {
+        sources
+            .iter()
+            .find(|source| source.id != right_source_id)
+            .map(|source| source.id.clone())
+    });
 
     Some(DiffViewer::normalize_review_compare_selection_ids(
         sources,
@@ -83,16 +73,9 @@ fn selected_git_workspace_review_compare_selection_ids(
     sources: &[ReviewCompareSourceOption],
     workspace_targets: &[hunk_git::worktree::WorkspaceTargetSummary],
     workspace_root: Option<&std::path::Path>,
-    default_base_branch_name: Option<&str>,
 ) -> Option<(Option<String>, Option<String>)> {
     let workspace_root = workspace_root?;
-    review_compare_selection_ids_for_workspace_root(
-        sources,
-        workspace_targets,
-        workspace_root,
-        None,
-        default_base_branch_name,
-    )
+    review_compare_selection_ids_for_workspace_root(sources, workspace_targets, workspace_root)
 }
 
 fn update_persisted_review_compare_selection(
@@ -258,15 +241,10 @@ impl DiffViewer {
     fn selected_git_workspace_review_compare_selection(
         &self,
     ) -> Option<(Option<String>, Option<String>)> {
-        let default_base_branch_name = self
-            .project_path
-            .as_deref()
-            .and_then(|project_path| resolve_default_base_branch_name(project_path).ok().flatten());
         selected_git_workspace_review_compare_selection_ids(
             &self.review_compare_sources,
             &self.workspace_targets,
             self.selected_git_workspace_root().as_deref(),
-            default_base_branch_name.as_deref(),
         )
     }
 
@@ -335,11 +313,18 @@ impl DiffViewer {
         let active_target_id = self.active_workspace_target_id.as_deref()?;
         sources
             .iter()
-            .find(|source| source.workspace_target_id.as_deref() == Some(active_target_id))
+            .find(|source| {
+                source.kind == crate::app::review_compare_picker::ReviewCompareSourceKind::WorkspaceTarget
+                    && source.workspace_target_id.as_deref() == Some(active_target_id)
+            })
             .or_else(|| {
                 sources
                     .iter()
-                    .find(|source| source.workspace_target_id.as_deref() == Some("primary"))
+                    .find(|source| {
+                        source.kind
+                            == crate::app::review_compare_picker::ReviewCompareSourceKind::WorkspaceTarget
+                            && source.workspace_target_id.as_deref() == Some("primary")
+                    })
             })
             .or_else(|| sources.first())
             .map(|source| source.id.clone())
@@ -351,6 +336,26 @@ impl DiffViewer {
         right_source_id: Option<&str>,
         default_base_branch_name: Option<&str>,
     ) -> Option<String> {
+        if let Some(workspace_target_id) = right_source_id
+            .and_then(|right_source_id| {
+                sources
+                    .iter()
+                    .find(|source| source.id == right_source_id)
+            })
+            .filter(|source| {
+                source.kind == crate::app::review_compare_picker::ReviewCompareSourceKind::WorkspaceTarget
+            })
+            .and_then(|source| source.workspace_target_id.as_deref())
+            && let Some(source) = sources.iter().find(|source| {
+                source.kind
+                    == crate::app::review_compare_picker::ReviewCompareSourceKind::WorkspaceTargetHead
+                    && source.workspace_target_id.as_deref() == Some(workspace_target_id)
+                    && Some(source.id.as_str()) != right_source_id
+            })
+        {
+            return Some(source.id.clone());
+        }
+
         if let Some(active_branch_name) = right_source_id
             .and_then(|right_source_id| {
                 sources
@@ -482,9 +487,14 @@ impl DiffViewer {
         let mut sources = Vec::new();
 
         for target in &self.workspace_targets {
-            let source = ReviewCompareSourceOption::from_workspace_target(target);
-            if seen_ids.insert(source.id.clone()) {
-                sources.push(source);
+            let workspace_source = ReviewCompareSourceOption::from_workspace_target(target);
+            if seen_ids.insert(workspace_source.id.clone()) {
+                sources.push(workspace_source);
+            }
+
+            let workspace_head_source = ReviewCompareSourceOption::from_workspace_target_head(target);
+            if seen_ids.insert(workspace_head_source.id.clone()) {
+                sources.push(workspace_head_source);
             }
         }
 
@@ -559,6 +569,12 @@ impl DiffViewer {
                 target_id: option.workspace_target_id.clone()?,
                 root: option.workspace_root.clone()?,
             }),
+            crate::app::review_compare_picker::ReviewCompareSourceKind::WorkspaceTargetHead => Some(
+                CompareSource::WorkspaceTargetHead {
+                    target_id: option.workspace_target_id.clone()?,
+                    root: option.workspace_root.clone()?,
+                },
+            ),
             crate::app::review_compare_picker::ReviewCompareSourceKind::Branch => Some(CompareSource::Branch {
                 name: option.branch_name.clone()?,
             }),

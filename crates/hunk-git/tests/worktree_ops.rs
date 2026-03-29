@@ -411,6 +411,71 @@ fn compare_snapshot_supports_worktree_to_branch_diffs() -> Result<()> {
 }
 
 #[test]
+fn compare_snapshot_supports_workspace_head_to_worktree_diffs() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "base\n")?;
+    fixture.commit_all("initial")?;
+    let worktree = create_managed_worktree(
+        fixture.root(),
+        &CreateWorktreeRequest {
+            branch_name: "feature/workspace-head".to_string(),
+            base_branch_name: None,
+        },
+    )?;
+
+    write_file(
+        worktree.root.as_path(),
+        "tracked.txt",
+        "base\ncommitted branch change\n",
+    )?;
+    commit_all_in_repo(worktree.root.as_path(), "branch commit")?;
+    write_file(
+        worktree.root.as_path(),
+        "tracked.txt",
+        "base\ncommitted branch change\nunstaged worktree change\n",
+    )?;
+
+    let head_snapshot = load_compare_snapshot(
+        fixture.root(),
+        &CompareSource::WorkspaceTargetHead {
+            target_id: worktree.id.clone(),
+            root: worktree.root.clone(),
+        },
+        &CompareSource::WorkspaceTarget {
+            target_id: worktree.id.clone(),
+            root: worktree.root.clone(),
+        },
+    )?;
+    let branch_snapshot = load_compare_snapshot(
+        fixture.root(),
+        &CompareSource::Branch {
+            name: "main".to_string(),
+        },
+        &CompareSource::WorkspaceTarget {
+            target_id: worktree.id.clone(),
+            root: worktree.root.clone(),
+        },
+    )?;
+
+    let head_patch = head_snapshot
+        .patches_by_path
+        .get("tracked.txt")
+        .context("head compare patch should exist")?;
+    let branch_patch = branch_snapshot
+        .patches_by_path
+        .get("tracked.txt")
+        .context("branch compare patch should exist")?;
+
+    assert!(head_patch.contains("unstaged worktree change"));
+    assert!(!head_patch.contains("+committed branch change"));
+    assert_eq!(head_snapshot.overall_line_stats.added, 1);
+    assert!(branch_patch.contains("committed branch change"));
+    assert!(branch_patch.contains("unstaged worktree change"));
+    assert!(branch_snapshot.overall_line_stats.added > head_snapshot.overall_line_stats.added);
+    Ok(())
+}
+
+#[test]
 fn compare_snapshot_supports_branch_to_worktree_new_files() -> Result<()> {
     let fixture = TempGitRepo::new()?;
     fixture.write_file("tracked.txt", "base\n")?;
@@ -444,6 +509,54 @@ fn compare_snapshot_supports_branch_to_worktree_new_files() -> Result<()> {
             .get("test.md")
             .is_some_and(|patch| patch.contains("@@") && patch.contains("new file"))
     );
+    Ok(())
+}
+
+fn write_file(root: &Path, relative_path: &str, contents: &str) -> Result<()> {
+    let full_path = root.join(relative_path);
+    if let Some(parent) = full_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(full_path, contents)?;
+    Ok(())
+}
+
+fn commit_all_in_repo(root: &Path, message: &str) -> Result<()> {
+    let repo = Repository::open(root)?;
+    let mut index = repo.index()?;
+    index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
+    index.write()?;
+    let tree_id = index.write_tree()?;
+    let tree = repo.find_tree(tree_id)?;
+    let signature = Signature::now("Hunk Test", "hunk@example.com")?;
+
+    let parent = match repo.head() {
+        Ok(head) => Some(head.peel_to_commit()?),
+        Err(err)
+            if err.code() == git2::ErrorCode::UnbornBranch
+                || err.code() == git2::ErrorCode::NotFound =>
+        {
+            None
+        }
+        Err(err) => return Err(err).context("failed to resolve HEAD while committing"),
+    };
+
+    match parent.as_ref() {
+        Some(parent) => {
+            repo.commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                message,
+                &tree,
+                &[parent],
+            )?;
+        }
+        None => {
+            repo.commit(Some("HEAD"), &signature, &signature, message, &tree, &[])?;
+        }
+    }
+
     Ok(())
 }
 

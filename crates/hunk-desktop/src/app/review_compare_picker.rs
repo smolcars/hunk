@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use gpui::{AnyElement, App, IntoElement as _, ParentElement as _, SharedString, Styled as _, div};
 use gpui_component::{ActiveTheme as _, v_flex};
-use hunk_git::compare::{compare_branch_source_id, compare_workspace_target_source_id};
+use hunk_git::compare::{
+    compare_branch_source_id, compare_workspace_target_head_source_id,
+    compare_workspace_target_source_id,
+};
 use hunk_git::git::LocalBranch;
 use hunk_git::worktree::{WorkspaceTargetKind, WorkspaceTargetSummary};
 
@@ -11,6 +14,7 @@ use super::hunk_picker::{HunkPickerDelegate, HunkPickerItem};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ReviewCompareSourceKind {
     WorkspaceTarget,
+    WorkspaceTargetHead,
     Branch,
 }
 
@@ -26,8 +30,8 @@ pub(crate) struct ReviewCompareSourceOption {
 }
 
 impl ReviewCompareSourceOption {
-    pub(crate) fn from_workspace_target(target: &WorkspaceTargetSummary) -> Self {
-        let detail = match target.kind {
+    fn workspace_target_detail(target: &WorkspaceTargetSummary) -> String {
+        match target.kind {
             WorkspaceTargetKind::PrimaryCheckout => {
                 format!("Primary checkout • {}", target.branch_name)
             }
@@ -48,12 +52,27 @@ impl ReviewCompareSourceOption {
             WorkspaceTargetKind::LinkedWorktree => {
                 format!("Linked worktree • {}", target.name)
             }
-        };
+        }
+    }
+
+    pub(crate) fn from_workspace_target(target: &WorkspaceTargetSummary) -> Self {
         Self {
             id: compare_workspace_target_source_id(target.id.as_str()),
             kind: ReviewCompareSourceKind::WorkspaceTarget,
             display_name: target.display_name.clone(),
-            detail,
+            detail: format!("Working tree • {}", Self::workspace_target_detail(target)),
+            workspace_target_id: Some(target.id.clone()),
+            workspace_root: Some(target.root.clone()),
+            branch_name: Some(target.branch_name.clone()),
+        }
+    }
+
+    pub(crate) fn from_workspace_target_head(target: &WorkspaceTargetSummary) -> Self {
+        Self {
+            id: compare_workspace_target_head_source_id(target.id.as_str()),
+            kind: ReviewCompareSourceKind::WorkspaceTargetHead,
+            display_name: format!("{} (HEAD)", target.display_name),
+            detail: format!("HEAD snapshot • {}", Self::workspace_target_detail(target)),
             workspace_target_id: Some(target.id.clone()),
             workspace_root: Some(target.root.clone()),
             branch_name: Some(target.branch_name.clone()),
