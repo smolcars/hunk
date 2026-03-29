@@ -51,40 +51,7 @@ impl DiffViewer {
         }
 
         let (old_label, new_label) = self.diff_column_labels();
-        let diff_list_state = self.diff_list_state.clone();
-        let logical_top = diff_list_state.logical_scroll_top();
-        let visible_row = logical_top.item_ix;
-        let sticky_file_banner =
-            self.render_visible_file_banner(visible_row, logical_top.offset_in_item, cx);
         let layout = self.diff_column_layout();
-
-        let list = list(diff_list_state.clone(), {
-            cx.processor(move |this, ix: usize, _window, cx| {
-                let Some(row) = this.diff_rows.get(ix) else {
-                    return div().into_any_element();
-                };
-                let is_selected = this.is_row_selected(ix);
-
-                match row.kind {
-                    DiffRowKind::Code => this.render_code_row(ix, row, is_selected, cx),
-                    DiffRowKind::HunkHeader | DiffRowKind::Meta | DiffRowKind::Empty => {
-                        this.render_meta_row(ix, row, is_selected, cx)
-                    }
-                }
-            })
-        })
-        .flex_grow()
-        .size_full()
-        .map(|mut this| {
-            this.style().restrict_scroll_to_axis = Some(true);
-            this
-        })
-        .with_sizing_behavior(ListSizingBehavior::Auto);
-
-        let scrollbar_size = px(DIFF_SCROLLBAR_SIZE);
-        let edge_inset = px(DIFF_BOTTOM_SAFE_INSET);
-        let right_inset = px(DIFF_SCROLLBAR_RIGHT_INSET);
-        let vertical_bar_bottom = edge_inset;
         let view = cx.entity();
 
         v_flex()
@@ -126,40 +93,7 @@ impl DiffViewer {
                                         new_label.clone(),
                                         cx,
                                     ))
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_h_0()
-                                            .relative()
-                                            .child(
-                                                div()
-                                                    .size_full()
-                                                    .on_scroll_wheel(
-                                                        cx.listener(Self::on_diff_list_scroll_wheel),
-                                                    )
-                                                    .child(list),
-                                            )
-                                            .child(
-                                                div()
-                                                    .absolute()
-                                                    .top_0()
-                                                    .left_0()
-                                                    .right_0()
-                                                    .child(sticky_file_banner),
-                                            )
-                                            .child(
-                                                div()
-                                                    .absolute()
-                                                    .top_0()
-                                                    .right(right_inset)
-                                                    .bottom(vertical_bar_bottom)
-                                                    .w(scrollbar_size)
-                                                    .child(
-                                                        Scrollbar::vertical(&diff_list_state)
-                                                            .scrollbar_show(ScrollbarShow::Always),
-                                                    ),
-                                            ),
-                                    ),
+                                    .child(self.render_review_editor_preview(cx)),
                             )
                             .when_some(layout, |this, layout| {
                                 this.child(self.render_diff_split_handle(layout, cx))

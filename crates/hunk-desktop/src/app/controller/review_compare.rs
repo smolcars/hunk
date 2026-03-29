@@ -602,6 +602,7 @@ impl DiffViewer {
 
     fn clear_review_compare_loaded_state(&mut self, empty_message: &str, cx: &mut Context<Self>) {
         self.cancel_patch_reload();
+        self.clear_review_editor_session();
         self.review_compare_loading = false;
         self.review_compare_error = None;
         self.review_files.clear();
@@ -621,10 +622,12 @@ impl DiffViewer {
 
     fn request_review_compare_refresh(&mut self, cx: &mut Context<Self>) {
         let Some(primary_repo_root) = self.project_path.clone() else {
+            self.clear_review_editor_session();
             self.clear_review_compare_loaded_state("Open a Git repository to compare workspaces.", cx);
             return;
         };
         let Some((left_source, right_source)) = self.selected_review_compare_sources() else {
+            self.clear_review_editor_session();
             self.clear_review_compare_loaded_state("Select two compare sources.", cx);
             return;
         };
@@ -637,6 +640,8 @@ impl DiffViewer {
 
         self.review_compare_loading = true;
         self.review_compare_error = None;
+        self.review_editor_session.loading = true;
+        self.review_editor_session.error = None;
         self.patch_loading = false;
         if self.diff_rows.is_empty() {
             self.reset_diff_surface_rows(vec![message_row(
@@ -733,6 +738,7 @@ impl DiffViewer {
             .selected_path
             .as_deref()
             .and_then(|selected| self.status_for_path(selected));
+        self.request_review_editor_reload(true, cx);
         self.refresh_comments_cache_from_store();
         self.rebuild_comment_row_match_cache();
         if self.review_comments_enabled() {

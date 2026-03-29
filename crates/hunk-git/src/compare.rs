@@ -26,6 +26,15 @@ pub struct CompareSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompareFileDocument {
+    pub path: String,
+    pub left_text: String,
+    pub right_text: String,
+    pub left_present: bool,
+    pub right_present: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ComparePathKind {
     Regular,
     Symlink,
@@ -58,6 +67,27 @@ impl ComparePathState {
 
     fn patch_bytes(&self) -> &[u8] {
         self.bytes.as_deref().unwrap_or(&[])
+    }
+
+    fn text_document_bytes(&self, path: &str) -> Result<Option<&[u8]>> {
+        if !self.is_present() {
+            return Ok(None);
+        }
+
+        if self.kind != ComparePathKind::Regular {
+            return Err(anyhow!(
+                "compare document preview is only supported for regular text files: {path}"
+            ));
+        }
+
+        let bytes = self.patch_bytes();
+        if is_binary(bytes) {
+            return Err(anyhow!(
+                "compare document preview is unavailable for binary file: {path}"
+            ));
+        }
+
+        Ok(Some(bytes))
     }
 }
 
@@ -210,6 +240,60 @@ pub fn load_compare_snapshot(
         file_line_stats,
         overall_line_stats,
         patches_by_path,
+    })
+}
+
+pub fn load_compare_file_document(
+    primary_repo_root: &Path,
+    left: &CompareSource,
+    right: &CompareSource,
+    path: &str,
+) -> Result<CompareFileDocument> {
+    let common_repo = open_repository(primary_repo_root)?;
+    let left = resolve_compare_source(&common_repo, left)?;
+    let right = resolve_compare_source(&common_repo, right)?;
+    let left_workspace_repo = left
+        .workspace_root
+        .as_deref()
+        .map(open_filter_repository)
+        .transpose()?;
+    let right_workspace_repo = right
+        .workspace_root
+        .as_deref()
+        .map(open_filter_repository)
+        .transpose()?;
+    let mut left_workspace_session =
+        match (left.workspace_root.as_ref(), left_workspace_repo.as_ref()) {
+            (Some(root), Some(repo)) => Some(CompareWorkspaceSession::new(root.clone(), repo)?),
+            _ => None,
+        };
+    let mut right_workspace_session =
+        match (right.workspace_root.as_ref(), right_workspace_repo.as_ref()) {
+            (Some(root), Some(repo)) => Some(CompareWorkspaceSession::new(root.clone(), repo)?),
+            _ => None,
+        };
+
+    let left_state =
+        load_compare_source_state(&common_repo, &left, left_workspace_session.as_mut(), path)?;
+    let right_state =
+        load_compare_source_state(&common_repo, &right, right_workspace_session.as_mut(), path)?;
+    let left_text = match left_state.text_document_bytes(path)? {
+        Some(bytes) => String::from_utf8(bytes.to_vec())
+            .with_context(|| format!("compare document is not UTF-8 text: {path}"))?,
+        None => String::new(),
+    };
+    let right_text = match right_state.text_document_bytes(path)? {
+        Some(bytes) => String::from_utf8(bytes.to_vec())
+            .with_context(|| format!("compare document is not UTF-8 text: {path}"))?,
+        None => String::new(),
+    };
+
+    Ok(CompareFileDocument {
+        path: path.to_string(),
+        left_text,
+        right_text,
+        left_present: left_state.is_present(),
+        right_present: right_state.is_present(),
     })
 }
 

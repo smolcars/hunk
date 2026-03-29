@@ -893,6 +893,11 @@ impl FilesEditor {
         self.editor.apply(EditorCommand::SetOverlays(overlays));
     }
 
+    pub(crate) fn set_manual_overlays(&mut self, overlays: Vec<OverlayDescriptor>) {
+        self.manual_overlays = overlays;
+        self.sync_overlays();
+    }
+
     fn apply_path_defaults(&mut self, path: &Path) {
         self.editor.apply(EditorCommand::SetShowWhitespace(
             default_show_whitespace_for_path(path),
@@ -946,8 +951,7 @@ impl FilesEditor {
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn set_overlays_for_test(&mut self, overlays: Vec<OverlayDescriptor>) {
-        self.manual_overlays = overlays;
-        self.sync_overlays();
+        self.set_manual_overlays(overlays);
     }
 
     #[cfg(test)]

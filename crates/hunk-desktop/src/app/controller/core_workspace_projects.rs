@@ -206,6 +206,7 @@ impl DiffViewer {
         self.workspace_target_switch_loading = false;
         self.review_compare_loading = false;
         self.review_compare_error = None;
+        self.review_editor_session = ReviewEditorSession::new();
         self.repo_root = state.repo_root;
         self.workspace_targets = state.workspace_targets;
         self.active_workspace_target_id = state.active_workspace_target_id;

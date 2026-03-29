@@ -108,6 +108,38 @@ impl FileEditorTab {
     }
 }
 
+struct ReviewEditorSession {
+    path: Option<String>,
+    left_source_id: Option<String>,
+    right_source_id: Option<String>,
+    left_present: bool,
+    right_present: bool,
+    loading: bool,
+    error: Option<String>,
+    load_epoch: usize,
+    load_task: Task<()>,
+    left_editor: native_files_editor::SharedFilesEditor,
+    right_editor: native_files_editor::SharedFilesEditor,
+}
+
+impl ReviewEditorSession {
+    fn new() -> Self {
+        Self {
+            path: None,
+            left_source_id: None,
+            right_source_id: None,
+            left_present: false,
+            right_present: false,
+            loading: false,
+            error: None,
+            load_epoch: 0,
+            load_task: Task::ready(()),
+            left_editor: Rc::new(RefCell::new(crate::app::native_files_editor::FilesEditor::new())),
+            right_editor: Rc::new(RefCell::new(crate::app::native_files_editor::FilesEditor::new())),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct RepoTreeContextMenuState {
     target_path: Option<String>,

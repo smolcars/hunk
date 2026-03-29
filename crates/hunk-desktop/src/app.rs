@@ -175,6 +175,7 @@ mod project_open;
 mod project_picker;
 mod refresh_policy;
 mod review_compare_picker;
+mod review_editor_model;
 mod workspace_target_picker;
 
 include!("app/types.rs");
@@ -1301,6 +1302,7 @@ struct DiffViewer {
     review_overall_line_stats: LineStats,
     review_compare_loading: bool,
     review_compare_error: Option<String>,
+    review_editor_session: ReviewEditorSession,
     overall_line_stats: LineStats,
     refresh_epoch: usize,
     auto_refresh_unmodified_streak: u32,

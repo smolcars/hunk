@@ -55,7 +55,7 @@ jobs:
       - name: Cache cargo registry and Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: pr-build-${{ runner.os }}-desktop
+          shared-key: pr-build-${{ runner.os }}-desktop-ghostty-v1
           workspaces: |
             . -> target
           cache-on-failure: "true"

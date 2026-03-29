@@ -16,6 +16,7 @@ use crate::app::diff_segment_prefetch::{
     first_paint_prefetch_window, first_paint_segment_quality, prioritized_prefetch_row_indices,
 };
 use crate::app::markdown_links::open_url_in_browser;
+use crate::app::review_editor_model::build_review_editor_overlays;
 
 use super::data::{
     DiffSegmentQuality, DiffStream, DiffStreamRowKind, RepoTreeNodeKind,
@@ -30,7 +31,10 @@ use hunk_git::branch::{
     RenameBranchIfSafeOutcome, rename_branch, rename_branch_if_current_unpublished,
     review_url_for_branch_with_provider_map, sanitize_branch_name,
 };
-use hunk_git::compare::{CompareSource, load_compare_snapshot, resolve_default_base_branch_name};
+use hunk_git::compare::{
+    CompareSource, load_compare_file_document, load_compare_snapshot,
+    resolve_default_base_branch_name,
+};
 use hunk_git::git::{
     RepoSnapshotFingerprint, WorkflowSnapshot, count_non_ignored_repo_tree_entries,
     invalidate_repo_metadata_caches, load_patches_for_files_from_session,
@@ -62,6 +66,7 @@ include!("git_ops_review.rs");
 include!("git_ops.rs");
 include!("recent_commits.rs");
 include!("review_compare.rs");
+include!("review_editor.rs");
 include!("workspace_mode.rs");
 include!("terminal_runtime_store.rs");
 include!("ai.rs");

@@ -62,6 +62,7 @@ impl DiffViewer {
 
         self.selected_path = Some(next_path);
         self.selected_status = Some(next_status);
+        self.request_review_editor_reload(false, cx);
         cx.notify();
     }
 
@@ -288,15 +289,6 @@ impl DiffViewer {
             .or_else(|| self.status_for_path(path.as_str()))?;
 
         Some((path, status))
-    }
-
-    pub(super) fn on_diff_list_scroll_wheel(
-        &mut self,
-        _: &ScrollWheelEvent,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) {
-        self.last_scroll_activity_at = Instant::now();
     }
 
     fn prime_diff_surface_visible_state(&mut self, cx: &mut Context<Self>) {

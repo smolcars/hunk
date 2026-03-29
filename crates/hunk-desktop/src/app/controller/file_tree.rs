@@ -171,6 +171,7 @@ impl DiffViewer {
         self.workspace_text_context_menu = None;
         if mode != WorkspaceViewMode::Diff {
             self.comments_preview_open = false;
+            self.clear_review_editor_session();
         }
         if mode != WorkspaceViewMode::Files {
             self.repo_tree_inline_edit = None;
@@ -207,6 +208,7 @@ impl DiffViewer {
                 .selected_path
                 .as_deref()
                 .and_then(|selected| self.status_for_path(selected));
+            self.request_review_editor_reload(true, cx);
             self.request_repo_tree_reload(cx);
             self.diff_reload_scroll_behavior = DiffReloadScrollBehavior::RevealSelectedFile;
             self.request_selected_diff_reload(cx);
@@ -244,6 +246,7 @@ impl DiffViewer {
         if self.workspace_view_mode == WorkspaceViewMode::Files {
             self.request_file_editor_reload(path, cx);
         } else {
+            self.request_review_editor_reload(true, cx);
             self.scroll_to_file_start(&path);
             self.last_visible_row_start = None;
             self.last_diff_scroll_offset = None;

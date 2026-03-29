@@ -8,7 +8,7 @@ use git2::{
     build::CheckoutBuilder,
 };
 use hunk_domain::paths::{HUNK_HOME_DIR_ENV_VAR, hunk_home_dir};
-use hunk_git::compare::{CompareSource, load_compare_snapshot};
+use hunk_git::compare::{CompareSource, load_compare_file_document, load_compare_snapshot};
 use hunk_git::git::load_workflow_snapshot;
 use hunk_git::worktree::{
     CreateWorktreeRequest, PRIMARY_WORKSPACE_TARGET_ID, WorkspaceTargetKind,
@@ -595,6 +595,43 @@ fn compare_snapshot_marks_binary_branch_to_worktree_diffs() -> Result<()> {
             .get("asset.bin")
             .is_some_and(|patch| patch.contains("Binary files"))
     );
+    Ok(())
+}
+
+#[test]
+fn compare_file_document_loads_workspace_head_and_worktree_text() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("src/lib.rs", "fn value() -> i32 {\n    1\n}\n")?;
+    fixture.commit_all("initial")?;
+    let worktree = create_managed_worktree(
+        fixture.root(),
+        &CreateWorktreeRequest {
+            branch_name: "feature/review-editor".to_string(),
+            base_branch_name: None,
+        },
+    )?;
+    fs::write(
+        worktree.root.join("src/lib.rs"),
+        "fn value() -> i32 {\n    2\n}\n",
+    )?;
+
+    let document = load_compare_file_document(
+        fixture.root(),
+        &CompareSource::WorkspaceTargetHead {
+            target_id: worktree.id.clone(),
+            root: worktree.root.clone(),
+        },
+        &CompareSource::WorkspaceTarget {
+            target_id: worktree.id.clone(),
+            root: worktree.root.clone(),
+        },
+        "src/lib.rs",
+    )?;
+
+    assert!(document.left_present);
+    assert!(document.right_present);
+    assert!(document.left_text.contains("1"));
+    assert!(document.right_text.contains("2"));
     Ok(())
 }
 
