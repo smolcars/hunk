@@ -417,6 +417,11 @@ write_linux_rpm_spec() {
 
   {
     printf '%%global _build_id_links none\n'
+    # The bundled release binary and vendored private shared libraries are
+    # already packaged as final ELF artifacts. Fedora/Red Hat's brp-strip
+    # step can fail on patched vendored libraries such as libghostty-vt, so
+    # skip that post-processing for this private app bundle.
+    printf '%%global __brp_strip %%{nil}\n'
     printf 'Name:           %s\n' "$PACKAGE_NAME"
     printf 'Version:        %s\n' "$RPM_VERSION"
     printf 'Release:        %s\n' "$PACKAGE_RELEASE"
