@@ -162,10 +162,13 @@ function Assert-WindowsMsiContainsFiles {
     )
 
     if ($missing.Count -gt 0) {
-        throw "Windows MSI is missing expected files: $($missing -join ', ')"
+        $missingList = $missing -join ", "
+        throw "Windows MSI is missing expected files: $missingList"
     }
 
-    Write-Host "Validated Windows MSI payload includes: $((@($ExpectedFileNames | Sort-Object -Unique)) -join ', ')"
+    $validatedFileNames = @($ExpectedFileNames | Sort-Object -Unique)
+    $validatedFileList = $validatedFileNames -join ", "
+    Write-Host "Validated Windows MSI payload includes: $validatedFileList"
 }
 
 function Invoke-CargoPackagerWithManifestOverride {
