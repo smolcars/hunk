@@ -1,4 +1,13 @@
 impl DiffViewer {
+    fn current_diff_viewport_anchor(&self) -> Option<DiffViewportAnchor> {
+        let stable_ids = self
+            .diff_row_metadata
+            .iter()
+            .map(|row| row.stable_id)
+            .collect::<Vec<_>>();
+        viewport_anchor_for_top_row(&stable_ids, self.diff_list_state.logical_scroll_top())
+    }
+
     fn scroll_selected_file_to_top(&mut self) {
         let Some(path) = self.selected_path.clone() else {
             return;
@@ -247,7 +256,7 @@ impl DiffViewer {
         self.selection_anchor_row = None;
         self.selection_head_row = None;
         self.drag_selecting_rows = false;
-        self.sync_diff_list_state();
+        self.sync_diff_list_state(None);
         self.recompute_diff_layout();
     }
 
@@ -255,6 +264,10 @@ impl DiffViewer {
         &mut self,
         stream: DiffStream,
     ) -> BTreeMap<String, LineStats> {
+        let viewport_anchor =
+            (self.diff_reload_scroll_behavior == DiffReloadScrollBehavior::PreserveViewport)
+                .then(|| self.current_diff_viewport_anchor())
+                .flatten();
         let DiffStream {
             rows,
             row_metadata,
@@ -270,7 +283,7 @@ impl DiffViewer {
         self.clamp_comment_rows_to_diff();
         self.clamp_selection_to_rows();
         self.drag_selecting_rows = false;
-        self.sync_diff_list_state();
+        self.sync_diff_list_state(viewport_anchor);
         self.file_row_ranges = file_ranges;
         self.recompute_diff_layout();
         self.last_visible_row_start = None;
@@ -298,26 +311,36 @@ impl DiffViewer {
         self.diff_right_line_number_width = line_number_column_width(max_right_line_digits);
     }
 
-    fn sync_diff_list_state(&self) {
+    fn sync_diff_list_state(&self, viewport_anchor: Option<DiffViewportAnchor>) {
         let previous_top = self.diff_list_state.logical_scroll_top();
         self.diff_list_state.reset(self.diff_rows.len());
-        let clamped_item_ix = if self.diff_rows.is_empty() {
-            0
+        let next_scroll_top = if let Some(anchor) = viewport_anchor {
+            let stable_ids = self
+                .diff_row_metadata
+                .iter()
+                .map(|row| row.stable_id)
+                .collect::<Vec<_>>();
+            resolve_viewport_anchor(anchor, &stable_ids)
         } else {
-            previous_top
-                .item_ix
-                .min(self.diff_rows.len().saturating_sub(1))
+            let clamped_item_ix = if self.diff_rows.is_empty() {
+                0
+            } else {
+                previous_top
+                    .item_ix
+                    .min(self.diff_rows.len().saturating_sub(1))
+            };
+            let offset_in_item =
+                if self.diff_rows.is_empty() || clamped_item_ix != previous_top.item_ix {
+                    px(0.)
+                } else {
+                    previous_top.offset_in_item
+                };
+            ListOffset {
+                item_ix: clamped_item_ix,
+                offset_in_item,
+            }
         };
-        let offset_in_item = if self.diff_rows.is_empty() || clamped_item_ix != previous_top.item_ix
-        {
-            px(0.)
-        } else {
-            previous_top.offset_in_item
-        };
-        self.diff_list_state.scroll_to(ListOffset {
-            item_ix: clamped_item_ix,
-            offset_in_item,
-        });
+        self.diff_list_state.scroll_to(next_scroll_top);
     }
 }
 

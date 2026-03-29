@@ -281,7 +281,7 @@ impl DiffViewer {
         self.pending_recent_commits_refresh = None;
         self.pending_snapshot_refresh = None;
         self.pending_line_stats_refresh = None;
-        self.scroll_selected_after_reload = false;
+        self.diff_reload_scroll_behavior = DiffReloadScrollBehavior::PreserveViewport;
         self.last_scroll_activity_at = Instant::now();
     }
 

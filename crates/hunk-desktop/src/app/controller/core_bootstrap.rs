@@ -656,7 +656,7 @@ impl DiffViewer {
             selection_anchor_row: None,
             selection_head_row: None,
             drag_selecting_rows: false,
-            scroll_selected_after_reload: true,
+            diff_reload_scroll_behavior: DiffReloadScrollBehavior::RevealSelectedFile,
             last_visible_row_start: None,
             last_diff_scroll_offset: None,
             last_scroll_activity_at: Instant::now(),

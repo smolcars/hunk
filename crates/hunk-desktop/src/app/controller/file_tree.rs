@@ -208,7 +208,7 @@ impl DiffViewer {
                 .as_deref()
                 .and_then(|selected| self.status_for_path(selected));
             self.request_repo_tree_reload(cx);
-            self.scroll_selected_after_reload = true;
+            self.diff_reload_scroll_behavior = DiffReloadScrollBehavior::RevealSelectedFile;
             self.request_selected_diff_reload(cx);
         } else if mode == WorkspaceViewMode::Ai {
             self.refresh_ai_repo_thread_catalog(cx);

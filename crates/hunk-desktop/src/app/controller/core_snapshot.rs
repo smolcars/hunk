@@ -788,10 +788,12 @@ impl DiffViewer {
                 diff_changed,
                 self.diff_rows.is_empty(),
             ) {
-                self.scroll_selected_after_reload = false;
+                self.diff_reload_scroll_behavior = DiffReloadScrollBehavior::PreserveViewport;
             } else {
-                self.scroll_selected_after_reload =
-                    should_scroll_selected_after_reload(selected_changed, self.diff_rows.is_empty());
+                self.diff_reload_scroll_behavior = diff_reload_scroll_behavior_after_snapshot(
+                    selected_changed,
+                    self.diff_rows.is_empty(),
+                );
                 self.request_selected_diff_reload(cx);
             }
 

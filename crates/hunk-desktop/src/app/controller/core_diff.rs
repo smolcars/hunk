@@ -330,10 +330,10 @@ impl DiffViewer {
             .and_then(|selected| self.status_for_path(selected));
         self.rebuild_comment_row_match_cache();
 
-        if self.scroll_selected_after_reload {
+        if self.diff_reload_scroll_behavior == DiffReloadScrollBehavior::RevealSelectedFile {
             self.scroll_selected_file_to_top();
             if !self.patch_loading {
-                self.scroll_selected_after_reload = false;
+                self.diff_reload_scroll_behavior = DiffReloadScrollBehavior::PreserveViewport;
             }
         }
         self.prime_diff_surface_visible_state(cx);
@@ -347,7 +347,7 @@ impl DiffViewer {
             DiffRowKind::Meta,
             format!("Failed to load diff stream: {err:#}"),
         )]);
-        self.scroll_selected_after_reload = false;
+        self.diff_reload_scroll_behavior = DiffReloadScrollBehavior::PreserveViewport;
         self.clamp_comment_rows_to_diff();
         self.rebuild_comment_row_match_cache();
     }

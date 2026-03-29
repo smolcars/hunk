@@ -6,13 +6,14 @@ use std::path::PathBuf;
 
 use hunk_git::git::{ChangedFile, FileStatus, LineStats};
 use refresh_policy::{
-    GitWorkspaceRefreshRequest, SnapshotRefreshBehavior, SnapshotRefreshPriority,
-    SnapshotRefreshRequest, diff_state_changed, line_stats_paths_from_dirty_paths,
-    missing_line_stat_paths, post_git_action_refresh_plan, repo_watch_refresh_request,
+    DiffReloadScrollBehavior, GitWorkspaceRefreshRequest, SnapshotRefreshBehavior,
+    SnapshotRefreshPriority, SnapshotRefreshRequest, diff_reload_scroll_behavior_after_snapshot,
+    diff_state_changed, line_stats_paths_from_dirty_paths, missing_line_stat_paths,
+    post_git_action_refresh_plan, repo_watch_refresh_request,
     should_bootstrap_empty_files_workspace_editor, should_refresh_line_stats_after_snapshot,
     should_reload_diff_after_snapshot, should_reload_empty_files_workspace_tree,
     should_reload_repo_tree_after_snapshot, should_request_startup_git_workspace_refresh,
-    should_run_cold_start_reconcile, should_scroll_selected_after_reload,
+    should_run_cold_start_reconcile,
 };
 
 #[test]
@@ -105,10 +106,19 @@ fn empty_files_workspace_editor_bootstrap_runs_only_once() {
 }
 
 #[test]
-fn selected_file_scroll_reset_only_happens_on_selection_change_or_initial_load() {
-    assert!(should_scroll_selected_after_reload(true, false));
-    assert!(should_scroll_selected_after_reload(false, true));
-    assert!(!should_scroll_selected_after_reload(false, false));
+fn diff_reload_scroll_behavior_only_reveals_selection_when_needed() {
+    assert_eq!(
+        diff_reload_scroll_behavior_after_snapshot(true, false),
+        DiffReloadScrollBehavior::RevealSelectedFile
+    );
+    assert_eq!(
+        diff_reload_scroll_behavior_after_snapshot(false, true),
+        DiffReloadScrollBehavior::RevealSelectedFile
+    );
+    assert_eq!(
+        diff_reload_scroll_behavior_after_snapshot(false, false),
+        DiffReloadScrollBehavior::PreserveViewport
+    );
 }
 
 #[test]

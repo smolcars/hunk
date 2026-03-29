@@ -95,6 +95,7 @@ use data::{
     DiffRowSegmentCache, DiffStreamRowMeta, FileRowRange, RepoTreeNode, RepoTreeNodeKind,
     RepoTreeRow, WorkspaceSwitchAction, WorkspaceViewMode,
 };
+use diff_viewport::{DiffViewportAnchor, resolve_viewport_anchor, viewport_anchor_for_top_row};
 use hunk_picker::{
     HunkPickerAction, HunkPickerConfig, HunkPickerEvent, HunkPickerState,
     hunk_picker_action_for_keystroke, render_hunk_picker,
@@ -103,13 +104,13 @@ use project_picker::{
     ProjectPickerDelegate, build_project_picker_delegate, project_picker_selected_index,
 };
 use refresh_policy::{
-    GitWorkspaceRefreshRequest, SnapshotRefreshBehavior, SnapshotRefreshPriority,
-    SnapshotRefreshRequest, diff_state_changed, line_stats_paths_from_dirty_paths,
-    missing_line_stat_paths, repo_watch_refresh_request,
-    should_bootstrap_empty_files_workspace_editor, should_refresh_line_stats_after_snapshot,
-    should_reload_diff_after_snapshot, should_reload_empty_files_workspace_tree,
-    should_reload_repo_tree_after_snapshot, should_request_startup_git_workspace_refresh,
-    should_run_cold_start_reconcile, should_scroll_selected_after_reload,
+    DiffReloadScrollBehavior, GitWorkspaceRefreshRequest, SnapshotRefreshBehavior,
+    SnapshotRefreshPriority, SnapshotRefreshRequest, diff_reload_scroll_behavior_after_snapshot,
+    diff_state_changed, line_stats_paths_from_dirty_paths, missing_line_stat_paths,
+    repo_watch_refresh_request, should_bootstrap_empty_files_workspace_editor,
+    should_refresh_line_stats_after_snapshot, should_reload_diff_after_snapshot,
+    should_reload_empty_files_workspace_tree, should_reload_repo_tree_after_snapshot,
+    should_request_startup_git_workspace_refresh, should_run_cold_start_reconcile,
 };
 use repo_file_search::RepoFileSearchProvider;
 use review_compare_picker::{
@@ -167,6 +168,7 @@ mod ai_thread_catalog_scheduler;
 mod ai_thread_flow;
 mod branch_activation;
 mod branch_picker;
+mod diff_viewport;
 mod fuzzy_match;
 mod project_open;
 mod project_picker;
@@ -1337,7 +1339,7 @@ struct DiffViewer {
     selection_anchor_row: Option<usize>,
     selection_head_row: Option<usize>,
     drag_selecting_rows: bool,
-    scroll_selected_after_reload: bool,
+    diff_reload_scroll_behavior: DiffReloadScrollBehavior,
     last_visible_row_start: Option<usize>,
     last_diff_scroll_offset: Option<gpui::Point<gpui::Pixels>>,
     last_scroll_activity_at: Instant,

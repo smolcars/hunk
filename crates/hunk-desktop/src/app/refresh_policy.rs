@@ -3,6 +3,12 @@ use std::path::PathBuf;
 
 use hunk_git::git::{ChangedFile, LineStats};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DiffReloadScrollBehavior {
+    PreserveViewport,
+    RevealSelectedFile,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum SnapshotRefreshPriority {
     Background,
@@ -134,11 +140,15 @@ pub(super) const fn should_reload_diff_after_snapshot(
     supports_diff_stream && (diff_state_changed || diff_rows_empty)
 }
 
-pub(super) const fn should_scroll_selected_after_reload(
+pub(super) const fn diff_reload_scroll_behavior_after_snapshot(
     selected_changed: bool,
     diff_rows_empty: bool,
-) -> bool {
-    selected_changed || diff_rows_empty
+) -> DiffReloadScrollBehavior {
+    if selected_changed || diff_rows_empty {
+        DiffReloadScrollBehavior::RevealSelectedFile
+    } else {
+        DiffReloadScrollBehavior::PreserveViewport
+    }
 }
 
 pub(super) const fn should_reload_empty_files_workspace_tree(

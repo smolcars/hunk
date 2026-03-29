@@ -36,7 +36,7 @@ impl DiffViewer {
             .iter()
             .find(|file| file.path == path)
             .map(|file| file.status);
-        self.scroll_selected_after_reload = true;
+        self.diff_reload_scroll_behavior = DiffReloadScrollBehavior::RevealSelectedFile;
         self.last_diff_scroll_offset = None;
         self.last_scroll_activity_at = Instant::now();
         self.request_selected_diff_reload(cx);

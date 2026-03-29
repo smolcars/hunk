@@ -622,10 +622,12 @@ impl DiffViewer {
         self.review_compare_loading = true;
         self.review_compare_error = None;
         self.patch_loading = false;
-        self.reset_diff_surface_rows(vec![message_row(
-            DiffRowKind::Meta,
-            "Loading comparison...",
-        )]);
+        if self.diff_rows.is_empty() {
+            self.reset_diff_surface_rows(vec![message_row(
+                DiffRowKind::Meta,
+                "Loading comparison...",
+            )]);
+        }
 
         self.patch_task = cx.spawn(async move |this, cx| {
             let started_at = Instant::now();
@@ -721,9 +723,9 @@ impl DiffViewer {
             self.reconcile_comments_with_loaded_diff();
         }
 
-        if self.scroll_selected_after_reload {
+        if self.diff_reload_scroll_behavior == DiffReloadScrollBehavior::RevealSelectedFile {
             self.scroll_selected_file_to_top();
-            self.scroll_selected_after_reload = false;
+            self.diff_reload_scroll_behavior = DiffReloadScrollBehavior::PreserveViewport;
         }
         self.prime_diff_surface_visible_state(cx);
 
@@ -776,7 +778,7 @@ impl DiffViewer {
         self.reset_comment_row_match_cache();
         self.clear_comment_ui_state();
         if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            self.scroll_selected_after_reload = true;
+            self.diff_reload_scroll_behavior = DiffReloadScrollBehavior::PreserveViewport;
             self.request_review_compare_refresh(cx);
         } else {
             cx.notify();
