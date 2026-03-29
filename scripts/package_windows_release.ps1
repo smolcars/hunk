@@ -122,7 +122,8 @@ function Get-WindowsMsiFileNames {
 
     $installer = New-Object -ComObject WindowsInstaller.Installer
     $database = $installer.OpenDatabase($MsiPath, 0)
-    $view = $database.OpenView("SELECT `FileName` FROM `File`")
+    $fileQuery = 'SELECT `FileName` FROM `File`'
+    $view = $database.OpenView($fileQuery)
     $view.Execute()
 
     $fileNames = New-Object System.Collections.Generic.List[string]
@@ -193,12 +194,9 @@ function Invoke-CargoPackagerWithManifestOverride {
     $originalCargoToml = Get-Content $CargoTomlPath -Raw
     $updatedCargoToml = $originalCargoToml
     if ($WindowsPackagerVersion -ne $OriginalVersion) {
-        $updatedCargoToml = [regex]::Replace(
-            $updatedCargoToml,
-            '(?ms)^(\[package\]\s.*?^version = ")([^"]+)(")',
-            ('${1}' + $WindowsPackagerVersion + '${3}'),
-            1
-        )
+        $versionPattern = '(?ms)^(\[package\]\s.*?^version = ")([^"]+)(")'
+        $versionReplacement = '${1}' + $WindowsPackagerVersion + '${3}'
+        $updatedCargoToml = [regex]::Replace($updatedCargoToml, $versionPattern, $versionReplacement, 1)
 
         if ($updatedCargoToml -eq $originalCargoToml) {
             throw "Failed to rewrite [package] version in $CargoTomlPath"
@@ -208,18 +206,14 @@ function Invoke-CargoPackagerWithManifestOverride {
     if ($WindowsSidecarResourcePath) {
         $normalizedSidecarPath = $WindowsSidecarResourcePath.Replace('\', '/')
         $cargoTomlBeforeResourceRewrite = $updatedCargoToml
-        $windowsResourcesReplacement = @"
-resources = [
-  "../../assets/codex-runtime",
-  { src = "$normalizedSidecarPath", target = "." },
-]
-"@
-        $updatedCargoToml = [regex]::Replace(
-            $updatedCargoToml,
-            '(?m)^resources\s*=\s*\[\s*"../../assets/codex-runtime"\s*\]\s*$',
-            $windowsResourcesReplacement,
-            1
-        )
+        $windowsResourcesReplacement = @(
+            "resources = [",
+            '  "../../assets/codex-runtime",',
+            "  { src = ""$normalizedSidecarPath"", target = ""."" },",
+            "]"
+        ) -join "`n"
+        $resourcePattern = '(?m)^resources\s*=\s*\[\s*"../../assets/codex-runtime"\s*\]\s*$'
+        $updatedCargoToml = [regex]::Replace($updatedCargoToml, $resourcePattern, $windowsResourcesReplacement, 1)
 
         if ($updatedCargoToml -eq $cargoTomlBeforeResourceRewrite) {
             throw "Failed to inject Windows sidecar DLL resources into $CargoTomlPath"
