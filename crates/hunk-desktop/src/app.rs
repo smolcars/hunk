@@ -13,16 +13,16 @@ use gpui::{
     AnchoredPositionMode, Animation, AnimationExt as _, AnyElement, AnyWindowHandle, App,
     AppContext as _, Bounds, ClipboardItem, Context, Corner, Decorations, DragMoveEvent, Empty,
     Entity, EntityId, EntityInputHandler, FocusHandle, InteractiveElement as _, IntoElement,
-    IsZero as _, KeyBinding, ListAlignment, ListOffset, ListSizingBehavior, ListState, Menu,
-    MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, OsAction,
-    ParentElement as _, PathPromptOptions, Pixels, Point, Render, ScrollHandle, ScrollWheelEvent,
-    SharedString, StatefulInteractiveElement as _, Styled as _, SystemMenuType, Task,
-    TitlebarOptions, Window, WindowOptions, actions, anchored, canvas, deferred, div, list, point,
+    KeyBinding, ListAlignment, ListOffset, ListSizingBehavior, ListState, Menu, MenuItem,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, OsAction, ParentElement as _,
+    PathPromptOptions, Pixels, Point, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement as _, Styled as _, SystemMenuType, Task, TitlebarOptions, Window,
+    WindowOptions, actions, anchored, canvas, deferred, div, list, point,
     prelude::FluentBuilder as _, px,
 };
 use gpui_component::{
-    ActiveTheme as _, Colorize as _, GlobalState, Root, RopeExt, StyledExt as _, Theme, ThemeMode,
-    TitleBar, h_flex,
+    ActiveTheme as _, GlobalState, Root, RopeExt, StyledExt as _, Theme, ThemeMode, TitleBar,
+    h_flex,
     input::{Enter as InputEnter, InputEvent, InputState},
     menu::AppMenuBar,
     resizable::{h_resizable, resizable_panel},
@@ -130,9 +130,6 @@ const DIFF_LINE_NUMBER_MIN_DIGITS: u32 = 3;
 const DIFF_LINE_NUMBER_EXTRA_PADDING: f32 = 6.0;
 const DIFF_MARKER_GUTTER_WIDTH: f32 = 10.0;
 const APP_BOTTOM_SAFE_INSET: f32 = 0.0;
-const DIFF_BOTTOM_SAFE_INSET: f32 = APP_BOTTOM_SAFE_INSET;
-const DIFF_SCROLLBAR_RIGHT_INSET: f32 = 0.0;
-const DIFF_SCROLLBAR_SIZE: f32 = 16.0;
 const DIFF_SPLIT_MIN_CODE_WIDTH: f32 = 120.0;
 const DIFF_SPLIT_HANDLE_WIDTH: f32 = 1.0;
 const DIFF_SPLIT_HANDLE_HIT_WIDTH: f32 = 10.0;
@@ -1088,6 +1085,7 @@ struct DiffViewer {
     comment_open_row_counts: Vec<usize>,
     hovered_comment_row: Option<usize>,
     active_comment_editor_row: Option<usize>,
+    #[allow(dead_code)]
     comment_input_state: Entity<InputState>,
     comment_status_message: Option<String>,
     project_path: Option<PathBuf>,

@@ -6,7 +6,6 @@ use gpui_component::{
     Colorize as _, Theme, ThemeMode,
     highlighter::{HighlightThemeStyle, SyntaxColors, ThemeStyle},
 };
-use hunk_git::git::FileStatus;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct HunkSurfaceColors {
@@ -51,16 +50,6 @@ pub(crate) struct HunkDisclosureColors {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct HunkFileStatusBannerColors {
-    pub label: &'static str,
-    pub row_background: Hsla,
-    pub badge_background: Hsla,
-    pub badge_border: Hsla,
-    pub accent_strip: Hsla,
-    pub arrow: Hsla,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub(crate) struct HunkLineStatsColors {
     pub added: Hsla,
     pub removed: Hsla,
@@ -85,9 +74,6 @@ pub(crate) struct HunkPendingMessageColors {
 pub(crate) struct HunkDiffChromeColors {
     pub row_divider: Hsla,
     pub center_divider: Hsla,
-    pub gutter_divider: Hsla,
-    pub gutter_background: Hsla,
-    pub empty_gutter_background: Hsla,
     pub column_header_background: Hsla,
     pub column_header_badge_background: Hsla,
 }
@@ -240,9 +226,6 @@ pub(crate) fn hunk_diff_chrome(theme: &Theme, is_dark: bool) -> HunkDiffChromeCo
     HunkDiffChromeColors {
         row_divider: hunk_opacity(theme.border, is_dark, 0.74, 0.58),
         center_divider: hunk_opacity(theme.border, is_dark, 0.88, 0.72),
-        gutter_divider: hunk_opacity(theme.border, is_dark, 0.66, 0.54),
-        gutter_background: hunk_blend(theme.title_bar, theme.muted, is_dark, 0.24, 0.48),
-        empty_gutter_background: hunk_blend(theme.sidebar, theme.muted, is_dark, 0.18, 0.38),
         column_header_background: hunk_blend(theme.title_bar, theme.muted, is_dark, 0.10, 0.22),
         column_header_badge_background: hunk_opacity(theme.muted, is_dark, 0.28, 0.42),
     }
@@ -420,38 +403,6 @@ pub(crate) fn hunk_disclosure_row(theme: &Theme, is_dark: bool) -> HunkDisclosur
 
 pub(crate) fn hunk_text_selection_background(theme: &Theme, is_dark: bool) -> Hsla {
     hunk_editor_chrome_colors(theme, is_dark).selection
-}
-
-pub(crate) fn hunk_file_status_banner(
-    theme: &Theme,
-    status: FileStatus,
-    is_dark: bool,
-    is_selected: bool,
-) -> HunkFileStatusBannerColors {
-    let (label, accent) = match status {
-        FileStatus::Added | FileStatus::Untracked => ("NEW FILE", theme.success),
-        FileStatus::Deleted => ("DELETED FILE", theme.danger),
-        FileStatus::Renamed => ("RENAMED", theme.accent),
-        FileStatus::Modified => ("MODIFIED", theme.warning),
-        FileStatus::TypeChange => ("TYPE CHANGED", theme.warning),
-        FileStatus::Conflicted => ("CONFLICTED", theme.danger),
-        FileStatus::Unknown => ("MODIFIED", theme.muted_foreground),
-    };
-    let background = hunk_blend(theme.title_bar, accent, is_dark, 0.20, 0.08);
-    let row_background = if is_selected {
-        hunk_blend(background, theme.primary, is_dark, 0.20, 0.12)
-    } else {
-        background
-    };
-
-    HunkFileStatusBannerColors {
-        label,
-        row_background,
-        badge_background: hunk_opacity(accent, is_dark, 0.22, 0.14),
-        badge_border: hunk_opacity(accent, is_dark, 0.52, 0.24),
-        accent_strip: hunk_tone(accent, is_dark, 0.12, 0.04),
-        arrow: hunk_tone(accent, is_dark, 0.34, 0.18),
-    }
 }
 
 pub(crate) fn hunk_line_stats(theme: &Theme, is_dark: bool) -> HunkLineStatsColors {

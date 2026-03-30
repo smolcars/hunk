@@ -284,6 +284,7 @@ impl DiffViewer {
         })
     }
 
+    #[allow(dead_code)]
     pub(super) fn on_diff_row_hover(&mut self, row_ix: usize, cx: &mut Context<Self>) {
         if !self.row_supports_comments(row_ix) {
             return;
@@ -295,10 +296,12 @@ impl DiffViewer {
         cx.notify();
     }
 
+    #[allow(dead_code)]
     pub(super) fn row_open_comment_count(&self, row_ix: usize) -> usize {
         self.comment_open_row_counts.get(row_ix).copied().unwrap_or(0)
     }
 
+    #[allow(dead_code)]
     pub(super) fn open_comment_editor_for_row(
         &mut self,
         row_ix: usize,
@@ -317,6 +320,7 @@ impl DiffViewer {
         cx.notify();
     }
 
+    #[allow(dead_code)]
     pub(super) fn cancel_comment_editor(
         &mut self,
         window: &mut Window,
@@ -330,6 +334,7 @@ impl DiffViewer {
         cx.notify();
     }
 
+    #[allow(dead_code)]
     pub(super) fn save_active_comment(
         &mut self,
         window: &mut Window,

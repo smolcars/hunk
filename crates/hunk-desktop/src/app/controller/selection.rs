@@ -23,6 +23,7 @@ fn find_wrapped_hunk_target(
 }
 
 impl DiffViewer {
+    #[allow(dead_code)]
     pub(super) fn toggle_file_collapsed(&mut self, path: String, cx: &mut Context<Self>) {
         if self.collapsed_files.contains(path.as_str()) {
             self.collapsed_files.remove(path.as_str());
@@ -61,11 +62,13 @@ impl DiffViewer {
         Some((anchor.min(head), anchor.max(head)))
     }
 
+    #[allow(dead_code)]
     pub(super) fn is_row_selected(&self, row_ix: usize) -> bool {
         self.selected_row_range()
             .is_some_and(|(start, end)| row_ix >= start && row_ix <= end)
     }
 
+    #[allow(dead_code)]
     pub(super) fn on_diff_row_mouse_down(
         &mut self,
         row_ix: usize,
@@ -78,6 +81,7 @@ impl DiffViewer {
         self.select_row(row_ix, event.modifiers.shift, cx);
     }
 
+    #[allow(dead_code)]
     pub(super) fn on_diff_row_mouse_move(
         &mut self,
         row_ix: usize,
@@ -92,6 +96,7 @@ impl DiffViewer {
         self.select_row(row_ix, true, cx);
     }
 
+    #[allow(dead_code)]
     pub(super) fn on_diff_row_mouse_up(
         &mut self,
         _: &MouseUpEvent,
@@ -126,6 +131,7 @@ impl DiffViewer {
         cx.notify();
     }
 
+    #[allow(dead_code)]
     pub(super) fn open_diff_row_context_menu(
         &mut self,
         row_ix: usize,

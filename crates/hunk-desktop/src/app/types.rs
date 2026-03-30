@@ -166,6 +166,7 @@ enum WorkspaceTextContextMenuTarget {
     FilesEditor(FilesEditorContextMenuTarget),
     SelectableText(SelectableTextContextMenuTarget),
     Terminal(TerminalContextMenuTarget),
+    #[allow(dead_code)]
     DiffRows(DiffRowsContextMenuTarget),
 }
 

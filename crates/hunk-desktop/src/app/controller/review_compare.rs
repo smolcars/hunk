@@ -276,6 +276,7 @@ impl DiffViewer {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn active_diff_file_line_stats(&self) -> &BTreeMap<String, LineStats> {
         if self.workspace_view_mode == WorkspaceViewMode::Diff {
             &self.review_file_line_stats

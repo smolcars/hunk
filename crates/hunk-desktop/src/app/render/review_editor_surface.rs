@@ -1,7 +1,3 @@
-use gpui::{Pixels, TextStyle, relative};
-
-use crate::app::theme::{hunk_editor_chrome_colors, hunk_opacity};
-
 impl DiffViewer {
     fn render_review_editor_preview(
         &mut self,
@@ -162,24 +158,24 @@ impl DiffViewer {
         editor: crate::app::native_files_editor::SharedFilesEditor,
         present: bool,
         missing_message: &'static str,
-        editor_font_size: Pixels,
+        editor_font_size: gpui::Pixels,
         is_dark: bool,
-        width: Option<Pixels>,
+        width: Option<gpui::Pixels>,
         is_focused: bool,
         editable: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let editor_chrome = hunk_editor_chrome_colors(cx.theme(), is_dark);
-        let text_style = TextStyle {
+        let editor_chrome = crate::app::theme::hunk_editor_chrome_colors(cx.theme(), is_dark);
+        let text_style = gpui::TextStyle {
             color: editor_chrome.foreground,
             font_family: cx.theme().mono_font_family.clone(),
             font_size: editor_font_size.into(),
-            line_height: relative(1.45),
+            line_height: gpui::relative(1.45),
             ..Default::default()
         };
         let element = crate::app::native_files_editor::FilesEditorElement::new(
             editor.clone(),
-            Rc::new(|_, _, _, _| {}),
+            |_, _, _, _| {},
             is_focused,
             text_style,
             crate::app::native_files_editor::FilesEditorPalette {
@@ -187,7 +183,7 @@ impl DiffViewer {
                 active_line_background: editor_chrome.active_line,
                 line_number: editor_chrome.line_number,
                 current_line_number: editor_chrome.active_line_number,
-                border: hunk_opacity(cx.theme().border, is_dark, 0.92, 0.78),
+                border: crate::app::theme::hunk_opacity(cx.theme().border, is_dark, 0.92, 0.78),
                 default_foreground: editor_chrome.foreground,
                 muted_foreground: editor_chrome.line_number,
                 selection_background: editor_chrome.selection,
@@ -238,10 +234,15 @@ impl DiffViewer {
                         .absolute()
                         .top_2()
                         .right_2()
-                        .px_2()
-                        .py_1()
-                        .rounded(px(6.0))
-                        .bg(hunk_opacity(editor_chrome.line_number, is_dark, 0.14, 0.10))
+                                    .px_2()
+                                    .py_1()
+                                    .rounded(px(6.0))
+                                    .bg(crate::app::theme::hunk_opacity(
+                                        editor_chrome.line_number,
+                                        is_dark,
+                                        0.14,
+                                        0.10,
+                                    ))
                         .text_xs()
                         .text_color(editor_chrome.line_number)
                         .child(missing_message),
@@ -256,7 +257,12 @@ impl DiffViewer {
                         .px_2()
                         .py_1()
                         .rounded(px(6.0))
-                        .bg(hunk_opacity(cx.theme().success, is_dark, 0.14, 0.10))
+                        .bg(crate::app::theme::hunk_opacity(
+                            cx.theme().success,
+                            is_dark,
+                            0.14,
+                            0.10,
+                        ))
                         .text_xs()
                         .text_color(cx.theme().success)
                         .child("Live"),

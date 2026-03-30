@@ -1,4 +1,4 @@
-use super::data::{RepoTreeNodeKind, cached_runtime_fallback_segments, is_markdown_path};
+use super::data::{RepoTreeNodeKind, is_markdown_path};
 use super::theme::*;
 use super::*;
 use crate::app::markdown_links::{MarkdownLinkRange, markdown_inline_text_and_link_ranges};
@@ -46,6 +46,7 @@ include!("diff.rs");
 include!("context_menu.rs");
 include!("file_editor.rs");
 include!("file_editor_surface.rs");
+include!("review_helpers.rs");
 include!("review_editor_surface.rs");
 include!("file_quick_open.rs");
 include!("ai_loading.rs");

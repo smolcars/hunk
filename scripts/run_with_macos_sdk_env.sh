@@ -21,9 +21,9 @@ fi
 
 export SDKROOT="$sdkroot"
 export LIBRARY_PATH="$sdkroot/usr/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
-export CPATH="$sdkroot/usr/include${CPATH:+:$CPATH}"
-export CFLAGS="-isysroot $sdkroot${CFLAGS:+ $CFLAGS}"
-export CXXFLAGS="-isysroot $sdkroot${CXXFLAGS:+ $CXXFLAGS}"
+# Keep the SDK available for Rust/linker resolution, but do not inject the SDK
+# include paths globally. Zig's vendored libc++ build for libghostty-vt breaks
+# if CPATH/CXXFLAGS force the macOS C headers ahead of libc++'s own headers.
 export LDFLAGS="-L$sdkroot/usr/lib${LDFLAGS:+ $LDFLAGS}"
 export RUSTFLAGS="-L native=$sdkroot/usr/lib${RUSTFLAGS:+ $RUSTFLAGS}"
 

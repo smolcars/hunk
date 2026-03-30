@@ -342,6 +342,7 @@ impl DiffViewer {
             .into_any_element()
     }
 
+    #[allow(dead_code)]
     fn render_row_comment_affordance(&self, row_ix: usize, cx: &mut Context<Self>) -> AnyElement {
         if !self.row_supports_comments(row_ix) {
             return div().into_any_element();
@@ -392,6 +393,7 @@ impl DiffViewer {
             .into_any_element()
     }
 
+    #[allow(dead_code)]
     fn render_row_comment_editor(&self, row_ix: usize, cx: &mut Context<Self>) -> AnyElement {
         if self.active_comment_editor_row != Some(row_ix) {
             return div().into_any_element();

@@ -66,6 +66,7 @@ fn code_syntax_color(
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn diff_syntax_color(
     theme: &gpui_component::Theme,
     default_color: gpui::Hsla,
