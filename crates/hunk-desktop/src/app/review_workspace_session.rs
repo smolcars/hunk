@@ -160,15 +160,20 @@ impl ReviewWorkspaceSession {
         &self.file_ranges
     }
 
-    pub(crate) fn first_path(&self) -> Option<&str> {
-        self.file_ranges.first().map(|range| range.path.as_str())
+    pub(crate) fn file_range_for_path(&self, path: &str) -> Option<&ReviewWorkspaceFileRange> {
+        self.file_ranges.iter().find(|range| range.path == path)
     }
 
-    pub(crate) fn file_start_surface_row(&self, path: &str) -> Option<usize> {
-        self.file_ranges
-            .iter()
-            .find(|range| range.path == path)
-            .map(|range| range.start_row)
+    pub(crate) fn first_file(&self) -> Option<&ReviewWorkspaceFileRange> {
+        self.file_ranges.first()
+    }
+
+    pub(crate) fn first_path(&self) -> Option<&str> {
+        self.first_file().map(|range| range.path.as_str())
+    }
+
+    pub(crate) fn contains_path(&self, path: &str) -> bool {
+        self.file_range_for_path(path).is_some()
     }
 
     pub(crate) fn path_at_surface_row(&self, row: usize) -> Option<&str> {
@@ -178,11 +183,35 @@ impl ReviewWorkspaceSession {
             .map(|range| range.path.as_str())
     }
 
-    pub(crate) fn status_for_path(&self, path: &str) -> Option<FileStatus> {
+    pub(crate) fn file_at_or_after_surface_row(
+        &self,
+        row: usize,
+    ) -> Option<&ReviewWorkspaceFileRange> {
         self.file_ranges
             .iter()
-            .find(|range| range.path == path)
-            .map(|range| range.status)
+            .find(|range| row < range.end_row)
+            .or_else(|| self.file_ranges.last())
+    }
+
+    pub(crate) fn adjacent_file(
+        &self,
+        current_path: Option<&str>,
+        direction: isize,
+    ) -> Option<&ReviewWorkspaceFileRange> {
+        let current_ix = current_path
+            .and_then(|path| {
+                self.file_ranges
+                    .iter()
+                    .position(|candidate| candidate.path == path)
+            })
+            .unwrap_or(0);
+        let max_ix = self.file_ranges.len().saturating_sub(1) as isize;
+        let target_ix = (current_ix as isize + direction).clamp(0, max_ix) as usize;
+        self.file_ranges.get(target_ix)
+    }
+
+    pub(crate) fn status_for_path(&self, path: &str) -> Option<FileStatus> {
+        self.file_range_for_path(path).map(|range| range.status)
     }
 
     pub(crate) fn visible_file_header_row(&self, row: usize) -> Option<usize> {

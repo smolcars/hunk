@@ -319,13 +319,65 @@ impl DiffViewer {
     }
 
     fn active_diff_contains_path(&self, path: &str) -> bool {
-        self.active_diff_files()
-            .iter()
-            .any(|file| file.path == path)
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.contains_path(path);
+        }
+
+        self.active_diff_files().iter().any(|file| file.path == path)
     }
 
     fn active_diff_first_path(&self) -> Option<String> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.first_path().map(ToString::to_string);
+        }
+
         self.active_diff_files().first().map(|file| file.path.clone())
+    }
+
+    pub(crate) fn active_diff_file_range_for_path(&self, path: &str) -> Option<FileRowRange> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+            && let Some(range) = session.file_range_for_path(path)
+        {
+            return Some(FileRowRange {
+                path: range.path.clone(),
+                status: range.status,
+                start_row: range.start_row,
+                end_row: range.end_row,
+            });
+        }
+
+        self.file_row_ranges
+            .iter()
+            .find(|range| range.path == path)
+            .cloned()
+    }
+
+    pub(crate) fn active_diff_file_range_at_or_after_row(
+        &self,
+        row_ix: usize,
+    ) -> Option<FileRowRange> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+            && let Some(range) = session.file_at_or_after_surface_row(row_ix)
+        {
+            return Some(FileRowRange {
+                path: range.path.clone(),
+                status: range.status,
+                start_row: range.start_row,
+                end_row: range.end_row,
+            });
+        }
+
+        self.file_row_ranges
+            .iter()
+            .find(|range| row_ix < range.end_row)
+            .or_else(|| self.file_row_ranges.last())
+            .cloned()
     }
 
     fn default_review_right_source_id_from_sources(

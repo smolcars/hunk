@@ -7,22 +7,9 @@ impl DiffViewer {
     }
 
     fn scroll_to_file_start(&mut self, path: &str) {
-        let start_row = if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            self.review_workspace_session
-                .as_ref()
-                .and_then(|session| session.file_start_surface_row(path))
-                .or_else(|| {
-                    self.file_row_ranges
-                        .iter()
-                        .find(|range| range.path == path)
-                        .map(|range| range.start_row)
-                })
-        } else {
-            self.file_row_ranges
-                .iter()
-                .find(|range| range.path == path)
-                .map(|range| range.start_row)
-        };
+        let start_row = self
+            .active_diff_file_range_for_path(path)
+            .map(|range| range.start_row);
         let Some(start_row) = start_row else {
             return;
         };
@@ -50,32 +37,28 @@ impl DiffViewer {
             self.review_workspace_session
                 .as_ref()
                 .and_then(|session| {
-                    session.path_at_surface_row(row_ix).map(|path| {
-                        (
-                            path.to_string(),
-                            session
-                                .status_for_path(path)
-                                .or_else(|| self.status_for_path(path))
-                                .unwrap_or(FileStatus::Unknown),
-                        )
-                    })
+                    session
+                        .path_at_surface_row(row_ix)
+                        .and_then(|path| {
+                            session.file_range_for_path(path).map(|range| {
+                                (range.path.clone(), range.status)
+                            })
+                        })
+                        .or_else(|| {
+                            self.active_diff_file_range_at_or_after_row(row_ix)
+                                .map(|range| (range.path, range.status))
+                        })
                 })
                 .or_else(|| {
                     self.selected_file_from_row_metadata(row_ix).or_else(|| {
-                        self.file_row_ranges
-                            .iter()
-                            .find(|range| row_ix < range.end_row)
-                            .or_else(|| self.file_row_ranges.last())
-                            .map(|range| (range.path.clone(), range.status))
+                        self.active_diff_file_range_at_or_after_row(row_ix)
+                            .map(|range| (range.path, range.status))
                     })
                 })
         } else {
             self.selected_file_from_row_metadata(row_ix).or_else(|| {
-                self.file_row_ranges
-                    .iter()
-                    .find(|range| row_ix < range.end_row)
-                    .or_else(|| self.file_row_ranges.last())
-                    .map(|range| (range.path.clone(), range.status))
+                self.active_diff_file_range_at_or_after_row(row_ix)
+                    .map(|range| (range.path, range.status))
             })
         })
         else {

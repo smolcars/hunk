@@ -140,6 +140,71 @@ fn review_workspace_session_surface_rows_match_current_side_by_side_shape() {
 }
 
 #[test]
+fn review_workspace_session_tracks_stable_file_scope_queries() {
+    let first_patch = "\
+@@ -1,2 +1,2 @@
+-before
++after
+ stay
+";
+    let second_patch = "\
+@@ -10,0 +11,2 @@
++new
++tail
+";
+    let snapshot = CompareSnapshot {
+        files: vec![
+            changed_file("src/main.rs", FileStatus::Modified),
+            changed_file("src/lib.rs", FileStatus::Added),
+        ],
+        file_line_stats: BTreeMap::new(),
+        overall_line_stats: LineStats::default(),
+        patches_by_path: BTreeMap::from([
+            ("src/main.rs".to_string(), first_patch.to_string()),
+            ("src/lib.rs".to_string(), second_patch.to_string()),
+        ]),
+    };
+
+    let session = ReviewWorkspaceSession::from_compare_snapshot(&snapshot, &BTreeSet::new())
+        .expect("workspace session should build");
+    let first_range = &session.file_ranges()[0];
+    let second_range = &session.file_ranges()[1];
+
+    assert!(session.contains_path("src/main.rs"));
+    assert!(!session.contains_path("missing.rs"));
+    assert_eq!(
+        session
+            .file_range_for_path("src/lib.rs")
+            .map(|range| range.start_row),
+        Some(second_range.start_row)
+    );
+    assert_eq!(
+        session
+            .file_at_or_after_surface_row(first_range.end_row)
+            .map(|range| range.path.as_str()),
+        Some("src/lib.rs")
+    );
+    assert_eq!(
+        session
+            .file_at_or_after_surface_row(usize::MAX)
+            .map(|range| range.path.as_str()),
+        Some("src/lib.rs")
+    );
+    assert_eq!(
+        session
+            .adjacent_file(Some("src/main.rs"), 1)
+            .map(|range| range.path.as_str()),
+        Some("src/lib.rs")
+    );
+    assert_eq!(
+        session
+            .adjacent_file(Some("src/lib.rs"), -1)
+            .map(|range| range.path.as_str()),
+        Some("src/main.rs")
+    );
+}
+
+#[test]
 fn review_workspace_session_can_attach_render_rows() {
     let patch = "\
 @@ -1,2 +1,2 @@

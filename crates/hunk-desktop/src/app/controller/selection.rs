@@ -252,22 +252,29 @@ impl DiffViewer {
     }
 
     fn select_file_relative(&mut self, direction: isize, cx: &mut Context<Self>) {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            let Some((path, status, start_row)) = session
+                .adjacent_file(self.selected_path.as_deref(), direction)
+                .map(|range| (range.path.clone(), range.status, range.start_row))
+            else {
+                return;
+            };
+
+            self.selected_path = Some(path.clone());
+            self.selected_status = Some(status);
+            self.scroll_to_file_start(path.as_str());
+            self.select_row(start_row, false, cx);
+            cx.notify();
+            return;
+        }
+
         let file_ranges = if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            self.review_workspace_session
-                .as_ref()
-                .map(|session| {
-                    session
-                        .file_ranges()
-                        .iter()
-                        .map(|range| (range.path.clone(), range.status, range.start_row))
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_else(|| {
-                    self.file_row_ranges
-                        .iter()
-                        .map(|range| (range.path.clone(), range.status, range.start_row))
-                        .collect::<Vec<_>>()
-                })
+            self.file_row_ranges
+                .iter()
+                .map(|range| (range.path.clone(), range.status, range.start_row))
+                .collect::<Vec<_>>()
         } else {
             self.file_row_ranges
                 .iter()

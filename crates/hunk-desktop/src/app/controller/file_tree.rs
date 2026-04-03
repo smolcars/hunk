@@ -10,6 +10,19 @@ fn review_mode_selected_path(
 }
 
 impl DiffViewer {
+    fn preferred_review_workspace_path(&self) -> Option<String> {
+        if let Some(session) = self.review_workspace_session.as_ref() {
+            return self
+                .selected_path
+                .as_deref()
+                .filter(|path| session.contains_path(path))
+                .map(str::to_string)
+                .or_else(|| session.first_path().map(ToString::to_string));
+        }
+
+        review_mode_selected_path(self.selected_path.as_deref(), &self.review_files)
+    }
+
     fn path_exists_in_primary_checkout(&self, path: &str) -> bool {
         if repo_tree_contains_path(&self.repo_tree.nodes, path) {
             return true;
@@ -199,10 +212,7 @@ impl DiffViewer {
                 self.clear_editor_state(cx);
             }
         } else if mode == WorkspaceViewMode::Diff {
-            self.selected_path = review_mode_selected_path(
-                self.selected_path.as_deref(),
-                &self.review_files,
-            );
+            self.selected_path = self.preferred_review_workspace_path();
             self.selected_status = self
                 .selected_path
                 .as_deref()

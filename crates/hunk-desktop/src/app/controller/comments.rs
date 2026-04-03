@@ -608,9 +608,7 @@ impl DiffViewer {
         }
 
         if let Some((status, start_row)) = self
-            .file_row_ranges
-            .iter()
-            .find(|range| range.path == comment.file_path)
+            .active_diff_file_range_for_path(comment.file_path.as_str())
             .map(|range| (range.status, range.start_row))
         {
             self.comments_preview_open = false;
