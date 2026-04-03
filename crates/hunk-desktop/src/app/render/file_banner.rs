@@ -1,3 +1,7 @@
+use crate::app::native_files_editor::paint::{
+    paint_editor_line, shape_editor_line, single_color_text_run,
+};
+
 #[derive(Clone)]
 struct ReviewWorkspaceFileHeaderPaint {
     row_background: gpui::Hsla,
@@ -199,18 +203,12 @@ fn paint_review_workspace_file_header_row(
         let line_height = text_style.line_height_in_pixels(window.rem_size());
         let text_y = bounds.origin.y + ((bounds.size.height - line_height) / 2.).max(Pixels::ZERO);
 
-        let badge_runs = vec![TextRun {
-            len: paint.badge_label.len(),
-            color: paint.badge_text_color,
-            font: font.clone(),
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        }];
-        let badge_shape =
-            window
-                .text_system()
-                .shape_line(paint.badge_label.clone(), font_size, &badge_runs, None);
+        let badge_runs = vec![single_color_text_run(
+            paint.badge_label.len(),
+            paint.badge_text_color,
+            font.clone(),
+        )];
+        let badge_shape = shape_editor_line(window, paint.badge_label.clone(), font_size, &badge_runs);
         let badge_width = badge_shape.width() + px(12.0);
         let badge_x = bounds.origin.x + left_padding + collapse_button_reserve;
         let badge_y = bounds.origin.y + ((bounds.size.height - badge_height) / 2.).max(Pixels::ZERO);
@@ -249,16 +247,15 @@ fn paint_review_workspace_file_header_row(
             },
             paint.badge_border,
         ));
-        let _ = badge_shape.paint(
+        paint_editor_line(
+            window,
+            cx,
+            &badge_shape,
             point(
                 badge_x + ((badge_width - badge_shape.width()) / 2.).max(Pixels::ZERO),
                 text_y,
             ),
             line_height,
-            TextAlign::Left,
-            None,
-            window,
-            cx,
         );
 
         let stats_items = [
@@ -269,26 +266,10 @@ fn paint_review_workspace_file_header_row(
         ];
         let mut cursor_x = bounds.origin.x + bounds.size.width - right_padding - view_button_reserve;
         for (text, color) in stats_items {
-            let runs = vec![TextRun {
-                len: text.len(),
-                color,
-                font: font.clone(),
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            }];
-            let shape = window
-                .text_system()
-                .shape_line(text.clone(), font_size, &runs, None);
+            let runs = vec![single_color_text_run(text.len(), color, font.clone())];
+            let shape = shape_editor_line(window, text.clone(), font_size, &runs);
             cursor_x -= shape.width();
-            let _ = shape.paint(
-                point(cursor_x, text_y),
-                line_height,
-                TextAlign::Left,
-                None,
-                window,
-                cx,
-            );
+            paint_editor_line(window, cx, &shape, point(cursor_x, text_y), line_height);
             cursor_x -= stats_gap;
         }
 
@@ -298,26 +279,14 @@ fn paint_review_workspace_file_header_row(
             origin: point(path_x, bounds.origin.y),
             size: gpui::size((path_right - path_x).max(Pixels::ZERO), bounds.size.height),
         };
-        let path_runs = vec![TextRun {
-            len: paint.path.len(),
-            color: paint.path_text_color,
+        let path_runs = vec![single_color_text_run(
+            paint.path.len(),
+            paint.path_text_color,
             font,
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        }];
-        let path_shape = window
-            .text_system()
-            .shape_line(paint.path.clone(), font_size, &path_runs, None);
+        )];
+        let path_shape = shape_editor_line(window, paint.path.clone(), font_size, &path_runs);
         window.with_content_mask(Some(ContentMask { bounds: path_bounds }), |window| {
-            let _ = path_shape.paint(
-                point(path_x, text_y),
-                line_height,
-                TextAlign::Left,
-                None,
-                window,
-                cx,
-            );
+            paint_editor_line(window, cx, &path_shape, point(path_x, text_y), line_height);
         });
     });
 }

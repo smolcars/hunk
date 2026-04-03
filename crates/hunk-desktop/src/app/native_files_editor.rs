@@ -23,7 +23,7 @@ mod input_impl;
 #[path = "native_files_editor_language.rs"]
 mod language_impl;
 #[path = "native_files_editor_paint.rs"]
-mod paint;
+pub(crate) mod paint;
 #[path = "native_files_editor_workspace.rs"]
 mod workspace_session;
 

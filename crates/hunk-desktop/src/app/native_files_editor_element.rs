@@ -4,9 +4,9 @@ use gpui::*;
 
 use super::paint::{
     LineNumberPaintParams, build_text_runs_for_row, matching_bracket_pair, paint_cursor,
-    paint_fold_marker, paint_indent_guides, paint_line_number, paint_matching_brackets,
-    paint_overlays, paint_scope_highlight, paint_selection, paint_whitespace_markers,
-    resolve_syntax_styles, selection_range_for_row,
+    paint_editor_line, paint_fold_marker, paint_indent_guides, paint_line_number,
+    paint_matching_brackets, paint_overlays, paint_scope_highlight, paint_selection,
+    paint_whitespace_markers, resolve_syntax_styles, selection_range_for_row, shape_editor_line,
 };
 use super::{EditorLayout, FilesEditorElement};
 
@@ -279,20 +279,9 @@ impl Element for FilesEditorElement {
                     self.palette.default_foreground,
                     self.palette.muted_foreground,
                 );
-                let line = window.text_system().shape_line(
-                    row.text.clone().into(),
-                    layout.font_size,
-                    &runs,
-                    None,
-                );
-                let _ = line.paint(
-                    row_origin,
-                    layout.line_height,
-                    TextAlign::Left,
-                    None,
-                    window,
-                    cx,
-                );
+                let line =
+                    shape_editor_line(window, row.text.clone().into(), layout.font_size, &runs);
+                paint_editor_line(window, cx, &line, row_origin, layout.line_height);
                 paint_whitespace_markers(
                     window,
                     cx,

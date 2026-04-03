@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, Font, Hitbox, Hsla, Pixels, Point, TextAlign, TextRun, Window, fill, point, px,
-    size,
+    App, Bounds, Font, Hitbox, Hsla, Pixels, Point, ShapedLine, SharedString, TextAlign, TextRun,
+    Window, fill, point, px, size,
 };
 use gpui_component::ActiveTheme as _;
 use hunk_editor::{DisplayRow, DisplayRowKind, FoldRegion};
@@ -179,6 +179,36 @@ fn push_compacted_row_syntax_span(spans: &mut Vec<RowSyntaxSpan>, next: RowSynta
     }
 
     spans.push(next);
+}
+
+pub(crate) fn single_color_text_run(len: usize, color: Hsla, font: Font) -> TextRun {
+    TextRun {
+        len,
+        color,
+        font,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    }
+}
+
+pub(crate) fn shape_editor_line(
+    window: &mut Window,
+    text: SharedString,
+    font_size: Pixels,
+    runs: &[TextRun],
+) -> ShapedLine {
+    window.text_system().shape_line(text, font_size, runs, None)
+}
+
+pub(crate) fn paint_editor_line(
+    window: &mut Window,
+    cx: &mut App,
+    line: &ShapedLine,
+    origin: Point<Pixels>,
+    line_height: Pixels,
+) {
+    let _ = line.paint(origin, line_height, TextAlign::Left, None, window, cx);
 }
 
 pub(super) fn build_text_runs_for_row(
@@ -364,24 +394,14 @@ pub(super) fn paint_line_number(
     } else {
         params.palette.line_number
     };
-    let runs = vec![TextRun {
-        len: label.len(),
-        color,
-        font: params.font,
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    }];
-    let line = window
-        .text_system()
-        .shape_line(label.into(), layout.font_size, &runs, None);
-    let _ = line.paint(
-        point(layout.line_number_origin_x(), params.origin.y),
-        layout.line_height,
-        TextAlign::Left,
-        None,
+    let runs = vec![single_color_text_run(label.len(), color, params.font)];
+    let line = shape_editor_line(window, label.into(), layout.font_size, &runs);
+    paint_editor_line(
         window,
         cx,
+        &line,
+        point(layout.line_number_origin_x(), params.origin.y),
+        layout.line_height,
     );
 }
 
@@ -410,16 +430,13 @@ pub(super) fn paint_fold_marker(
         underline: None,
         strikethrough: None,
     }];
-    let line = window
-        .text_system()
-        .shape_line(label.into(), layout.font_size, &runs, None);
-    let _ = line.paint(
-        point(layout.fold_marker_origin_x(), row_origin.y),
-        layout.line_height,
-        TextAlign::Left,
-        None,
+    let line = shape_editor_line(window, label.into(), layout.font_size, &runs);
+    paint_editor_line(
         window,
         cx,
+        &line,
+        point(layout.fold_marker_origin_x(), row_origin.y),
+        layout.line_height,
     );
 }
 
@@ -493,19 +510,16 @@ pub(super) fn paint_whitespace_markers(
             underline: None,
             strikethrough: None,
         }];
-        let line = window
-            .text_system()
-            .shape_line(label.into(), layout.font_size, &runs, None);
-        let _ = line.paint(
+        let line = shape_editor_line(window, label.into(), layout.font_size, &runs);
+        paint_editor_line(
+            window,
+            cx,
+            &line,
             point(
                 row_origin.x + (layout.cell_width * marker.column as f32),
                 row_origin.y,
             ),
             layout.line_height,
-            TextAlign::Left,
-            None,
-            window,
-            cx,
         );
     }
 }

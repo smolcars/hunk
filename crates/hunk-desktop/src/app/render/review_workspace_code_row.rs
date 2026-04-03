@@ -1,4 +1,4 @@
-use gpui::{App, SharedString, TextAlign, TextRun, Window, point, px};
+use gpui::{App, SharedString, TextRun, Window, point, px};
 
 struct DiffCellRenderSpec {
     side: &'static str,
@@ -135,53 +135,48 @@ fn paint_review_workspace_code_cell(
     let line_height = text_style.line_height_in_pixels(window.rem_size());
     let text_origin_y = bounds.origin.y + ((bounds.size.height - line_height) / 2.).max(Pixels::ZERO);
 
-    let line_number_runs = vec![TextRun {
-        len: cell.line_number.len(),
-        color: cell.line_color,
-        font: font.clone(),
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    }];
-    let line_number_shape = window.text_system().shape_line(
+    let line_number_runs = vec![crate::app::native_files_editor::paint::single_color_text_run(
+        cell.line_number.len(),
+        cell.line_color,
+        font.clone(),
+    )];
+    let line_number_shape = crate::app::native_files_editor::paint::shape_editor_line(
+        window,
         cell.line_number.clone(),
         font_size,
         &line_number_runs,
-        None,
     );
     let line_number_x = gutter_bounds.origin.x
         + gutter_padding_x
         + (px(cell.line_number_width) - line_number_shape.width()).max(Pixels::ZERO);
-    let _ = line_number_shape.paint(
-        point(line_number_x, text_origin_y),
-        line_height,
-        TextAlign::Left,
-        None,
+    crate::app::native_files_editor::paint::paint_editor_line(
         window,
         cx,
+        &line_number_shape,
+        point(line_number_x, text_origin_y),
+        line_height,
     );
 
-    let marker_runs = vec![TextRun {
-        len: cell.marker.len(),
-        color: cell.marker_color,
-        font: font.clone(),
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    }];
-    let marker_shape = window
-        .text_system()
-        .shape_line(cell.marker.clone(), font_size, &marker_runs, None);
+    let marker_runs = vec![crate::app::native_files_editor::paint::single_color_text_run(
+        cell.marker.len(),
+        cell.marker_color,
+        font.clone(),
+    )];
+    let marker_shape = crate::app::native_files_editor::paint::shape_editor_line(
+        window,
+        cell.marker.clone(),
+        font_size,
+        &marker_runs,
+    );
     let marker_origin_x =
         gutter_bounds.origin.x + gutter_padding_x + px(cell.line_number_width) + px(8.0);
     let marker_x = marker_origin_x + ((marker_width - marker_shape.width()) / 2.).max(Pixels::ZERO);
-    let _ = marker_shape.paint(
-        point(marker_x, text_origin_y),
-        line_height,
-        TextAlign::Left,
-        None,
+    crate::app::native_files_editor::paint::paint_editor_line(
         window,
         cx,
+        &marker_shape,
+        point(marker_x, text_origin_y),
+        line_height,
     );
 
     let mut text = String::new();
@@ -214,17 +209,19 @@ fn paint_review_workspace_code_cell(
         });
     }
 
-    let text_shape = window
-        .text_system()
-        .shape_line(text.into(), font_size, &text_runs, None);
+    let text_shape = crate::app::native_files_editor::paint::shape_editor_line(
+        window,
+        text.into(),
+        font_size,
+        &text_runs,
+    );
     let text_origin_x = gutter_bounds.origin.x + gutter_bounds.size.width + padding_x;
-    let _ = text_shape.paint(
-        point(text_origin_x, text_origin_y),
-        line_height,
-        TextAlign::Left,
-        None,
+    crate::app::native_files_editor::paint::paint_editor_line(
         window,
         cx,
+        &text_shape,
+        point(text_origin_x, text_origin_y),
+        line_height,
     );
 }
 
@@ -273,25 +270,24 @@ fn paint_review_workspace_meta_row(
     let font = text_style.font();
     let font_size = text_style.font_size.to_pixels(window.rem_size());
     let line_height = text_style.line_height_in_pixels(window.rem_size());
-    let text_runs = vec![TextRun {
-        len: meta.text.len(),
-        color: meta.foreground,
+    let text_runs = vec![crate::app::native_files_editor::paint::single_color_text_run(
+        meta.text.len(),
+        meta.foreground,
         font,
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    }];
-    let shape = window
-        .text_system()
-        .shape_line(meta.text.clone(), font_size, &text_runs, None);
+    )];
+    let shape = crate::app::native_files_editor::paint::shape_editor_line(
+        window,
+        meta.text.clone(),
+        font_size,
+        &text_runs,
+    );
     let text_y = bounds.origin.y + ((bounds.size.height - line_height) / 2.).max(Pixels::ZERO);
-    let _ = shape.paint(
-        point(bounds.origin.x + px(12.0), text_y),
-        line_height,
-        TextAlign::Left,
-        None,
+    crate::app::native_files_editor::paint::paint_editor_line(
         window,
         cx,
+        &shape,
+        point(bounds.origin.x + px(12.0), text_y),
+        line_height,
     );
 }
 
