@@ -1003,12 +1003,15 @@ impl DiffViewer {
             self.review_surface.clear_legacy_diff_row_lookups();
         }
 
-        let has_selection = self
-            .selected_path
+        let preferred_selected_path = self
+            .current_review_editor_session_path()
+            .or_else(|| self.review_last_selected_path.clone())
+            .or_else(|| self.selected_path.clone());
+        let has_selection = preferred_selected_path
             .as_ref()
             .is_some_and(|path| self.active_diff_contains_path(path.as_str()));
         let next_selected_path = if has_selection {
-            self.selected_path.clone()
+            preferred_selected_path
         } else {
             self.review_workspace_session
                 .as_ref()

@@ -83,7 +83,13 @@ impl DiffViewer {
             return;
         };
 
-        if self.selected_path.as_deref() == Some(next_path.as_str()) {
+        let current_selected_path = if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            self.current_review_path()
+        } else {
+            self.selected_path.clone()
+        };
+
+        if current_selected_path.as_deref() == Some(next_path.as_str()) {
             return;
         }
 

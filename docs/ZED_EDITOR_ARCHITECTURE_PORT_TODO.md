@@ -220,6 +220,7 @@ Current state:
 - Diff-mode top-row, visible-range, and sticky-file banner resolution now consume that cached visible-state snapshot first instead of recomputing viewport math independently in each controller/render path.
 - Diff-mode sticky-header, file-anchor, and visible-file resolution paths now prefer the shared workspace session and active row accessors instead of reading `diff_row_metadata` directly.
 - Review file selection now also prefers the persistent workspace editor session’s active path before falling back to duplicated top-level Diff selection fields, which moves active-file ownership closer to the editor/session itself.
+- Diff-mode compare rebuilds, file-to-file navigation, visible-row selection sync, and no-session review path selection now preserve the Review workspace/editor session’s active path or `review_last_selected_path` before falling back to the mirrored top-level `selected_path`.
 - Diff mode no longer persists duplicate `file_row_ranges` or visible header lookup vectors when a Review workspace session exists; those file-range and header queries are now expected to resolve from the shared session instead of cached flat-row state.
 
 ### Phase 6: Persist Editor Entities Across Tab Switches

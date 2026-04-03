@@ -1,11 +1,13 @@
 use std::path::{Component, Path, PathBuf};
 
 fn review_mode_selected_path(
+    review_last_selected_path: Option<&str>,
     selected_path: Option<&str>,
     review_files: &[ChangedFile],
 ) -> Option<String> {
-    selected_path
+    review_last_selected_path
         .map(str::to_string)
+        .or_else(|| selected_path.map(str::to_string))
         .or_else(|| review_files.first().map(|file| file.path.clone()))
 }
 
@@ -23,7 +25,11 @@ impl DiffViewer {
             );
         }
 
-        review_mode_selected_path(self.selected_path.as_deref(), &self.review_files)
+        review_mode_selected_path(
+            self.review_last_selected_path.as_deref(),
+            self.selected_path.as_deref(),
+            &self.review_files,
+        )
     }
 
     fn path_exists_in_primary_checkout(&self, path: &str) -> bool {

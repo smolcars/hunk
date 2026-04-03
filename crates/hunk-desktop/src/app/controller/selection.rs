@@ -275,7 +275,7 @@ impl DiffViewer {
             let current_path = self
                 .current_review_file_range()
                 .map(|range| range.path)
-                .or_else(|| self.selected_path.clone());
+                .or_else(|| self.current_review_path());
             let Some((path, status, start_row)) = session
                 .adjacent_file(current_path.as_deref(), direction)
                 .map(|range| (range.path.clone(), range.status, range.start_row))

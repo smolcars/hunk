@@ -192,8 +192,24 @@ fn review_mode_selected_path_preserves_explicit_selection() {
     }];
 
     assert_eq!(
-        review_mode_selected_path(Some("src/main.rs"), &review_files),
+        review_mode_selected_path(None, Some("src/main.rs"), &review_files),
         Some("src/main.rs".to_string()),
+    );
+}
+
+#[test]
+fn review_mode_selected_path_prefers_last_review_selection() {
+    let review_files = vec![hunk_git::git::ChangedFile {
+        path: "src/lib.rs".to_string(),
+        status: hunk_git::git::FileStatus::Modified,
+        staged: false,
+        unstaged: true,
+        untracked: false,
+    }];
+
+    assert_eq!(
+        review_mode_selected_path(Some("src/review.rs"), Some("src/main.rs"), &review_files),
+        Some("src/review.rs".to_string()),
     );
 }
 
@@ -208,7 +224,7 @@ fn review_mode_selected_path_falls_back_to_first_review_file() {
     }];
 
     assert_eq!(
-        review_mode_selected_path(None, &review_files),
+        review_mode_selected_path(None, None, &review_files),
         Some("src/lib.rs".to_string()),
     );
 }
