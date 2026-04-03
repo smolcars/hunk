@@ -37,6 +37,52 @@ impl DiffViewer {
             );
         }
 
+        if self.uses_review_workspace_sections_surface() {
+            let row_height_px = if row.kind == DiffRowKind::HunkHeader {
+                crate::app::review_workspace_session::REVIEW_SURFACE_HUNK_DIVIDER_HEIGHT_PX
+            } else {
+                crate::app::review_workspace_session::REVIEW_SURFACE_COMPACT_ROW_HEIGHT_PX
+            };
+            let meta_row = div()
+                .id(("diff-meta-row", self.diff_row_stable_id(ix)))
+                .relative()
+                .overflow_x_hidden()
+                .h(px(row_height_px as f32))
+                .on_mouse_down(MouseButton::Left, {
+                    let row_ix = ix;
+                    cx.listener(move |this, event, window, cx| {
+                        this.on_diff_row_mouse_down(row_ix, event, window, cx);
+                    })
+                })
+                .on_mouse_down(MouseButton::Middle, {
+                    let row_ix = ix;
+                    cx.listener(move |this, event, window, cx| {
+                        this.on_diff_row_mouse_down(row_ix, event, window, cx);
+                    })
+                })
+                .on_mouse_down(MouseButton::Right, {
+                    let row_ix = ix;
+                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                        this.open_diff_row_context_menu(row_ix, event.position, window, cx);
+                        cx.stop_propagation();
+                    })
+                })
+                .on_mouse_move({
+                    let row_ix = ix;
+                    cx.listener(move |this, event, window, cx| {
+                        this.on_diff_row_mouse_move(row_ix, event, window, cx);
+                    })
+                })
+                .on_mouse_up(MouseButton::Left, cx.listener(Self::on_diff_row_mouse_up))
+                .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_diff_row_mouse_up))
+                .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_diff_row_mouse_up))
+                .on_mouse_up_out(MouseButton::Middle, cx.listener(Self::on_diff_row_mouse_up))
+                .child(self.render_review_workspace_meta_row_element(row, is_selected, cx))
+                .child(self.render_row_comment_affordance(ix, cx));
+
+            return self.render_diff_row_with_comment_editor(ix, meta_row.into_any_element(), cx);
+        }
+
         let stable_row_id = self.diff_row_stable_id(ix);
         if row.kind == DiffRowKind::HunkHeader {
             let is_dark = cx.theme().mode.is_dark();

@@ -27,6 +27,17 @@ struct ReviewWorkspaceCodeRowElement {
     mono_font_family: SharedString,
 }
 
+#[derive(Clone)]
+struct ReviewWorkspaceMetaRowElement {
+    kind: DiffRowKind,
+    text: SharedString,
+    background: gpui::Hsla,
+    foreground: gpui::Hsla,
+    accent: gpui::Hsla,
+    border: gpui::Hsla,
+    mono_font_family: SharedString,
+}
+
 impl ReviewWorkspaceCodeRowElement {
     fn new(
         left: ReviewWorkspaceCodeRowCellPaint,
@@ -38,6 +49,28 @@ impl ReviewWorkspaceCodeRowElement {
             left,
             right,
             center_divider,
+            mono_font_family,
+        }
+    }
+}
+
+impl ReviewWorkspaceMetaRowElement {
+    fn new(
+        kind: DiffRowKind,
+        text: SharedString,
+        background: gpui::Hsla,
+        foreground: gpui::Hsla,
+        accent: gpui::Hsla,
+        border: gpui::Hsla,
+        mono_font_family: SharedString,
+    ) -> Self {
+        Self {
+            kind,
+            text,
+            background,
+            foreground,
+            accent,
+            border,
             mono_font_family,
         }
     }
@@ -121,6 +154,124 @@ impl Element for ReviewWorkspaceCodeRowElement {
                 },
                 self.center_divider,
             ));
+        });
+    }
+}
+
+impl IntoElement for ReviewWorkspaceMetaRowElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for ReviewWorkspaceMetaRowElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let mut style = gpui::Style::default();
+        style.size.width = gpui::relative(1.).into();
+        style.size.height = gpui::relative(1.).into();
+        (window.request_layout(style, [], cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<gpui::Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Self::PrepaintState {
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<gpui::Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _layout: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if self.kind == DiffRowKind::HunkHeader {
+            window.paint_quad(gpui::fill(bounds, self.background));
+            window.paint_quad(gpui::fill(
+                Bounds {
+                    origin: point(bounds.origin.x, bounds.origin.y + bounds.size.height - px(1.0)),
+                    size: gpui::size(bounds.size.width, px(1.0)),
+                },
+                self.border,
+            ));
+            return;
+        }
+
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            window.paint_quad(gpui::fill(bounds, self.background));
+            window.paint_quad(gpui::fill(
+                Bounds {
+                    origin: point(bounds.origin.x, bounds.origin.y + bounds.size.height - px(1.0)),
+                    size: gpui::size(bounds.size.width, px(1.0)),
+                },
+                self.border,
+            ));
+            window.paint_quad(gpui::fill(
+                Bounds {
+                    origin: bounds.origin,
+                    size: gpui::size(px(2.0), bounds.size.height),
+                },
+                self.accent,
+            ));
+
+            let text_style = gpui::TextStyle {
+                color: self.foreground,
+                font_family: self.mono_font_family.clone(),
+                font_size: px(12.0).into(),
+                line_height: gpui::relative(1.45),
+                ..Default::default()
+            };
+            let font = text_style.font();
+            let font_size = text_style.font_size.to_pixels(window.rem_size());
+            let line_height = text_style.line_height_in_pixels(window.rem_size());
+            let text_runs = vec![TextRun {
+                len: self.text.len(),
+                color: self.foreground,
+                font,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }];
+            let shape =
+                window
+                    .text_system()
+                    .shape_line(self.text.clone(), font_size, &text_runs, None);
+            let text_y = bounds.origin.y + ((bounds.size.height - line_height) / 2.).max(gpui::Pixels::ZERO);
+            let _ = shape.paint(
+                point(bounds.origin.x + px(12.0), text_y),
+                line_height,
+                TextAlign::Left,
+                None,
+                window,
+                cx,
+            );
         });
     }
 }
@@ -449,5 +600,84 @@ impl DiffViewer {
             line_number: SharedString::from(cell.line.map(|line| line.to_string()).unwrap_or_default()),
             segments,
         }
+    }
+
+    fn render_review_workspace_meta_row_element(
+        &self,
+        row: &SideBySideRow,
+        is_selected: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_dark = cx.theme().mode.is_dark();
+
+        let (background, foreground, accent) = match row.kind {
+            DiffRowKind::HunkHeader => (
+                if is_selected {
+                    hunk_opacity(cx.theme().primary, is_dark, 0.34, 0.18)
+                } else {
+                    hunk_opacity(cx.theme().muted, is_dark, 0.26, 0.40)
+                },
+                cx.theme().primary_foreground,
+                cx.theme().primary,
+            ),
+            DiffRowKind::Meta => {
+                let line = row.text.as_str();
+                if line.starts_with("new file mode") || line.starts_with("+++ b/") {
+                    (
+                        hunk_blend(cx.theme().background, cx.theme().success, is_dark, 0.22, 0.12),
+                        hunk_tone(cx.theme().success, is_dark, 0.45, 0.10),
+                        cx.theme().success,
+                    )
+                } else if line.starts_with("deleted file mode") || line.starts_with("--- a/") {
+                    (
+                        hunk_blend(cx.theme().background, cx.theme().danger, is_dark, 0.22, 0.12),
+                        hunk_tone(cx.theme().danger, is_dark, 0.45, 0.10),
+                        cx.theme().danger,
+                    )
+                } else if line.starts_with("diff --git") {
+                    (
+                        hunk_blend(cx.theme().background, cx.theme().accent, is_dark, 0.18, 0.10),
+                        cx.theme().foreground,
+                        cx.theme().accent,
+                    )
+                } else {
+                    (
+                        cx.theme().muted,
+                        cx.theme().muted_foreground,
+                        cx.theme().border,
+                    )
+                }
+            }
+            DiffRowKind::Empty => (
+                cx.theme().background,
+                cx.theme().muted_foreground,
+                cx.theme().border,
+            ),
+            DiffRowKind::Code => (
+                cx.theme().background,
+                cx.theme().foreground,
+                cx.theme().border,
+            ),
+        };
+        let background = if row.kind == DiffRowKind::HunkHeader {
+            background
+        } else if is_selected {
+            hunk_blend(background, cx.theme().primary, is_dark, 0.24, 0.14)
+        } else {
+            background
+        };
+
+        let border = hunk_opacity(cx.theme().border, is_dark, 0.82, 0.70);
+
+        ReviewWorkspaceMetaRowElement::new(
+            row.kind,
+            row.text.clone().into(),
+            background,
+            foreground,
+            accent,
+            border,
+            cx.theme().mono_font_family.clone(),
+        )
+        .into_any_element()
     }
 }
