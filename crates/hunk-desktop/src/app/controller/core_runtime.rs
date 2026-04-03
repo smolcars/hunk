@@ -112,48 +112,38 @@ impl DiffViewer {
     }
 
     pub(super) fn current_review_surface_top_row(&self) -> Option<usize> {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return None;
+        }
+
         let row_count = self.active_diff_row_count();
         if row_count == 0 {
             return None;
         }
 
-        if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            return self.current_review_visible_state().and_then(|state| state.top_row);
-        }
-
-        Some(
-            self.review_surface
-                .diff_list_state
-                .logical_scroll_top()
-                .item_ix
-                .min(row_count.saturating_sub(1)),
-        )
+        self.current_review_visible_state().and_then(|state| state.top_row)
     }
 
     pub(super) fn current_review_visible_row_range(&self) -> Option<std::ops::Range<usize>> {
+        if self.workspace_view_mode != WorkspaceViewMode::Diff {
+            return None;
+        }
+
         let row_count = self.active_diff_row_count();
         if row_count == 0 {
             return None;
         }
 
-        if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            return self
-                .current_review_visible_state()
-                .and_then(|state| state.visible_row_range);
-        }
-
-        let top = self.current_review_surface_top_row()?;
-        Some(top..row_count.min(top.saturating_add(DIFF_SEGMENT_PREFETCH_RADIUS_ROWS)))
+        self.current_review_visible_state()
+            .and_then(|state| state.visible_row_range)
     }
 
     pub(super) fn current_review_surface_scroll_offset(&self) -> Point<Pixels> {
         if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            self.review_surface.diff_scroll_handle.offset()
-        } else {
-            self.review_surface
-                .diff_list_state
-                .scroll_px_offset_for_scrollbar()
+            return self.review_surface.diff_scroll_handle.offset();
         }
+
+        point(px(0.), px(0.))
     }
 
     pub(super) fn active_diff_row_count(&self) -> usize {

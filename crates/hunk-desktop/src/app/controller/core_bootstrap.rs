@@ -885,7 +885,7 @@ impl DiffViewer {
         .detach();
 
         view.initialize_ai_timeline_list_view(cx);
-        view.install_list_scroll_handlers(cx);
+        view.install_scroll_handlers(cx);
         view.subscribe_review_compare_picker_states(cx);
 
         view.update_branch_picker_state(window, cx);
@@ -915,18 +915,8 @@ impl DiffViewer {
         view
     }
 
-    fn install_list_scroll_handlers(&self, cx: &mut Context<Self>) {
+    fn install_scroll_handlers(&self, cx: &mut Context<Self>) {
         let weak_view = cx.entity().downgrade();
-
-        self.review_surface.diff_list_state.set_scroll_handler({
-            let weak_view = weak_view.clone();
-            move |event, _, cx| {
-                let visible_row = event.visible_range.start;
-                let _ = weak_view.update(cx, |this, cx| {
-                    this.sync_selected_file_from_visible_row(visible_row, cx);
-                });
-            }
-        });
 
         self.ai_timeline_list_state.set_scroll_handler({
             let weak_view = weak_view.clone();

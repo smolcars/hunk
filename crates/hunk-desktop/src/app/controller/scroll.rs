@@ -22,28 +22,14 @@ impl DiffViewer {
     }
 
     fn scroll_to_file_start(&mut self, path: &str) {
-        let start_row = self
-            .active_diff_file_range_for_path(path)
-            .map(|range| range.start_row);
-        let Some(start_row) = start_row else {
-            return;
-        };
-
-        if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            if let Some(session) = self.review_workspace_session.as_ref()
-                && let Some(top_offset_px) = session
-                    .file_range_for_path(path)
-                    .and_then(|range| session.row_top_offset_px(range.start_row))
-            {
-                self.review_surface
-                    .diff_scroll_handle
-                    .set_offset(point(px(0.), -px(top_offset_px as f32)));
-            }
-        } else {
-            self.review_surface.diff_list_state.scroll_to(ListOffset {
-                item_ix: start_row,
-                offset_in_item: px(0.),
-            });
+        if let Some(session) = self.review_workspace_session.as_ref()
+            && let Some(top_offset_px) = session
+                .file_range_for_path(path)
+                .and_then(|range| session.row_top_offset_px(range.start_row))
+        {
+            self.review_surface
+                .diff_scroll_handle
+                .set_offset(point(px(0.), -px(top_offset_px as f32)));
         }
         self.review_surface.last_diff_scroll_offset = None;
         self.last_scroll_activity_at = Instant::now();
@@ -526,7 +512,6 @@ impl DiffViewer {
         self.file_row_ranges.clear();
         self.review_surface.clear_row_selection();
         self.drag_selecting_rows = false;
-        self.sync_diff_list_state();
         self.recompute_diff_layout();
         self.review_surface.clear_workspace_surface_snapshot();
         self.review_surface.last_prefetched_visible_row_range = None;
@@ -551,7 +536,6 @@ impl DiffViewer {
         self.clamp_comment_rows_to_diff();
         self.clamp_selection_to_rows();
         self.drag_selecting_rows = false;
-        self.sync_diff_list_state();
         self.file_row_ranges = file_ranges;
         self.recompute_diff_layout();
         self.review_surface.clear_workspace_surface_snapshot();
@@ -608,31 +592,6 @@ impl DiffViewer {
             line_number_column_width(max_right_line_digits);
     }
 
-    fn sync_diff_list_state(&self) {
-        if self.uses_review_workspace_sections_surface() {
-            return;
-        }
-
-        let previous_top = self.review_surface.diff_list_state.logical_scroll_top();
-        let row_count = self.active_diff_row_count();
-        self.review_surface.diff_list_state.reset(row_count);
-        let clamped_item_ix = if row_count == 0 {
-            0
-        } else {
-            previous_top
-                .item_ix
-                .min(row_count.saturating_sub(1))
-        };
-        let offset_in_item = if row_count == 0 || clamped_item_ix != previous_top.item_ix {
-            px(0.)
-        } else {
-            previous_top.offset_in_item
-        };
-        self.review_surface.diff_list_state.scroll_to(ListOffset {
-            item_ix: clamped_item_ix,
-            offset_in_item,
-        });
-    }
 }
 
 fn prioritized_prefetch_row_indices(start: usize, end: usize, anchor_row: usize) -> Vec<usize> {

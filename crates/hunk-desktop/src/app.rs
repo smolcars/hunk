@@ -1078,7 +1078,6 @@ struct ReviewWorkspaceSurfaceState {
     selection_head_row: Option<usize>,
     diff_visible_file_header_lookup: Vec<Option<usize>>,
     diff_visible_hunk_header_lookup: Vec<Option<usize>>,
-    diff_list_state: ListState,
     diff_scroll_handle: ScrollHandle,
     diff_split_ratio: f32,
     diff_split_bounds: Option<Bounds<Pixels>>,
@@ -1090,10 +1089,6 @@ struct ReviewWorkspaceSurfaceState {
 }
 
 impl ReviewWorkspaceSurfaceState {
-    fn empty_diff_list_state() -> ListState {
-        ListState::new(0, ListAlignment::Top, px(360.0))
-    }
-
     fn new() -> Self {
         Self {
             status_message: None,
@@ -1104,7 +1099,6 @@ impl ReviewWorkspaceSurfaceState {
             selection_head_row: None,
             diff_visible_file_header_lookup: Vec::new(),
             diff_visible_hunk_header_lookup: Vec::new(),
-            diff_list_state: Self::empty_diff_list_state(),
             diff_scroll_handle: ScrollHandle::default(),
             diff_split_ratio: 0.5,
             diff_split_bounds: None,
