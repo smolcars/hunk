@@ -162,6 +162,12 @@ impl DiffViewer {
         }
         let max_ix = row_count.saturating_sub(1);
         self.selection_head_row
+            .or_else(|| {
+                self.review_surface
+                    .last_visible_row_range
+                    .as_ref()
+                    .map(|range| range.start)
+            })
             .or(self.review_surface.last_visible_row_start)
             .map(|row_ix| row_ix.min(max_ix))
             .or_else(|| self.current_review_surface_top_row())

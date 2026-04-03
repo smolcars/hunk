@@ -194,7 +194,7 @@ Current state:
 
 ### Phase 5: Unify Syntax, Folding, Search, And Visible-Range Work
 
-Status: Not started
+Status: In progress
 
 Targets:
 
@@ -210,6 +210,9 @@ Tasks:
 - [ ] Keep the 8ms frame budget for 120fps scrolling.
 
 This is the phase that removes the last architectural reason for preview-only rendering.
+
+Current state:
+- Review’s viewport bookkeeping now tracks the shared workspace surface’s visible row range directly, and Review syntax-segment prefetch now reuses that explicit range instead of a legacy top-row fallback.
 
 ### Phase 6: Persist Editor Entities Across Tab Switches
 

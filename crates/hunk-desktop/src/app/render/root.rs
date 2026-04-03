@@ -425,10 +425,14 @@ impl Render for DiffViewer {
         if self.review_surface.last_diff_scroll_offset != Some(current_scroll_offset) {
             self.review_surface.last_diff_scroll_offset = Some(current_scroll_offset);
             self.last_scroll_activity_at = Instant::now();
-            if self.uses_review_workspace_sections_surface()
-                && let Some(visible_row) = self.current_review_surface_top_row()
-            {
-                self.sync_selected_file_from_visible_row(visible_row, cx);
+            if self.uses_review_workspace_sections_surface() {
+                let visible_range = self.current_review_visible_row_range();
+                if self.review_surface.last_visible_row_range != visible_range {
+                    self.review_surface.last_visible_row_range = visible_range.clone();
+                    if let Some(visible_range) = visible_range {
+                        self.sync_selected_file_from_visible_row(visible_range.start, cx);
+                    }
+                }
             }
         }
         if self.ignore_next_frame_sample {

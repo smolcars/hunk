@@ -47,7 +47,13 @@ impl DiffViewer {
             return;
         }
         self.review_surface.last_visible_row_start = Some(row_ix);
-        self.request_visible_row_segment_prefetch(row_ix, false, cx);
+        if self.uses_review_workspace_sections_surface() {
+            if let Some(visible_range) = self.current_review_visible_row_range() {
+                self.request_visible_row_range_segment_prefetch(visible_range, false, cx);
+            }
+        } else {
+            self.request_visible_row_segment_prefetch(row_ix, false, cx);
+        }
 
         let Some((next_path, next_status)) = (if self.workspace_view_mode == WorkspaceViewMode::Diff {
             self.review_workspace_session
@@ -258,6 +264,42 @@ impl DiffViewer {
         });
     }
 
+    fn request_visible_row_range_segment_prefetch(
+        &mut self,
+        visible_range: std::ops::Range<usize>,
+        force_upgrade: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let row_count = self.active_diff_row_count();
+        if row_count == 0 || visible_range.start >= row_count {
+            return;
+        }
+
+        let clamped_range = visible_range.start.min(row_count)..visible_range.end.min(row_count);
+        if clamped_range.is_empty() {
+            return;
+        }
+
+        if !force_upgrade
+            && self
+                .review_surface
+                .last_prefetched_visible_row_range
+                .as_ref()
+                .is_some_and(|previous| {
+                    previous.start.abs_diff(clamped_range.start) < DIFF_SEGMENT_PREFETCH_STEP_ROWS
+                        && previous.end.abs_diff(clamped_range.end)
+                            < DIFF_SEGMENT_PREFETCH_STEP_ROWS
+                })
+        {
+            return;
+        }
+
+        self.review_surface.last_prefetched_visible_row_range = Some(clamped_range.clone());
+        let anchor_row =
+            clamped_range.start + (clamped_range.end.saturating_sub(clamped_range.start) / 2);
+        self.request_visible_row_segment_prefetch(anchor_row, force_upgrade, cx);
+    }
+
     fn selected_file_from_row_metadata(&self, row_ix: usize) -> Option<(String, FileStatus)> {
         if self.workspace_view_mode == WorkspaceViewMode::Diff
             && let Some(session) = self.review_workspace_session.as_ref()
@@ -306,6 +348,8 @@ impl DiffViewer {
             .unwrap_or(0)
             .min(row_count.saturating_sub(1));
         if force_reprime {
+            self.review_surface.last_visible_row_range = None;
+            self.review_surface.last_prefetched_visible_row_range = None;
             self.review_surface.last_visible_row_start = None;
         }
         self.sync_selected_file_from_visible_row(visible_row, cx);
@@ -324,6 +368,9 @@ impl DiffViewer {
         self.drag_selecting_rows = false;
         self.sync_diff_list_state();
         self.recompute_diff_layout();
+        self.review_surface.last_visible_row_range = None;
+        self.review_surface.last_prefetched_visible_row_range = None;
+        self.review_surface.last_visible_row_start = None;
     }
 
     fn apply_loaded_diff_surface_stream(
@@ -348,6 +395,8 @@ impl DiffViewer {
         self.sync_diff_list_state();
         self.file_row_ranges = file_ranges;
         self.recompute_diff_layout();
+        self.review_surface.last_visible_row_range = None;
+        self.review_surface.last_prefetched_visible_row_range = None;
         self.review_surface.last_visible_row_start = None;
         self.recompute_diff_visible_header_lookup();
         file_line_stats
@@ -360,6 +409,8 @@ impl DiffViewer {
         self.drag_selecting_rows = false;
         self.sync_diff_list_state();
         self.recompute_diff_layout();
+        self.review_surface.last_visible_row_range = None;
+        self.review_surface.last_prefetched_visible_row_range = None;
         self.review_surface.last_visible_row_start = None;
         self.recompute_diff_visible_header_lookup();
     }

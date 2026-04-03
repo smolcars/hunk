@@ -281,6 +281,8 @@ impl DiffViewer {
             self.request_file_editor_reload(path, cx);
         } else {
             self.scroll_to_file_start(&path);
+            self.review_surface.last_visible_row_range = None;
+            self.review_surface.last_prefetched_visible_row_range = None;
             self.review_surface.last_visible_row_start = None;
             self.review_surface.last_diff_scroll_offset = None;
             self.last_scroll_activity_at = Instant::now();

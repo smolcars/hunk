@@ -656,6 +656,7 @@ impl DiffViewer {
         self.next_segment_prefetch_epoch();
         self.segment_prefetch_task = Task::ready(());
         self.segment_prefetch_anchor_row = None;
+        self.review_surface.last_prefetched_visible_row_range = None;
     }
 
     fn start_auto_refresh(&mut self, cx: &mut Context<Self>) {
