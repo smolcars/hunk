@@ -1,9 +1,65 @@
 impl DiffViewer {
+    pub(super) fn refresh_review_surface_snapshot(
+        &mut self,
+    ) -> Option<review_workspace_session::ReviewWorkspaceVisibleState> {
+        if !self.uses_review_workspace_sections_surface() {
+            self.review_surface.clear_workspace_surface_snapshot();
+            return None;
+        }
+
+        let session = self.review_workspace_session.as_ref()?;
+        let scroll_top_px = self.current_review_surface_scroll_top_px();
+        let viewport_height_px = self
+            .review_surface
+            .diff_scroll_handle
+            .bounds()
+            .size
+            .height
+            .max(Pixels::ZERO)
+            .as_f32()
+            .round() as usize;
+
+        let needs_refresh = self
+            .review_surface
+            .last_surface_snapshot
+            .as_ref()
+            .is_none_or(|snapshot| {
+                snapshot.scroll_top_px != scroll_top_px
+                    || snapshot.viewport_height_px != viewport_height_px
+            });
+        if needs_refresh {
+            self.review_surface.last_surface_snapshot = Some(session.build_surface_snapshot(
+                scroll_top_px,
+                viewport_height_px,
+                1,
+                8,
+            ));
+        }
+
+        self.review_surface
+            .last_surface_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.visible_state.clone())
+    }
+
+    pub(super) fn current_review_surface_snapshot(
+        &self,
+    ) -> Option<&review_workspace_session::ReviewWorkspaceSurfaceSnapshot> {
+        if self.uses_review_workspace_sections_surface() {
+            return self.review_surface.last_surface_snapshot.as_ref();
+        }
+
+        None
+    }
+
     pub(super) fn current_review_visible_state(
         &self,
     ) -> Option<review_workspace_session::ReviewWorkspaceVisibleState> {
         if self.uses_review_workspace_sections_surface() {
-            if let Some(visible_state) = self.review_surface.last_visible_state.clone() {
+            if let Some(visible_state) = self
+                .current_review_surface_snapshot()
+                .map(|snapshot| snapshot.visible_state.clone())
+            {
                 return Some(visible_state);
             }
 

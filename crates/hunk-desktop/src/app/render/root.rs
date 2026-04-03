@@ -425,21 +425,13 @@ impl Render for DiffViewer {
         if self.review_surface.last_diff_scroll_offset != Some(current_scroll_offset) {
             self.review_surface.last_diff_scroll_offset = Some(current_scroll_offset);
             self.last_scroll_activity_at = Instant::now();
-            if self.uses_review_workspace_sections_surface() {
-                let viewport_height = self.review_surface.diff_scroll_handle.bounds().size.height;
-                if let Some(session) = self.review_workspace_session.as_ref() {
-                    let visible_state = session.build_visible_state(
-                        self.current_review_surface_scroll_top_px(),
-                        viewport_height.max(Pixels::ZERO).as_f32().round() as usize,
-                    );
-                    if self.review_surface.last_visible_state.as_ref() != Some(&visible_state) {
-                        self.review_surface.last_visible_state = Some(visible_state.clone());
-                        if let Some(top_row) = visible_state.top_row {
-                            self.sync_selected_file_from_visible_row(top_row, cx);
-                        }
-                    }
-                }
+            if let Some(visible_state) = self.refresh_review_surface_snapshot()
+                && let Some(top_row) = visible_state.top_row
+            {
+                self.sync_selected_file_from_visible_row(top_row, cx);
             }
+        } else if self.uses_review_workspace_sections_surface() {
+            self.refresh_review_surface_snapshot();
         }
         if self.ignore_next_frame_sample {
             self.ignore_next_frame_sample = false;

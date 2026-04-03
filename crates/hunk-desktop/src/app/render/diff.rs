@@ -206,21 +206,36 @@ impl DiffViewer {
         &mut self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(session) = self.review_workspace_session.as_ref() else {
+        if self.review_workspace_session.is_none() {
             return div().size_full().into_any_element();
-        };
-
+        }
+        let viewport = self
+            .refresh_review_surface_snapshot()
+            .and_then(|_| self.current_review_surface_snapshot().map(|snapshot| snapshot.viewport.clone()))
+            .unwrap_or_else(|| {
+                let session = self
+                    .review_workspace_session
+                    .as_ref()
+                    .expect("checked review workspace session above");
+                session.build_viewport_snapshot(
+                    self.current_review_surface_scroll_top_px(),
+                    self.review_surface
+                        .diff_scroll_handle
+                        .bounds()
+                        .size
+                        .height
+                        .max(Pixels::ZERO)
+                        .as_f32()
+                        .round() as usize,
+                    1,
+                    REVIEW_SECTION_ROW_OVERSCAN_ROWS,
+                )
+            });
+        let session = self
+            .review_workspace_session
+            .as_ref()
+            .expect("checked review workspace session above");
         let scroll_handle = self.review_surface.diff_scroll_handle.clone();
-        let scroll_top_px = self.current_review_surface_scroll_top_px();
-        let viewport_height_px = scroll_handle
-            .bounds()
-            .size
-            .height
-            .max(Pixels::ZERO)
-            .as_f32()
-            .round() as usize;
-        let viewport =
-            session.build_viewport_snapshot(scroll_top_px, viewport_height_px, 1, REVIEW_SECTION_ROW_OVERSCAN_ROWS);
         let mut section_children = Vec::new();
         for viewport_section in &viewport.sections {
             let Some(section) = session.section(viewport_section.section_index) else {

@@ -107,6 +107,14 @@ pub(crate) struct ReviewWorkspaceViewportSnapshot {
     pub(crate) sections: Vec<ReviewWorkspaceViewportSection>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ReviewWorkspaceSurfaceSnapshot {
+    pub(crate) scroll_top_px: usize,
+    pub(crate) viewport_height_px: usize,
+    pub(crate) viewport: ReviewWorkspaceViewportSnapshot,
+    pub(crate) visible_state: ReviewWorkspaceVisibleState,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReviewWorkspaceVisibleState {
     pub(crate) visible_row_range: Option<Range<usize>>,
@@ -497,6 +505,29 @@ impl ReviewWorkspaceSession {
         ReviewWorkspaceViewportSnapshot {
             total_surface_height_px: self.total_surface_height_px(),
             sections,
+        }
+    }
+
+    pub(crate) fn build_surface_snapshot(
+        &self,
+        scroll_top_px: usize,
+        viewport_height_px: usize,
+        overscan_sections: usize,
+        overscan_rows: usize,
+    ) -> ReviewWorkspaceSurfaceSnapshot {
+        let viewport = self.build_viewport_snapshot(
+            scroll_top_px,
+            viewport_height_px,
+            overscan_sections,
+            overscan_rows,
+        );
+        let visible_state = self.build_visible_state(scroll_top_px, viewport_height_px);
+
+        ReviewWorkspaceSurfaceSnapshot {
+            scroll_top_px,
+            viewport_height_px,
+            viewport,
+            visible_state,
         }
     }
 

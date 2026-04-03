@@ -275,7 +275,7 @@ impl DiffViewer {
         } else {
             self.set_review_selected_file(Some(path.clone()), status);
             self.scroll_to_file_start(&path);
-            self.review_surface.last_visible_state = None;
+            self.review_surface.clear_workspace_surface_snapshot();
             self.review_surface.last_prefetched_visible_row_range = None;
             self.review_surface.last_diff_scroll_offset = None;
             self.last_scroll_activity_at = Instant::now();
