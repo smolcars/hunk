@@ -154,6 +154,56 @@ fn update_persisted_review_compare_selection(
 }
 
 impl DiffViewer {
+    pub(crate) fn current_review_surface_row(&self) -> Option<usize> {
+        let session = self.review_workspace_session.as_ref()?;
+        let row_count = session.row_count();
+        if row_count == 0 {
+            return None;
+        }
+        let max_ix = row_count.saturating_sub(1);
+        self.selection_head_row
+            .or(self.last_visible_row_start)
+            .map(|row_ix| row_ix.min(max_ix))
+            .or_else(|| Some(self.diff_list_state.logical_scroll_top().item_ix.min(max_ix)))
+    }
+
+    pub(crate) fn current_review_file_range(&self) -> Option<FileRowRange> {
+        let session = self.review_workspace_session.as_ref()?;
+        self.current_review_surface_row()
+            .and_then(|row_ix| session.file_at_or_after_surface_row(row_ix))
+            .map(|range| FileRowRange {
+                path: range.path.clone(),
+                status: range.status,
+                start_row: range.start_row,
+                end_row: range.end_row,
+            })
+            .or_else(|| {
+                self.selected_path
+                    .as_deref()
+                    .and_then(|path| self.active_diff_file_range_for_path(path))
+            })
+            .or_else(|| {
+                self.review_last_selected_path
+                    .as_deref()
+                    .and_then(|path| self.active_diff_file_range_for_path(path))
+            })
+            .or_else(|| {
+                session.first_file().map(|range| FileRowRange {
+                    path: range.path.clone(),
+                    status: range.status,
+                    start_row: range.start_row,
+                    end_row: range.end_row,
+                })
+            })
+    }
+
+    pub(crate) fn current_review_path(&self) -> Option<String> {
+        self.current_review_file_range()
+            .map(|range| range.path)
+            .or_else(|| self.selected_path.clone())
+            .or_else(|| self.review_last_selected_path.clone())
+    }
+
     pub(crate) fn should_reuse_loaded_review_compare(&self) -> bool {
         should_reuse_loaded_review_compare(LoadedReviewCompareReuseState {
             has_loaded_session: self.review_workspace_session.is_some(),
@@ -171,17 +221,19 @@ impl DiffViewer {
     }
 
     fn rebuild_review_workspace_editor_session(&mut self) {
+        let preferred_path = self.current_review_path();
         self.review_workspace_editor_session = self
             .review_workspace_session
             .as_ref()
-            .map(|session| session.build_editor_session(self.selected_path.as_deref()));
+            .map(|session| session.build_editor_session(preferred_path.as_deref()));
     }
 
     pub(crate) fn sync_review_workspace_editor_active_path(&mut self) {
+        let preferred_path = self.current_review_path();
         let Some(session) = self.review_workspace_editor_session.as_mut() else {
             return;
         };
-        let Some(path) = self.selected_path.as_deref() else {
+        let Some(path) = preferred_path.as_deref() else {
             return;
         };
         let _ = session.activate_path(std::path::Path::new(path));

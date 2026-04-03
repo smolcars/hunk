@@ -256,8 +256,12 @@ impl DiffViewer {
         if self.workspace_view_mode == WorkspaceViewMode::Diff
             && let Some(session) = self.review_workspace_session.as_ref()
         {
+            let current_path = self
+                .current_review_file_range()
+                .map(|range| range.path)
+                .or_else(|| self.selected_path.clone());
             let Some((path, status, start_row)) = session
-                .adjacent_file(self.selected_path.as_deref(), direction)
+                .adjacent_file(current_path.as_deref(), direction)
                 .map(|range| (range.path.clone(), range.status, range.start_row))
             else {
                 return;

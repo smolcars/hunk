@@ -1,6 +1,11 @@
 impl DiffViewer {
     fn scroll_selected_file_to_top(&mut self) {
-        let Some(path) = self.selected_path.clone() else {
+        let target_path = if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            self.current_review_file_range().map(|range| range.path)
+        } else {
+            self.selected_path.clone()
+        };
+        let Some(path) = target_path else {
             return;
         };
         self.scroll_to_file_start(&path);

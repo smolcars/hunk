@@ -13,10 +13,20 @@ impl DiffViewer {
     fn preferred_review_workspace_path(&self) -> Option<String> {
         if let Some(session) = self.review_workspace_session.as_ref() {
             return self
+                .current_review_surface_row()
+                .and_then(|row_ix| session.path_at_surface_row(row_ix))
+                .map(str::to_string)
+                .or_else(|| {
+                    self.current_review_file_range()
+                        .map(|range| range.path)
+                })
+                .or_else(|| {
+                    self
                 .review_last_selected_path
                 .as_deref()
                 .filter(|path| session.contains_path(path))
                 .map(str::to_string)
+                })
                 .or_else(|| {
                     self.selected_path
                         .as_deref()
