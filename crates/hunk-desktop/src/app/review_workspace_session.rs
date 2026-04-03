@@ -1,8 +1,11 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
+use hunk_domain::db::{CommentLineSide, compute_comment_anchor_hash};
 use hunk_domain::diff::SideBySideRow;
-use hunk_domain::diff::{DiffDocument, DiffHunk, DiffLineKind, parse_patch_document};
+use hunk_domain::diff::{
+    DiffCellKind, DiffDocument, DiffHunk, DiffLineKind, DiffRowKind, parse_patch_document,
+};
 use hunk_editor::{
     WorkspaceDocument, WorkspaceDocumentId, WorkspaceExcerptId, WorkspaceExcerptKind,
     WorkspaceExcerptSpec, WorkspaceLayout, WorkspaceLayoutError,
@@ -17,6 +20,26 @@ use crate::app::{DiffRowSegmentCache, DiffStreamRowMeta};
 
 const FILE_HEADER_SURFACE_ROWS: usize = 1;
 const HUNK_HEADER_SURFACE_ROWS: usize = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewCommentAnchor {
+    pub(crate) file_path: String,
+    pub(crate) line_side: CommentLineSide,
+    pub(crate) old_line: Option<u32>,
+    pub(crate) new_line: Option<u32>,
+    pub(crate) hunk_header: Option<String>,
+    pub(crate) line_text: String,
+    pub(crate) context_before: String,
+    pub(crate) context_after: String,
+    pub(crate) anchor_hash: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReviewFileAnchorReconcileState {
+    Ready,
+    Deferred,
+    Unavailable,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReviewWorkspaceFileRange {
@@ -290,6 +313,211 @@ impl ReviewWorkspaceSession {
             preferred_path.map(std::path::Path::new),
         );
         session
+    }
+
+    pub(crate) fn file_anchor_reconcile_state(
+        &self,
+        file_path: &str,
+        patch_loading: bool,
+    ) -> ReviewFileAnchorReconcileState {
+        let mut has_anchor_rows = false;
+        let mut saw_rows_for_file = false;
+
+        for row in &self.row_metadata {
+            if row.file_path.as_deref() != Some(file_path) {
+                continue;
+            }
+            saw_rows_for_file = true;
+            match row.kind {
+                DiffStreamRowKind::CoreCode
+                | DiffStreamRowKind::CoreHunkHeader
+                | DiffStreamRowKind::CoreMeta
+                | DiffStreamRowKind::CoreEmpty => {
+                    has_anchor_rows = true;
+                }
+                DiffStreamRowKind::FileLoading | DiffStreamRowKind::FileCollapsed => {
+                    return ReviewFileAnchorReconcileState::Deferred;
+                }
+                DiffStreamRowKind::FileError => {
+                    return ReviewFileAnchorReconcileState::Unavailable;
+                }
+                DiffStreamRowKind::FileHeader | DiffStreamRowKind::EmptyState => {}
+            }
+        }
+
+        if has_anchor_rows {
+            ReviewFileAnchorReconcileState::Ready
+        } else if patch_loading || saw_rows_for_file {
+            ReviewFileAnchorReconcileState::Deferred
+        } else {
+            ReviewFileAnchorReconcileState::Unavailable
+        }
+    }
+
+    pub(crate) fn row_supports_comments(&self, row_ix: usize) -> bool {
+        let Some(row) = self.row(row_ix) else {
+            return false;
+        };
+        if !matches!(
+            row.kind,
+            DiffRowKind::Code | DiffRowKind::Meta | DiffRowKind::Empty
+        ) {
+            return false;
+        }
+
+        self.row_metadata(row_ix).is_some_and(|meta| {
+            matches!(
+                meta.kind,
+                DiffStreamRowKind::CoreCode
+                    | DiffStreamRowKind::CoreMeta
+                    | DiffStreamRowKind::CoreEmpty
+            )
+        })
+    }
+
+    pub(crate) fn row_file_path(&self, row_ix: usize) -> Option<&str> {
+        self.row_metadata(row_ix)
+            .and_then(|meta| meta.file_path.as_deref())
+            .or_else(|| self.path_at_surface_row(row_ix))
+    }
+
+    pub(crate) fn row_hunk_header(&self, row_ix: usize) -> Option<&str> {
+        self.hunk_header_at_surface_row(row_ix)
+    }
+
+    pub(crate) fn build_comment_anchor(
+        &self,
+        row_ix: usize,
+        context_radius_rows: usize,
+    ) -> Option<ReviewCommentAnchor> {
+        if !self.row_supports_comments(row_ix) {
+            return None;
+        }
+
+        let row = self.row(row_ix)?;
+        let file_path = self.row_file_path(row_ix)?.to_string();
+        let hunk_header = self.row_hunk_header(row_ix).map(ToString::to_string);
+        let line_text = Self::row_diff_lines(row).join("\n");
+
+        let (line_side, old_line, new_line) = if row.kind == DiffRowKind::Code {
+            if row.right.kind != DiffCellKind::None {
+                (CommentLineSide::Right, row.left.line, row.right.line)
+            } else if row.left.kind != DiffCellKind::None {
+                (CommentLineSide::Left, row.left.line, row.right.line)
+            } else {
+                (CommentLineSide::Meta, None, None)
+            }
+        } else {
+            (CommentLineSide::Meta, None, None)
+        };
+
+        let context_before = self.collect_row_context(row_ix, true, context_radius_rows);
+        let context_after = self.collect_row_context(row_ix, false, context_radius_rows);
+        let anchor_hash = compute_comment_anchor_hash(
+            file_path.as_str(),
+            hunk_header.as_deref(),
+            line_text.as_str(),
+            context_before.as_str(),
+            context_after.as_str(),
+        );
+
+        Some(ReviewCommentAnchor {
+            file_path,
+            line_side,
+            old_line,
+            new_line,
+            hunk_header,
+            line_text,
+            context_before,
+            context_after,
+            anchor_hash,
+        })
+    }
+
+    pub(crate) fn build_comment_anchor_index(
+        &self,
+        context_radius_rows: usize,
+    ) -> (
+        BTreeMap<usize, ReviewCommentAnchor>,
+        BTreeMap<String, Vec<usize>>,
+    ) {
+        let mut row_anchor_index = BTreeMap::new();
+        let mut rows_by_path = BTreeMap::<String, Vec<usize>>::new();
+
+        for row_ix in 0..self.row_count() {
+            let Some(anchor) = self.build_comment_anchor(row_ix, context_radius_rows) else {
+                continue;
+            };
+            rows_by_path
+                .entry(anchor.file_path.clone())
+                .or_default()
+                .push(row_ix);
+            row_anchor_index.insert(row_ix, anchor);
+        }
+
+        (row_anchor_index, rows_by_path)
+    }
+
+    fn collect_row_context(
+        &self,
+        row_ix: usize,
+        before: bool,
+        context_radius_rows: usize,
+    ) -> String {
+        let row_count = self.row_count();
+        if row_count == 0 {
+            return String::new();
+        }
+
+        let anchor_path = self.row_file_path(row_ix).map(ToString::to_string);
+        let range = if before {
+            let start = row_ix.saturating_sub(context_radius_rows);
+            start..row_ix
+        } else {
+            let start = row_ix.saturating_add(1);
+            let end = start.saturating_add(context_radius_rows).min(row_count);
+            start..end
+        };
+
+        let mut lines = Vec::new();
+        for ix in range {
+            let Some(row) = self.row(ix) else {
+                continue;
+            };
+            if anchor_path.is_some() && self.row_file_path(ix) != anchor_path.as_deref() {
+                continue;
+            }
+            lines.extend(Self::row_diff_lines(row));
+        }
+        lines.join("\n")
+    }
+
+    fn row_diff_lines(row: &SideBySideRow) -> Vec<String> {
+        let mut lines = Vec::new();
+        match row.kind {
+            DiffRowKind::Code => {
+                if row.left.kind == DiffCellKind::Removed {
+                    lines.push(format!("-{}", row.left.text));
+                }
+                if row.right.kind == DiffCellKind::Added {
+                    lines.push(format!("+{}", row.right.text));
+                }
+                if row.left.kind == DiffCellKind::Context {
+                    lines.push(format!(" {}", row.left.text));
+                }
+                if row.left.kind == DiffCellKind::None
+                    && row.right.kind == DiffCellKind::None
+                    && !row.text.is_empty()
+                {
+                    lines.push(row.text.clone());
+                }
+            }
+            DiffRowKind::HunkHeader => {}
+            DiffRowKind::Meta | DiffRowKind::Empty => {
+                lines.push(row.text.clone());
+            }
+        }
+        lines
     }
 }
 

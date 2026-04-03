@@ -3,10 +3,13 @@
 mod workspace_editor_session;
 
 mod app {
+    use hunk_git::git::FileStatus;
+
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
     pub enum DiffSegmentQuality {
         #[default]
         Plain,
+        SyntaxOnly,
         Detailed,
     }
 
@@ -15,10 +18,27 @@ mod app {
         pub quality: DiffSegmentQuality,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[allow(dead_code)]
+    pub enum DiffStreamRowKind {
+        FileHeader,
+        CoreCode,
+        CoreHunkHeader,
+        CoreMeta,
+        CoreEmpty,
+        FileLoading,
+        FileCollapsed,
+        FileError,
+        EmptyState,
+    }
+
     #[derive(Debug, Clone)]
     #[allow(dead_code)]
     pub struct DiffStreamRowMeta {
         pub stable_id: u64,
+        pub file_path: Option<String>,
+        pub file_status: Option<FileStatus>,
+        pub kind: DiffStreamRowKind,
     }
 
     pub mod data {
@@ -44,6 +64,7 @@ mod review_workspace_session;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use hunk_domain::diff::DiffRowKind;
 use hunk_domain::diff::parse_patch_side_by_side;
 use hunk_git::compare::CompareSnapshot;
 use hunk_git::git::{ChangedFile, FileStatus, LineStats};
@@ -57,6 +78,27 @@ fn changed_file(path: &str, status: FileStatus) -> ChangedFile {
         unstaged: false,
         untracked: false,
     }
+}
+
+fn stream_row_metadata_for_rows(
+    rows: &[hunk_domain::diff::SideBySideRow],
+    path: &str,
+    status: FileStatus,
+) -> Vec<app::DiffStreamRowMeta> {
+    rows.iter()
+        .enumerate()
+        .map(|(ix, row)| app::DiffStreamRowMeta {
+            stable_id: ix as u64 + 1,
+            file_path: Some(path.to_string()),
+            file_status: Some(status),
+            kind: match row.kind {
+                DiffRowKind::Code => app::DiffStreamRowKind::CoreCode,
+                DiffRowKind::HunkHeader => app::DiffStreamRowKind::CoreHunkHeader,
+                DiffRowKind::Meta => app::DiffStreamRowKind::CoreMeta,
+                DiffRowKind::Empty => app::DiffStreamRowKind::CoreEmpty,
+            },
+        })
+        .collect()
 }
 
 #[test]
@@ -230,11 +272,7 @@ fn review_workspace_session_can_attach_render_rows() {
     let rows = parse_patch_side_by_side(patch);
     let stream = app::data::DiffStream {
         rows: rows.clone(),
-        row_metadata: vec![
-            app::DiffStreamRowMeta { stable_id: 1 },
-            app::DiffStreamRowMeta { stable_id: 2 },
-            app::DiffStreamRowMeta { stable_id: 3 },
-        ],
+        row_metadata: stream_row_metadata_for_rows(&rows, "src/main.rs", FileStatus::Modified),
         row_segments: vec![
             None,
             Some(app::DiffRowSegmentCache {
@@ -258,6 +296,8 @@ fn review_workspace_session_can_attach_render_rows() {
             .map(|row| row.kind),
         rows.last().map(|row| row.kind)
     );
+    assert_eq!(session.row_file_path(0), Some("src/main.rs"));
+    assert!(session.row_supports_comments(1));
 }
 
 #[test]
@@ -365,4 +405,44 @@ fn collapsed_review_workspace_files_keep_compact_surface_ranges() {
         Some("src/main.rs")
     );
     assert_eq!(session.layout().excerpts().len(), 1);
+}
+
+#[test]
+fn review_workspace_session_builds_comment_anchors_from_render_rows() {
+    let patch = "\
+@@ -1,2 +1,3 @@
+ before
+-old line
++new line
+ keep
++tail
+";
+    let snapshot = CompareSnapshot {
+        files: vec![changed_file("src/main.rs", FileStatus::Modified)],
+        file_line_stats: BTreeMap::new(),
+        overall_line_stats: LineStats::default(),
+        patches_by_path: BTreeMap::from([("src/main.rs".to_string(), patch.to_string())]),
+    };
+    let rows = parse_patch_side_by_side(patch);
+    let stream = app::data::DiffStream {
+        rows: rows.clone(),
+        row_metadata: stream_row_metadata_for_rows(&rows, "src/main.rs", FileStatus::Modified),
+        row_segments: vec![None; rows.len()],
+    };
+    let session = ReviewWorkspaceSession::from_compare_snapshot(&snapshot, &BTreeSet::new())
+        .expect("workspace session should build")
+        .with_render_stream(&stream);
+    let (anchors, rows_by_path) = session.build_comment_anchor_index(2);
+
+    assert_eq!(rows_by_path.get("src/main.rs").map(Vec::len), Some(4));
+    let added_row_ix = rows
+        .iter()
+        .position(|row| row.right.text == "new line")
+        .expect("added row should exist");
+    let anchor = anchors
+        .get(&added_row_ix)
+        .expect("anchor should exist for added row");
+    assert_eq!(anchor.file_path, "src/main.rs");
+    assert!(anchor.line_text.contains("+new line"));
+    assert_eq!(anchor.hunk_header.as_deref(), Some("@@ -1,2 +1,3 @@"));
 }

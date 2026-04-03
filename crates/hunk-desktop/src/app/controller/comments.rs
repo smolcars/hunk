@@ -1,15 +1,4 @@
-#[derive(Debug, Clone)]
-pub(super) struct RowCommentAnchor {
-    pub(super) file_path: String,
-    pub(super) line_side: CommentLineSide,
-    pub(super) old_line: Option<u32>,
-    pub(super) new_line: Option<u32>,
-    pub(super) hunk_header: Option<String>,
-    pub(super) line_text: String,
-    pub(super) context_before: String,
-    pub(super) context_after: String,
-    pub(super) anchor_hash: String,
-}
+pub(super) type RowCommentAnchor = crate::app::review_workspace_session::ReviewCommentAnchor;
 
 #[derive(Debug, Clone)]
 struct FuzzyCommentKey {
@@ -57,6 +46,12 @@ impl DiffViewer {
     fn build_comment_row_anchor_index(
         &self,
     ) -> (BTreeMap<usize, RowCommentAnchor>, BTreeMap<String, Vec<usize>>) {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.build_comment_anchor_index(COMMENT_CONTEXT_RADIUS_ROWS);
+        }
+
         let mut row_anchor_index = BTreeMap::new();
         let mut rows_by_path = BTreeMap::<String, Vec<usize>>::new();
 
@@ -267,6 +262,11 @@ impl DiffViewer {
     pub(super) fn row_supports_comments(&self, row_ix: usize) -> bool {
         if !self.review_comments_enabled() {
             return false;
+        }
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.row_supports_comments(row_ix);
         }
         let Some(row) = self.active_diff_row(row_ix) else {
             return false;
@@ -713,6 +713,12 @@ impl DiffViewer {
     }
 
     pub(super) fn build_row_comment_anchor(&self, row_ix: usize) -> Option<RowCommentAnchor> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.build_comment_anchor(row_ix, COMMENT_CONTEXT_RADIUS_ROWS);
+        }
+
         if !self.row_supports_comments(row_ix) {
             return None;
         }

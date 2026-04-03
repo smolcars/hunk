@@ -1,12 +1,14 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum FileAnchorReconcileState {
-    Ready,
-    Deferred,
-    Unavailable,
-}
+pub(super) type FileAnchorReconcileState =
+    crate::app::review_workspace_session::ReviewFileAnchorReconcileState;
 
 impl DiffViewer {
     pub(super) fn file_anchor_reconcile_state(&self, file_path: &str) -> FileAnchorReconcileState {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.file_anchor_reconcile_state(file_path, self.patch_loading);
+        }
+
         let row_count = self.active_diff_row_count();
         if self.workspace_view_mode != WorkspaceViewMode::Diff && self.diff_row_metadata.len() != row_count
         {
@@ -280,7 +282,7 @@ impl DiffViewer {
         if self.workspace_view_mode == WorkspaceViewMode::Diff
             && let Some(session) = self.review_workspace_session.as_ref()
         {
-            return session.path_at_surface_row(row_ix).map(ToString::to_string);
+            return session.row_file_path(row_ix).map(ToString::to_string);
         }
 
         if self.diff_row_metadata.len() == self.active_diff_row_count() {
@@ -295,9 +297,7 @@ impl DiffViewer {
         if self.workspace_view_mode == WorkspaceViewMode::Diff
             && let Some(session) = self.review_workspace_session.as_ref()
         {
-            return session
-                .hunk_header_at_surface_row(row_ix)
-                .map(ToString::to_string);
+            return session.row_hunk_header(row_ix).map(ToString::to_string);
         }
 
         let hunk_ix = self

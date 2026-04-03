@@ -168,6 +168,7 @@ Targets:
 Tasks:
 
 - [ ] Move comment anchors from file-local assumptions to workspace row/file mappings.
+- [x] Move comment anchors from file-local assumptions to workspace row/file mappings.
 - [x] Move hunk navigation to workspace coordinates.
 - [ ] Move diff selection and reveal logic off `selected_path`-driven row lists.
 - [x] Keep a stable file-path mapping for actions that still need file scope.
@@ -175,6 +176,7 @@ Tasks:
 Current state:
 - Review visible-row segment prefetch now upgrades the shared workspace session cache instead of the legacy `diff_row_segment_cache`.
 - Review comment anchor building, row-context collection, and row selection/clamping now use active row/session accessors instead of directly indexing `diff_rows`.
+- Review comment-anchor indexing and file-anchor reconcile state now come directly from `ReviewWorkspaceSession`, so comment matching no longer rebuilds those anchors by rescanning the legacy flat row list.
 - Review file reveal, scroll-to-file, and comment fallback jumps now resolve through shared workspace file ranges before touching the legacy flat row ranges.
 - The remaining gap is that selection state, comments UI state, and the scroll surface are still hosted by the flat diff list instead of one editor-native multi-file surface.
 
