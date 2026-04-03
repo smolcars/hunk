@@ -165,10 +165,20 @@ impl DiffViewer {
             return;
         }
         self.select_row(row_ix, extend_selection, cx);
-        self.review_surface.diff_list_state.scroll_to(ListOffset {
-            item_ix: row_ix.min(row_count.saturating_sub(1)),
-            offset_in_item: px(0.),
-        });
+        let target_row = row_ix.min(row_count.saturating_sub(1));
+        if self.uses_review_workspace_sections_surface()
+            && let Some(session) = self.review_workspace_session.as_ref()
+            && let Some(section_ix) = session.section_index_for_row(target_row)
+        {
+            self.review_surface
+                .diff_scroll_handle
+                .scroll_to_top_of_item(section_ix);
+        } else {
+            self.review_surface.diff_list_state.scroll_to(ListOffset {
+                item_ix: target_row,
+                offset_in_item: px(0.),
+            });
+        }
         self.review_surface.last_diff_scroll_offset = None;
         self.last_scroll_activity_at = Instant::now();
     }
@@ -183,7 +193,8 @@ impl DiffViewer {
         let base_ix = self
             .selection_head_row
             .map(|ix| ix as isize)
-            .unwrap_or(self.review_surface.diff_list_state.logical_scroll_top().item_ix as isize);
+            .or_else(|| self.current_review_surface_top_row().map(|ix| ix as isize))
+            .unwrap_or(0);
         let target_ix = (base_ix + delta).clamp(0, max_ix) as usize;
         self.select_row_and_scroll(target_ix, extend_selection, cx);
     }
@@ -211,7 +222,8 @@ impl DiffViewer {
         {
             let start_ix = self
                 .selection_head_row
-                .unwrap_or(self.review_surface.diff_list_state.logical_scroll_top().item_ix)
+                .or_else(|| self.current_review_surface_top_row())
+                .unwrap_or(0)
                 .min(row_count.saturating_sub(1));
             let hunk_rows = session
                 .hunk_ranges()
@@ -242,7 +254,8 @@ impl DiffViewer {
 
         let start_ix = self
             .selection_head_row
-            .unwrap_or(self.review_surface.diff_list_state.logical_scroll_top().item_ix)
+            .or_else(|| self.current_review_surface_top_row())
+            .unwrap_or(0)
             .min(row_count.saturating_sub(1));
 
         let target = find_wrapped_hunk_target(row_count, start_ix, direction, |ix| {

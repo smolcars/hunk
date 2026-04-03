@@ -19,10 +19,19 @@ impl DiffViewer {
             return;
         };
 
-        self.review_surface.diff_list_state.scroll_to(ListOffset {
-            item_ix: start_row,
-            offset_in_item: px(0.),
-        });
+        if self.uses_review_workspace_sections_surface()
+            && let Some(session) = self.review_workspace_session.as_ref()
+            && let Some(section_ix) = session.section_index_for_path(path)
+        {
+            self.review_surface
+                .diff_scroll_handle
+                .scroll_to_top_of_item(section_ix);
+        } else {
+            self.review_surface.diff_list_state.scroll_to(ListOffset {
+                item_ix: start_row,
+                offset_in_item: px(0.),
+            });
+        }
         self.review_surface.last_diff_scroll_offset = None;
         self.last_scroll_activity_at = Instant::now();
     }
@@ -278,10 +287,8 @@ impl DiffViewer {
         }
 
         let visible_row = self
-            .review_surface
-            .diff_list_state
-            .logical_scroll_top()
-            .item_ix
+            .current_review_surface_top_row()
+            .unwrap_or(0)
             .min(row_count.saturating_sub(1));
         if force_reprime {
             self.review_surface.last_visible_row_start = None;
@@ -368,6 +375,10 @@ impl DiffViewer {
     }
 
     fn sync_diff_list_state(&self) {
+        if self.uses_review_workspace_sections_surface() {
+            return;
+        }
+
         let previous_top = self.review_surface.diff_list_state.logical_scroll_top();
         let row_count = self.active_diff_row_count();
         self.review_surface.diff_list_state.reset(row_count);

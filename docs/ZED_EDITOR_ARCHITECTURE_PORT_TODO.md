@@ -138,7 +138,7 @@ Tasks:
 - [x] Build one workspace editor model for the entire compared file set.
 - [x] Represent each compared file as one or more excerpts with context lines.
 - [ ] Replace list-row-driven diff scrolling with one editor-backed scroll surface.
-- [ ] Keep file headers and section metadata as lightweight decorations on top of the shared surface.
+- [x] Keep file headers and section metadata as lightweight decorations on top of the shared surface.
 
 Current state:
 - `hunk-editor` now has a workspace display snapshot primitive over `WorkspaceLayout`, which can project one multi-file viewport without falling back to the flat diff row list.
@@ -147,6 +147,7 @@ Current state:
 - Review now builds and persists one shared workspace editor session alongside the compare session and keeps its active document in sync with Review selection/path changes.
 - Review workspace rendering now enters through its own dedicated surface module instead of sharing the generic root/diff entry point, which gives Hunk the same kind of explicit boundary Zed has between `FileDiffView` and `MultiDiffView`.
 - Review list/split/header viewport state now also lives under a dedicated Review surface state object instead of being scattered across `DiffViewer`, so the future scroller replacement has one surface-local owner to swap.
+- Review workspace sessions now also expose stable excerpt sections, and the normal Review surface scrolls over those sections instead of flattening the entire compare into one GPUI row list. The old per-row list path remains only as a fallback for inline comment editing.
 - Sticky file headers, hunk navigation, and comment hunk lookup in Review now read from that shared session.
 - Review rendering now also reads row content, row metadata, and syntax segment caches from the shared session.
 - Review’s live row count now comes from the shared workspace layout rather than the legacy flat render vector length, so list sizing and visible-row sync track the workspace model directly.

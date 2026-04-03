@@ -57,11 +57,24 @@ pub(crate) struct ReviewWorkspaceHunkRange {
     pub(crate) end_row: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewWorkspaceSection {
+    pub(crate) index: usize,
+    pub(crate) excerpt_id: WorkspaceExcerptId,
+    pub(crate) path: String,
+    pub(crate) status: FileStatus,
+    pub(crate) start_row: usize,
+    pub(crate) end_row: usize,
+    pub(crate) show_file_header: bool,
+    pub(crate) hunk_header: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ReviewWorkspaceSession {
     layout: WorkspaceLayout,
     file_ranges: Vec<ReviewWorkspaceFileRange>,
     hunk_ranges: Vec<ReviewWorkspaceHunkRange>,
+    sections: Vec<ReviewWorkspaceSection>,
     rows: Vec<SideBySideRow>,
     row_metadata: Vec<DiffStreamRowMeta>,
     row_segments: Vec<Option<DiffRowSegmentCache>>,
@@ -76,6 +89,7 @@ impl ReviewWorkspaceSession {
         let mut next_excerpt_id = 1_u64;
         let mut documents = Vec::with_capacity(snapshot.files.len());
         let mut excerpt_specs = Vec::new();
+        let mut excerpt_headers = BTreeMap::new();
         let mut file_plans = Vec::with_capacity(snapshot.files.len());
         let mut hunk_ranges = Vec::new();
         let mut next_surface_row = 0_usize;
@@ -110,6 +124,7 @@ impl ReviewWorkspaceSession {
                     )
                     .with_chrome_rows(FILE_HEADER_SURFACE_ROWS, 0),
                 );
+                excerpt_headers.insert(excerpt_id, None);
             } else {
                 for (hunk_ix, hunk) in document.hunks.iter().enumerate() {
                     let excerpt_id = WorkspaceExcerptId::new(next_excerpt_id);
@@ -126,6 +141,7 @@ impl ReviewWorkspaceSession {
                             hunk.trailing_meta.len(),
                         ),
                     );
+                    excerpt_headers.insert(excerpt_id, Some(hunk.header.clone()));
                 }
             }
 
@@ -153,6 +169,11 @@ impl ReviewWorkspaceSession {
 
         let layout = WorkspaceLayout::new(documents, excerpt_specs, 0)?;
         let mut file_ranges = Vec::with_capacity(file_plans.len());
+        let file_status_by_path = snapshot
+            .files
+            .iter()
+            .map(|file| (file.path.clone(), file.status))
+            .collect::<BTreeMap<_, _>>();
 
         for (path, status, surface_row_range) in file_plans {
             file_ranges.push(ReviewWorkspaceFileRange {
@@ -163,10 +184,33 @@ impl ReviewWorkspaceSession {
             });
         }
 
+        let mut sections = Vec::with_capacity(layout.excerpts().len());
+        let mut first_excerpt_by_document = BTreeSet::new();
+        for (section_ix, excerpt) in layout.excerpts().iter().enumerate() {
+            let Some(document) = layout.document(excerpt.spec.document_id) else {
+                continue;
+            };
+            let path = document.path.to_string_lossy().to_string();
+            let Some(status) = file_status_by_path.get(path.as_str()).copied() else {
+                continue;
+            };
+            sections.push(ReviewWorkspaceSection {
+                index: section_ix,
+                excerpt_id: excerpt.spec.id,
+                path,
+                status,
+                start_row: excerpt.global_row_range.start,
+                end_row: excerpt.global_row_range.end,
+                show_file_header: first_excerpt_by_document.insert(document.id),
+                hunk_header: excerpt_headers.get(&excerpt.spec.id).cloned().flatten(),
+            });
+        }
+
         Ok(Self {
             layout,
             file_ranges,
             hunk_ranges,
+            sections,
             rows: Vec::new(),
             row_metadata: Vec::new(),
             row_segments: Vec::new(),
@@ -250,6 +294,31 @@ impl ReviewWorkspaceSession {
 
     pub(crate) fn hunk_ranges(&self) -> &[ReviewWorkspaceHunkRange] {
         &self.hunk_ranges
+    }
+
+    pub(crate) fn sections(&self) -> &[ReviewWorkspaceSection] {
+        &self.sections
+    }
+
+    pub(crate) fn section(&self, section_ix: usize) -> Option<&ReviewWorkspaceSection> {
+        self.sections.get(section_ix)
+    }
+
+    pub(crate) fn section_index_for_path(&self, path: &str) -> Option<usize> {
+        self.sections
+            .iter()
+            .position(|section| section.path == path && section.show_file_header)
+            .or_else(|| {
+                self.sections
+                    .iter()
+                    .position(|section| section.path == path)
+            })
+    }
+
+    pub(crate) fn section_index_for_row(&self, row_ix: usize) -> Option<usize> {
+        self.sections
+            .iter()
+            .position(|section| section.start_row <= row_ix && row_ix < section.end_row)
     }
 
     pub(crate) fn visible_hunk_header_row(&self, row: usize) -> Option<usize> {

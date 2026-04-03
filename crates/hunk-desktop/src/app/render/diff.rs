@@ -14,7 +14,11 @@ impl Render for DiffSplitDrag {
 }
 
 impl DiffViewer {
-    fn render_review_workspace_surface(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_review_workspace_surface(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         if self.repo_discovery_failed {
             return self.render_open_project_empty_state(cx);
         }
@@ -51,40 +55,18 @@ impl DiffViewer {
         }
 
         let (old_label, new_label) = self.diff_column_labels();
-        let diff_list_state = self.review_surface.diff_list_state.clone();
-        let logical_top = diff_list_state.logical_scroll_top();
         let row_count = self.active_diff_row_count();
-        let visible_row = if row_count == 0 {
-            0
-        } else {
-            logical_top.item_ix.min(row_count.saturating_sub(1))
-        };
-        let sticky_file_banner =
-            self.render_visible_file_banner(visible_row, logical_top.offset_in_item, cx);
+        let visible_row = self
+            .current_review_surface_top_row()
+            .unwrap_or(0)
+            .min(row_count.saturating_sub(1));
+        let sticky_file_banner = self.render_visible_file_banner(visible_row, px(0.), cx);
         let layout = self.diff_column_layout();
-
-        let list = list(diff_list_state.clone(), {
-            cx.processor(move |this, ix: usize, _window, cx| {
-                let Some(row) = this.active_diff_row(ix) else {
-                    return div().into_any_element();
-                };
-                let is_selected = this.is_row_selected(ix);
-
-                match row.kind {
-                    DiffRowKind::Code => this.render_code_row(ix, row, is_selected, cx),
-                    DiffRowKind::HunkHeader | DiffRowKind::Meta | DiffRowKind::Empty => {
-                        this.render_meta_row(ix, row, is_selected, cx)
-                    }
-                }
-            })
-        })
-        .flex_grow()
-        .size_full()
-        .map(|mut this| {
-            this.style().restrict_scroll_to_axis = Some(true);
-            this
-        })
-        .with_sizing_behavior(ListSizingBehavior::Auto);
+        let scroller = if self.uses_review_workspace_sections_surface() {
+            self.render_review_workspace_sections_scroller(cx)
+        } else {
+            self.render_review_workspace_list_scroller(cx)
+        };
 
         let scrollbar_size = px(DIFF_SCROLLBAR_SIZE);
         let edge_inset = px(DIFF_BOTTOM_SAFE_INSET);
@@ -142,7 +124,7 @@ impl DiffViewer {
                                                     .on_scroll_wheel(
                                                         cx.listener(Self::on_diff_list_scroll_wheel),
                                                     )
-                                                    .child(list),
+                                                    .child(scroller),
                                             )
                                             .child(
                                                 div()
@@ -159,10 +141,21 @@ impl DiffViewer {
                                                     .right(right_inset)
                                                     .bottom(vertical_bar_bottom)
                                                     .w(scrollbar_size)
-                                                    .child(
-                                                        Scrollbar::vertical(&diff_list_state)
-                                                            .scrollbar_show(ScrollbarShow::Always),
-                                                    ),
+                                                    .child(if self
+                                                        .uses_review_workspace_sections_surface()
+                                                    {
+                                                        Scrollbar::vertical(
+                                                            &self.review_surface.diff_scroll_handle,
+                                                        )
+                                                        .scrollbar_show(ScrollbarShow::Always)
+                                                        .into_any_element()
+                                                    } else {
+                                                        Scrollbar::vertical(
+                                                            &self.review_surface.diff_list_state,
+                                                        )
+                                                        .scrollbar_show(ScrollbarShow::Always)
+                                                        .into_any_element()
+                                                    }),
                                             ),
                                     ),
                             )
@@ -172,6 +165,111 @@ impl DiffViewer {
                     ),
             )
             .into_any_element()
+    }
+
+    fn render_review_workspace_list_scroller(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let diff_list_state = self.review_surface.diff_list_state.clone();
+        list(diff_list_state, {
+            cx.processor(move |this, ix: usize, _window, cx| {
+                let Some(row) = this.active_diff_row(ix) else {
+                    return div().into_any_element();
+                };
+                let is_selected = this.is_row_selected(ix);
+
+                match row.kind {
+                    DiffRowKind::Code => this.render_code_row(ix, row, is_selected, cx),
+                    DiffRowKind::HunkHeader | DiffRowKind::Meta | DiffRowKind::Empty => {
+                        this.render_meta_row(ix, row, is_selected, cx)
+                    }
+                }
+            })
+        })
+        .flex_grow()
+        .size_full()
+        .map(|mut this| {
+            this.style().restrict_scroll_to_axis = Some(true);
+            this
+        })
+        .with_sizing_behavior(ListSizingBehavior::Auto)
+        .into_any_element()
+    }
+
+    fn render_review_workspace_sections_scroller(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(session) = self.review_workspace_session.as_ref() else {
+            return div().size_full().into_any_element();
+        };
+
+        let sections = session.sections().to_vec();
+        let scroll_handle = self.review_surface.diff_scroll_handle.clone();
+        let top_section_ix = scroll_handle.top_item();
+        let bottom_section_ix = scroll_handle.bottom_item();
+        let overscan_start = top_section_ix.saturating_sub(1);
+        let overscan_end = bottom_section_ix
+            .saturating_add(2)
+            .min(sections.len());
+
+        div()
+            .id("review-workspace-sections-scroll")
+            .size_full()
+            .track_scroll(&scroll_handle)
+            .overflow_y_scroll()
+            .child(
+                v_flex()
+                    .w_full()
+                    .min_h_full()
+                    .children(sections.into_iter().enumerate().map(|(section_ix, section)| {
+                        let is_visible =
+                            section_ix >= overscan_start && section_ix < overscan_end;
+                        if is_visible {
+                            self.render_review_workspace_section(&section, cx)
+                        } else {
+                            div()
+                                .id(("review-workspace-section", section.index as u64))
+                                .w_full()
+                                .h(px(self.review_workspace_section_height(&section) as f32))
+                                .into_any_element()
+                        }
+                    })),
+            )
+            .into_any_element()
+    }
+
+    fn render_review_workspace_section(
+        &self,
+        section: &review_workspace_session::ReviewWorkspaceSection,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let rows = (section.start_row..section.end_row).filter_map(|row_ix| {
+            let row = self.active_diff_row(row_ix)?;
+            let is_selected = self.is_row_selected(row_ix);
+            Some(match row.kind {
+                DiffRowKind::Code => self.render_code_row(row_ix, row, is_selected, cx),
+                DiffRowKind::HunkHeader | DiffRowKind::Meta | DiffRowKind::Empty => {
+                    self.render_meta_row(row_ix, row, is_selected, cx)
+                }
+            })
+        });
+
+        v_flex()
+            .id(("review-workspace-section", section.index as u64))
+            .w_full()
+            .children(rows)
+            .into_any_element()
+    }
+
+    fn review_workspace_section_height(
+        &self,
+        section: &review_workspace_session::ReviewWorkspaceSection,
+    ) -> usize {
+        (section.start_row..section.end_row)
+            .map(|row_ix| match self.active_diff_row(row_ix).map(|row| row.kind) {
+                Some(DiffRowKind::HunkHeader) => 6,
+                Some(DiffRowKind::Code | DiffRowKind::Meta | DiffRowKind::Empty) | None => 26,
+            })
+            .sum()
     }
 
     fn render_diff_column_header(

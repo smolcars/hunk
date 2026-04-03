@@ -1,4 +1,45 @@
 impl DiffViewer {
+    pub(super) fn uses_review_workspace_sections_surface(&self) -> bool {
+        self.workspace_view_mode == WorkspaceViewMode::Diff
+            && self.review_workspace_session.is_some()
+            && self.active_comment_editor_row.is_none()
+    }
+
+    pub(super) fn current_review_surface_top_row(&self) -> Option<usize> {
+        let row_count = self.active_diff_row_count();
+        if row_count == 0 {
+            return None;
+        }
+
+        if self.uses_review_workspace_sections_surface()
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            let top_section_ix = self.review_surface.diff_scroll_handle.top_item();
+            return session
+                .section(top_section_ix)
+                .or_else(|| session.sections().last())
+                .map(|section| section.start_row.min(row_count.saturating_sub(1)));
+        }
+
+        Some(
+            self.review_surface
+                .diff_list_state
+                .logical_scroll_top()
+                .item_ix
+                .min(row_count.saturating_sub(1)),
+        )
+    }
+
+    pub(super) fn current_review_surface_scroll_offset(&self) -> Point<Pixels> {
+        if self.uses_review_workspace_sections_surface() {
+            self.review_surface.diff_scroll_handle.offset()
+        } else {
+            self.review_surface
+                .diff_list_state
+                .scroll_px_offset_for_scrollbar()
+        }
+    }
+
     pub(super) fn active_diff_row_count(&self) -> usize {
         if self.workspace_view_mode == WorkspaceViewMode::Diff
             && let Some(session) = self.review_workspace_session.as_ref()

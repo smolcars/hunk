@@ -421,13 +421,15 @@ impl DiffViewer {
 impl Render for DiffViewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let render_started_at = Instant::now();
-        let current_scroll_offset = self
-            .review_surface
-            .diff_list_state
-            .scroll_px_offset_for_scrollbar();
+        let current_scroll_offset = self.current_review_surface_scroll_offset();
         if self.review_surface.last_diff_scroll_offset != Some(current_scroll_offset) {
             self.review_surface.last_diff_scroll_offset = Some(current_scroll_offset);
             self.last_scroll_activity_at = Instant::now();
+            if self.uses_review_workspace_sections_surface()
+                && let Some(visible_row) = self.current_review_surface_top_row()
+            {
+                self.sync_selected_file_from_visible_row(visible_row, cx);
+            }
         }
         if self.ignore_next_frame_sample {
             self.ignore_next_frame_sample = false;
@@ -486,7 +488,7 @@ impl Render for DiffViewer {
                     .min_h_0()
                     .child(match self.workspace_view_mode {
                         WorkspaceViewMode::Files => self.render_file_workspace_screen(window, cx),
-                        WorkspaceViewMode::Diff => self.render_diff_workspace_screen(cx),
+                        WorkspaceViewMode::Diff => self.render_diff_workspace_screen(window, cx),
                         WorkspaceViewMode::GitWorkspace => self.render_git_workspace_screen(cx),
                         WorkspaceViewMode::Ai => {
                             self.render_ai_workspace_screen(ai_view_state.clone(), cx)

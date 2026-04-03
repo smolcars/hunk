@@ -330,6 +330,43 @@ fn review_workspace_session_tracks_stable_file_scope_queries() {
 }
 
 #[test]
+fn review_workspace_session_exposes_excerpt_sections_for_surface_rendering() {
+    let patch = "\
+@@ -1,2 +1,3 @@
+ before
+-old
++new
+ keep
+@@ -8,0 +10,2 @@
++tail
++more
+";
+    let snapshot = CompareSnapshot {
+        files: vec![changed_file("src/main.rs", FileStatus::Modified)],
+        file_line_stats: BTreeMap::new(),
+        overall_line_stats: LineStats::default(),
+        patches_by_path: BTreeMap::from([("src/main.rs".to_string(), patch.to_string())]),
+    };
+
+    let session = ReviewWorkspaceSession::from_compare_snapshot(&snapshot, &BTreeSet::new())
+        .expect("workspace session should build");
+    let sections = session.sections();
+
+    assert_eq!(sections.len(), 2);
+    assert!(sections[0].show_file_header);
+    assert!(!sections[1].show_file_header);
+    assert_eq!(sections[0].path, "src/main.rs");
+    assert_eq!(sections[1].path, "src/main.rs");
+    assert_eq!(sections[0].hunk_header.as_deref(), Some("@@ -1,2 +1,3 @@"));
+    assert_eq!(sections[1].hunk_header.as_deref(), Some("@@ -8,0 +10,2 @@"));
+    assert_eq!(session.section_index_for_path("src/main.rs"), Some(0));
+    assert_eq!(
+        session.section_index_for_row(sections[1].start_row),
+        Some(sections[1].index)
+    );
+}
+
+#[test]
 fn review_workspace_session_can_attach_render_rows() {
     let patch = "\
 @@ -1,2 +1,2 @@

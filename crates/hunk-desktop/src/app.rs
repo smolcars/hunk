@@ -1076,6 +1076,7 @@ struct ReviewWorkspaceSurfaceState {
     diff_visible_file_header_lookup: Vec<Option<usize>>,
     diff_visible_hunk_header_lookup: Vec<Option<usize>>,
     diff_list_state: ListState,
+    diff_scroll_handle: ScrollHandle,
     diff_split_ratio: f32,
     diff_split_bounds: Option<Bounds<Pixels>>,
     diff_left_line_number_width: f32,
@@ -1094,6 +1095,7 @@ impl ReviewWorkspaceSurfaceState {
             diff_visible_file_header_lookup: Vec::new(),
             diff_visible_hunk_header_lookup: Vec::new(),
             diff_list_state: Self::empty_diff_list_state(),
+            diff_scroll_handle: ScrollHandle::default(),
             diff_split_ratio: 0.5,
             diff_split_bounds: None,
             diff_left_line_number_width: crate::app::data::line_number_column_width(

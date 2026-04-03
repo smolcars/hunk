@@ -164,15 +164,7 @@ impl DiffViewer {
         self.selection_head_row
             .or(self.review_surface.last_visible_row_start)
             .map(|row_ix| row_ix.min(max_ix))
-            .or_else(|| {
-                Some(
-                    self.review_surface
-                        .diff_list_state
-                        .logical_scroll_top()
-                        .item_ix
-                        .min(max_ix),
-                )
-            })
+            .or_else(|| self.current_review_surface_top_row())
     }
 
     pub(crate) fn current_review_file_range(&self) -> Option<FileRowRange> {
