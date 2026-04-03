@@ -1,8 +1,8 @@
 fn should_store_legacy_diff_surface_state(
     workspace_view_mode: WorkspaceViewMode,
-    has_review_workspace_session: bool,
+    _has_review_workspace_session: bool,
 ) -> bool {
-    workspace_view_mode != WorkspaceViewMode::Diff || !has_review_workspace_session
+    workspace_view_mode != WorkspaceViewMode::Diff
 }
 
 impl DiffViewer {
@@ -405,12 +405,12 @@ mod workspace_project_state_tests {
     }
 
     #[test]
-    fn files_mode_and_legacy_diff_mode_keep_flat_rows() {
+    fn files_mode_keeps_flat_rows_but_diff_mode_does_not() {
         assert!(should_store_legacy_diff_surface_state(
             WorkspaceViewMode::Files,
             true,
         ));
-        assert!(should_store_legacy_diff_surface_state(
+        assert!(!should_store_legacy_diff_surface_state(
             WorkspaceViewMode::Diff,
             false,
         ));

@@ -209,30 +209,34 @@ impl DiffViewer {
     }
 
     pub(super) fn active_diff_row_count(&self) -> usize {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.row_count();
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            return self
+                .review_workspace_session
+                .as_ref()
+                .map(|session| session.row_count())
+                .unwrap_or(0);
         }
 
         self.diff_rows.len()
     }
 
     pub(super) fn active_diff_row(&self, row_ix: usize) -> Option<&SideBySideRow> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.row(row_ix);
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            return self
+                .review_workspace_session
+                .as_ref()
+                .and_then(|session| session.row(row_ix));
         }
 
         self.diff_rows.get(row_ix)
     }
 
     pub(super) fn active_diff_row_metadata(&self, row_ix: usize) -> Option<&DiffStreamRowMeta> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.row_metadata(row_ix);
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            return self
+                .review_workspace_session
+                .as_ref()
+                .and_then(|session| session.row_metadata(row_ix));
         }
 
         self.diff_row_metadata.get(row_ix)
@@ -242,10 +246,11 @@ impl DiffViewer {
         &self,
         row_ix: usize,
     ) -> Option<&DiffRowSegmentCache> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.row_segment_cache(row_ix);
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            return self
+                .review_workspace_session
+                .as_ref()
+                .and_then(|session| session.row_segment_cache(row_ix));
         }
 
         self.diff_row_segment_cache
