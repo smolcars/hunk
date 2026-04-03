@@ -920,6 +920,7 @@ fn review_workspace_session_surface_snapshot_reuses_viewport_and_visible_state()
         surface.visible_state.visible_file_path.as_deref(),
         Some("src/main.rs")
     );
+    assert!(surface.sticky_file_header.is_none());
     assert!(
         surface
             .visible_state
@@ -927,6 +928,44 @@ fn review_workspace_session_surface_snapshot_reuses_viewport_and_visible_state()
             .as_ref()
             .is_some_and(|range| !range.is_empty())
     );
+}
+
+#[test]
+fn review_workspace_session_surface_snapshot_includes_sticky_file_header_after_header_scrolls_off()
+{
+    let patch = "\
+@@ -1,2 +1,3 @@
+ before
+-old
++new
+ keep
+";
+    let snapshot = CompareSnapshot {
+        files: vec![changed_file("src/main.rs", FileStatus::Modified)],
+        file_line_stats: BTreeMap::new(),
+        overall_line_stats: LineStats::default(),
+        patches_by_path: BTreeMap::from([("src/main.rs".to_string(), patch.to_string())]),
+    };
+
+    let rows = parse_patch_side_by_side(patch);
+    let stream = review_stream_for_rows(&rows, "src/main.rs", FileStatus::Modified);
+    let session = ReviewWorkspaceSession::from_compare_snapshot(&snapshot, &BTreeSet::new())
+        .expect("workspace session should build")
+        .with_render_stream(&stream);
+    let surface = session.build_surface_snapshot(
+        REVIEW_SURFACE_COMPACT_ROW_HEIGHT_PX,
+        REVIEW_SURFACE_COMPACT_ROW_HEIGHT_PX * 4,
+        1,
+        8,
+    );
+
+    let sticky = surface
+        .sticky_file_header
+        .as_ref()
+        .expect("sticky file header should be present once the header row scrolls off");
+    assert_eq!(sticky.row_index, 0);
+    assert_eq!(sticky.path, "src/main.rs");
+    assert_eq!(sticky.status, FileStatus::Modified);
 }
 
 #[test]

@@ -153,6 +153,7 @@ pub(crate) struct ReviewWorkspaceSurfaceSnapshot {
     pub(crate) viewport_height_px: usize,
     pub(crate) viewport: ReviewWorkspaceViewportSnapshot,
     pub(crate) overlays: Vec<ReviewWorkspaceSurfaceOverlay>,
+    pub(crate) sticky_file_header: Option<ReviewWorkspaceVisibleFileHeader>,
     pub(crate) visible_state: ReviewWorkspaceVisibleState,
 }
 
@@ -621,12 +622,17 @@ impl ReviewWorkspaceSession {
             overscan_rows,
         );
         let visible_state = self.build_visible_state(scroll_top_px, viewport_height_px);
+        let sticky_file_header = visible_state.top_row.and_then(|top_row| {
+            let header = self.visible_file_header_at_surface_row(top_row)?;
+            (header.row_index != top_row).then_some(header)
+        });
 
         ReviewWorkspaceSurfaceSnapshot {
             scroll_top_px,
             viewport_height_px,
             viewport,
             overlays: Vec::new(),
+            sticky_file_header,
             visible_state,
         }
     }

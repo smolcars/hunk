@@ -1,4 +1,51 @@
 impl DiffViewer {
+    fn current_or_fresh_review_surface_snapshot(
+        &mut self,
+    ) -> Option<review_workspace_session::ReviewWorkspaceSurfaceSnapshot> {
+        if !self.uses_review_workspace_sections_surface() {
+            return None;
+        }
+
+        self.refresh_review_surface_snapshot()
+            .and_then(|_| self.current_review_surface_snapshot().cloned())
+            .or_else(|| {
+                let session = self.review_workspace_session.as_ref()?;
+                let mut surface = session.build_surface_snapshot(
+                    self.current_review_surface_scroll_top_px(),
+                    self.review_surface
+                        .diff_scroll_handle
+                        .bounds()
+                        .size
+                        .height
+                        .max(Pixels::ZERO)
+                        .as_f32()
+                        .round() as usize,
+                    1,
+                    REVIEW_SECTION_ROW_OVERSCAN_ROWS,
+                );
+                self.decorate_review_surface_snapshot(&mut surface);
+                Some(surface)
+            })
+    }
+
+    fn render_review_workspace_sticky_file_banner(
+        &self,
+        surface: &review_workspace_session::ReviewWorkspaceSurfaceSnapshot,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(header) = surface.sticky_file_header.as_ref() else {
+            return div().w_full().h(px(0.)).into_any_element();
+        };
+
+        self.render_sticky_file_status_banner_row(
+            header.row_index,
+            header.path.as_str(),
+            header.status,
+            header.line_stats,
+            cx,
+        )
+    }
+
     fn render_review_workspace_surface(
         &mut self,
         _window: &mut Window,
@@ -40,15 +87,21 @@ impl DiffViewer {
         }
 
         let (old_label, new_label) = self.diff_column_labels();
-        let row_count = self.active_diff_row_count();
-        let visible_row = self
-            .current_review_surface_top_row()
-            .unwrap_or(0)
-            .min(row_count.saturating_sub(1));
-        let sticky_file_banner = self.render_visible_file_banner(visible_row, px(0.), cx);
+        let review_surface_snapshot = self.current_or_fresh_review_surface_snapshot();
+        let sticky_file_banner = review_surface_snapshot
+            .as_ref()
+            .map(|surface| self.render_review_workspace_sticky_file_banner(surface, cx))
+            .unwrap_or_else(|| {
+                let row_count = self.active_diff_row_count();
+                let visible_row = self
+                    .current_review_surface_top_row()
+                    .unwrap_or(0)
+                    .min(row_count.saturating_sub(1));
+                self.render_visible_file_banner(visible_row, px(0.), cx)
+            });
         let layout = self.diff_column_layout();
-        let scroller = if self.uses_review_workspace_sections_surface() {
-            self.render_review_workspace_sections_scroller(cx)
+        let scroller = if let Some(surface) = review_surface_snapshot.as_ref() {
+            self.render_review_workspace_sections_scroller(surface, cx)
         } else {
             self.render_review_workspace_status_surface(cx)
         };
@@ -240,46 +293,17 @@ impl DiffViewer {
     }
 
     fn render_review_workspace_sections_scroller(
-        &mut self,
+        &self,
+        surface: &review_workspace_session::ReviewWorkspaceSurfaceSnapshot,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if self.review_workspace_session.is_none() {
-            return div().size_full().into_any_element();
-        }
-        let surface = self
-            .refresh_review_surface_snapshot()
-            .and_then(|_| {
-                self.current_review_surface_snapshot()
-                    .cloned()
-            })
-            .unwrap_or_else(|| {
-                let session = self
-                    .review_workspace_session
-                    .as_ref()
-                    .expect("checked review workspace session above");
-                let mut surface = session.build_surface_snapshot(
-                    self.current_review_surface_scroll_top_px(),
-                    self.review_surface
-                        .diff_scroll_handle
-                        .bounds()
-                        .size
-                        .height
-                        .max(Pixels::ZERO)
-                        .as_f32()
-                        .round() as usize,
-                    1,
-                    REVIEW_SECTION_ROW_OVERSCAN_ROWS,
-                );
-                self.decorate_review_surface_snapshot(&mut surface);
-                surface
-            });
         let scroll_handle = self.review_surface.diff_scroll_handle.clone();
         let surface_children = surface
             .viewport
             .visible_pixel_range()
             .map(|visible_pixel_range| {
                 self.render_review_workspace_surface_children(
-                    &surface,
+                    surface,
                     visible_pixel_range,
                     cx,
                 )
