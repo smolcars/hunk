@@ -190,12 +190,6 @@ impl DiffViewer {
                                                     .right_0()
                                                     .child(sticky_file_banner),
                                             )
-                                            .when_some(review_surface_snapshot.as_ref(), |this, surface| {
-                                                this.when_some(
-                                                    self.render_active_row_comment_overlay(surface, cx),
-                                                    |this, overlay| this.child(overlay),
-                                                )
-                                            })
                                             .when(
                                                 self.uses_review_workspace_sections_surface(),
                                                 |this| {
@@ -280,6 +274,7 @@ impl DiffViewer {
             .right_0()
             .h(px(visible_pixel_range.len() as f32))
             .child(self.render_review_workspace_viewport(
+                surface,
                 &surface.viewport,
                 visible_pixel_range.start,
                 cx,
@@ -323,6 +318,7 @@ impl DiffViewer {
 
     fn render_review_workspace_viewport(
         &self,
+        surface: &review_workspace_session::ReviewWorkspaceSurfaceSnapshot,
         viewport: &review_workspace_session::ReviewWorkspaceViewportSnapshot,
         viewport_origin_px: usize,
         cx: &mut Context<Self>,
@@ -344,6 +340,13 @@ impl DiffViewer {
                 layout,
                 cx,
             ))
+            .when_some(surface.active_comment_editor_overlay.as_ref(), |this, overlay| {
+                this.child(self.render_active_row_comment_overlay(
+                    overlay.row_index,
+                    overlay.top_px,
+                    cx,
+                ))
+            })
             .into_any_element()
     }
 

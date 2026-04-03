@@ -447,24 +447,16 @@ impl DiffViewer {
 
     fn render_active_row_comment_overlay(
         &self,
-        surface: &crate::app::review_workspace_session::ReviewWorkspaceSurfaceSnapshot,
+        row_ix: usize,
+        top_px: usize,
         cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        if !self.uses_review_workspace_sections_surface() {
-            return None;
-        }
-
-        let overlay = surface.active_comment_editor_overlay.as_ref()?;
-        let row_ix = overlay.row_index;
-
-        Some(
-            div()
-                .id(("review-row-comment-overlay", row_ix as u64))
-                .absolute()
-                .top(px(overlay.top_px as f32))
-                .right(px(DIFF_SCROLLBAR_SIZE + DIFF_SCROLLBAR_RIGHT_INSET + 16.0))
-                .child(self.render_row_comment_editor_card(row_ix, cx))
-                .into_any_element(),
-        )
+    ) -> AnyElement {
+        div()
+            .id(("review-row-comment-overlay", row_ix as u64))
+            .absolute()
+            .top(px(top_px as f32))
+            .right(px(DIFF_SCROLLBAR_SIZE + DIFF_SCROLLBAR_RIGHT_INSET + 16.0))
+            .child(self.render_row_comment_editor_card(row_ix, cx))
+            .into_any_element()
     }
 }
