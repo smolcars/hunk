@@ -55,36 +55,35 @@ impl WorkspaceEditorSession {
         self.sync_id_counters_from_layout();
     }
 
-    pub(crate) fn open_full_file_document(
+    pub(crate) fn open_full_file_documents(
         &mut self,
-        path: &Path,
-        buffer_id: BufferId,
-        line_count: usize,
+        documents: &[(PathBuf, BufferId, usize)],
+        preferred_path: Option<&Path>,
     ) -> Result<(), WorkspaceLayoutError> {
-        let document_id = WorkspaceDocumentId::new(self.next_document_id);
-        self.next_document_id = self.next_document_id.saturating_add(1);
-        let excerpt_id = WorkspaceExcerptId::new(self.next_excerpt_id);
-        self.next_excerpt_id = self.next_excerpt_id.saturating_add(1);
+        let mut layout_documents = Vec::with_capacity(documents.len());
+        let mut excerpt_specs = Vec::with_capacity(documents.len());
 
-        let layout = WorkspaceLayout::new(
-            vec![WorkspaceDocument::new(
+        for (path, buffer_id, line_count) in documents {
+            let document_id = WorkspaceDocumentId::new(self.next_document_id);
+            self.next_document_id = self.next_document_id.saturating_add(1);
+            let excerpt_id = WorkspaceExcerptId::new(self.next_excerpt_id);
+            self.next_excerpt_id = self.next_excerpt_id.saturating_add(1);
+            layout_documents.push(WorkspaceDocument::new(
                 document_id,
-                path.to_path_buf(),
-                buffer_id,
-                line_count,
-            )],
-            vec![WorkspaceExcerptSpec::new(
+                path.clone(),
+                *buffer_id,
+                *line_count,
+            ));
+            excerpt_specs.push(WorkspaceExcerptSpec::new(
                 excerpt_id,
                 document_id,
                 WorkspaceExcerptKind::FullFile,
-                0..line_count,
-            )],
-            0,
-        )?;
+                0..*line_count,
+            ));
+        }
 
-        self.open_workspace_layout(layout, Some(path));
-        self.active_document_id = Some(document_id);
-        self.active_excerpt_id = Some(excerpt_id);
+        let layout = WorkspaceLayout::new(layout_documents, excerpt_specs, 0)?;
+        self.open_workspace_layout(layout, preferred_path);
         Ok(())
     }
 

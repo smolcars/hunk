@@ -24,6 +24,8 @@ mod input_impl;
 mod language_impl;
 #[path = "native_files_editor_paint.rs"]
 pub(crate) mod paint;
+#[path = "native_files_editor_workspace_buffers.rs"]
+mod workspace_buffers_impl;
 #[path = "native_files_editor_workspace.rs"]
 mod workspace_session;
 
@@ -69,6 +71,7 @@ pub(crate) struct FilesEditor {
     syntax: SyntaxSession,
     next_buffer_id: u64,
     workspace_session: WorkspaceEditorSession,
+    workspace_buffers: BTreeMap<PathBuf, TextBuffer>,
     view_state_by_path: BTreeMap<PathBuf, FilesEditorViewState>,
     language_label: String,
     pointer_selection: Option<PointerSelectionState>,
@@ -206,6 +209,7 @@ impl FilesEditor {
             syntax: SyntaxSession::new(),
             next_buffer_id: 2,
             workspace_session: WorkspaceEditorSession::new(),
+            workspace_buffers: BTreeMap::new(),
             view_state_by_path: BTreeMap::new(),
             language_label: "text".to_string(),
             pointer_selection: None,
@@ -221,42 +225,12 @@ impl FilesEditor {
     }
 
     pub(crate) fn open_document(&mut self, path: &Path, contents: &str) -> Result<()> {
-        self.capture_active_view_state();
-        let buffer = TextBuffer::new(BufferId::new(self.next_buffer_id), contents);
-        let buffer_id = buffer.id();
-        let line_count = buffer.line_count();
-        self.next_buffer_id = self.next_buffer_id.saturating_add(1);
-        self.editor = EditorState::new(buffer);
-        self.editor.apply(EditorCommand::SetViewport(Viewport {
-            first_visible_row: 0,
-            visible_row_count: 1,
-            horizontal_offset: 0,
-        }));
-        self.workspace_session
-            .open_full_file_document(path, buffer_id, line_count)?;
-        self.language_label = self
-            .registry
-            .language_for_path(path)
-            .map(|definition| definition.name.clone())
-            .unwrap_or_else(|| "text".to_string());
-        self.pointer_selection = None;
-        self.fold_candidates.clear();
-        self.clear_syntax_highlights();
-        self.visible_highlight_cache = None;
-        self.row_syntax_cache = None;
-        self.semantic_highlight_revision = self.semantic_highlight_revision.saturating_add(1);
-        self.apply_path_defaults(path);
-        self.refresh_syntax_state()?;
-        if self.search_query.is_some() {
-            self.editor
-                .apply(EditorCommand::SetSearchQuery(self.search_query.clone()));
-        }
-        self.restore_view_state(path);
-        Ok(())
+        self.open_workspace_documents(vec![(path.to_path_buf(), contents.to_string())], Some(path))
     }
 
     pub(crate) fn clear(&mut self) {
         self.workspace_session.clear();
+        self.workspace_buffers.clear();
         self.view_state_by_path.clear();
         self.editor = EditorState::new(TextBuffer::new(BufferId::new(self.next_buffer_id), ""));
         self.next_buffer_id = self.next_buffer_id.saturating_add(1);
@@ -531,10 +505,6 @@ impl FilesEditor {
             return;
         };
         self.editor
-            .apply(EditorCommand::SetViewport(state.viewport));
-        self.editor
-            .apply(EditorCommand::SetSelection(state.selection));
-        self.editor
             .apply(EditorCommand::SetShowWhitespace(state.show_whitespace));
         self.editor
             .apply(EditorCommand::SetWrapWidth(state.soft_wrap.then_some(80)));
@@ -544,6 +514,10 @@ impl FilesEditor {
                 end_line: region.end_line,
             });
         }
+        self.editor
+            .apply(EditorCommand::SetSelection(state.selection));
+        self.editor
+            .apply(EditorCommand::SetViewport(state.viewport));
     }
 
     #[cfg(test)]

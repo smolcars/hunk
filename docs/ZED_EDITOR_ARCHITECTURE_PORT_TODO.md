@@ -123,6 +123,9 @@ Zed analogue:
 
 - `FileDiffView` still uses an editor over a multibuffer, even for a single file.
 
+Current state:
+- `FilesEditor` can now also preload multiple full-file workspace documents and switch the active workspace path while preserving per-path buffers and view state, which gives Hunk its first persistent multibuffer-like editor foundation underneath the existing file surface.
+
 ### Phase 3: Build A Read-Only Multi-File Diff Surface On The Same Editor Path
 
 Status: In progress

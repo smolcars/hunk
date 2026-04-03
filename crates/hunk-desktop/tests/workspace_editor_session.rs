@@ -74,3 +74,22 @@ fn workspace_editor_session_can_switch_active_path_inside_existing_layout() {
     );
     assert!(!session.activate_path(Path::new("missing.rs")));
 }
+
+#[test]
+fn workspace_editor_session_opens_multiple_full_file_documents() {
+    let mut session = WorkspaceEditorSession::new();
+    session
+        .open_full_file_documents(
+            &[
+                (Path::new("src/main.rs").to_path_buf(), BufferId::new(1), 12),
+                (Path::new("src/lib.rs").to_path_buf(), BufferId::new(2), 24),
+            ],
+            Some(Path::new("src/lib.rs")),
+        )
+        .expect("workspace documents should open");
+
+    let layout = session.layout().expect("workspace layout should exist");
+    assert_eq!(layout.documents().len(), 2);
+    assert_eq!(layout.excerpts().len(), 2);
+    assert_eq!(session.active_path(), Some(Path::new("src/lib.rs")));
+}

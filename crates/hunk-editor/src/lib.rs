@@ -258,6 +258,10 @@ impl EditorState {
         &self.buffer
     }
 
+    pub fn into_buffer(self) -> TextBuffer {
+        self.buffer
+    }
+
     pub fn viewport(&self) -> Viewport {
         self.viewport
     }

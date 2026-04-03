@@ -7,7 +7,7 @@ use hunk_editor::{Viewport, WorkspaceRowKind};
 use hunk_language::{CompletionTriggerKind, Diagnostic, DiagnosticSeverity};
 use hunk_text::{Selection, TextPosition, TextRange};
 use native_files_editor::FilesEditor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[test]
 fn select_all_shortcut_and_backspace_clear_the_buffer() {
@@ -277,6 +277,69 @@ fn opening_a_file_builds_a_full_file_workspace_layout() {
     let last_row = layout.locate_row(3).expect("last row should resolve");
     assert_eq!(last_row.row_kind, WorkspaceRowKind::Content);
     assert_eq!(last_row.document_line, Some(3));
+}
+
+#[test]
+fn workspace_documents_switch_active_buffers_without_reloading_text() {
+    let mut editor = FilesEditor::new();
+    editor
+        .open_workspace_documents(
+            vec![
+                (PathBuf::from("src/main.rs"), "fn main() {}\n".to_string()),
+                (
+                    PathBuf::from("src/lib.rs"),
+                    "pub fn helper() {}\n".to_string(),
+                ),
+            ],
+            Some(Path::new("src/main.rs")),
+        )
+        .expect("workspace documents should open");
+
+    editor.set_selection_for_test(Selection::caret(TextPosition::new(0, 12)));
+    assert!(editor.paste_text("// main"));
+    editor.set_viewport_for_test(Viewport {
+        first_visible_row: 2,
+        visible_row_count: 4,
+        horizontal_offset: 0,
+    });
+
+    assert!(
+        editor
+            .activate_workspace_path(Path::new("src/lib.rs"))
+            .expect("workspace path switch should succeed")
+    );
+    assert_eq!(
+        editor.current_text().as_deref(),
+        Some("pub fn helper() {}\n")
+    );
+
+    editor.set_selection_for_test(Selection::caret(TextPosition::new(0, 3)));
+    assert!(editor.paste_text("// lib"));
+
+    assert!(
+        editor
+            .activate_workspace_path(Path::new("src/main.rs"))
+            .expect("workspace path switch should succeed")
+    );
+    assert_eq!(
+        editor.current_text().as_deref(),
+        Some("fn main() {}// main\n")
+    );
+    assert_eq!(editor.viewport_for_test().first_visible_row, 2);
+    assert_eq!(
+        editor.selection_for_test(),
+        Selection::caret(TextPosition::new(0, 19))
+    );
+
+    assert!(
+        editor
+            .activate_workspace_path(Path::new("src/lib.rs"))
+            .expect("workspace path switch should succeed")
+    );
+    assert_eq!(
+        editor.current_text().as_deref(),
+        Some("pub// lib fn helper() {}\n")
+    );
 }
 
 #[test]
