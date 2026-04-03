@@ -7,12 +7,23 @@ impl DiffViewer {
     }
 
     fn scroll_to_file_start(&mut self, path: &str) {
-        let Some(start_row) = self
-            .file_row_ranges
-            .iter()
-            .find(|range| range.path == path)
-            .map(|range| range.start_row)
-        else {
+        let start_row = if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            self.review_workspace_session
+                .as_ref()
+                .and_then(|session| session.file_start_surface_row(path))
+                .or_else(|| {
+                    self.file_row_ranges
+                        .iter()
+                        .find(|range| range.path == path)
+                        .map(|range| range.start_row)
+                })
+        } else {
+            self.file_row_ranges
+                .iter()
+                .find(|range| range.path == path)
+                .map(|range| range.start_row)
+        };
+        let Some(start_row) = start_row else {
             return;
         };
 
@@ -35,7 +46,30 @@ impl DiffViewer {
         self.last_visible_row_start = Some(row_ix);
         self.request_visible_row_segment_prefetch(row_ix, false, cx);
 
-        let Some((next_path, next_status)) =
+        let Some((next_path, next_status)) = (if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            self.review_workspace_session
+                .as_ref()
+                .and_then(|session| {
+                    session.path_at_surface_row(row_ix).map(|path| {
+                        (
+                            path.to_string(),
+                            session
+                                .status_for_path(path)
+                                .or_else(|| self.status_for_path(path))
+                                .unwrap_or(FileStatus::Unknown),
+                        )
+                    })
+                })
+                .or_else(|| {
+                    self.selected_file_from_row_metadata(row_ix).or_else(|| {
+                        self.file_row_ranges
+                            .iter()
+                            .find(|range| row_ix < range.end_row)
+                            .or_else(|| self.file_row_ranges.last())
+                            .map(|range| (range.path.clone(), range.status))
+                    })
+                })
+        } else {
             self.selected_file_from_row_metadata(row_ix).or_else(|| {
                 self.file_row_ranges
                     .iter()
@@ -43,6 +77,7 @@ impl DiffViewer {
                     .or_else(|| self.file_row_ranges.last())
                     .map(|range| (range.path.clone(), range.status))
             })
+        })
         else {
             return;
         };
@@ -200,6 +235,16 @@ impl DiffViewer {
     }
 
     fn selected_file_from_row_metadata(&self, row_ix: usize) -> Option<(String, FileStatus)> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+            && let Some(path) = session.path_at_surface_row(row_ix)
+        {
+            let status = session
+                .status_for_path(path)
+                .or_else(|| self.status_for_path(path))?;
+            return Some((path.to_string(), status));
+        }
+
         let row = self.diff_row_metadata.get(row_ix)?;
         if row.kind == DiffStreamRowKind::EmptyState {
             return None;

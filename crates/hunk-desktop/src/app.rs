@@ -188,6 +188,7 @@ mod native_files_editor;
 mod notifications;
 mod render;
 mod repo_file_search;
+mod review_workspace_session;
 mod terminal_cursor;
 mod theme;
 mod workspace_view;
@@ -1040,6 +1041,7 @@ struct WorkspaceProjectState {
     review_overall_line_stats: LineStats,
     review_compare_loading: bool,
     review_compare_error: Option<String>,
+    review_workspace_session: Option<review_workspace_session::ReviewWorkspaceSession>,
     overall_line_stats: LineStats,
     last_git_workspace_fingerprint: Option<RepoSnapshotFingerprint>,
     recent_commits_loading: bool,
@@ -1298,6 +1300,7 @@ struct DiffViewer {
     review_overall_line_stats: LineStats,
     review_compare_loading: bool,
     review_compare_error: Option<String>,
+    review_workspace_session: Option<review_workspace_session::ReviewWorkspaceSession>,
     overall_line_stats: LineStats,
     refresh_epoch: usize,
     auto_refresh_unmodified_streak: u32,

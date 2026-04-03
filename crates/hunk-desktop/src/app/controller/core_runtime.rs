@@ -1,9 +1,66 @@
 impl DiffViewer {
+    pub(super) fn active_diff_row_count(&self) -> usize {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.row_count();
+        }
+
+        self.diff_rows.len()
+    }
+
+    pub(super) fn active_diff_row(&self, row_ix: usize) -> Option<&SideBySideRow> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.row(row_ix);
+        }
+
+        self.diff_rows.get(row_ix)
+    }
+
+    pub(super) fn active_diff_row_metadata(&self, row_ix: usize) -> Option<&DiffStreamRowMeta> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.row_metadata(row_ix);
+        }
+
+        self.diff_row_metadata.get(row_ix)
+    }
+
+    pub(super) fn active_diff_row_segment_cache(
+        &self,
+        row_ix: usize,
+    ) -> Option<&DiffRowSegmentCache> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.row_segment_cache(row_ix);
+        }
+
+        self.diff_row_segment_cache
+            .get(row_ix)
+            .and_then(Option::as_ref)
+    }
+
     fn recompute_diff_visible_header_lookup(&mut self) {
-        let row_count = self.diff_rows.len();
+        let row_count = self.active_diff_row_count();
         self.diff_visible_file_header_lookup = vec![None; row_count];
         self.diff_visible_hunk_header_lookup = vec![None; row_count];
         if row_count == 0 {
+            return;
+        }
+
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            for row_ix in 0..row_count {
+                self.diff_visible_file_header_lookup[row_ix] =
+                    session.visible_file_header_row(row_ix);
+                self.diff_visible_hunk_header_lookup[row_ix] =
+                    session.visible_hunk_header_row(row_ix);
+            }
             return;
         }
 
@@ -45,8 +102,7 @@ impl DiffViewer {
         let mut current_hunk_header = None::<usize>;
         for row_ix in 0..row_count {
             if self
-                .diff_rows
-                .get(row_ix)
+                .active_diff_row(row_ix)
                 .is_some_and(|row| row.kind == DiffRowKind::HunkHeader)
             {
                 current_hunk_header = Some(row_ix);

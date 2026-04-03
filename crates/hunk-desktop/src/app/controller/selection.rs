@@ -192,6 +192,41 @@ impl DiffViewer {
             return;
         }
 
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+            && !session.hunk_ranges().is_empty()
+        {
+            let start_ix = self
+                .selection_head_row
+                .unwrap_or(self.diff_list_state.logical_scroll_top().item_ix)
+                .min(self.diff_rows.len().saturating_sub(1));
+            let hunk_rows = session
+                .hunk_ranges()
+                .iter()
+                .map(|range| range.start_row)
+                .collect::<Vec<_>>();
+            let current_ix = hunk_rows
+                .iter()
+                .position(|row_ix| *row_ix == start_ix)
+                .unwrap_or_else(|| {
+                    hunk_rows
+                        .iter()
+                        .position(|row_ix| *row_ix > start_ix)
+                        .unwrap_or(0)
+                });
+            let target_ix = if direction >= 0 {
+                current_ix.saturating_add(1) % hunk_rows.len()
+            } else if current_ix == 0 {
+                hunk_rows.len().saturating_sub(1)
+            } else {
+                current_ix.saturating_sub(1)
+            };
+            if let Some(target_row) = hunk_rows.get(target_ix).copied() {
+                self.select_row_and_scroll(target_row, false, cx);
+            }
+            return;
+        }
+
         let start_ix = self
             .selection_head_row
             .unwrap_or(self.diff_list_state.logical_scroll_top().item_ix)
@@ -207,7 +242,30 @@ impl DiffViewer {
     }
 
     fn select_file_relative(&mut self, direction: isize, cx: &mut Context<Self>) {
-        if self.file_row_ranges.is_empty() {
+        let file_ranges = if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            self.review_workspace_session
+                .as_ref()
+                .map(|session| {
+                    session
+                        .file_ranges()
+                        .iter()
+                        .map(|range| (range.path.clone(), range.status, range.start_row))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_else(|| {
+                    self.file_row_ranges
+                        .iter()
+                        .map(|range| (range.path.clone(), range.status, range.start_row))
+                        .collect::<Vec<_>>()
+                })
+        } else {
+            self.file_row_ranges
+                .iter()
+                .map(|range| (range.path.clone(), range.status, range.start_row))
+                .collect::<Vec<_>>()
+        };
+
+        if file_ranges.is_empty() {
             return;
         }
 
@@ -215,17 +273,14 @@ impl DiffViewer {
             .selected_path
             .as_ref()
             .and_then(|path| {
-                self.file_row_ranges
+                file_ranges
                     .iter()
-                    .position(|range| range.path == *path)
+                    .position(|(candidate_path, _, _)| candidate_path == path)
             })
             .unwrap_or(0);
-        let max_ix = self.file_row_ranges.len().saturating_sub(1) as isize;
+        let max_ix = file_ranges.len().saturating_sub(1) as isize;
         let target_ix = (current_ix as isize + direction).clamp(0, max_ix) as usize;
-        let (path, status, start_row) = {
-            let range = &self.file_row_ranges[target_ix];
-            (range.path.clone(), range.status, range.start_row)
-        };
+        let (path, status, start_row) = file_ranges[target_ix].clone();
 
         self.selected_path = Some(path.clone());
         self.selected_status = Some(status);

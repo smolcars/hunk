@@ -97,7 +97,7 @@ impl FilesEditor {
 
     #[allow(dead_code)]
     fn document_context(&self) -> Option<hunk_language::DocumentContext> {
-        let path = self.active_path.clone()?;
+        let path = self.active_path_buf()?;
         let snapshot = self.editor.buffer().snapshot();
         Some(hunk_language::DocumentContext {
             path,

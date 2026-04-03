@@ -44,6 +44,7 @@ impl DiffViewer {
             review_overall_line_stats: LineStats::default(),
             review_compare_loading: false,
             review_compare_error: None,
+            review_workspace_session: None,
             overall_line_stats: LineStats::default(),
             last_git_workspace_fingerprint: None,
             recent_commits_loading: false,
@@ -157,6 +158,7 @@ impl DiffViewer {
             review_overall_line_stats: self.review_overall_line_stats,
             review_compare_loading: self.review_compare_loading,
             review_compare_error: self.review_compare_error.take(),
+            review_workspace_session: self.review_workspace_session.take(),
             overall_line_stats: self.overall_line_stats,
             last_git_workspace_fingerprint: self.last_git_workspace_fingerprint.take(),
             recent_commits_loading: self.recent_commits_loading,
@@ -245,6 +247,7 @@ impl DiffViewer {
         self.review_overall_line_stats = state.review_overall_line_stats;
         self.review_compare_loading = state.review_compare_loading;
         self.review_compare_error = state.review_compare_error;
+        self.review_workspace_session = state.review_workspace_session;
         self.overall_line_stats = state.overall_line_stats;
         self.last_git_workspace_fingerprint = state.last_git_workspace_fingerprint;
         self.recent_commits_loading = state.recent_commits_loading;

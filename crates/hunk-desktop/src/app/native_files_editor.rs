@@ -24,9 +24,12 @@ mod input_impl;
 mod language_impl;
 #[path = "native_files_editor_paint.rs"]
 mod paint;
+#[path = "native_files_editor_workspace.rs"]
+mod workspace_session;
 
 use language_impl::overlay_kind_for_diagnostic_severity;
 use paint::{EditorLayout, RowSyntaxSpan, build_row_syntax_spans_for_row};
+use workspace_session::WorkspaceEditorSession;
 
 pub(crate) fn scroll_direction_and_count(
     event: &ScrollWheelEvent,
@@ -65,7 +68,7 @@ pub(crate) struct FilesEditor {
     registry: LanguageRegistry,
     syntax: SyntaxSession,
     next_buffer_id: u64,
-    active_path: Option<PathBuf>,
+    workspace_session: WorkspaceEditorSession,
     view_state_by_path: BTreeMap<PathBuf, FilesEditorViewState>,
     language_label: String,
     pointer_selection: Option<PointerSelectionState>,
@@ -202,7 +205,7 @@ impl FilesEditor {
             registry: LanguageRegistry::builtin(),
             syntax: SyntaxSession::new(),
             next_buffer_id: 2,
-            active_path: None,
+            workspace_session: WorkspaceEditorSession::new(),
             view_state_by_path: BTreeMap::new(),
             language_label: "text".to_string(),
             pointer_selection: None,
@@ -220,6 +223,8 @@ impl FilesEditor {
     pub(crate) fn open_document(&mut self, path: &Path, contents: &str) -> Result<()> {
         self.capture_active_view_state();
         let buffer = TextBuffer::new(BufferId::new(self.next_buffer_id), contents);
+        let buffer_id = buffer.id();
+        let line_count = buffer.line_count();
         self.next_buffer_id = self.next_buffer_id.saturating_add(1);
         self.editor = EditorState::new(buffer);
         self.editor.apply(EditorCommand::SetViewport(Viewport {
@@ -227,7 +232,8 @@ impl FilesEditor {
             visible_row_count: 1,
             horizontal_offset: 0,
         }));
-        self.active_path = Some(path.to_path_buf());
+        self.workspace_session
+            .open_full_file_document(path, buffer_id, line_count)?;
         self.language_label = self
             .registry
             .language_for_path(path)
@@ -250,7 +256,7 @@ impl FilesEditor {
     }
 
     pub(crate) fn clear(&mut self) {
-        self.active_path = None;
+        self.workspace_session.clear();
         self.view_state_by_path.clear();
         self.editor = EditorState::new(TextBuffer::new(BufferId::new(self.next_buffer_id), ""));
         self.next_buffer_id = self.next_buffer_id.saturating_add(1);
@@ -274,12 +280,12 @@ impl FilesEditor {
     }
 
     pub(crate) fn current_text(&self) -> Option<String> {
-        self.active_path.as_ref()?;
+        self.active_path()?;
         Some(self.editor.buffer().text())
     }
 
     pub(crate) fn status_snapshot(&self) -> Option<FilesEditorStatusSnapshot> {
-        self.active_path.as_ref()?;
+        self.active_path()?;
         let status = self.editor.status_snapshot();
         let selection = self.editor.selection().range();
         Some(FilesEditorStatusSnapshot {
@@ -306,13 +312,13 @@ impl FilesEditor {
     }
 
     pub(crate) fn cut_selection_text(&mut self) -> Option<String> {
-        self.active_path.as_ref()?;
+        self.active_path()?;
         let output = self.apply_editor_command(EditorCommand::CutSelection);
         output.copied_text
     }
 
     pub(crate) fn paste_text(&mut self, text: &str) -> bool {
-        if text.is_empty() || self.active_path.is_none() {
+        if text.is_empty() || self.active_path().is_none() {
             return false;
         }
 
@@ -410,7 +416,7 @@ impl FilesEditor {
         let Some(query) = self.search_query.clone() else {
             return false;
         };
-        if self.active_path.is_none() {
+        if self.active_path().is_none() {
             return false;
         }
 
@@ -463,7 +469,7 @@ impl FilesEditor {
         let Some(query) = self.search_query.clone() else {
             return false;
         };
-        if self.active_path.is_none() {
+        if self.active_path().is_none() {
             return false;
         }
 
@@ -505,7 +511,7 @@ impl FilesEditor {
     }
 
     fn capture_active_view_state(&mut self) {
-        let Some(path) = self.active_path.clone() else {
+        let Some(path) = self.active_path_buf() else {
             return;
         };
         self.view_state_by_path.insert(
@@ -632,7 +638,7 @@ impl FilesEditor {
     }
 
     fn refresh_syntax_state(&mut self) -> Result<()> {
-        let Some(path) = self.active_path.clone() else {
+        let Some(path) = self.active_path_buf() else {
             self.fold_candidates.clear();
             self.clear_syntax_highlights();
             self.visible_highlight_cache = None;
@@ -653,6 +659,14 @@ impl FilesEditor {
         self.semantic_highlight_revision = self.semantic_highlight_revision.saturating_add(1);
         self.sync_overlays();
         Ok(())
+    }
+
+    fn active_path(&self) -> Option<&Path> {
+        self.workspace_session.active_path()
+    }
+
+    fn active_path_buf(&self) -> Option<PathBuf> {
+        self.workspace_session.active_path_buf()
     }
 
     fn refresh_visible_syntax_highlights(
@@ -956,6 +970,28 @@ impl FilesEditor {
         self.visible_highlight_cache
             .as_ref()
             .map(|cache| cache.byte_range.clone())
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn workspace_layout_for_test(&self) -> Option<&hunk_editor::WorkspaceLayout> {
+        self.workspace_session.layout()
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn active_workspace_document_id_for_test(
+        &self,
+    ) -> Option<hunk_editor::WorkspaceDocumentId> {
+        self.workspace_session.active_document_id()
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn active_workspace_excerpt_id_for_test(
+        &self,
+    ) -> Option<hunk_editor::WorkspaceExcerptId> {
+        self.workspace_session.active_excerpt_id()
     }
 }
 

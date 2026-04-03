@@ -53,14 +53,19 @@ impl DiffViewer {
         let (old_label, new_label) = self.diff_column_labels();
         let diff_list_state = self.diff_list_state.clone();
         let logical_top = diff_list_state.logical_scroll_top();
-        let visible_row = logical_top.item_ix;
+        let row_count = self.active_diff_row_count();
+        let visible_row = if row_count == 0 {
+            0
+        } else {
+            logical_top.item_ix.min(row_count.saturating_sub(1))
+        };
         let sticky_file_banner =
             self.render_visible_file_banner(visible_row, logical_top.offset_in_item, cx);
         let layout = self.diff_column_layout();
 
         let list = list(diff_list_state.clone(), {
             cx.processor(move |this, ix: usize, _window, cx| {
-                let Some(row) = this.diff_rows.get(ix) else {
+                let Some(row) = this.active_diff_row(ix) else {
                     return div().into_any_element();
                 };
                 let is_selected = this.is_row_selected(ix);
@@ -451,19 +456,32 @@ impl DiffViewer {
     }
 
     fn visible_file_header(&self, visible_row: usize) -> Option<(usize, String, FileStatus)> {
-        if self.diff_rows.is_empty() {
+        let row_count = self.active_diff_row_count();
+        if row_count == 0 {
             return None;
         }
 
-        let capped = visible_row.min(self.diff_rows.len().saturating_sub(1));
+        let capped = visible_row.min(row_count.saturating_sub(1));
 
-        if self.diff_row_metadata.len() == self.diff_rows.len() {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            let header_ix = session.visible_file_header_row(capped)?;
+            let path = session.path_at_surface_row(capped)?.to_string();
+            let status = session
+                .status_for_path(path.as_str())
+                .or_else(|| self.status_for_path(path.as_str()))
+                .unwrap_or(FileStatus::Unknown);
+            return Some((header_ix, path, status));
+        }
+
+        if self.diff_row_metadata.len() == row_count {
             let header_ix = self
                 .diff_visible_file_header_lookup
                 .get(capped)
                 .copied()
                 .flatten()?;
-            let meta = self.diff_row_metadata.get(header_ix)?;
+            let meta = self.active_diff_row_metadata(header_ix)?;
             if meta.kind == DiffStreamRowKind::EmptyState {
                 return None;
             }

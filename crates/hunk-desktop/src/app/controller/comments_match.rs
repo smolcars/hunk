@@ -273,6 +273,12 @@ impl DiffViewer {
     }
 
     fn row_file_path(&self, row_ix: usize) -> Option<String> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session.path_at_surface_row(row_ix).map(ToString::to_string);
+        }
+
         if self.diff_row_metadata.len() == self.diff_rows.len() {
             return self
                 .diff_row_metadata
@@ -283,6 +289,14 @@ impl DiffViewer {
     }
 
     fn row_hunk_header(&self, row_ix: usize) -> Option<String> {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff
+            && let Some(session) = self.review_workspace_session.as_ref()
+        {
+            return session
+                .hunk_header_at_surface_row(row_ix)
+                .map(ToString::to_string);
+        }
+
         let hunk_ix = self
             .diff_visible_hunk_header_lookup
             .get(row_ix)

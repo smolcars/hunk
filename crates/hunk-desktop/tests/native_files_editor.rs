@@ -3,7 +3,7 @@
 mod native_files_editor;
 
 use gpui::Keystroke;
-use hunk_editor::Viewport;
+use hunk_editor::{Viewport, WorkspaceRowKind};
 use hunk_language::{CompletionTriggerKind, Diagnostic, DiagnosticSeverity};
 use hunk_text::{Selection, TextPosition, TextRange};
 use native_files_editor::FilesEditor;
@@ -251,6 +251,32 @@ fn reopening_same_file_restores_selection_and_viewport() {
         Selection::new(TextPosition::new(4, 1), TextPosition::new(4, 3))
     );
     assert_eq!(editor.viewport_for_test().first_visible_row, 3);
+}
+
+#[test]
+fn opening_a_file_builds_a_full_file_workspace_layout() {
+    let mut editor = FilesEditor::new();
+    let path = PathBuf::from("example.rs");
+    editor
+        .open_document(path.as_path(), "one\ntwo\nthree\n")
+        .expect("document should open");
+
+    let layout = editor
+        .workspace_layout_for_test()
+        .expect("workspace layout should exist");
+    assert_eq!(layout.documents().len(), 1);
+    assert_eq!(layout.excerpts().len(), 1);
+    assert_eq!(layout.total_rows(), 4);
+    assert!(editor.active_workspace_document_id_for_test().is_some());
+    assert!(editor.active_workspace_excerpt_id_for_test().is_some());
+
+    let first_row = layout.locate_row(0).expect("first row should resolve");
+    assert_eq!(first_row.row_kind, WorkspaceRowKind::Content);
+    assert_eq!(first_row.document_line, Some(0));
+
+    let last_row = layout.locate_row(3).expect("last row should resolve");
+    assert_eq!(last_row.row_kind, WorkspaceRowKind::Content);
+    assert_eq!(last_row.document_line, Some(3));
 }
 
 #[test]

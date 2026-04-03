@@ -104,7 +104,7 @@ This is the minimum foundation Hunk needs before it can host one editor surface 
 
 ### Phase 2: Introduce A Shared Workspace Editor Surface
 
-Status: Not started
+Status: Done
 
 Targets:
 
@@ -114,10 +114,10 @@ Targets:
 
 Tasks:
 
-- [ ] Add a workspace-aware editor session type above the current single-buffer editor state.
-- [ ] Teach the editor surface to render one full-file excerpt for Files mode.
-- [ ] Keep existing Files behavior intact while routing through the new workspace model.
-- [ ] Preserve keyboard navigation, clipboard, search, folds, and syntax behavior.
+- [x] Add a workspace-aware editor session type above the current single-buffer editor state.
+- [x] Teach the editor surface to render one full-file excerpt for Files mode.
+- [x] Keep existing Files behavior intact while routing through the new workspace model.
+- [x] Preserve keyboard navigation, clipboard, search, folds, and syntax behavior.
 
 Zed analogue:
 
@@ -125,7 +125,7 @@ Zed analogue:
 
 ### Phase 3: Build A Read-Only Multi-File Diff Surface On The Same Editor Path
 
-Status: Not started
+Status: In progress
 
 Targets:
 
@@ -135,10 +135,16 @@ Targets:
 
 Tasks:
 
-- [ ] Build one workspace editor model for the entire compared file set.
-- [ ] Represent each compared file as one or more excerpts with context lines.
+- [x] Build one workspace editor model for the entire compared file set.
+- [x] Represent each compared file as one or more excerpts with context lines.
 - [ ] Replace list-row-driven diff scrolling with one editor-backed scroll surface.
 - [ ] Keep file headers and section metadata as lightweight decorations on top of the shared surface.
+
+Current state:
+- Review compare loading now rebuilds a shared workspace session with file ranges and hunk ranges.
+- Sticky file headers, hunk navigation, and comment hunk lookup in Review now read from that shared session.
+- Review rendering now also reads row content, row metadata, and syntax segment caches from the shared session.
+- The remaining gap is the surface itself: Review still scrolls as a list over flattened rows instead of one editor-backed multi-file surface.
 
 Zed analogue:
 

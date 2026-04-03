@@ -14,14 +14,14 @@ use super::{
 
 impl FilesEditor {
     pub(crate) fn apply_motion_action(&mut self, apply: impl FnOnce(&mut Self) -> bool) -> bool {
-        if self.active_path.is_none() {
+        if self.active_path().is_none() {
             return false;
         }
         apply(self)
     }
 
     pub(crate) fn handle_keystroke(&mut self, keystroke: &Keystroke) -> bool {
-        if self.active_path.is_none() {
+        if self.active_path().is_none() {
             return false;
         }
 
@@ -441,10 +441,10 @@ impl FilesEditor {
                 .apply(EditorCommand::SetSelection(Selection::caret(target)));
         }
         Some(FilesEditorSecondaryClickTarget {
-            can_cut: self.active_path.is_some() && self.has_selection(),
+            can_cut: self.active_path().is_some() && self.has_selection(),
             can_copy: self.has_selection(),
-            can_paste: self.active_path.is_some(),
-            can_select_all: self.active_path.is_some(),
+            can_paste: self.active_path().is_some(),
+            can_select_all: self.active_path().is_some(),
         })
     }
 

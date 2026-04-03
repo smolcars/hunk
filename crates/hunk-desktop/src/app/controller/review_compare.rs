@@ -588,6 +588,7 @@ impl DiffViewer {
         self.cancel_patch_reload();
         self.review_compare_loading = false;
         self.review_compare_error = None;
+        self.review_workspace_session = None;
         self.review_files.clear();
         self.review_file_status_by_path.clear();
         self.review_file_line_stats.clear();
@@ -691,6 +692,27 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         self.review_compare_error = None;
+        self.review_workspace_session =
+            match crate::app::review_workspace_session::ReviewWorkspaceSession::from_compare_snapshot(
+                &snapshot,
+                &self.collapsed_files,
+            ) {
+                Ok(session) => {
+                    let session = session.with_render_stream(&stream);
+                    debug!(
+                        workspace_documents = session.layout().documents().len(),
+                        workspace_excerpts = session.layout().excerpts().len(),
+                        workspace_rows = session.layout().total_rows(),
+                        render_rows = session.row_count(),
+                        "review workspace session rebuilt"
+                    );
+                    Some(session)
+                }
+                Err(err) => {
+                    error!("failed to build review workspace session: {err}");
+                    None
+                }
+            };
         self.review_files = snapshot.files;
         self.review_file_status_by_path = self
             .review_files
@@ -703,13 +725,46 @@ impl DiffViewer {
             .retain(|path| self.review_files.iter().any(|file| file.path == *path));
 
         let _ = self.apply_loaded_diff_surface_stream(stream);
+        if let Some(session) = self.review_workspace_session.as_ref() {
+            let session_file_ranges = session
+                .file_ranges()
+                .iter()
+                .map(|range| FileRowRange {
+                    path: range.path.clone(),
+                    status: range.status,
+                    start_row: range.start_row,
+                    end_row: range.end_row,
+                })
+                .collect::<Vec<_>>();
+            if session_file_ranges
+                .last()
+                .map(|range| range.end_row)
+                .unwrap_or(0)
+                == self.diff_rows.len()
+            {
+                self.file_row_ranges = session_file_ranges;
+            } else {
+                error!(
+                    workspace_rows = session_file_ranges
+                        .last()
+                        .map(|range| range.end_row)
+                        .unwrap_or(0),
+                    diff_rows = self.diff_rows.len(),
+                    "review workspace session surface rows diverged from diff rows"
+                );
+            }
+        }
 
         let has_selection = self
             .selected_path
             .as_ref()
             .is_some_and(|path| self.active_diff_contains_path(path.as_str()));
         if !has_selection {
-            self.selected_path = self.active_diff_first_path();
+            self.selected_path = self
+                .review_workspace_session
+                .as_ref()
+                .and_then(|session| session.first_path().map(ToString::to_string))
+                .or_else(|| self.active_diff_first_path());
         }
         self.selected_status = self
             .selected_path

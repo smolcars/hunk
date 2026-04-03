@@ -14,7 +14,7 @@ impl DiffViewer {
         is_selected: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if let Some(meta) = self.diff_row_metadata.get(ix)
+        if let Some(meta) = self.active_diff_row_metadata(ix)
             && meta.kind == DiffStreamRowKind::FileHeader
             && let (Some(path), Some(status)) = (meta.file_path.as_deref(), meta.file_status)
         {
@@ -337,10 +337,7 @@ impl DiffViewer {
         }
 
         let line_number = cell.line.map(|line| line.to_string()).unwrap_or_default();
-        let cached_row_segments = self
-            .diff_row_segment_cache
-            .get(spec.row_ix)
-            .and_then(Option::as_ref);
+        let cached_row_segments = self.active_diff_row_segment_cache(spec.row_ix);
         let segment_cache = if side == "left" {
             cached_row_segments.map(|segments| &segments.left)
         } else {
@@ -457,8 +454,7 @@ impl DiffViewer {
     }
 
     fn diff_row_stable_id(&self, row_ix: usize) -> u64 {
-        self.diff_row_metadata
-            .get(row_ix)
+        self.active_diff_row_metadata(row_ix)
             .map(|row| row.stable_id)
             .unwrap_or(row_ix as u64)
     }
