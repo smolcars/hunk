@@ -162,6 +162,7 @@ Current state:
 - Visible Review viewport rows now also carry stable ids, row kinds, stream/file metadata, and per-cell identity directly in the shared snapshot, so the painted section and sparse overlays no longer reach back through `active_diff_row*` helpers while building visible rows.
 - Visible Review section rendering now also follows that shared geometry: the workspace surface only builds viewport-intersecting rows within each visible excerpt section, with session-owned spacer offsets keeping the overall surface stable instead of rendering whole hunks at once.
 - The visible Review workspace surface now paints through one viewport-level painted element over the session snapshot, with sparse overlays positioned by shared surface coordinates instead of one wrapper subtree per visible section.
+- Once a Review workspace session loads, Diff mode no longer falls back to the legacy row-list scroller for multi-file rendering; the shared workspace surface is now the only multi-file Review surface, with a simple status surface reserved for loading/error states.
 - Review comment editing no longer forces Diff back onto the legacy flat list; the composer is now rendered as an overlay anchored from shared Review surface geometry, so the workspace surface stays active while editing comments.
 - Sticky file headers, hunk navigation, and comment hunk lookup in Review now read from that shared session.
 - Review rendering now also reads row content, row metadata, and syntax segment caches from the shared session.

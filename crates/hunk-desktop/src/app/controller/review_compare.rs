@@ -948,26 +948,32 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         self.review_compare_error = None;
-        self.review_workspace_session = match crate::app::review_workspace_session::ReviewWorkspaceSession::from_compare_snapshot(
-            &snapshot,
-            &self.collapsed_files,
-        ) {
-            Ok(session) => {
-                let session = session.with_render_stream(&stream);
-                debug!(
-                    workspace_documents = session.layout().documents().len(),
-                    workspace_excerpts = session.layout().excerpts().len(),
-                    workspace_rows = session.layout().total_rows(),
-                    render_rows = session.row_count(),
-                    "review workspace session rebuilt"
-                );
-                Some(session)
-            }
-            Err(err) => {
-                error!("failed to build review workspace session: {err}");
-                None
-            }
-        };
+        self.review_workspace_session =
+            match crate::app::review_workspace_session::ReviewWorkspaceSession::from_compare_snapshot(
+                &snapshot,
+                &self.collapsed_files,
+            ) {
+                Ok(session) => {
+                    let session = session.with_render_stream(&stream);
+                    debug!(
+                        workspace_documents = session.layout().documents().len(),
+                        workspace_excerpts = session.layout().excerpts().len(),
+                        workspace_rows = session.layout().total_rows(),
+                        render_rows = session.row_count(),
+                        "review workspace session rebuilt"
+                    );
+                    Some(session)
+                }
+                Err(err) => {
+                    error!("failed to build review workspace session: {err}");
+                    self.clear_review_compare_loaded_state(
+                        "Failed to build comparison surface.",
+                        cx,
+                    );
+                    self.review_compare_error = Some(err.to_string());
+                    return;
+                }
+            };
         self.review_files = snapshot.files;
         self.review_file_status_by_path = self
             .review_files
@@ -983,11 +989,7 @@ impl DiffViewer {
         self.collapsed_files
             .retain(|path| self.review_files.iter().any(|file| file.path == *path));
 
-        if self.review_workspace_session.is_some() {
-            self.apply_loaded_review_workspace_surface();
-        } else {
-            let _ = self.apply_loaded_diff_surface_stream(stream);
-        }
+        self.apply_loaded_review_workspace_surface();
 
         if let Some(session) = self.review_workspace_session.as_ref() {
             let workspace_row_count = session.file_ranges().last().map(|range| range.end_row).unwrap_or(0);

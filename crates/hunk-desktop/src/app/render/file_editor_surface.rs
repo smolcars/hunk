@@ -1,4 +1,4 @@
-use gpui::{Keystroke, Pixels, TextStyle, relative};
+use gpui::{Keystroke, TextStyle, relative};
 
 use crate::app::theme::{hunk_editor_chrome_colors, hunk_opacity};
 

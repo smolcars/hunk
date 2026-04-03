@@ -496,14 +496,6 @@ impl DiffViewer {
             .into_any_element()
     }
 
-    fn render_row_comment_editor(&self, row_ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        if self.active_comment_editor_row != Some(row_ix) {
-            return div().into_any_element();
-        }
-
-        self.render_row_comment_editor_card(row_ix, cx)
-    }
-
     fn render_active_row_comment_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.uses_review_workspace_sections_surface() {
             return None;

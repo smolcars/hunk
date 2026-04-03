@@ -1,10 +1,11 @@
-use super::data::{
-    DiffStreamRowKind, RepoTreeNodeKind, cached_runtime_fallback_segments, is_markdown_path,
-};
+use super::data::{DiffStreamRowKind, RepoTreeNodeKind, is_markdown_path};
 use super::theme::*;
 use super::*;
 use crate::app::markdown_links::{MarkdownLinkRange, markdown_inline_text_and_link_ranges};
-use gpui::{Hsla, fill, size};
+use gpui::{
+    AnyElement, Bounds, ContentMask, Element, ElementId, GlobalElementId, Hsla, InspectorElementId,
+    IntoElement, LayoutId, Pixels, Point, fill, size,
+};
 use gpui_component::Disableable as _;
 use gpui_component::Sizable as _;
 use gpui_component::animation::cubic_bezier;
@@ -47,7 +48,6 @@ include!("file_status.rs");
 include!("comments.rs");
 include!("syntax_colors.rs");
 include!("diff.rs");
-include!("diff_rows.rs");
 include!("review_workspace_code_row.rs");
 include!("review_workspace_section.rs");
 include!("review_workspace_surface.rs");

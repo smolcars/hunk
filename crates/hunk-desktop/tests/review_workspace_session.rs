@@ -609,8 +609,14 @@ fn review_workspace_session_builds_viewport_snapshot_from_shared_geometry() {
     let session_row_meta = session
         .row_metadata(code_row.row_index)
         .expect("session row metadata should exist for viewport code row");
-    assert_eq!(code_row.left_display_row.text, session_row.left.text);
-    assert_eq!(code_row.right_display_row.text, session_row.right.text);
+    assert_eq!(
+        code_row.left_segments[0].plain_text.as_ref(),
+        session_row.left.text
+    );
+    assert_eq!(
+        code_row.right_segments[0].plain_text.as_ref(),
+        session_row.right.text
+    );
     assert_eq!(code_row.stable_id, session_row_meta.stable_id);
     assert_eq!(code_row.row_kind, session_row.kind);
     assert_eq!(code_row.stream_kind, session_row_meta.kind);

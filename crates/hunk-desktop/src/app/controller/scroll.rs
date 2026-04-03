@@ -29,15 +29,16 @@ impl DiffViewer {
             return;
         };
 
-        if self.uses_review_workspace_sections_surface()
-            && let Some(session) = self.review_workspace_session.as_ref()
-            && let Some(top_offset_px) = session
-                .file_range_for_path(path)
-                .and_then(|range| session.row_top_offset_px(range.start_row))
-        {
-            self.review_surface
-                .diff_scroll_handle
-                .set_offset(point(px(0.), -px(top_offset_px as f32)));
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            if let Some(session) = self.review_workspace_session.as_ref()
+                && let Some(top_offset_px) = session
+                    .file_range_for_path(path)
+                    .and_then(|range| session.row_top_offset_px(range.start_row))
+            {
+                self.review_surface
+                    .diff_scroll_handle
+                    .set_offset(point(px(0.), -px(top_offset_px as f32)));
+            }
         } else {
             self.review_surface.diff_list_state.scroll_to(ListOffset {
                 item_ix: start_row,
@@ -445,7 +446,6 @@ impl DiffViewer {
         self.clamp_comment_rows_to_diff();
         self.clamp_selection_to_rows();
         self.drag_selecting_rows = false;
-        self.sync_diff_list_state();
         self.recompute_diff_layout();
         self.review_surface.clear_workspace_surface_snapshot();
         self.review_surface.last_prefetched_visible_row_range = None;

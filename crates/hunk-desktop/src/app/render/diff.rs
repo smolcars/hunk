@@ -67,7 +67,7 @@ impl DiffViewer {
         let scroller = if self.uses_review_workspace_sections_surface() {
             self.render_review_workspace_sections_scroller(cx)
         } else {
-            self.render_review_workspace_list_scroller(cx)
+            self.render_review_workspace_status_surface(cx)
         };
 
         let scrollbar_size = px(DIFF_SCROLLBAR_SIZE);
@@ -142,28 +142,27 @@ impl DiffViewer {
                                                     this.child(overlay)
                                                 },
                                             )
-                                            .child(
-                                                div()
-                                                    .absolute()
-                                                    .top_0()
-                                                    .right(right_inset)
-                                                    .bottom(vertical_bar_bottom)
-                                                    .w(scrollbar_size)
-                                                    .child(if self
-                                                        .uses_review_workspace_sections_surface()
-                                                    {
-                                                        Scrollbar::vertical(
-                                                            &self.review_surface.diff_scroll_handle,
-                                                        )
-                                                        .scrollbar_show(ScrollbarShow::Always)
-                                                        .into_any_element()
-                                                    } else {
-                                                        Scrollbar::vertical(
-                                                            &self.review_surface.diff_list_state,
-                                                        )
-                                                        .scrollbar_show(ScrollbarShow::Always)
-                                                        .into_any_element()
-                                                    }),
+                                            .when(
+                                                self.uses_review_workspace_sections_surface(),
+                                                |this| {
+                                                    this.child(
+                                                        div()
+                                                            .absolute()
+                                                            .top_0()
+                                                            .right(right_inset)
+                                                            .bottom(vertical_bar_bottom)
+                                                            .w(scrollbar_size)
+                                                            .child(
+                                                                Scrollbar::vertical(
+                                                                    &self.review_surface
+                                                                        .diff_scroll_handle,
+                                                                )
+                                                                .scrollbar_show(
+                                                                    ScrollbarShow::Always,
+                                                                ),
+                                                            ),
+                                                    )
+                                                },
                                             ),
                                     ),
                             )
@@ -175,31 +174,29 @@ impl DiffViewer {
             .into_any_element()
     }
 
-    fn render_review_workspace_list_scroller(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let diff_list_state = self.review_surface.diff_list_state.clone();
-        list(diff_list_state, {
-            cx.processor(move |this, ix: usize, _window, cx| {
-                let Some(row) = this.active_diff_row(ix) else {
-                    return div().into_any_element();
-                };
-                let is_selected = this.is_row_selected(ix);
+    fn render_review_workspace_status_surface(&self, cx: &mut Context<Self>) -> AnyElement {
+        let message = self
+            .active_diff_row(0)
+            .map(|row| row.text.clone())
+            .filter(|message| !message.is_empty())
+            .unwrap_or_else(|| "Loading comparison...".to_string());
 
-                match row.kind {
-                    DiffRowKind::Code => this.render_code_row(ix, row, is_selected, None, cx),
-                    DiffRowKind::HunkHeader | DiffRowKind::Meta | DiffRowKind::Empty => {
-                        this.render_meta_row(ix, row, is_selected, None, cx)
-                    }
-                }
-            })
-        })
-        .flex_grow()
-        .size_full()
-        .map(|mut this| {
-            this.style().restrict_scroll_to_axis = Some(true);
-            this
-        })
-        .with_sizing_behavior(ListSizingBehavior::Auto)
-        .into_any_element()
+        div()
+            .size_full()
+            .child(
+                v_flex()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .px_4()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(message),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn render_review_workspace_sections_scroller(

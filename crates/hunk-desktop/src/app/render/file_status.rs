@@ -1,4 +1,10 @@
 impl DiffViewer {
+    fn diff_row_stable_id(&self, row_ix: usize) -> u64 {
+        self.active_diff_row_metadata(row_ix)
+            .map(|row| row.stable_id)
+            .unwrap_or(row_ix as u64)
+    }
+
     fn render_sticky_file_status_banner_row(
         &self,
         row_ix: usize,

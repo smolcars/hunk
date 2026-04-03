@@ -166,13 +166,14 @@ impl DiffViewer {
         }
         self.select_row(row_ix, extend_selection, cx);
         let target_row = row_ix.min(row_count.saturating_sub(1));
-        if self.uses_review_workspace_sections_surface()
-            && let Some(session) = self.review_workspace_session.as_ref()
-            && let Some(top_offset_px) = session.row_top_offset_px(target_row)
-        {
-            self.review_surface
-                .diff_scroll_handle
-                .set_offset(point(px(0.), -px(top_offset_px as f32)));
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
+            if let Some(session) = self.review_workspace_session.as_ref()
+                && let Some(top_offset_px) = session.row_top_offset_px(target_row)
+            {
+                self.review_surface
+                    .diff_scroll_handle
+                    .set_offset(point(px(0.), -px(top_offset_px as f32)));
+            }
         } else {
             self.review_surface.diff_list_state.scroll_to(ListOffset {
                 item_ix: target_row,

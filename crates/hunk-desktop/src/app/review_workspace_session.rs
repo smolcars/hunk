@@ -108,9 +108,7 @@ pub(crate) struct ReviewWorkspaceViewportRow {
     pub(crate) right_line: Option<u32>,
     pub(crate) surface_top_px: usize,
     pub(crate) height_px: usize,
-    pub(crate) left_display_row: WorkspaceDisplayRow,
     pub(crate) left_segments: Vec<CachedStyledSegment>,
-    pub(crate) right_display_row: WorkspaceDisplayRow,
     pub(crate) right_segments: Vec<CachedStyledSegment>,
 }
 
@@ -555,12 +553,10 @@ impl ReviewWorkspaceSession {
                             row_segment_cache.map(|cache| &cache.left),
                             left_display_row.text.as_str(),
                         ),
-                        left_display_row,
                         right_segments: review_viewport_render_segments(
                             row_segment_cache.map(|cache| &cache.right),
                             right_display_row.text.as_str(),
                         ),
-                        right_display_row,
                     })
                 })
                 .collect();

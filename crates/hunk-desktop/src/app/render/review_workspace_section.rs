@@ -250,11 +250,9 @@ impl DiffViewer {
                                 stable_row_id,
                                 is_selected,
                                 DiffCellRenderSpec {
-                                    row_ix,
                                     side: "left",
                                     line: viewport_row.left_line,
                                     cell_kind: viewport_row.left_cell_kind,
-                                    text: viewport_row.left_display_row.text.as_str(),
                                     peer_kind: viewport_row.right_cell_kind,
                                     panel_width: layout.map(|layout| layout.left_panel_width),
                                 },
@@ -265,11 +263,9 @@ impl DiffViewer {
                                 stable_row_id,
                                 is_selected,
                                 DiffCellRenderSpec {
-                                    row_ix,
                                     side: "right",
                                     line: viewport_row.right_line,
                                     cell_kind: viewport_row.right_cell_kind,
-                                    text: viewport_row.right_display_row.text.as_str(),
                                     peer_kind: viewport_row.left_cell_kind,
                                     panel_width: layout.map(|layout| layout.right_panel_width),
                                 },

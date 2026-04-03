@@ -57,7 +57,7 @@ impl DiffViewer {
     pub(super) fn current_review_surface_snapshot(
         &self,
     ) -> Option<&review_workspace_session::ReviewWorkspaceSurfaceSnapshot> {
-        if self.uses_review_workspace_sections_surface() {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
             return self.review_surface.last_surface_snapshot.as_ref();
         }
 
@@ -67,7 +67,7 @@ impl DiffViewer {
     pub(super) fn current_review_visible_state(
         &self,
     ) -> Option<review_workspace_session::ReviewWorkspaceVisibleState> {
-        if self.uses_review_workspace_sections_surface() {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
             if let Some(visible_state) = self
                 .current_review_surface_snapshot()
                 .map(|snapshot| snapshot.visible_state.clone())
@@ -108,7 +108,7 @@ impl DiffViewer {
             return None;
         }
 
-        if self.uses_review_workspace_sections_surface() {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
             return self.current_review_visible_state().and_then(|state| state.top_row);
         }
 
@@ -127,7 +127,7 @@ impl DiffViewer {
             return None;
         }
 
-        if self.uses_review_workspace_sections_surface() {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
             return self
                 .current_review_visible_state()
                 .and_then(|state| state.visible_row_range);
@@ -138,7 +138,7 @@ impl DiffViewer {
     }
 
     pub(super) fn current_review_surface_scroll_offset(&self) -> Point<Pixels> {
-        if self.uses_review_workspace_sections_surface() {
+        if self.workspace_view_mode == WorkspaceViewMode::Diff {
             self.review_surface.diff_scroll_handle.offset()
         } else {
             self.review_surface
