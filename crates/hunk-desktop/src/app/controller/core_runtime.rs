@@ -1,4 +1,24 @@
 impl DiffViewer {
+    pub(super) fn current_review_visible_state(
+        &self,
+    ) -> Option<review_workspace_session::ReviewWorkspaceVisibleState> {
+        if self.uses_review_workspace_sections_surface() {
+            if let Some(visible_state) = self.review_surface.last_visible_state.clone() {
+                return Some(visible_state);
+            }
+
+            if let Some(session) = self.review_workspace_session.as_ref() {
+                let viewport_height = self.review_surface.diff_scroll_handle.bounds().size.height;
+                return Some(session.build_visible_state(
+                    self.current_review_surface_scroll_top_px(),
+                    viewport_height.max(Pixels::ZERO).as_f32().round() as usize,
+                ));
+            }
+        }
+
+        None
+    }
+
     pub(super) fn current_review_surface_scroll_top_px(&self) -> usize {
         self.review_surface
             .diff_scroll_handle
@@ -20,16 +40,8 @@ impl DiffViewer {
             return None;
         }
 
-        if self.uses_review_workspace_sections_surface()
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            let viewport_height = self.review_surface.diff_scroll_handle.bounds().size.height;
-            return session
-                .visible_row_range_for_viewport(
-                    self.current_review_surface_scroll_top_px(),
-                    viewport_height.max(Pixels::ZERO).as_f32().round() as usize,
-                )
-                .map(|range| range.start);
+        if self.uses_review_workspace_sections_surface() {
+            return self.current_review_visible_state().and_then(|state| state.top_row);
         }
 
         Some(
@@ -47,14 +59,10 @@ impl DiffViewer {
             return None;
         }
 
-        if self.uses_review_workspace_sections_surface()
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            let viewport_height = self.review_surface.diff_scroll_handle.bounds().size.height;
-            return session.visible_row_range_for_viewport(
-                self.current_review_surface_scroll_top_px(),
-                viewport_height.max(Pixels::ZERO).as_f32().round() as usize,
-            );
+        if self.uses_review_workspace_sections_surface() {
+            return self
+                .current_review_visible_state()
+                .and_then(|state| state.visible_row_range);
         }
 
         let top = self.current_review_surface_top_row()?;

@@ -591,6 +591,19 @@ impl DiffViewer {
         if self.workspace_view_mode == WorkspaceViewMode::Diff
             && let Some(session) = self.review_workspace_session.as_ref()
         {
+            if let Some(visible_state) = self.current_review_visible_state()
+                && visible_state.top_row == Some(capped)
+            {
+                let header_ix = visible_state.visible_file_header_row?;
+                let path = visible_state.visible_file_path?;
+                let status = visible_state
+                    .visible_file_status
+                    .or_else(|| session.status_for_path(path.as_str()))
+                    .or_else(|| self.status_for_path(path.as_str()))
+                    .unwrap_or(FileStatus::Unknown);
+                return Some((header_ix, path, status));
+            }
+
             let header_ix = session.visible_file_header_row(capped)?;
             let path = session.path_at_surface_row(capped)?.to_string();
             let status = session
