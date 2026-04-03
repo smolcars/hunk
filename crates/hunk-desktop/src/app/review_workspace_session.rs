@@ -85,9 +85,6 @@ pub(crate) struct ReviewWorkspaceViewportSection {
 #[derive(Debug, Clone)]
 pub(crate) struct ReviewWorkspaceViewportRow {
     pub(crate) row_index: usize,
-    pub(crate) row: SideBySideRow,
-    pub(crate) metadata: Option<DiffStreamRowMeta>,
-    pub(crate) segment_cache: Option<DiffRowSegmentCache>,
     pub(crate) left_display_row: WorkspaceDisplayRow,
     pub(crate) right_display_row: WorkspaceDisplayRow,
 }
@@ -407,11 +404,8 @@ impl ReviewWorkspaceSession {
                 .zip(left_display_rows.into_iter())
                 .zip(right_display_rows.into_iter())
                 .filter_map(|((row_index, left_display_row), right_display_row)| {
-                    Some(ReviewWorkspaceViewportRow {
+                    self.row(row_index).map(|_| ReviewWorkspaceViewportRow {
                         row_index,
-                        row: self.row(row_index)?.clone(),
-                        metadata: self.row_metadata(row_index).cloned(),
-                        segment_cache: self.row_segment_cache(row_index).cloned(),
                         left_display_row,
                         right_display_row,
                     })

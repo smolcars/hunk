@@ -266,18 +266,18 @@ impl DiffViewer {
             viewport_section.visible_row_range.len(),
             "review viewport rows should match the visible row range"
         );
-        let rows = viewport_section.rows.iter().map(|viewport_row| {
+        let rows = viewport_section.rows.iter().filter_map(|viewport_row| {
             let row_ix = viewport_row.row_index;
-            let row = &viewport_row.row;
+            let row = self.active_diff_row(row_ix)?;
             let is_selected = self.is_row_selected(row_ix);
-            match row.kind {
+            Some(match row.kind {
                 DiffRowKind::Code => {
                     self.render_code_row(row_ix, row, is_selected, Some(viewport_row), cx)
                 }
                 DiffRowKind::HunkHeader | DiffRowKind::Meta | DiffRowKind::Empty => {
                     self.render_meta_row(row_ix, row, is_selected, Some(viewport_row), cx)
                 }
-            }
+            })
         });
 
         v_flex()

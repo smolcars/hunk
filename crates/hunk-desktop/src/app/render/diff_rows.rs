@@ -15,9 +15,8 @@ impl DiffViewer {
         viewport_row: Option<&review_workspace_session::ReviewWorkspaceViewportRow>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let row_metadata = viewport_row
-            .and_then(|row| row.metadata.as_ref())
-            .or_else(|| self.active_diff_row_metadata(ix));
+        let _ = viewport_row;
+        let row_metadata = self.active_diff_row_metadata(ix);
 
         if let Some(meta) = row_metadata
             && meta.kind == DiffStreamRowKind::FileHeader
@@ -360,9 +359,7 @@ impl DiffViewer {
         let cell_text = display_row
             .map(|row| row.text.as_str())
             .unwrap_or(cell.text.as_str());
-        let cached_row_segments = viewport_row
-            .and_then(|row| row.segment_cache.as_ref())
-            .or_else(|| self.active_diff_row_segment_cache(spec.row_ix));
+        let cached_row_segments = self.active_diff_row_segment_cache(spec.row_ix);
         let segment_cache = if side == "left" {
             cached_row_segments.map(|segments| &segments.left)
         } else {

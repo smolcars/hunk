@@ -535,21 +535,10 @@ fn review_workspace_session_builds_viewport_snapshot_from_shared_geometry() {
             .collect::<Vec<_>>(),
         expected_first_visible_rows,
     );
-    assert_eq!(
-        viewport.sections[0].rows[0].row.kind,
+    assert!(
         session
             .row(viewport.sections[0].rows[0].row_index)
-            .expect("row should exist")
-            .kind,
-    );
-    assert_eq!(
-        viewport.sections[0].rows[0]
-            .metadata
-            .as_ref()
-            .map(|meta| meta.stable_id),
-        session
-            .row_metadata(viewport.sections[0].rows[0].row_index)
-            .map(|meta| meta.stable_id),
+            .is_some()
     );
     assert_eq!(
         session.viewport_row_indices(0, REVIEW_SURFACE_COMPACT_ROW_HEIGHT_PX * 2, 1, 1),
@@ -563,7 +552,11 @@ fn review_workspace_session_builds_viewport_snapshot_from_shared_geometry() {
         .sections
         .iter()
         .flat_map(|section| section.rows.iter())
-        .find(|row| row.row.kind == DiffRowKind::Code)
+        .find(|row| {
+            session
+                .row(row.row_index)
+                .is_some_and(|session_row| session_row.kind == DiffRowKind::Code)
+        })
         .expect("viewport should include at least one code row");
     let session_row = session
         .row(code_row.row_index)
