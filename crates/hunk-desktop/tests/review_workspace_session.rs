@@ -478,6 +478,56 @@ fn review_workspace_session_limits_section_rows_to_viewport_slice() {
 }
 
 #[test]
+fn review_workspace_session_builds_viewport_snapshot_from_shared_geometry() {
+    let patch = "\
+@@ -1,2 +1,3 @@
+ before
+-old
++new
+ keep
+@@ -8,0 +10,2 @@
++tail
++more
+";
+    let snapshot = CompareSnapshot {
+        files: vec![changed_file("src/main.rs", FileStatus::Modified)],
+        file_line_stats: BTreeMap::new(),
+        overall_line_stats: LineStats::default(),
+        patches_by_path: BTreeMap::from([("src/main.rs".to_string(), patch.to_string())]),
+    };
+    let rows = parse_patch_side_by_side(patch);
+    let stream = review_stream_for_rows(&rows, "src/main.rs", FileStatus::Modified);
+    let session = ReviewWorkspaceSession::from_compare_snapshot(&snapshot, &BTreeSet::new())
+        .expect("workspace session should build")
+        .with_render_stream(&stream);
+
+    let viewport =
+        session.build_viewport_snapshot(0, REVIEW_SURFACE_COMPACT_ROW_HEIGHT_PX * 2, 1, 1);
+
+    assert_eq!(
+        viewport.total_surface_height_px,
+        session.total_surface_height_px()
+    );
+    assert_eq!(viewport.sections.len(), 2);
+    assert_eq!(viewport.sections[0].section_index, 0);
+    assert_eq!(viewport.sections[0].pixel_range.start, 0);
+    assert_eq!(
+        viewport.sections[0].visible_row_range,
+        session
+            .section_visible_row_range(0, 0, REVIEW_SURFACE_COMPACT_ROW_HEIGHT_PX * 2, 1)
+            .expect("first section visible rows"),
+    );
+    assert_eq!(
+        viewport.sections[0].top_spacer_height_px,
+        session
+            .row_boundary_offset_px(viewport.sections[0].visible_row_range.start)
+            .unwrap_or(viewport.sections[0].pixel_range.start)
+            .saturating_sub(viewport.sections[0].pixel_range.start),
+    );
+    assert!(viewport.sections[0].bottom_spacer_height_px > 0);
+}
+
+#[test]
 fn review_workspace_session_can_attach_render_rows() {
     let patch = "\
 @@ -1,2 +1,2 @@

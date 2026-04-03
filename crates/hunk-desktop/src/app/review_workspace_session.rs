@@ -71,6 +71,21 @@ pub(crate) struct ReviewWorkspaceSection {
     pub(crate) hunk_header: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewWorkspaceViewportSection {
+    pub(crate) section_index: usize,
+    pub(crate) pixel_range: Range<usize>,
+    pub(crate) visible_row_range: Range<usize>,
+    pub(crate) top_spacer_height_px: usize,
+    pub(crate) bottom_spacer_height_px: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewWorkspaceViewportSnapshot {
+    pub(crate) total_surface_height_px: usize,
+    pub(crate) sections: Vec<ReviewWorkspaceViewportSection>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ReviewWorkspaceSession {
     layout: WorkspaceLayout,
@@ -315,6 +330,56 @@ impl ReviewWorkspaceSession {
 
     pub(crate) fn total_surface_height_px(&self) -> usize {
         self.total_surface_height_px
+    }
+
+    pub(crate) fn build_viewport_snapshot(
+        &self,
+        scroll_top_px: usize,
+        viewport_height_px: usize,
+        overscan_sections: usize,
+        overscan_rows: usize,
+    ) -> ReviewWorkspaceViewportSnapshot {
+        let mut sections = Vec::new();
+        for section_ix in self.visible_section_range_for_viewport(
+            scroll_top_px,
+            viewport_height_px,
+            overscan_sections,
+        ) {
+            let Some(section) = self.section(section_ix) else {
+                continue;
+            };
+            let Some(pixel_range) = self.section_pixel_range(section_ix).cloned() else {
+                continue;
+            };
+            let visible_row_range = self
+                .section_visible_row_range(
+                    section_ix,
+                    scroll_top_px,
+                    viewport_height_px,
+                    overscan_rows,
+                )
+                .unwrap_or(section.start_row..section.end_row);
+            let top_spacer_height_px = self
+                .row_boundary_offset_px(visible_row_range.start)
+                .unwrap_or(pixel_range.start)
+                .saturating_sub(pixel_range.start);
+            let bottom_spacer_height_px = pixel_range.end.saturating_sub(
+                self.row_boundary_offset_px(visible_row_range.end)
+                    .unwrap_or(pixel_range.end),
+            );
+            sections.push(ReviewWorkspaceViewportSection {
+                section_index: section_ix,
+                pixel_range,
+                visible_row_range,
+                top_spacer_height_px,
+                bottom_spacer_height_px,
+            });
+        }
+
+        ReviewWorkspaceViewportSnapshot {
+            total_surface_height_px: self.total_surface_height_px(),
+            sections,
+        }
     }
 
     pub(crate) fn visible_hunk_header_row(&self, row: usize) -> Option<usize> {

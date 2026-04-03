@@ -219,30 +219,22 @@ impl DiffViewer {
             .max(Pixels::ZERO)
             .as_f32()
             .round() as usize;
-        let visible_sections =
-            session.visible_section_range_for_viewport(scroll_top_px, viewport_height_px, 1);
-        let total_height = session.total_surface_height_px();
+        let viewport =
+            session.build_viewport_snapshot(scroll_top_px, viewport_height_px, 1, REVIEW_SECTION_ROW_OVERSCAN_ROWS);
         let mut section_children = Vec::new();
-        for section_ix in visible_sections {
-            let Some(section) = session.section(section_ix) else {
-                continue;
-            };
-            let Some(pixel_range) = session.section_pixel_range(section_ix).cloned() else {
+        for viewport_section in &viewport.sections {
+            let Some(section) = session.section(viewport_section.section_index) else {
                 continue;
             };
             section_children.push(
                 div()
                     .id(("review-workspace-section", section.index as u64))
                     .absolute()
-                    .top(px(pixel_range.start as f32))
+                    .top(px(viewport_section.pixel_range.start as f32))
                     .left_0()
                     .right_0()
                     .child(self.render_review_workspace_section(
-                        session,
-                        section,
-                        pixel_range,
-                        scroll_top_px,
-                        viewport_height_px,
+                        viewport_section,
                         cx,
                     ))
                     .into_any_element(),
@@ -258,7 +250,7 @@ impl DiffViewer {
                 div()
                     .relative()
                     .w_full()
-                    .h(px(total_height as f32))
+                    .h(px(viewport.total_surface_height_px as f32))
                     .children(section_children),
             )
             .into_any_element()
@@ -266,31 +258,11 @@ impl DiffViewer {
 
     fn render_review_workspace_section(
         &self,
-        session: &review_workspace_session::ReviewWorkspaceSession,
-        section: &review_workspace_session::ReviewWorkspaceSection,
-        section_pixel_range: std::ops::Range<usize>,
-        scroll_top_px: usize,
-        viewport_height_px: usize,
+        viewport_section: &review_workspace_session::ReviewWorkspaceViewportSection,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let visible_row_range = session
-            .section_visible_row_range(
-                section.index,
-                scroll_top_px,
-                viewport_height_px,
-                REVIEW_SECTION_ROW_OVERSCAN_ROWS,
-            )
-            .unwrap_or(section.start_row..section.end_row);
-        let top_spacer_height = session
-            .row_boundary_offset_px(visible_row_range.start)
-            .unwrap_or(section_pixel_range.start)
-            .saturating_sub(section_pixel_range.start);
-        let bottom_spacer_height = section_pixel_range.end.saturating_sub(
-            session
-                .row_boundary_offset_px(visible_row_range.end)
-                .unwrap_or(section_pixel_range.end),
-        );
-        let rows = (visible_row_range.start..visible_row_range.end).filter_map(|row_ix| {
+        let rows = (viewport_section.visible_row_range.start..viewport_section.visible_row_range.end)
+            .filter_map(|row_ix| {
             let row = self.active_diff_row(row_ix)?;
             let is_selected = self.is_row_selected(row_ix);
             Some(match row.kind {
@@ -302,14 +274,14 @@ impl DiffViewer {
         });
 
         v_flex()
-            .id(("review-workspace-section", section.index as u64))
+            .id(("review-workspace-section", viewport_section.section_index as u64))
             .w_full()
-            .when(top_spacer_height > 0, |this| {
-                this.child(div().w_full().h(px(top_spacer_height as f32)))
+            .when(viewport_section.top_spacer_height_px > 0, |this| {
+                this.child(div().w_full().h(px(viewport_section.top_spacer_height_px as f32)))
             })
             .children(rows)
-            .when(bottom_spacer_height > 0, |this| {
-                this.child(div().w_full().h(px(bottom_spacer_height as f32)))
+            .when(viewport_section.bottom_spacer_height_px > 0, |this| {
+                this.child(div().w_full().h(px(viewport_section.bottom_spacer_height_px as f32)))
             })
             .into_any_element()
     }
