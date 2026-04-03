@@ -49,6 +49,7 @@ include!("syntax_colors.rs");
 include!("diff.rs");
 include!("diff_rows.rs");
 include!("review_workspace_code_row.rs");
+include!("review_workspace_section.rs");
 include!("review_workspace_surface.rs");
 include!("context_menu.rs");
 include!("file_editor.rs");

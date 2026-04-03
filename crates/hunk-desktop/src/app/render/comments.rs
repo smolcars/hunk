@@ -1,4 +1,11 @@
 impl DiffViewer {
+    fn row_shows_comment_affordance(&self, row_ix: usize) -> bool {
+        self.row_supports_comments(row_ix)
+            && (self.row_open_comment_count(row_ix) > 0
+                || self.hovered_comment_row == Some(row_ix)
+                || self.active_comment_editor_row == Some(row_ix))
+    }
+
     fn render_comments_preview(&self, cx: &mut Context<Self>) -> AnyElement {
         let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
@@ -343,17 +350,11 @@ impl DiffViewer {
     }
 
     fn render_row_comment_affordance(&self, row_ix: usize, cx: &mut Context<Self>) -> AnyElement {
-        if !self.row_supports_comments(row_ix) {
+        if !self.row_shows_comment_affordance(row_ix) {
             return div().into_any_element();
         }
 
         let open_count = self.row_open_comment_count(row_ix);
-        let hovered = self.hovered_comment_row == Some(row_ix);
-        let editing = self.active_comment_editor_row == Some(row_ix);
-        if !hovered && !editing && open_count == 0 {
-            return div().into_any_element();
-        }
-
         let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
         let stable_row_id = self.diff_row_stable_id(row_ix);

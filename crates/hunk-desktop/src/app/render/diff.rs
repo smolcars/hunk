@@ -318,6 +318,7 @@ impl DiffViewer {
         let comment_affordance_overlays = viewport_section
             .rows
             .iter()
+            .filter(|viewport_row| self.row_shows_comment_affordance(viewport_row.row_index))
             .map(|viewport_row| {
                 div()
                     .absolute()
