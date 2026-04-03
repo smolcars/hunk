@@ -1,3 +1,10 @@
+fn should_store_legacy_diff_surface_rows(
+    workspace_view_mode: WorkspaceViewMode,
+    has_review_workspace_session: bool,
+) -> bool {
+    workspace_view_mode != WorkspaceViewMode::Diff || !has_review_workspace_session
+}
+
 impl DiffViewer {
     fn empty_workspace_project_state() -> WorkspaceProjectState {
         WorkspaceProjectState {
@@ -112,6 +119,28 @@ impl DiffViewer {
 
     fn take_current_workspace_project_state(&mut self) -> WorkspaceProjectState {
         self.prepare_current_workspace_project_state_for_storage();
+        let store_legacy_diff_rows = should_store_legacy_diff_surface_rows(
+            self.workspace_view_mode,
+            self.review_workspace_session.is_some(),
+        );
+        let diff_rows = if store_legacy_diff_rows {
+            std::mem::take(&mut self.diff_rows)
+        } else {
+            self.diff_rows.clear();
+            Vec::new()
+        };
+        let diff_row_metadata = if store_legacy_diff_rows {
+            std::mem::take(&mut self.diff_row_metadata)
+        } else {
+            self.diff_row_metadata.clear();
+            Vec::new()
+        };
+        let diff_row_segment_cache = if store_legacy_diff_rows {
+            std::mem::take(&mut self.diff_row_segment_cache)
+        } else {
+            self.diff_row_segment_cache.clear();
+            Vec::new()
+        };
         WorkspaceProjectState {
             repo_root: self.repo_root.take(),
             workspace_targets: std::mem::take(&mut self.workspace_targets),
@@ -141,9 +170,9 @@ impl DiffViewer {
             collapsed_files: std::mem::take(&mut self.collapsed_files),
             selected_path: self.selected_path.take(),
             selected_status: self.selected_status.take(),
-            diff_rows: std::mem::take(&mut self.diff_rows),
-            diff_row_metadata: std::mem::take(&mut self.diff_row_metadata),
-            diff_row_segment_cache: std::mem::take(&mut self.diff_row_segment_cache),
+            diff_rows,
+            diff_row_metadata,
+            diff_row_segment_cache,
             file_row_ranges: std::mem::take(&mut self.file_row_ranges),
             file_line_stats: std::mem::take(&mut self.file_line_stats),
             review_surface: std::mem::replace(
@@ -362,5 +391,31 @@ impl DiffViewer {
             "failed to sync project picker state",
             cx,
         );
+    }
+}
+
+#[cfg(test)]
+mod workspace_project_state_tests {
+    use super::should_store_legacy_diff_surface_rows;
+    use crate::app::data::WorkspaceViewMode;
+
+    #[test]
+    fn diff_mode_with_workspace_session_drops_legacy_row_vectors() {
+        assert!(!should_store_legacy_diff_surface_rows(
+            WorkspaceViewMode::Diff,
+            true,
+        ));
+    }
+
+    #[test]
+    fn files_mode_and_legacy_diff_mode_keep_flat_rows() {
+        assert!(should_store_legacy_diff_surface_rows(
+            WorkspaceViewMode::Files,
+            true,
+        ));
+        assert!(should_store_legacy_diff_surface_rows(
+            WorkspaceViewMode::Diff,
+            false,
+        ));
     }
 }

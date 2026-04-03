@@ -311,7 +311,7 @@ impl DiffViewer {
             return Some((path.to_string(), status));
         }
 
-        let row = self.diff_row_metadata.get(row_ix)?;
+        let row = self.active_diff_row_metadata(row_ix)?;
         if row.kind == DiffStreamRowKind::EmptyState {
             return None;
         }

@@ -136,11 +136,18 @@ impl DiffViewer {
             return;
         }
 
-        if self.diff_row_metadata.len() == row_count {
-            let mut current_file_header = None::<usize>;
-            let mut current_hunk_header = None::<usize>;
-            for row_ix in 0..row_count {
-                let meta = &self.diff_row_metadata[row_ix];
+        let mut current_file_header = None::<usize>;
+        let mut current_hunk_header = None::<usize>;
+        for row_ix in 0..row_count {
+            let containing_file_header = self.file_row_ranges.iter().find_map(|range| {
+                if row_ix >= range.start_row && row_ix < range.end_row {
+                    Some(range.start_row)
+                } else {
+                    None
+                }
+            });
+
+            if let Some(meta) = self.active_diff_row_metadata(row_ix) {
                 match meta.kind {
                     DiffStreamRowKind::EmptyState => {
                         current_file_header = None;
@@ -151,43 +158,26 @@ impl DiffViewer {
                         current_hunk_header = None;
                     }
                     DiffStreamRowKind::CoreHunkHeader => {
-                        if current_file_header.is_none() {
-                            current_file_header = self.file_row_ranges.iter().find_map(|range| {
-                                if row_ix >= range.start_row && row_ix < range.end_row {
-                                    Some(range.start_row)
-                                } else {
-                                    None
-                                }
-                            });
-                        }
+                        current_file_header = current_file_header.or(containing_file_header);
                         current_hunk_header = Some(row_ix);
                     }
-                    _ => {}
+                    _ => {
+                        if containing_file_header.is_some() {
+                            current_file_header = containing_file_header;
+                        }
+                    }
                 }
-
-                self.review_surface.diff_visible_file_header_lookup[row_ix] = current_file_header;
-                self.review_surface.diff_visible_hunk_header_lookup[row_ix] = current_hunk_header;
-            }
-            return;
-        }
-
-        let mut current_hunk_header = None::<usize>;
-        for row_ix in 0..row_count {
-            if self
+            } else if self
                 .active_diff_row(row_ix)
                 .is_some_and(|row| row.kind == DiffRowKind::HunkHeader)
             {
+                current_file_header = current_file_header.or(containing_file_header);
                 current_hunk_header = Some(row_ix);
+            } else if containing_file_header.is_some() {
+                current_file_header = containing_file_header;
             }
 
-            let file_header_ix = self.file_row_ranges.iter().find_map(|range| {
-                if row_ix >= range.start_row && row_ix < range.end_row {
-                    Some(range.start_row)
-                } else {
-                    None
-                }
-            });
-            self.review_surface.diff_visible_file_header_lookup[row_ix] = file_header_ix;
+            self.review_surface.diff_visible_file_header_lookup[row_ix] = current_file_header;
             self.review_surface.diff_visible_hunk_header_lookup[row_ix] = current_hunk_header;
         }
     }

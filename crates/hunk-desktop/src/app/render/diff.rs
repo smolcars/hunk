@@ -621,14 +621,13 @@ impl DiffViewer {
             return Some((header_ix, path, status));
         }
 
-        if self.diff_row_metadata.len() == row_count {
-            let header_ix = self
-                .review_surface
-                .diff_visible_file_header_lookup
-                .get(capped)
-                .copied()
-                .flatten()?;
-            let meta = self.active_diff_row_metadata(header_ix)?;
+        let header_ix = self
+            .review_surface
+            .diff_visible_file_header_lookup
+            .get(capped)
+            .copied()
+            .flatten()?;
+        if let Some(meta) = self.active_diff_row_metadata(header_ix) {
             if meta.kind == DiffStreamRowKind::EmptyState {
                 return None;
             }
@@ -640,12 +639,6 @@ impl DiffViewer {
             return Some((header_ix, path, status));
         }
 
-        let header_ix = self
-            .review_surface
-            .diff_visible_file_header_lookup
-            .get(capped)
-            .copied()
-            .flatten()?;
         self.file_row_ranges
             .iter()
             .find(|range| range.start_row == header_ix)

@@ -213,6 +213,7 @@ This is the phase that removes the last architectural reason for preview-only re
 
 Current state:
 - Review’s viewport bookkeeping now tracks the shared workspace surface’s visible row range directly, and Review syntax-segment prefetch now reuses that explicit range instead of a legacy top-row fallback.
+- Diff-mode sticky-header, file-anchor, and visible-file resolution paths now prefer the shared workspace session and active row accessors instead of reading `diff_row_metadata` directly.
 
 ### Phase 6: Persist Editor Entities Across Tab Switches
 
@@ -242,6 +243,7 @@ Current state:
 - Reusing an already-loaded Diff surface no longer forcibly re-primes visible-row state, so revisiting Diff preserves the existing viewport/header/prefetch state instead of re-triggering selection churn for the current top row.
 - Review also remembers its last selected path separately from Files mode so tab switches can preserve Diff-oriented selection when the session is reused.
 - Redundant Review refresh requests now short-circuit when the compare pair, snapshot fingerprint, and collapsed-file layout still match the loaded surface.
+- Workspace project persistence no longer stores duplicate flat diff-row vectors when a Review workspace session exists; the shared session now remains the authoritative Diff row/syntax source across project or tab state restores.
 
 ### Phase 7: Delete Legacy Diff Rendering Paths
 

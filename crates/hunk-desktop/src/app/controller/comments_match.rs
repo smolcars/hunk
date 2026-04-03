@@ -10,11 +10,6 @@ impl DiffViewer {
         }
 
         let row_count = self.active_diff_row_count();
-        if self.workspace_view_mode != WorkspaceViewMode::Diff && self.diff_row_metadata.len() != row_count
-        {
-            return FileAnchorReconcileState::Deferred;
-        }
-
         let mut has_anchor_rows = false;
         let mut saw_rows_for_file = false;
         for row_ix in 0..row_count {
@@ -279,18 +274,18 @@ impl DiffViewer {
     }
 
     fn row_file_path(&self, row_ix: usize) -> Option<String> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.row_file_path(row_ix).map(ToString::to_string);
-        }
-
-        if self.diff_row_metadata.len() == self.active_diff_row_count() {
-            return self
-                .active_diff_row_metadata(row_ix)
-                .and_then(|row| row.file_path.clone());
-        }
-        None
+        self.active_diff_row_metadata(row_ix)
+            .and_then(|row| row.file_path.clone())
+            .or_else(|| {
+                (self.workspace_view_mode == WorkspaceViewMode::Diff)
+                    .then(|| {
+                        self.review_workspace_session
+                            .as_ref()?
+                            .row_file_path(row_ix)
+                            .map(ToString::to_string)
+                    })
+                    .flatten()
+            })
     }
 
     fn row_hunk_header(&self, row_ix: usize) -> Option<String> {
