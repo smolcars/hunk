@@ -68,6 +68,7 @@ include!("file_terminal.rs");
 include!("file_tree.rs");
 include!("file_tree_fs.rs");
 include!("file_quick_open.rs");
+include!("editor_reuse.rs");
 include!("editor.rs");
 include!("comments.rs");
 include!("comments_match.rs");

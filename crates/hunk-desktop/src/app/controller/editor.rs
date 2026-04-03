@@ -376,18 +376,38 @@ impl DiffViewer {
             return;
         }
 
-        self.request_file_editor_reload(path, cx);
+        self.request_file_editor_reload_with_mode(path, true, cx);
     }
 
     pub(super) fn request_file_editor_reload(&mut self, path: String, cx: &mut Context<Self>) -> bool {
+        self.request_file_editor_reload_with_mode(path, false, cx)
+    }
+
+    fn request_file_editor_reload_with_mode(
+        &mut self,
+        path: String,
+        force: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some(tab_index) = self.ensure_file_editor_tab_index(path.as_str()) else {
             cx.notify();
             return false;
         };
         self.activate_file_editor_tab_index(tab_index, None, cx);
-        let Some(tab_id) = self.active_file_editor_tab_id else {
-            return false;
-        };
+
+        if !force
+            && should_reuse_loaded_file_editor(LoadedFileEditorReuseState {
+                requested_path: path.as_str(),
+                current_editor_path: self.editor_path.as_deref(),
+                editor_loading: self.editor_loading,
+                editor_error: self.editor_error.as_deref(),
+                has_document: self.files_editor.borrow().current_text().is_some(),
+            })
+        {
+            self.sync_editor_search_query(cx);
+            cx.notify();
+            return true;
+        }
 
         let retain_markdown_preview = if self.editor_path.as_deref() == Some(path.as_str()) {
             self.editor_markdown_preview
@@ -405,6 +425,9 @@ impl DiffViewer {
             self.sync_active_file_editor_tab_state();
             cx.notify();
             return true;
+        };
+        let Some(tab_id) = self.active_file_editor_tab_id else {
+            return false;
         };
 
         let epoch = self.next_editor_epoch();

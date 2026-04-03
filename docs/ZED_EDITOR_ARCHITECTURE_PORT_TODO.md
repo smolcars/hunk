@@ -206,7 +206,7 @@ Targets:
 
 Tasks:
 
-- [ ] Keep Files editor workspace state alive across mode switches.
+- [x] Keep Files editor workspace state alive across mode switches.
 - [x] Keep Diff editor workspace state alive when compare inputs are unchanged.
 - [x] Recompute only when compare sources or repo snapshot fingerprints actually change.
 - [ ] Avoid scroll-position and layout churn when revisiting tabs.
@@ -216,6 +216,7 @@ Zed analogue:
 - open editor items stay mounted and preserve state until the item itself is replaced.
 
 Current state:
+- Switching back to Files now reuses the already-loaded or still-loading file editor tab for the same path instead of forcing a reload, which preserves the editor entity and viewport state more like Zed's persistent editor items.
 - Review now records which compare pair and repo snapshot fingerprint the loaded workspace session was built from.
 - Switching back to Diff reuses the loaded Review surface when that identity still matches, instead of unconditionally rebuilding the compare.
 - Review also remembers its last selected path separately from Files mode so tab switches can preserve Diff-oriented selection when the session is reused.
