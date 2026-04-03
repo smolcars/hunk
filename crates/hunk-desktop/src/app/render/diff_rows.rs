@@ -174,6 +174,60 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let stable_row_id = self.diff_row_stable_id(ix);
+        if self.uses_review_workspace_sections_surface()
+            && let Some(viewport_row) = viewport_row
+        {
+            let layout = self.diff_column_layout();
+            let code_row = div()
+                .id(("diff-code-row", stable_row_id))
+                .relative()
+                .overflow_x_hidden()
+                .h(px(
+                    crate::app::review_workspace_session::REVIEW_SURFACE_COMPACT_ROW_HEIGHT_PX
+                        as f32,
+                ))
+                .on_mouse_down(MouseButton::Left, {
+                    let row_ix = ix;
+                    cx.listener(move |this, event, window, cx| {
+                        this.on_diff_row_mouse_down(row_ix, event, window, cx);
+                    })
+                })
+                .on_mouse_down(MouseButton::Middle, {
+                    let row_ix = ix;
+                    cx.listener(move |this, event, window, cx| {
+                        this.on_diff_row_mouse_down(row_ix, event, window, cx);
+                    })
+                })
+                .on_mouse_down(MouseButton::Right, {
+                    let row_ix = ix;
+                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                        this.open_diff_row_context_menu(row_ix, event.position, window, cx);
+                        cx.stop_propagation();
+                    })
+                })
+                .on_mouse_move({
+                    let row_ix = ix;
+                    cx.listener(move |this, event, window, cx| {
+                        this.on_diff_row_mouse_move(row_ix, event, window, cx);
+                    })
+                })
+                .on_mouse_up(MouseButton::Left, cx.listener(Self::on_diff_row_mouse_up))
+                .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_diff_row_mouse_up))
+                .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_diff_row_mouse_up))
+                .on_mouse_up_out(MouseButton::Middle, cx.listener(Self::on_diff_row_mouse_up))
+                .child(self.render_review_workspace_code_row_element(
+                    stable_row_id,
+                    row_data,
+                    is_selected,
+                    viewport_row,
+                    layout,
+                    cx,
+                ))
+                .child(self.render_row_comment_affordance(ix, cx));
+
+            return self.render_diff_row_with_comment_editor(ix, code_row.into_any_element(), cx);
+        }
+
         let chrome = hunk_diff_chrome(cx.theme(), cx.theme().mode.is_dark());
         let layout = self.diff_column_layout();
         let code_row = h_flex()
