@@ -10,11 +10,14 @@ use hunk_domain::diff::{
 use hunk_editor::{
     Viewport, WorkspaceDisplayRow, WorkspaceDocument, WorkspaceDocumentId, WorkspaceExcerptId,
     WorkspaceExcerptKind, WorkspaceExcerptSpec, WorkspaceLayout, WorkspaceLayoutError,
-    build_workspace_display_snapshot,
 };
 use hunk_git::compare::CompareSnapshot;
 use hunk_git::git::{FileStatus, LineStats};
-use hunk_text::BufferId;
+use hunk_text::{BufferId, TextBuffer, TextSnapshot};
+
+#[allow(clippy::duplicate_mod)]
+#[path = "workspace_display_buffers.rs"]
+mod workspace_display_buffers;
 
 use crate::app::data::{
     CachedStyledSegment, DiffSegmentQuality, DiffStream, DiffStreamRowKind,
@@ -22,6 +25,7 @@ use crate::app::data::{
 };
 use crate::app::native_files_editor::WorkspaceEditorSession;
 use crate::app::{DiffRowSegmentCache, DiffStreamRowMeta};
+use workspace_display_buffers::build_workspace_display_snapshot_from_document_snapshots;
 
 const FILE_HEADER_SURFACE_ROWS: usize = 1;
 const HUNK_HEADER_SURFACE_ROWS: usize = 1;
@@ -224,8 +228,8 @@ pub(crate) struct ReviewWorkspaceSession {
     file_ranges: Vec<ReviewWorkspaceFileRange>,
     hunk_ranges: Vec<ReviewWorkspaceHunkRange>,
     sections: Vec<ReviewWorkspaceSection>,
-    left_document_lines: BTreeMap<WorkspaceDocumentId, Vec<String>>,
-    right_document_lines: BTreeMap<WorkspaceDocumentId, Vec<String>>,
+    left_document_buffers: BTreeMap<WorkspaceDocumentId, TextBuffer>,
+    right_document_buffers: BTreeMap<WorkspaceDocumentId, TextBuffer>,
     rows: Vec<SideBySideRow>,
     row_metadata: Vec<DiffStreamRowMeta>,
     row_segments: Vec<Option<DiffRowSegmentCache>>,
@@ -373,8 +377,8 @@ impl ReviewWorkspaceSession {
             file_ranges,
             hunk_ranges,
             sections,
-            left_document_lines: BTreeMap::new(),
-            right_document_lines: BTreeMap::new(),
+            left_document_buffers: BTreeMap::new(),
+            right_document_buffers: BTreeMap::new(),
             rows: Vec::new(),
             row_metadata: Vec::new(),
             row_segments: Vec::new(),
@@ -391,7 +395,7 @@ impl ReviewWorkspaceSession {
         self.rows = stream.rows.clone();
         self.row_metadata = stream.row_metadata.clone();
         self.row_segments = stream.row_segments.clone();
-        self.rebuild_document_line_text();
+        self.rebuild_document_buffers();
         self.rebuild_surface_geometry();
         self
     }
@@ -1000,17 +1004,19 @@ impl ReviewWorkspaceSession {
         &self,
         side: ReviewWorkspaceEditorSide,
     ) -> Vec<(PathBuf, String)> {
+        let buffers = match side {
+            ReviewWorkspaceEditorSide::Left => &self.left_document_buffers,
+            ReviewWorkspaceEditorSide::Right => &self.right_document_buffers,
+        };
         self.layout
             .documents()
             .iter()
             .map(|document| {
-                let lines = match side {
-                    ReviewWorkspaceEditorSide::Left => self.left_document_lines.get(&document.id),
-                    ReviewWorkspaceEditorSide::Right => self.right_document_lines.get(&document.id),
-                }
-                .cloned()
-                .unwrap_or_else(|| vec![String::new(); document.line_count.max(1)]);
-                (document.path.clone(), lines.join("\n"))
+                let text = buffers
+                    .get(&document.id)
+                    .map(TextBuffer::text)
+                    .unwrap_or_else(|| blank_workspace_document_text(document.line_count.max(1)));
+                (document.path.clone(), text)
             })
             .collect()
     }
@@ -1249,19 +1255,19 @@ impl ReviewWorkspaceSession {
             .collect();
     }
 
-    fn rebuild_document_line_text(&mut self) {
-        self.left_document_lines = self
+    fn rebuild_document_buffers(&mut self) {
+        let mut left_document_lines = self
             .layout
             .documents()
             .iter()
             .map(|document| (document.id, vec![String::new(); document.line_count.max(1)]))
-            .collect();
-        self.right_document_lines = self
+            .collect::<BTreeMap<_, _>>();
+        let mut right_document_lines = self
             .layout
             .documents()
             .iter()
             .map(|document| (document.id, vec![String::new(); document.line_count.max(1)]))
-            .collect();
+            .collect::<BTreeMap<_, _>>();
 
         for row_ix in 0..self.layout.total_rows().min(self.rows.len()) {
             let Some(location) = self.layout.locate_row(row_ix) else {
@@ -1273,17 +1279,20 @@ impl ReviewWorkspaceSession {
             let Some(row) = self.rows.get(row_ix) else {
                 continue;
             };
-            if let Some(lines) = self.left_document_lines.get_mut(&location.document_id)
+            if let Some(lines) = left_document_lines.get_mut(&location.document_id)
                 && let Some(slot) = lines.get_mut(document_line)
             {
                 *slot = row.left.text.clone();
             }
-            if let Some(lines) = self.right_document_lines.get_mut(&location.document_id)
+            if let Some(lines) = right_document_lines.get_mut(&location.document_id)
                 && let Some(slot) = lines.get_mut(document_line)
             {
                 *slot = row.right.text.clone();
             }
         }
+
+        self.left_document_buffers = self.build_document_buffers_from_lines(&left_document_lines);
+        self.right_document_buffers = self.build_document_buffers_from_lines(&right_document_lines);
     }
 
     fn build_display_snapshot_for_side(
@@ -1295,7 +1304,8 @@ impl ReviewWorkspaceSession {
             return Vec::new();
         }
 
-        build_workspace_display_snapshot(
+        let document_snapshots = self.document_snapshots_for_side(side);
+        build_workspace_display_snapshot_from_document_snapshots(
             &self.layout,
             Viewport {
                 first_visible_row: visible_row_range.start,
@@ -1304,25 +1314,43 @@ impl ReviewWorkspaceSession {
             },
             4,
             false,
-            |document_id, document_line| self.document_line_text(side, document_id, document_line),
+            &document_snapshots,
         )
         .visible_rows
     }
 
-    fn document_line_text(
+    fn build_document_buffers_from_lines(
+        &self,
+        document_lines: &BTreeMap<WorkspaceDocumentId, Vec<String>>,
+    ) -> BTreeMap<WorkspaceDocumentId, TextBuffer> {
+        self.layout
+            .documents()
+            .iter()
+            .map(|document| {
+                let text = document_lines
+                    .get(&document.id)
+                    .map(|lines| lines.join("\n"))
+                    .unwrap_or_else(|| blank_workspace_document_text(document.line_count.max(1)));
+                (
+                    document.id,
+                    TextBuffer::new(document.buffer_id, text.as_str()),
+                )
+            })
+            .collect()
+    }
+
+    fn document_snapshots_for_side(
         &self,
         side: ReviewWorkspaceDisplaySide,
-        document_id: WorkspaceDocumentId,
-        document_line: usize,
-    ) -> Option<String> {
-        let lines = match side {
-            ReviewWorkspaceDisplaySide::Left => &self.left_document_lines,
-            ReviewWorkspaceDisplaySide::Right => &self.right_document_lines,
+    ) -> BTreeMap<WorkspaceDocumentId, TextSnapshot> {
+        let buffers = match side {
+            ReviewWorkspaceDisplaySide::Left => &self.left_document_buffers,
+            ReviewWorkspaceDisplaySide::Right => &self.right_document_buffers,
         };
-        lines
-            .get(&document_id)
-            .and_then(|document_lines| document_lines.get(document_line))
-            .cloned()
+        buffers
+            .iter()
+            .map(|(document_id, buffer)| (*document_id, buffer.snapshot()))
+            .collect()
     }
 
     fn surface_row_height_px(&self, row_ix: usize) -> usize {
@@ -1354,6 +1382,10 @@ fn review_stream_row_kind_for_row(row_kind: DiffRowKind) -> DiffStreamRowKind {
         DiffRowKind::Meta => DiffStreamRowKind::CoreMeta,
         DiffRowKind::Empty => DiffStreamRowKind::CoreEmpty,
     }
+}
+
+fn blank_workspace_document_text(line_count: usize) -> String {
+    vec![String::new(); line_count.max(1)].join("\n")
 }
 
 fn review_base_segment_quality_for_file(line_stats: LineStats) -> DiffSegmentQuality {

@@ -1,7 +1,15 @@
-use hunk_editor::{
-    Viewport, WorkspaceDisplaySnapshot, WorkspaceDocumentId, build_workspace_display_snapshot,
+use std::collections::BTreeMap;
+
+use hunk_editor::{Viewport, WorkspaceDisplaySnapshot, WorkspaceDocumentId};
+use hunk_text::TextBuffer;
+
+#[allow(clippy::duplicate_mod)]
+#[path = "workspace_display_buffers.rs"]
+mod workspace_display_buffers;
+
+use workspace_display_buffers::{
+    build_workspace_display_snapshot_from_document_snapshots, snapshot_line_text,
 };
-use hunk_text::{TextBuffer, TextSnapshot};
 
 use super::FilesEditor;
 
@@ -14,12 +22,20 @@ impl FilesEditor {
         show_whitespace: bool,
     ) -> Option<WorkspaceDisplaySnapshot> {
         let layout = self.workspace_session.layout()?;
-        Some(build_workspace_display_snapshot(
+        let document_snapshots = layout
+            .documents()
+            .iter()
+            .filter_map(|document| {
+                self.workspace_buffer_for_document(document.id)
+                    .map(|buffer| (document.id, buffer.snapshot()))
+            })
+            .collect::<BTreeMap<_, _>>();
+        Some(build_workspace_display_snapshot_from_document_snapshots(
             layout,
             viewport,
             tab_width,
             show_whitespace,
-            |document_id, line| self.workspace_buffer_line_text(document_id, line),
+            &document_snapshots,
         ))
     }
 
@@ -45,20 +61,4 @@ impl FilesEditor {
         }
         self.workspace_buffers.get(document.path())
     }
-}
-
-fn snapshot_line_text(snapshot: &TextSnapshot, line: usize) -> String {
-    let start = snapshot.line_to_byte(line).unwrap_or(0);
-    let end = if line + 1 < snapshot.line_count() {
-        snapshot
-            .line_to_byte(line + 1)
-            .unwrap_or(snapshot.byte_len())
-    } else {
-        snapshot.byte_len()
-    };
-    snapshot
-        .slice(start..end)
-        .unwrap_or_default()
-        .trim_end_matches('\n')
-        .to_string()
 }
