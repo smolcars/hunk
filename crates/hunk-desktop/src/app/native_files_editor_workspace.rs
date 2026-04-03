@@ -167,7 +167,6 @@ impl WorkspaceEditorSession {
         self.active_path().map(Path::to_path_buf)
     }
 
-    #[cfg(test)]
     pub(crate) fn layout(&self) -> Option<&WorkspaceLayout> {
         self.active_document_id.map(|_| &self.layout)
     }

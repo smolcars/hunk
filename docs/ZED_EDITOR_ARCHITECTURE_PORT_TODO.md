@@ -126,6 +126,7 @@ Zed analogue:
 Current state:
 - `FilesEditor` can now also preload multiple full-file workspace documents and switch the active workspace path while preserving per-path buffers and view state, which gives Hunk its first persistent multibuffer-like editor foundation underneath the existing file surface.
 - `FilesEditor` can now also open arbitrary `WorkspaceLayout` document sets while keeping those document buffers parked behind one persistent editor instance, so the multibuffer-like foundation is no longer limited to full-file layouts.
+- `FilesEditor` can now also project one visible workspace display snapshot across all stored workspace documents from a shared `WorkspaceLayout`, which is Hunk's first editor-side equivalent of Zed's multibuffer display stage.
 - `ReviewWorkspaceSession` can now export left/right-side workspace document text from the loaded compare session, which gives the Diff path the document-seeding primitive it needs for a future editor-backed multi-file surface.
 
 ### Phase 3: Build A Read-Only Multi-File Diff Surface On The Same Editor Path

@@ -26,6 +26,8 @@ mod language_impl;
 pub(crate) mod paint;
 #[path = "native_files_editor_workspace_buffers.rs"]
 mod workspace_buffers_impl;
+#[path = "native_files_editor_workspace_display.rs"]
+mod workspace_display_impl;
 #[path = "native_files_editor_workspace.rs"]
 mod workspace_session;
 

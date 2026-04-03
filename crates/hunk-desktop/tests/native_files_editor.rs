@@ -394,6 +394,83 @@ fn workspace_layout_documents_can_open_custom_excerpt_layouts() {
 }
 
 #[test]
+fn workspace_display_snapshot_projects_rows_across_stored_workspace_buffers() {
+    let mut editor = FilesEditor::new();
+    let main_document_id = WorkspaceDocumentId::new(1);
+    let lib_document_id = WorkspaceDocumentId::new(2);
+    let layout = WorkspaceLayout::new(
+        vec![
+            WorkspaceDocument::new(main_document_id, "src/main.rs", BufferId::new(2), 4),
+            WorkspaceDocument::new(lib_document_id, "src/lib.rs", BufferId::new(3), 2),
+        ],
+        vec![
+            WorkspaceExcerptSpec::new(
+                WorkspaceExcerptId::new(10),
+                main_document_id,
+                WorkspaceExcerptKind::DiffHunk,
+                1..3,
+            )
+            .with_chrome_rows(1, 1),
+            WorkspaceExcerptSpec::new(
+                WorkspaceExcerptId::new(20),
+                lib_document_id,
+                WorkspaceExcerptKind::DiffHunk,
+                0..1,
+            ),
+        ],
+        1,
+    )
+    .expect("workspace layout should build");
+
+    editor
+        .open_workspace_layout_documents(
+            layout,
+            vec![
+                (
+                    PathBuf::from("src/main.rs"),
+                    "alpha\nbeta\ngamma\nomega".to_string(),
+                ),
+                (PathBuf::from("src/lib.rs"), "delta\nepsilon".to_string()),
+            ],
+            Some(Path::new("src/lib.rs")),
+        )
+        .expect("workspace layout documents should open");
+
+    let snapshot = editor
+        .build_workspace_display_snapshot(
+            Viewport {
+                first_visible_row: 0,
+                visible_row_count: 6,
+                horizontal_offset: 0,
+            },
+            4,
+            false,
+        )
+        .expect("workspace display snapshot should exist");
+
+    assert_eq!(snapshot.total_rows, 6);
+    assert_eq!(snapshot.visible_rows.len(), 6);
+    assert_eq!(
+        snapshot.visible_rows[0]
+            .location
+            .as_ref()
+            .map(|location| location.row_kind),
+        Some(WorkspaceRowKind::LeadingChrome)
+    );
+    assert_eq!(snapshot.visible_rows[1].text, "beta");
+    assert_eq!(snapshot.visible_rows[2].text, "gamma");
+    assert_eq!(
+        snapshot.visible_rows[3]
+            .location
+            .as_ref()
+            .map(|location| location.row_kind),
+        Some(WorkspaceRowKind::TrailingChrome)
+    );
+    assert!(snapshot.visible_rows[4].location.is_none());
+    assert_eq!(snapshot.visible_rows[5].text, "delta");
+}
+
+#[test]
 fn search_navigation_selects_next_match() {
     let mut editor = FilesEditor::new();
     let path = PathBuf::from("example.rs");
