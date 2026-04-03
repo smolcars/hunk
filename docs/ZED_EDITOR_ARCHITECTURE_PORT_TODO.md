@@ -307,13 +307,14 @@ Targets:
 Tasks:
 
 - [x] Remove row-list-driven multi-file diff rendering.
-- [ ] Remove duplicated preview syntax/highlight scheduling paths.
+- [x] Remove duplicated preview syntax/highlight scheduling paths.
 - [x] Remove per-file scroll hydration logic from Diff mode.
 - [ ] Keep only one editor-native rendering pipeline for Files and Diff.
 
 Current state:
 - Diff mode no longer stores or consults the legacy flat row-list surface state. When a compare is loaded it uses the shared Review workspace surface, and when a compare is unavailable it falls back to the dedicated Review status surface instead of reviving the old flat multi-file row list.
 - Review surface snapshots no longer depend on hidden left/right `FilesEditor` entities; the shared `ReviewWorkspaceSession` now owns Diff viewport rows, selection memory, and painted snapshot assembly directly.
+- Diff visible-range syntax/segment prefetch now also runs through a dedicated `ReviewWorkspaceSession` scheduler path instead of sharing the old flat-row cache controller branch with Files mode before cache computation starts.
 
 ## Acceptance Criteria
 

@@ -8,12 +8,6 @@ type DiffSegmentPrefetchJob = (
     DiffSegmentQuality,
 );
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DiffSegmentPrefetchTarget {
-    LegacyRows,
-    ReviewWorkspace,
-}
-
 impl DiffViewer {
     fn scroll_selected_file_to_top(&mut self) {
         let target_path = if self.workspace_view_mode == WorkspaceViewMode::Diff {
@@ -133,22 +127,46 @@ impl DiffViewer {
         }
 
         self.segment_prefetch_anchor_row = Some(visible_row);
-        if self.uses_review_workspace_sections_surface() {
-            self.request_review_visible_row_segment_prefetch(visible_row, force_upgrade, cx);
-        } else {
-            self.request_legacy_visible_row_segment_prefetch(visible_row, force_upgrade, cx);
-        }
+        self.request_legacy_visible_row_segment_prefetch(visible_row, force_upgrade, cx);
     }
 
-    fn request_review_visible_row_segment_prefetch(
+    fn request_review_visible_row_range_segment_prefetch(
         &mut self,
-        visible_row: usize,
+        visible_range: std::ops::Range<usize>,
         force_upgrade: bool,
         cx: &mut Context<Self>,
     ) {
         let Some(session) = self.review_workspace_session.as_ref() else {
             return;
         };
+
+        let row_count = session.row_count();
+        if row_count == 0 || visible_range.start >= row_count {
+            return;
+        }
+
+        let clamped_range = visible_range.start.min(row_count)..visible_range.end.min(row_count);
+        if clamped_range.is_empty() {
+            return;
+        }
+
+        if !force_upgrade
+            && self
+                .review_surface
+                .last_prefetched_visible_row_range
+                .as_ref()
+                .is_some_and(|previous| {
+                    previous.start.abs_diff(clamped_range.start) < DIFF_SEGMENT_PREFETCH_STEP_ROWS
+                        && previous.end.abs_diff(clamped_range.end)
+                            < DIFF_SEGMENT_PREFETCH_STEP_ROWS
+                })
+        {
+            return;
+        }
+
+        self.review_surface.last_prefetched_visible_row_range = Some(clamped_range.clone());
+        let anchor_row =
+            clamped_range.start + (clamped_range.end.saturating_sub(clamped_range.start) / 2);
 
         let pending_rows = session
             .build_segment_prefetch_rows(
@@ -163,7 +181,7 @@ impl DiffViewer {
                         .max(Pixels::ZERO)
                         .as_f32()
                         .round() as usize,
-                    anchor_row: visible_row,
+                    anchor_row,
                     overscan_rows: DIFF_SEGMENT_PREFETCH_RADIUS_ROWS,
                     force_upgrade,
                     recently_scrolling: self.recently_scrolling(),
@@ -184,11 +202,7 @@ impl DiffViewer {
             })
             .collect::<Vec<_>>();
 
-        self.spawn_segment_prefetch_task(
-            pending_rows,
-            DiffSegmentPrefetchTarget::ReviewWorkspace,
-            cx,
-        );
+        self.spawn_review_segment_prefetch_task(pending_rows, cx);
     }
 
     fn request_legacy_visible_row_segment_prefetch(
@@ -260,16 +274,14 @@ impl DiffViewer {
             ));
         }
 
-        self.spawn_segment_prefetch_task(pending_rows, DiffSegmentPrefetchTarget::LegacyRows, cx);
+        self.spawn_legacy_segment_prefetch_task(pending_rows, cx);
     }
 
-    fn spawn_segment_prefetch_task(
+    fn spawn_review_segment_prefetch_task(
         &mut self,
         pending_rows: Vec<DiffSegmentPrefetchJob>,
-        target: DiffSegmentPrefetchTarget,
         cx: &mut Context<Self>,
     ) {
-
         if pending_rows.is_empty() {
             return;
         }
@@ -316,27 +328,80 @@ impl DiffViewer {
 
                     let mut inserted = false;
                     for (row_ix, row_cache) in computed_rows {
-                        match target {
-                            DiffSegmentPrefetchTarget::ReviewWorkspace => {
-                                if let Some(session) = this.review_workspace_session.as_mut()
-                                    && session.set_row_segment_cache_if_better(row_ix, row_cache)
-                                {
-                                    inserted = true;
-                                }
-                            }
-                            DiffSegmentPrefetchTarget::LegacyRows => {
-                                if let Some(slot) = this.diff_row_segment_cache.get_mut(row_ix) {
-                                    let should_replace = slot
-                                        .as_ref()
-                                        .map(|cached: &DiffRowSegmentCache| {
-                                            row_cache.quality > cached.quality
-                                        })
-                                        .unwrap_or(true);
-                                    if should_replace {
-                                        *slot = Some(row_cache);
-                                        inserted = true;
-                                    }
-                                }
+                        if let Some(session) = this.review_workspace_session.as_mut()
+                            && session.set_row_segment_cache_if_better(row_ix, row_cache)
+                        {
+                            inserted = true;
+                        }
+                    }
+
+                    if inserted {
+                        cx.notify();
+                    }
+                });
+            }
+        });
+    }
+
+    fn spawn_legacy_segment_prefetch_task(
+        &mut self,
+        pending_rows: Vec<DiffSegmentPrefetchJob>,
+        cx: &mut Context<Self>,
+    ) {
+        if pending_rows.is_empty() {
+            return;
+        }
+
+        let epoch = self.next_segment_prefetch_epoch();
+        self.segment_prefetch_task = cx.spawn(async move |this, cx| {
+            let computed_rows = cx
+                .background_executor()
+                .spawn(async move {
+                    pending_rows
+                        .into_iter()
+                        .map(
+                            |(
+                                row_ix,
+                                left_text,
+                                left_kind,
+                                right_text,
+                                right_kind,
+                                file_path,
+                                quality,
+                            )| {
+                                (
+                                    row_ix,
+                                    build_diff_row_segment_cache_from_cells(
+                                        file_path.as_deref(),
+                                        left_text.as_str(),
+                                        left_kind,
+                                        right_text.as_str(),
+                                        right_kind,
+                                        quality,
+                                    ),
+                                )
+                            },
+                        )
+                        .collect::<Vec<_>>()
+                })
+                .await;
+
+            if let Some(this) = this.upgrade() {
+                this.update(cx, |this, cx| {
+                    if epoch != this.segment_prefetch_epoch {
+                        return;
+                    }
+
+                    let mut inserted = false;
+                    for (row_ix, row_cache) in computed_rows {
+                        if let Some(slot) = this.diff_row_segment_cache.get_mut(row_ix) {
+                            let should_replace = slot
+                                .as_ref()
+                                .map(|cached: &DiffRowSegmentCache| row_cache.quality > cached.quality)
+                                .unwrap_or(true);
+                            if should_replace {
+                                *slot = Some(row_cache);
+                                inserted = true;
                             }
                         }
                     }
@@ -355,6 +420,15 @@ impl DiffViewer {
         force_upgrade: bool,
         cx: &mut Context<Self>,
     ) {
+        if self.uses_review_workspace_sections_surface() {
+            self.request_review_visible_row_range_segment_prefetch(
+                visible_range,
+                force_upgrade,
+                cx,
+            );
+            return;
+        }
+
         let row_count = self.active_diff_row_count();
         if row_count == 0 || visible_range.start >= row_count {
             return;
