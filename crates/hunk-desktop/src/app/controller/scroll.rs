@@ -8,6 +8,12 @@ type DiffSegmentPrefetchJob = (
     DiffSegmentQuality,
 );
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DiffSegmentPrefetchTarget {
+    LegacyRows,
+    ReviewWorkspace,
+}
+
 impl DiffViewer {
     fn scroll_selected_file_to_top(&mut self) {
         let target_path = if self.workspace_view_mode == WorkspaceViewMode::Diff {
@@ -119,17 +125,6 @@ impl DiffViewer {
         force_upgrade: bool,
         cx: &mut Context<Self>,
     ) {
-        let row_count = self.active_diff_row_count();
-        if row_count == 0 {
-            return;
-        }
-
-        if self.workspace_view_mode != WorkspaceViewMode::Diff
-            && self.diff_row_segment_cache.len() != row_count
-        {
-            self.diff_row_segment_cache.resize(row_count, None);
-        }
-
         if !force_upgrade
             && let Some(anchor_row) = self.segment_prefetch_anchor_row
             && anchor_row.abs_diff(visible_row) < DIFF_SEGMENT_PREFETCH_STEP_ROWS
@@ -138,100 +133,142 @@ impl DiffViewer {
         }
 
         self.segment_prefetch_anchor_row = Some(visible_row);
-        let recently_scrolling = self.recently_scrolling();
-        let pending_rows: Vec<DiffSegmentPrefetchJob> = if self.uses_review_workspace_sections_surface() {
-            self.review_workspace_session
-                .as_ref()
-                .map(|session| {
-                    session.build_segment_prefetch_rows(
-                        review_workspace_session::ReviewWorkspaceSegmentPrefetchRequest {
-                            scroll_top_px: self.current_review_surface_scroll_top_px(),
-                            viewport_height_px: self
-                                .review_surface
-                                .diff_scroll_handle
-                                .bounds()
-                                .size
-                                .height
-                                .max(Pixels::ZERO)
-                                .as_f32()
-                                .round() as usize,
-                            anchor_row: visible_row,
-                            overscan_rows: DIFF_SEGMENT_PREFETCH_RADIUS_ROWS,
-                            force_upgrade,
-                            recently_scrolling,
-                            batch_limit: DIFF_SEGMENT_PREFETCH_BATCH_ROWS,
-                        },
-                    )
-                })
-                .unwrap_or_default()
-                .into_iter()
-                .map(|row| {
-                    (
-                        row.row_index,
-                        row.left_text,
-                        row.left_kind,
-                        row.right_text,
-                        row.right_kind,
-                        row.file_path,
-                        row.quality,
-                    )
-                })
-                .collect::<Vec<_>>()
+        if self.uses_review_workspace_sections_surface() {
+            self.request_review_visible_row_segment_prefetch(visible_row, force_upgrade, cx);
         } else {
-            let prioritized_rows = prioritized_prefetch_row_indices(
-                visible_row.saturating_sub(DIFF_SEGMENT_PREFETCH_RADIUS_ROWS),
-                visible_row
-                    .saturating_add(DIFF_SEGMENT_PREFETCH_RADIUS_ROWS.saturating_add(1))
-                    .min(row_count),
-                visible_row,
-            );
-            let batch_limit = if force_upgrade {
-                prioritized_rows.len()
-            } else {
-                DIFF_SEGMENT_PREFETCH_BATCH_ROWS.min(prioritized_rows.len())
-            };
-            let mut pending_rows = Vec::with_capacity(batch_limit);
-            for row_ix in prioritized_rows {
-                if pending_rows.len() >= batch_limit {
-                    break;
-                }
+            self.request_legacy_visible_row_segment_prefetch(visible_row, force_upgrade, cx);
+        }
+    }
 
-                let Some(row) = self.active_diff_row(row_ix) else {
-                    continue;
-                };
-                if row.kind != DiffRowKind::Code {
-                    continue;
-                }
-
-                let file_path = self
-                    .active_diff_row_metadata(row_ix)
-                    .and_then(|meta| meta.file_path.clone());
-                let base_quality = file_path
-                    .as_deref()
-                    .and_then(|path| self.active_diff_file_line_stats().get(path).copied())
-                    .map(base_segment_quality_for_file)
-                    .unwrap_or(DiffSegmentQuality::Detailed);
-                let target_quality = effective_segment_quality(base_quality, recently_scrolling);
-
-                if self
-                    .active_diff_row_segment_cache(row_ix)
-                    .is_some_and(|cache| cache.quality >= target_quality)
-                {
-                    continue;
-                }
-
-                pending_rows.push((
-                    row_ix,
-                    row.left.text.clone(),
-                    row.left.kind,
-                    row.right.text.clone(),
-                    row.right.kind,
-                    file_path,
-                    target_quality,
-                ));
-            }
-            pending_rows
+    fn request_review_visible_row_segment_prefetch(
+        &mut self,
+        visible_row: usize,
+        force_upgrade: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(session) = self.review_workspace_session.as_ref() else {
+            return;
         };
+
+        let pending_rows = session
+            .build_segment_prefetch_rows(
+                review_workspace_session::ReviewWorkspaceSegmentPrefetchRequest {
+                    scroll_top_px: self.current_review_surface_scroll_top_px(),
+                    viewport_height_px: self
+                        .review_surface
+                        .diff_scroll_handle
+                        .bounds()
+                        .size
+                        .height
+                        .max(Pixels::ZERO)
+                        .as_f32()
+                        .round() as usize,
+                    anchor_row: visible_row,
+                    overscan_rows: DIFF_SEGMENT_PREFETCH_RADIUS_ROWS,
+                    force_upgrade,
+                    recently_scrolling: self.recently_scrolling(),
+                    batch_limit: DIFF_SEGMENT_PREFETCH_BATCH_ROWS,
+                },
+            )
+            .into_iter()
+            .map(|row| {
+                (
+                    row.row_index,
+                    row.left_text,
+                    row.left_kind,
+                    row.right_text,
+                    row.right_kind,
+                    row.file_path,
+                    row.quality,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        self.spawn_segment_prefetch_task(
+            pending_rows,
+            DiffSegmentPrefetchTarget::ReviewWorkspace,
+            cx,
+        );
+    }
+
+    fn request_legacy_visible_row_segment_prefetch(
+        &mut self,
+        visible_row: usize,
+        force_upgrade: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let row_count = self.active_diff_row_count();
+        if row_count == 0 {
+            return;
+        }
+
+        if self.diff_row_segment_cache.len() != row_count {
+            self.diff_row_segment_cache.resize(row_count, None);
+        }
+
+        let prioritized_rows = prioritized_prefetch_row_indices(
+            visible_row.saturating_sub(DIFF_SEGMENT_PREFETCH_RADIUS_ROWS),
+            visible_row
+                .saturating_add(DIFF_SEGMENT_PREFETCH_RADIUS_ROWS.saturating_add(1))
+                .min(row_count),
+            visible_row,
+        );
+        let batch_limit = if force_upgrade {
+            prioritized_rows.len()
+        } else {
+            DIFF_SEGMENT_PREFETCH_BATCH_ROWS.min(prioritized_rows.len())
+        };
+        let recently_scrolling = self.recently_scrolling();
+        let mut pending_rows = Vec::with_capacity(batch_limit);
+        for row_ix in prioritized_rows {
+            if pending_rows.len() >= batch_limit {
+                break;
+            }
+
+            let Some(row) = self.active_diff_row(row_ix) else {
+                continue;
+            };
+            if row.kind != DiffRowKind::Code {
+                continue;
+            }
+
+            let file_path = self
+                .active_diff_row_metadata(row_ix)
+                .and_then(|meta| meta.file_path.clone());
+            let base_quality = file_path
+                .as_deref()
+                .and_then(|path| self.active_diff_file_line_stats().get(path).copied())
+                .map(base_segment_quality_for_file)
+                .unwrap_or(DiffSegmentQuality::Detailed);
+            let target_quality = effective_segment_quality(base_quality, recently_scrolling);
+
+            if self
+                .active_diff_row_segment_cache(row_ix)
+                .is_some_and(|cache| cache.quality >= target_quality)
+            {
+                continue;
+            }
+
+            pending_rows.push((
+                row_ix,
+                row.left.text.clone(),
+                row.left.kind,
+                row.right.text.clone(),
+                row.right.kind,
+                file_path,
+                target_quality,
+            ));
+        }
+
+        self.spawn_segment_prefetch_task(pending_rows, DiffSegmentPrefetchTarget::LegacyRows, cx);
+    }
+
+    fn spawn_segment_prefetch_task(
+        &mut self,
+        pending_rows: Vec<DiffSegmentPrefetchJob>,
+        target: DiffSegmentPrefetchTarget,
+        cx: &mut Context<Self>,
+    ) {
 
         if pending_rows.is_empty() {
             return;
@@ -278,23 +315,28 @@ impl DiffViewer {
                     }
 
                     let mut inserted = false;
-                    let update_review_session = this.workspace_view_mode == WorkspaceViewMode::Diff
-                        && this.review_workspace_session.is_some();
                     for (row_ix, row_cache) in computed_rows {
-                        if update_review_session {
-                            if let Some(session) = this.review_workspace_session.as_mut()
-                                && session.set_row_segment_cache_if_better(row_ix, row_cache)
-                            {
-                                inserted = true;
+                        match target {
+                            DiffSegmentPrefetchTarget::ReviewWorkspace => {
+                                if let Some(session) = this.review_workspace_session.as_mut()
+                                    && session.set_row_segment_cache_if_better(row_ix, row_cache)
+                                {
+                                    inserted = true;
+                                }
                             }
-                        } else if let Some(slot) = this.diff_row_segment_cache.get_mut(row_ix) {
-                            let should_replace = slot
-                                .as_ref()
-                                .map(|cached: &DiffRowSegmentCache| row_cache.quality > cached.quality)
-                                .unwrap_or(true);
-                            if should_replace {
-                                *slot = Some(row_cache);
-                                inserted = true;
+                            DiffSegmentPrefetchTarget::LegacyRows => {
+                                if let Some(slot) = this.diff_row_segment_cache.get_mut(row_ix) {
+                                    let should_replace = slot
+                                        .as_ref()
+                                        .map(|cached: &DiffRowSegmentCache| {
+                                            row_cache.quality > cached.quality
+                                        })
+                                        .unwrap_or(true);
+                                    if should_replace {
+                                        *slot = Some(row_cache);
+                                        inserted = true;
+                                    }
+                                }
                             }
                         }
                     }
