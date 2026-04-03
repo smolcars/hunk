@@ -172,12 +172,12 @@ impl DiffViewer {
                                                     .right_0()
                                                     .child(sticky_file_banner),
                                             )
-                                            .when_some(
-                                                self.render_active_row_comment_overlay(cx),
-                                                |this, overlay| {
-                                                    this.child(overlay)
-                                                },
-                                            )
+                                            .when_some(review_surface_snapshot.as_ref(), |this, surface| {
+                                                this.when_some(
+                                                    self.render_active_row_comment_overlay(surface, cx),
+                                                    |this, overlay| this.child(overlay),
+                                                )
+                                            })
                                             .when(
                                                 self.uses_review_workspace_sections_surface(),
                                                 |this| {

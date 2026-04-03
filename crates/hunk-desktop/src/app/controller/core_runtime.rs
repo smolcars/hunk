@@ -3,6 +3,8 @@ impl DiffViewer {
         &self,
         snapshot: &mut review_workspace_session::ReviewWorkspaceSurfaceSnapshot,
     ) {
+        let viewport_height_px = snapshot.viewport_height_px;
+        let scroll_top_px = snapshot.scroll_top_px;
         let mut overlays = Vec::new();
         for row in snapshot
             .viewport
@@ -34,6 +36,25 @@ impl DiffViewer {
             }
         }
         snapshot.overlays = overlays;
+        snapshot.active_comment_editor_overlay = self
+            .active_comment_editor_row
+            .and_then(|row_index| {
+                let row_top_px = self
+                    .review_workspace_session
+                    .as_ref()
+                    .and_then(|session| session.row_top_offset_px(row_index))?;
+                let top_px = crate::app::comment_overlay::review_comment_overlay_top_px(
+                    row_top_px,
+                    scroll_top_px,
+                    viewport_height_px,
+                    crate::app::review_workspace_session::REVIEW_SURFACE_COMPACT_ROW_HEIGHT_PX,
+                )
+                .round() as usize;
+                Some(review_workspace_session::ReviewWorkspaceFloatingOverlay {
+                    row_index,
+                    top_px,
+                })
+            });
     }
 
     pub(super) fn refresh_review_surface_snapshot(

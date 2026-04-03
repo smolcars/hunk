@@ -154,6 +154,7 @@ pub(crate) struct ReviewWorkspaceSurfaceSnapshot {
     pub(crate) viewport: ReviewWorkspaceViewportSnapshot,
     pub(crate) overlays: Vec<ReviewWorkspaceSurfaceOverlay>,
     pub(crate) sticky_file_header: Option<ReviewWorkspaceVisibleFileHeader>,
+    pub(crate) active_comment_editor_overlay: Option<ReviewWorkspaceFloatingOverlay>,
     pub(crate) visible_state: ReviewWorkspaceVisibleState,
 }
 
@@ -169,6 +170,12 @@ pub(crate) struct ReviewWorkspaceSurfaceOverlay {
     pub(crate) top_px: usize,
     pub(crate) height_px: usize,
     pub(crate) kind: ReviewWorkspaceSurfaceOverlayKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewWorkspaceFloatingOverlay {
+    pub(crate) row_index: usize,
+    pub(crate) top_px: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -633,6 +640,7 @@ impl ReviewWorkspaceSession {
             viewport,
             overlays: Vec::new(),
             sticky_file_header,
+            active_comment_editor_overlay: None,
             visible_state,
         }
     }
