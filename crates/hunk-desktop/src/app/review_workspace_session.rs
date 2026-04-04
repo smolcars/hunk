@@ -248,12 +248,38 @@ pub(crate) struct ReviewWorkspaceDisplayRowEntry {
 }
 
 impl ReviewWorkspaceDisplayRows {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
     pub(crate) fn covers_row_range(&self, row_range: Range<usize>) -> bool {
         row_range.clone().all(|row| {
             self.rows
                 .iter()
                 .any(|entry| entry.raw_row_range.start <= row && row < entry.raw_row_range.end)
         })
+    }
+
+    pub(crate) fn merge_from(&mut self, newer: Self) {
+        self.left_by_display_row.extend(newer.left_by_display_row);
+        self.right_by_display_row.extend(newer.right_by_display_row);
+        self.left_syntax_by_display_row
+            .extend(newer.left_syntax_by_display_row);
+        self.right_syntax_by_display_row
+            .extend(newer.right_syntax_by_display_row);
+
+        let mut rows_by_display = self
+            .rows
+            .drain(..)
+            .map(|entry| (entry.display_row_index, entry))
+            .collect::<BTreeMap<_, _>>();
+        rows_by_display.extend(
+            newer
+                .rows
+                .into_iter()
+                .map(|entry| (entry.display_row_index, entry)),
+        );
+        self.rows = rows_by_display.into_values().collect();
     }
 
     fn entries_for_raw_range(
@@ -322,6 +348,7 @@ pub(crate) struct ReviewWorkspaceSession {
     rows: Vec<SideBySideRow>,
     row_metadata: Vec<DiffStreamRowMeta>,
     row_segments: Vec<Option<DiffRowSegmentCache>>,
+    cached_display_rows: ReviewWorkspaceDisplayRows,
     display_geometry: ReviewWorkspaceDisplayGeometry,
 }
 
@@ -469,6 +496,7 @@ impl ReviewWorkspaceSession {
             rows: Vec::new(),
             row_metadata: Vec::new(),
             row_segments: Vec::new(),
+            cached_display_rows: ReviewWorkspaceDisplayRows::default(),
             display_geometry: ReviewWorkspaceDisplayGeometry::default(),
         })
     }
@@ -480,6 +508,7 @@ impl ReviewWorkspaceSession {
         self.rows = stream.rows.clone();
         self.row_metadata = stream.row_metadata.clone();
         self.row_segments = stream.row_segments.clone();
+        self.cached_display_rows = ReviewWorkspaceDisplayRows::default();
         self.rebuild_document_buffers();
         self.rebuild_display_geometry(None);
         self
@@ -1290,6 +1319,20 @@ impl ReviewWorkspaceSession {
         display_rows: &ReviewWorkspaceDisplayRows,
     ) {
         self.rebuild_display_geometry(Some(display_rows));
+    }
+
+    pub(crate) fn cached_display_rows_covering(
+        &self,
+        row_range: Range<usize>,
+    ) -> Option<ReviewWorkspaceDisplayRows> {
+        (!self.cached_display_rows.is_empty() && self.cached_display_rows.covers_row_range(row_range))
+            .then(|| self.cached_display_rows.clone())
+    }
+
+    pub(crate) fn cache_display_rows(&mut self, display_rows: ReviewWorkspaceDisplayRows) {
+        self.cached_display_rows.merge_from(display_rows);
+        let cached_display_rows = self.cached_display_rows.clone();
+        self.rebuild_display_geometry(Some(&cached_display_rows));
     }
 
     #[allow(dead_code)]

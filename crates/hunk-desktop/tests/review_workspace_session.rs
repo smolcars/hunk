@@ -2028,6 +2028,68 @@ fn review_workspace_display_rows_require_complete_left_and_right_coverage() {
 }
 
 #[test]
+fn review_workspace_session_reuses_cached_display_rows_across_ranges() {
+    let patch = "\
+@@ -1,4 +1,4 @@
+-before
++after
+ keep
+ tail
+ stay
+";
+    let snapshot = CompareSnapshot {
+        files: vec![changed_file("src/lib.rs", FileStatus::Modified)],
+        file_line_stats: BTreeMap::new(),
+        overall_line_stats: LineStats::default(),
+        patches_by_path: BTreeMap::from([("src/lib.rs".to_string(), patch.to_string())]),
+    };
+
+    let rows = parse_patch_side_by_side(patch);
+    let stream = review_stream_for_rows(&rows, "src/lib.rs", FileStatus::Modified);
+    let mut session = ReviewWorkspaceSession::from_compare_snapshot(&snapshot, &BTreeSet::new())
+        .expect("review workspace session should build")
+        .with_render_stream(&stream);
+
+    let first = ReviewWorkspaceDisplayRows {
+        rows: vec![ReviewWorkspaceDisplayRowEntry {
+            display_row_index: 0,
+            row_index: 0,
+            raw_row_range: 0..2,
+            left: display_row(0, "fold-a"),
+            right: display_row(0, "fold-a"),
+        }],
+        left_by_display_row: BTreeMap::from([(0, display_row(0, "fold-a"))]),
+        right_by_display_row: BTreeMap::from([(0, display_row(0, "fold-a"))]),
+        left_syntax_by_display_row: BTreeMap::new(),
+        right_syntax_by_display_row: BTreeMap::new(),
+    };
+    let second = ReviewWorkspaceDisplayRows {
+        rows: vec![ReviewWorkspaceDisplayRowEntry {
+            display_row_index: 2,
+            row_index: 2,
+            raw_row_range: 2..4,
+            left: display_row(2, "fold-b"),
+            right: display_row(2, "fold-b"),
+        }],
+        left_by_display_row: BTreeMap::from([(2, display_row(2, "fold-b"))]),
+        right_by_display_row: BTreeMap::from([(2, display_row(2, "fold-b"))]),
+        left_syntax_by_display_row: BTreeMap::new(),
+        right_syntax_by_display_row: BTreeMap::new(),
+    };
+
+    session.cache_display_rows(first);
+    session.cache_display_rows(second);
+
+    let cached = session
+        .cached_display_rows_covering(0..4)
+        .expect("cached display rows should cover the merged raw range");
+    assert!(cached.covers_row_range(0..4));
+    assert_eq!(cached.rows.len(), 2);
+    assert_eq!(cached.rows[0].raw_row_range, 0..2);
+    assert_eq!(cached.rows[1].raw_row_range, 2..4);
+}
+
+#[test]
 fn review_workspace_surface_snapshot_preserves_display_row_identity() {
     let patch = "\
 @@ -1 +1 @@

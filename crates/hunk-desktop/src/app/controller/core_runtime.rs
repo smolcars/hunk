@@ -140,6 +140,12 @@ impl DiffViewer {
             .end
             .saturating_add(overscan_rows)
             .min(session.row_count());
+        let requested_row_range = first_visible_row..last_visible_row;
+        if let Some(display_rows) = session.cached_display_rows_covering(requested_row_range.clone())
+        {
+            session.refresh_display_geometry_from_display_rows(&display_rows);
+            return Some(display_rows);
+        }
         let viewport = session.display_viewport_for_surface_viewport(
             scroll_top_px,
             viewport_height_px,
@@ -204,8 +210,8 @@ impl DiffViewer {
             left_syntax_by_display_row,
             right_syntax_by_display_row,
         };
-        if display_rows.covers_row_range(first_visible_row..last_visible_row) {
-            session.refresh_display_geometry_from_display_rows(&display_rows);
+        if display_rows.covers_row_range(requested_row_range) {
+            session.cache_display_rows(display_rows.clone());
             Some(display_rows)
         } else {
             None
