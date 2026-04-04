@@ -39,6 +39,8 @@ mod workspace_syntax_impl;
 use language_impl::overlay_kind_for_diagnostic_severity;
 use paint::{EditorLayout, RowSyntaxSpan, build_row_syntax_spans_for_row};
 #[allow(unused_imports)]
+pub(crate) use workspace_display_impl::WorkspaceProjectedRenderSnapshot;
+#[allow(unused_imports)]
 pub(crate) use workspace_search_impl::WorkspaceSearchTarget;
 pub(crate) use workspace_session::WorkspaceEditorSession;
 

@@ -17,7 +17,17 @@ use workspace_display_buffers::{
     find_workspace_search_matches, snapshot_line_text,
 };
 
+use super::RowSyntaxSpan;
 use super::{FilesEditor, FilesEditorViewState, default_show_whitespace_for_path};
+
+#[derive(Debug, Clone)]
+pub(crate) struct WorkspaceProjectedRenderSnapshot {
+    pub(crate) projection: WorkspaceProjectedSnapshot,
+    pub(crate) visible_display_rows: Vec<WorkspaceDisplayRow>,
+    pub(crate) syntax_by_display_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
+    #[allow(dead_code)]
+    pub(crate) line_number_digits: usize,
+}
 
 impl FilesEditor {
     #[allow(dead_code)]
@@ -86,6 +96,32 @@ impl FilesEditor {
                     .collect()
             },
         ))
+    }
+
+    pub(crate) fn build_workspace_projected_render_snapshot(
+        &mut self,
+        viewport: Viewport,
+        tab_width: usize,
+    ) -> Option<WorkspaceProjectedRenderSnapshot> {
+        let layout = self.workspace_session.layout()?.clone();
+        let projection = self.build_workspace_projected_snapshot(viewport, tab_width)?;
+        let visible_display_rows =
+            workspace_display_rows_from_projected_snapshot(&projection.visible_rows)?;
+        let syntax_by_display_row =
+            self.workspace_display_segments_by_row(&visible_display_rows)?;
+        let line_number_digits = layout
+            .documents()
+            .iter()
+            .map(|document| document.line_count.max(1).to_string().len())
+            .max()
+            .unwrap_or(1);
+
+        Some(WorkspaceProjectedRenderSnapshot {
+            projection,
+            visible_display_rows,
+            syntax_by_display_row,
+            line_number_digits,
+        })
     }
 
     #[allow(dead_code)]
@@ -159,6 +195,34 @@ impl FilesEditor {
                 show_whitespace: default_show_whitespace_for_path(path),
             })
     }
+}
+
+fn workspace_display_rows_from_projected_snapshot(
+    projected_rows: &[hunk_editor::WorkspaceProjectedRow],
+) -> Option<Vec<WorkspaceDisplayRow>> {
+    projected_rows
+        .iter()
+        .map(|row| {
+            if row
+                .workspace_row_range
+                .as_ref()
+                .is_some_and(|workspace_row_range| workspace_row_range.is_empty())
+            {
+                return None;
+            }
+
+            Some(WorkspaceDisplayRow {
+                row_index: row.row_index,
+                location: row.location.clone(),
+                raw_start_column: row.raw_start_column,
+                raw_end_column: row.raw_end_column,
+                raw_column_offsets: row.raw_column_offsets.clone(),
+                text: row.text.clone(),
+                whitespace_markers: row.whitespace_markers.clone(),
+                search_highlights: row.search_highlights.clone(),
+            })
+        })
+        .collect()
 }
 
 fn apply_workspace_search_highlights(

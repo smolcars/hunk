@@ -1,6 +1,6 @@
 # Zed Editor Architecture Port TODO
 
-Status: Done
+Status: In Progress
 
 ## Goal
 
@@ -44,6 +44,13 @@ Today Hunk still differs from that model in important ways:
 - Files view is editor-backed, but Diff/Review still depends on list rows and per-file orchestration.
 - There is no workspace-level coordinate system that spans multiple files in one editor surface.
 - Syntax, comments, hunk navigation, and selection do not share one workspace document model.
+
+The largest remaining gap now is UI ownership, not data ownership:
+
+- Diff still paints through a custom Review viewport in `crates/hunk-desktop/src/app/render/review_workspace_surface.rs`.
+- Diff still coordinates two side editors (`left_workspace_editor` / `right_workspace_editor`) from controller code instead of one editor-owned diff surface.
+- Files view still mounts a single-buffer-oriented editor element instead of the same workspace-projection surface contract Diff needs.
+- File headers, hunk headers, sticky headers, and comment affordances are still custom viewport UI instead of editor-owned blocks/overlays.
 
 ## What We Can Adapt From Zed
 
@@ -379,6 +386,119 @@ Current state:
 - Top-level app and workspace project state no longer carry legacy `diff_rows` / `diff_row_metadata` / `diff_row_segment_cache` / `file_row_ranges` storage.
 - Legacy visible-row segment-prefetch and header-lookup fallback branches have been removed from the active runtime path.
 - The remaining diff-stream row builder code exists only as Review compare-load staging, not as a live alternate renderer.
+
+### Phase 9: Promote FilesEditor To A Workspace-Projection Surface Contract
+
+Status: Done
+
+Targets:
+
+- `crates/hunk-desktop/src/app/native_files_editor.rs`
+- `crates/hunk-desktop/src/app/native_files_editor_workspace_display.rs`
+- `crates/hunk-desktop/tests/native_files_editor.rs`
+
+Tasks:
+
+- [x] Add one reusable workspace-projection render snapshot type above `WorkspaceProjectedSnapshot`.
+- [x] Make `FilesEditor` build projection rows, syntax rows, and gutter sizing from one surface-oriented API.
+- [x] Keep the API independent of Review so both Files and Diff can mount the same projected surface contract later.
+- [x] Add focused tests for multi-excerpt projected render snapshots.
+
+Zed reference points:
+
+- `/tmp/zed-full/crates/editor/src/element.rs`
+- `/tmp/zed-full/crates/git_ui/src/multi_diff_view.rs`
+
+### Phase 10: Replace Review Code-Row Painting With Workspace-Projection Elements
+
+Status: Pending
+
+Targets:
+
+- `crates/hunk-desktop/src/app/render/review_workspace_surface.rs`
+- `crates/hunk-desktop/src/app/render/review_workspace_section.rs`
+- `crates/hunk-desktop/src/app/render/review_workspace_code_row.rs`
+
+Tasks:
+
+- [ ] Feed left/right visible projected render snapshots from the persistent side editors into the Diff surface.
+- [ ] Stop painting visible code rows directly from Review-only cached segments.
+- [ ] Keep file headers, meta rows, and comment affordances on the current Review surface as temporary overlay blocks.
+- [ ] Match current search, syntax, and selection behavior on the new projected-row path.
+
+### Phase 11: Move Diff Viewport Ownership Into The Editor Surface
+
+Status: Pending
+
+Targets:
+
+- `crates/hunk-desktop/src/app/render/review_workspace_surface.rs`
+- `crates/hunk-desktop/src/app/render/review_workspace_section.rs`
+- `crates/hunk-desktop/src/app/controller/core_runtime.rs`
+
+Tasks:
+
+- [ ] Move scroll hit-testing and row hit-testing off `ReviewWorkspaceViewportElement`.
+- [ ] Treat file headers, hunk headers, sticky headers, and comment affordances as sparse editor-surface blocks/overlays.
+- [ ] Remove per-row manual painting from the Review viewport element.
+- [ ] Route Diff-mode input through the editor-owned surface instead of the current custom viewport painter.
+
+Zed reference points:
+
+- `/tmp/zed-full/crates/editor/src/element.rs`
+- `/tmp/zed-full/crates/git_ui/src/file_diff_view.rs`
+
+### Phase 12: Unify Files And Diff On One Workspace Surface Entry Point
+
+Status: Pending
+
+Targets:
+
+- `crates/hunk-desktop/src/app/render/file_editor_surface.rs`
+- `crates/hunk-desktop/src/app/render/review_workspace_surface.rs`
+- `crates/hunk-desktop/src/app/controller/editor.rs`
+- `crates/hunk-desktop/src/app/controller/review_compare.rs`
+
+Tasks:
+
+- [ ] Make Files mode mount the same workspace surface contract used by Diff.
+- [ ] Remove remaining render-entry assumptions that Files is single-buffer and Diff is custom-surface.
+- [ ] Keep persistent selection, scroll, and search state under the shared editor/session owner.
+- [ ] Ensure excerpt-order navigation behaves consistently in Files and Diff.
+
+### Phase 13: Replace Paired-Side Diff Orchestration With One Diff Surface Owner
+
+Status: Pending
+
+Targets:
+
+- `crates/hunk-desktop/src/app/controller/review_compare.rs`
+- `crates/hunk-desktop/src/app/controller/core_runtime.rs`
+- `crates/hunk-desktop/src/app/review_workspace_session.rs`
+
+Tasks:
+
+- [ ] Reduce controller coordination around `left_workspace_editor` and `right_workspace_editor`.
+- [ ] Introduce one diff-surface owner over the shared workspace layout, following Zed's `MultiDiffView::open` / `register_entry` orchestration as closely as Hunk allows.
+- [ ] Preserve side-by-side compare behavior and diff metadata while making the surface owner singular.
+- [ ] Keep revisit/reload behavior stable when compare inputs are unchanged.
+
+### Phase 14: Delete Transitional Review Surface Code
+
+Status: Pending
+
+Targets:
+
+- `crates/hunk-desktop/src/app/render/review_workspace_surface.rs`
+- `crates/hunk-desktop/src/app/render/review_workspace_section.rs`
+- any remaining transitional adapter code introduced during Phases 9-13
+
+Tasks:
+
+- [ ] Delete custom viewport ownership once the editor-owned workspace surface is live.
+- [ ] Delete paired-side adapter state and controller shims no longer needed.
+- [ ] Re-run performance validation against the 8ms frame budget / 120fps target.
+- [ ] Mark the tracker done only when Files and Diff both mount the shared surface contract and Diff no longer depends on a custom viewport painter.
 
 ## Acceptance Criteria
 

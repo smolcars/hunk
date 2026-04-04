@@ -764,6 +764,85 @@ fn workspace_projected_snapshot_uses_per_path_fold_and_wrap_state() {
 }
 
 #[test]
+fn workspace_projected_render_snapshot_packages_rows_syntax_and_gutter_state() {
+    let mut editor = FilesEditor::new();
+    let main_document_id = WorkspaceDocumentId::new(1);
+    let lib_document_id = WorkspaceDocumentId::new(2);
+    let layout = WorkspaceLayout::new(
+        vec![
+            WorkspaceDocument::new(main_document_id, "src/main.rs", BufferId::new(11), 2),
+            WorkspaceDocument::new(lib_document_id, "src/lib.rs", BufferId::new(21), 12),
+        ],
+        vec![
+            WorkspaceExcerptSpec::new(
+                WorkspaceExcerptId::new(1),
+                main_document_id,
+                WorkspaceExcerptKind::FullFile,
+                0..2,
+            ),
+            WorkspaceExcerptSpec::new(
+                WorkspaceExcerptId::new(2),
+                lib_document_id,
+                WorkspaceExcerptKind::FullFile,
+                0..12,
+            ),
+        ],
+        1,
+    )
+    .expect("workspace layout should build");
+
+    editor
+        .open_workspace_layout_documents(
+            layout,
+            vec![
+                (
+                    PathBuf::from("src/main.rs"),
+                    "fn main() {}\nlet answer = 42;".to_string(),
+                ),
+                (
+                    PathBuf::from("src/lib.rs"),
+                    "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu"
+                        .to_string(),
+                ),
+            ],
+            Some(Path::new("src/lib.rs")),
+        )
+        .expect("workspace layout documents should open");
+
+    let render_snapshot = editor
+        .build_workspace_projected_render_snapshot(
+            Viewport {
+                first_visible_row: 0,
+                visible_row_count: 16,
+                horizontal_offset: 0,
+            },
+            4,
+        )
+        .expect("workspace projected render snapshot should exist");
+
+    assert_eq!(
+        render_snapshot.visible_display_rows.len(),
+        render_snapshot.projection.visible_rows.len()
+    );
+    assert_eq!(render_snapshot.line_number_digits, 2);
+
+    let main_row_index = render_snapshot
+        .visible_display_rows
+        .iter()
+        .find(|row| row.text == "fn main() {}")
+        .map(|row| row.row_index)
+        .expect("main row should be visible");
+
+    assert!(
+        render_snapshot
+            .syntax_by_display_row
+            .get(&main_row_index)
+            .is_some_and(|spans| !spans.is_empty()),
+        "projected render snapshot should carry syntax spans for visible workspace rows"
+    );
+}
+
+#[test]
 fn workspace_search_navigation_moves_across_layout_documents() {
     let mut editor = FilesEditor::new();
     let main_document_id = WorkspaceDocumentId::new(1);
