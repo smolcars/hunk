@@ -205,6 +205,16 @@ impl DiffViewer {
         true
     }
 
+    pub(super) fn rebuild_review_surface_display_rows(&mut self) -> bool {
+        let Some(session) = self.review_workspace_session.as_mut() else {
+            self.review_surface.clear_workspace_surface_snapshot();
+            return false;
+        };
+        session.clear_cached_display_rows();
+        self.review_surface.clear_workspace_surface_snapshot();
+        self.seed_review_surface_display_rows()
+    }
+
     fn project_review_surface_display_rows_for_viewport(
         left_workspace_editor: &crate::app::native_files_editor::SharedFilesEditor,
         right_workspace_editor: &crate::app::native_files_editor::SharedFilesEditor,

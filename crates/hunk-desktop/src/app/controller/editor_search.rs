@@ -51,6 +51,7 @@ impl DiffViewer {
     fn sync_review_workspace_search_query(&mut self, query: Option<&str>) {
         let Some(session) = self.review_workspace_session.as_ref() else {
             self.review_surface.clear_workspace_search_matches();
+            self.review_surface.clear_workspace_surface_snapshot();
             return;
         };
         let Some(query) = query.map(str::trim).filter(|query| !query.is_empty()) else {
@@ -61,6 +62,7 @@ impl DiffViewer {
                 editor.borrow_mut().set_search_query(None);
             }
             self.review_surface.clear_workspace_search_matches();
+            let _ = self.rebuild_review_surface_display_rows();
             return;
         };
         if let Some(editor) = self.review_surface.left_workspace_editor.as_ref() {
@@ -70,9 +72,12 @@ impl DiffViewer {
             editor.borrow_mut().set_search_query(Some(query));
         }
 
-        if let Some(editor) = self.review_surface.right_workspace_editor.as_ref()
-            && let Some(matches) = editor.borrow().workspace_search_matches(query)
-        {
+        let editor_matches = self
+            .review_surface
+            .right_workspace_editor
+            .as_ref()
+            .and_then(|editor| editor.borrow().workspace_search_matches(query));
+        if let Some(matches) = editor_matches {
             self.review_surface.workspace_search_matches = matches
                 .iter()
                 .filter_map(|target| {
@@ -86,11 +91,13 @@ impl DiffViewer {
                 })
                 .collect();
             self.review_surface.workspace_editor_search_matches = matches;
+            let _ = self.rebuild_review_surface_display_rows();
             return;
         }
 
         self.review_surface.workspace_search_matches = session.workspace_search_matches(query);
         self.review_surface.workspace_editor_search_matches.clear();
+        let _ = self.rebuild_review_surface_display_rows();
     }
 
     pub(super) fn sync_editor_search_query(&mut self, cx: &mut Context<Self>) {
@@ -138,6 +145,7 @@ impl DiffViewer {
             }
             self.files_editor.borrow_mut().set_search_query(None);
             if self.workspace_view_mode == WorkspaceViewMode::Diff {
+                let _ = self.rebuild_review_surface_display_rows();
                 self.focus_handle.focus(window, cx);
             } else {
                 self.files_editor_focus_handle.focus(window, cx);

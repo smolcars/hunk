@@ -1338,6 +1338,11 @@ impl ReviewWorkspaceSession {
         self.rebuild_display_geometry(Some(&cached_display_rows));
     }
 
+    pub(crate) fn clear_cached_display_rows(&mut self) {
+        self.cached_display_rows = ReviewWorkspaceDisplayRows::default();
+        self.rebuild_display_geometry(None);
+    }
+
     #[allow(dead_code)]
     pub(crate) fn build_editor_session(
         &self,
