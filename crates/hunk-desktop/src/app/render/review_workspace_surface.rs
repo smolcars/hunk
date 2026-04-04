@@ -86,7 +86,7 @@ impl DiffViewer {
             });
         let layout = self.diff_column_layout();
         let scroller = if let Some(surface) = review_surface_snapshot.as_ref() {
-            self.render_review_workspace_sections_scroller(surface, cx)
+            self.render_review_workspace_viewport_scroller(surface, cx)
         } else {
             self.render_review_workspace_status_surface(cx)
         };
@@ -261,13 +261,13 @@ impl DiffViewer {
             .into_any_element()
     }
 
-    fn render_review_workspace_surface_children(
+    fn render_review_workspace_surface_child(
         &self,
         surface: &review_workspace_session::ReviewWorkspaceSurfaceSnapshot,
         visible_pixel_range: Range<usize>,
         cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let painted_surface = div()
+    ) -> AnyElement {
+        div()
             .absolute()
             .top(px(visible_pixel_range.start as f32))
             .left_0()
@@ -279,30 +279,18 @@ impl DiffViewer {
                 visible_pixel_range.start,
                 cx,
             ))
-            .into_any_element();
-        vec![painted_surface]
+            .into_any_element()
     }
 
-    fn render_review_workspace_sections_scroller(
+    fn render_review_workspace_viewport_scroller(
         &self,
         surface: &review_workspace_session::ReviewWorkspaceSurfaceSnapshot,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let scroll_handle = self.review_surface.diff_scroll_handle.clone();
-        let surface_children = surface
-            .viewport
-            .visible_pixel_range()
-            .map(|visible_pixel_range| {
-                self.render_review_workspace_surface_children(
-                    surface,
-                    visible_pixel_range,
-                    cx,
-                )
-            })
-            .unwrap_or_default();
 
         div()
-            .id("review-workspace-sections-scroll")
+            .id("review-workspace-viewport-scroll")
             .size_full()
             .track_scroll(&scroll_handle)
             .overflow_y_scroll()
@@ -311,7 +299,13 @@ impl DiffViewer {
                     .relative()
                     .w_full()
                     .h(px(surface.viewport.total_surface_height_px as f32))
-                    .children(surface_children),
+                    .when_some(surface.viewport.visible_pixel_range(), |this, visible_pixel_range| {
+                        this.child(self.render_review_workspace_surface_child(
+                            surface,
+                            visible_pixel_range,
+                            cx,
+                        ))
+                    }),
             )
             .into_any_element()
     }

@@ -146,7 +146,7 @@ Tasks:
 
 - [x] Build one workspace editor model for the entire compared file set.
 - [x] Represent each compared file as one or more excerpts with context lines.
-- [ ] Replace list-row-driven diff scrolling with one editor-backed scroll surface.
+- [x] Replace list-row-driven diff scrolling with one editor-backed scroll surface.
 - [x] Keep file headers and section metadata as lightweight decorations on top of the shared surface.
 
 Current state:
@@ -183,7 +183,7 @@ Current state:
 - Review’s live row count now comes from the shared workspace layout rather than the legacy flat render vector length, so list sizing and visible-row sync track the workspace model directly.
 - Once the Review session is loaded, the live Review surface rows no longer need to stay duplicated in the top-level legacy `diff_rows` caches; the shared session is now the source of truth for row data during Diff mode.
 - Review compare apply no longer needs the generic flat-row load path when the shared session builds successfully; it now initializes the visible Review surface state directly from the workspace session and only falls back to the legacy row path if session construction fails.
-- The remaining gap is the surface itself: Review still scrolls as a list over flattened rows instead of one editor-backed multi-file surface.
+- The remaining gap is no longer list-driven scrolling. Review now paints through one viewport-owned multi-file surface, but that surface is still custom-owned by the Review layer instead of being a true editor-owned `MultiDiffView`-style element.
 
 Zed analogue:
 
