@@ -80,54 +80,6 @@ fn build_review_workspace_file_header_paint(
     }
 }
 
-impl DiffViewer {
-    fn review_view_file_shortcut_label(&self) -> Option<String> {
-        let shortcuts = self.config.keyboard_shortcuts.view_current_review_file.as_slice();
-        let preferred = if cfg!(target_os = "macos") {
-            shortcuts
-                .iter()
-                .find(|shortcut| shortcut.to_ascii_lowercase().contains("cmd"))
-        } else {
-            shortcuts
-                .iter()
-                .find(|shortcut| shortcut.to_ascii_lowercase().contains("ctrl"))
-        }
-        .or_else(|| shortcuts.first())?;
-        Some(format_shortcut_label(preferred.as_str()))
-    }
-
-    fn render_review_view_file_button(
-        &self,
-        button_id: (&'static str, u64),
-        path: &str,
-        status: FileStatus,
-        view: Entity<DiffViewer>,
-        _cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let path = path.to_string();
-        let disabled = !self.can_open_file_in_files_workspace(path.as_str(), status);
-        let tooltip = self
-            .review_view_file_shortcut_label()
-            .map_or_else(|| "View file".to_string(), |shortcut| {
-                format!("View file ({shortcut})")
-            });
-
-        Button::new(button_id)
-            .outline()
-            .compact()
-            .rounded(px(7.0))
-            .label("View File")
-            .disabled(disabled)
-            .tooltip(tooltip)
-            .on_click(move |_, window, cx| {
-                view.update(cx, |this, cx| {
-                    this.open_file_in_files_workspace(path.clone(), status, window, cx);
-                });
-            })
-            .into_any_element()
-    }
-}
-
 #[derive(Clone, Copy)]
 struct ReviewWorkspaceFileHeaderControlsLayout {
     collapse_bounds: Bounds<Pixels>,

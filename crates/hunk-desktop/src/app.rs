@@ -12,7 +12,7 @@ use codex_app_server_protocol::SkillMetadata;
 use gpui::{
     AnchoredPositionMode, Animation, AnimationExt as _, AnyWindowHandle, App, AppContext as _,
     Bounds, ClipboardItem, Context, Corner, Decorations, DragMoveEvent, Empty, Entity, EntityId,
-    EntityInputHandler, FocusHandle, InteractiveElement as _, IsZero as _, KeyBinding,
+    EntityInputHandler, FocusHandle, InteractiveElement as _, KeyBinding,
     ListAlignment, ListOffset, ListSizingBehavior, ListState, Menu, MenuItem, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, OsAction, ParentElement as _, PathPromptOptions,
     Pixels, Point, Render, ScrollHandle, ScrollWheelEvent, SharedString,

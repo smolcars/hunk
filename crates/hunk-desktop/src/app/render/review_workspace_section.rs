@@ -2,6 +2,8 @@
 struct ReviewWorkspaceViewportElement {
     view: Entity<DiffViewer>,
     viewport: std::rc::Rc<review_workspace_session::ReviewWorkspaceViewportSnapshot>,
+    sticky_file_header: Option<review_workspace_session::ReviewWorkspaceVisibleFileHeader>,
+    sticky_file_can_view: bool,
     viewport_origin_px: usize,
     selected_row_range: Option<(usize, usize)>,
     layout: Option<DiffColumnLayout>,
@@ -82,12 +84,52 @@ impl Element for ReviewWorkspaceViewportElement {
         cx: &mut App,
     ) {
         let viewport = self.viewport.clone();
+        let sticky_file_header = self.sticky_file_header.clone();
+        let sticky_file_can_view = self.sticky_file_can_view;
         let viewport_origin_px = self.viewport_origin_px;
         let hitbox = layout.hitbox.clone();
         let view = self.view.clone();
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
             if phase != gpui::DispatchPhase::Bubble || !hitbox.is_hovered(window) {
                 return;
+            }
+            if let Some(header) = &sticky_file_header {
+                let sticky_bounds = review_workspace_sticky_header_bounds(
+                    hitbox.bounds.origin,
+                    hitbox.bounds.size.width,
+                );
+                if sticky_bounds.contains(&event.position) {
+                    if matches!(
+                        event.button,
+                        gpui::MouseButton::Left | gpui::MouseButton::Middle
+                    ) {
+                        let controls = review_workspace_file_header_controls_layout(sticky_bounds);
+                        if controls.collapse_bounds.contains(&event.position) {
+                            let path = header.path.clone();
+                            view.update(cx, |this, cx| {
+                                this.toggle_file_collapsed(path, cx);
+                                cx.stop_propagation();
+                            });
+                            return;
+                        }
+                        if controls.view_bounds.contains(&event.position) {
+                            if !sticky_file_can_view {
+                                cx.stop_propagation();
+                                return;
+                            }
+                            let path = header.path.clone();
+                            let status = header.status;
+                            view.update(cx, |this, cx| {
+                                let _ =
+                                    this.open_file_in_files_workspace(path, status, window, cx);
+                                cx.stop_propagation();
+                            });
+                            return;
+                        }
+                    }
+                    cx.stop_propagation();
+                    return;
+                }
             }
             let Some(row_ix) = review_workspace_row_at_position(
                 viewport.as_ref(),
@@ -317,6 +359,30 @@ impl Element for ReviewWorkspaceViewportElement {
                     );
                 }
             }
+
+            if let Some(header) = self.sticky_file_header.as_ref() {
+                let sticky_bounds =
+                    review_workspace_sticky_header_bounds(bounds.origin, bounds.size.width);
+                let is_selected =
+                    review_workspace_row_is_selected(self.selected_row_range, header.row_index);
+                let paint = build_review_workspace_file_header_paint(
+                    cx.theme(),
+                    header.path.as_str(),
+                    header.status,
+                    header.line_stats,
+                    is_selected,
+                    false,
+                    self.sticky_file_can_view,
+                );
+                paint_review_workspace_file_header_row(
+                    window,
+                    cx,
+                    sticky_bounds,
+                    &paint,
+                    self.mono_font_family.clone(),
+                    self.ui_font_family.clone(),
+                );
+            }
         });
     }
 }
@@ -356,6 +422,19 @@ fn review_workspace_row_bounds(
                 ),
         ),
         size: gpui::size(width, px(viewport_row.height_px as f32)),
+    }
+}
+
+fn review_workspace_sticky_header_bounds(
+    origin: gpui::Point<gpui::Pixels>,
+    width: gpui::Pixels,
+) -> Bounds<gpui::Pixels> {
+    Bounds {
+        origin,
+        size: gpui::size(
+            width,
+            px(review_workspace_session::REVIEW_SURFACE_COMPACT_ROW_HEIGHT_PX as f32),
+        ),
     }
 }
 
@@ -546,15 +625,24 @@ fn paint_review_workspace_outline(
 impl DiffViewer {
     fn render_review_workspace_viewport_element(
         &self,
+        surface: &review_workspace_session::ReviewWorkspaceSurfaceSnapshot,
         viewport: &review_workspace_session::ReviewWorkspaceViewportSnapshot,
         viewport_origin_px: usize,
         layout: Option<DiffColumnLayout>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let chrome = hunk_diff_chrome(cx.theme(), cx.theme().mode.is_dark());
+        let sticky_file_can_view = surface
+            .sticky_file_header
+            .as_ref()
+            .is_some_and(|header| {
+                self.can_open_file_in_files_workspace(header.path.as_str(), header.status)
+            });
         ReviewWorkspaceViewportElement {
             view: cx.entity(),
             viewport: std::rc::Rc::new(viewport.clone()),
+            sticky_file_header: surface.sticky_file_header.clone(),
+            sticky_file_can_view,
             viewport_origin_px,
             selected_row_range: self.selected_row_range(),
             layout,

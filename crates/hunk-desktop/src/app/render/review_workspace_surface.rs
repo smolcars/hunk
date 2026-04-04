@@ -10,24 +10,6 @@ impl DiffViewer {
             .and_then(|_| self.current_review_surface_snapshot().cloned())
     }
 
-    fn render_review_workspace_sticky_file_banner(
-        &self,
-        surface: &review_workspace_session::ReviewWorkspaceSurfaceSnapshot,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let Some(header) = surface.sticky_file_header.as_ref() else {
-            return div().w_full().h(px(0.)).into_any_element();
-        };
-
-        self.render_sticky_file_status_banner_row(
-            header.row_index,
-            header.path.as_str(),
-            header.status,
-            header.line_stats,
-            cx,
-        )
-    }
-
     fn render_review_workspace_surface(
         &mut self,
         _window: &mut Window,
@@ -73,17 +55,6 @@ impl DiffViewer {
         let editor_chrome = crate::app::theme::hunk_editor_chrome_colors(cx.theme(), is_dark);
         let search_match_count = self.active_editor_search_match_count();
         let review_surface_snapshot = self.current_or_fresh_review_surface_snapshot();
-        let sticky_file_banner = review_surface_snapshot
-            .as_ref()
-            .map(|surface| self.render_review_workspace_sticky_file_banner(surface, cx))
-            .unwrap_or_else(|| {
-                let row_count = self.active_diff_row_count();
-                let visible_row = self
-                    .current_review_surface_top_row()
-                    .unwrap_or(0)
-                    .min(row_count.saturating_sub(1));
-                self.render_visible_file_banner(visible_row, px(0.), cx)
-            });
         let layout = self.diff_column_layout();
         let scroller = if let Some(surface) = review_surface_snapshot.as_ref() {
             self.render_review_workspace_viewport_scroller(surface, cx)
@@ -181,14 +152,6 @@ impl DiffViewer {
                                                         cx.listener(Self::on_diff_list_scroll_wheel),
                                                     )
                                                     .child(scroller),
-                                            )
-                                            .child(
-                                                div()
-                                                    .absolute()
-                                                    .top_0()
-                                                    .left_0()
-                                                    .right_0()
-                                                    .child(sticky_file_banner),
                                             )
                                             .when(
                                                 self.uses_review_workspace_sections_surface(),
@@ -329,6 +292,7 @@ impl DiffViewer {
             .w_full()
             .h(px(visible_height_px as f32))
             .child(self.render_review_workspace_viewport_element(
+                surface,
                 viewport,
                 viewport_origin_px,
                 layout,
