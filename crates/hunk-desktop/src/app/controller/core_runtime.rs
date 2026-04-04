@@ -183,6 +183,7 @@ impl DiffViewer {
             right_editor.workspace_display_segments_by_row(&right_syntax_rows)?;
 
         let display_rows = review_workspace_session::ReviewWorkspaceDisplayRows {
+            rows: review_workspace_display_row_entries(&left_rows, &right_rows),
             left_by_row: left_rows,
             right_by_row: right_rows,
             left_syntax_by_row,
@@ -916,7 +917,18 @@ impl DiffViewer {
 fn workspace_display_rows_from_projected_snapshot(
     snapshot: hunk_editor::WorkspaceProjectedSnapshot,
 ) -> Option<BTreeMap<usize, hunk_editor::WorkspaceDisplayRow>> {
-    let mut rows = BTreeMap::new();
+    projected_workspace_display_rows(snapshot).map(|entries| {
+        entries
+            .into_iter()
+            .map(|entry| (entry.row_index, entry.left))
+            .collect()
+    })
+}
+
+fn projected_workspace_display_rows(
+    snapshot: hunk_editor::WorkspaceProjectedSnapshot,
+) -> Option<Vec<review_workspace_session::ReviewWorkspaceDisplayRowEntry>> {
+    let mut rows = Vec::<review_workspace_session::ReviewWorkspaceDisplayRowEntry>::new();
     for row in snapshot.visible_rows {
         let Some(workspace_row_range) = row.workspace_row_range else {
             return None;
@@ -925,21 +937,52 @@ fn workspace_display_rows_from_projected_snapshot(
             return None;
         }
         let raw_row_index = workspace_row_range.start;
-        let projected = hunk_editor::WorkspaceDisplayRow {
-            row_index: raw_row_index,
-            location: row.location,
-            raw_start_column: row.raw_start_column,
-            raw_end_column: row.raw_end_column,
-            raw_column_offsets: row.raw_column_offsets,
-            text: row.text,
-            whitespace_markers: row.whitespace_markers,
-            search_highlights: row.search_highlights,
-        };
-        if rows.insert(raw_row_index, projected).is_some() {
+        if rows.iter().any(|entry| entry.row_index == raw_row_index) {
             return None;
         }
+        rows.push(review_workspace_session::ReviewWorkspaceDisplayRowEntry {
+            display_row_index: row.row_index,
+            row_index: raw_row_index,
+            left: hunk_editor::WorkspaceDisplayRow {
+                row_index: raw_row_index,
+                location: row.location,
+                raw_start_column: row.raw_start_column,
+                raw_end_column: row.raw_end_column,
+                raw_column_offsets: row.raw_column_offsets,
+                text: row.text,
+                whitespace_markers: row.whitespace_markers,
+                search_highlights: row.search_highlights,
+            },
+            right: hunk_editor::WorkspaceDisplayRow {
+                row_index: raw_row_index,
+                location: None,
+                raw_start_column: 0,
+                raw_end_column: 0,
+                raw_column_offsets: vec![0],
+                text: String::new(),
+                whitespace_markers: Vec::new(),
+                search_highlights: Vec::new(),
+            },
+        });
     }
     Some(rows)
+}
+
+fn review_workspace_display_row_entries(
+    left_rows: &BTreeMap<usize, hunk_editor::WorkspaceDisplayRow>,
+    right_rows: &BTreeMap<usize, hunk_editor::WorkspaceDisplayRow>,
+) -> Vec<review_workspace_session::ReviewWorkspaceDisplayRowEntry> {
+    left_rows
+        .iter()
+        .filter_map(|(row_index, left)| {
+            Some(review_workspace_session::ReviewWorkspaceDisplayRowEntry {
+                display_row_index: *row_index,
+                row_index: *row_index,
+                left: left.clone(),
+                right: right_rows.get(row_index)?.clone(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -948,7 +991,7 @@ mod review_projection_tests {
 
     #[test]
     fn projected_workspace_rows_convert_when_mapping_is_one_to_one() {
-        let rows = workspace_display_rows_from_projected_snapshot(
+        let rows = projected_workspace_display_rows(
             hunk_editor::WorkspaceProjectedSnapshot {
                 viewport: hunk_editor::Viewport {
                     first_visible_row: 0,
@@ -994,13 +1037,17 @@ mod review_projection_tests {
         )
         .expect("one-to-one rows should convert");
 
-        assert_eq!(rows.keys().copied().collect::<Vec<_>>(), vec![4, 5]);
-        assert_eq!(rows.get(&4).map(|row| row.text.as_str()), Some("abc"));
+        assert_eq!(
+            rows.iter().map(|entry| entry.row_index).collect::<Vec<_>>(),
+            vec![4, 5]
+        );
+        assert_eq!(rows[0].left.text, "abc");
+        assert_eq!(rows[0].display_row_index, 0);
     }
 
     #[test]
     fn projected_workspace_rows_fall_back_when_projection_expands_one_raw_row() {
-        let rows = workspace_display_rows_from_projected_snapshot(
+        let rows = projected_workspace_display_rows(
             hunk_editor::WorkspaceProjectedSnapshot {
                 viewport: hunk_editor::Viewport {
                     first_visible_row: 0,
@@ -1046,6 +1093,53 @@ mod review_projection_tests {
         );
 
         assert!(rows.is_none());
+    }
+
+    #[test]
+    fn review_workspace_display_row_entries_preserve_row_order() {
+        let left_rows = BTreeMap::from([
+            (
+                4,
+                hunk_editor::WorkspaceDisplayRow {
+                    row_index: 4,
+                    location: None,
+                    raw_start_column: 0,
+                    raw_end_column: 3,
+                    raw_column_offsets: vec![0, 1, 2, 3],
+                    text: "abc".to_string(),
+                    whitespace_markers: Vec::new(),
+                    search_highlights: Vec::new(),
+                },
+            ),
+            (
+                5,
+                hunk_editor::WorkspaceDisplayRow {
+                    row_index: 5,
+                    location: None,
+                    raw_start_column: 0,
+                    raw_end_column: 2,
+                    raw_column_offsets: vec![0, 1, 2],
+                    text: "de".to_string(),
+                    whitespace_markers: Vec::new(),
+                    search_highlights: Vec::new(),
+                },
+            ),
+        ]);
+        let right_rows = left_rows.clone();
+
+        let entries = review_workspace_display_row_entries(&left_rows, &right_rows);
+
+        assert_eq!(
+            entries.iter().map(|entry| entry.row_index).collect::<Vec<_>>(),
+            vec![4, 5]
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.display_row_index)
+                .collect::<Vec<_>>(),
+            vec![4, 5]
+        );
     }
 }
 

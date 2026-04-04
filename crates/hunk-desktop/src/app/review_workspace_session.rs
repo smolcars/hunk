@@ -191,10 +191,19 @@ pub(crate) struct ReviewWorkspaceSurfaceOptions {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ReviewWorkspaceDisplayRows {
+    pub(crate) rows: Vec<ReviewWorkspaceDisplayRowEntry>,
     pub(crate) left_by_row: BTreeMap<usize, WorkspaceDisplayRow>,
     pub(crate) right_by_row: BTreeMap<usize, WorkspaceDisplayRow>,
     pub(crate) left_syntax_by_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
     pub(crate) right_syntax_by_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewWorkspaceDisplayRowEntry {
+    pub(crate) display_row_index: usize,
+    pub(crate) row_index: usize,
+    pub(crate) left: WorkspaceDisplayRow,
+    pub(crate) right: WorkspaceDisplayRow,
 }
 
 impl ReviewWorkspaceDisplayRows {
@@ -202,6 +211,31 @@ impl ReviewWorkspaceDisplayRows {
         row_range
             .clone()
             .all(|row| self.left_by_row.contains_key(&row) && self.right_by_row.contains_key(&row))
+    }
+
+    fn entries_for_raw_range(
+        &self,
+        row_range: Range<usize>,
+    ) -> Vec<ReviewWorkspaceDisplayRowEntry> {
+        if !self.rows.is_empty() {
+            return self
+                .rows
+                .iter()
+                .filter(|entry| row_range.contains(&entry.row_index))
+                .cloned()
+                .collect();
+        }
+
+        row_range
+            .filter_map(|row_index| {
+                Some(ReviewWorkspaceDisplayRowEntry {
+                    display_row_index: row_index,
+                    row_index,
+                    left: self.left_by_row.get(&row_index)?.clone(),
+                    right: self.right_by_row.get(&row_index)?.clone(),
+                })
+            })
+            .collect()
     }
 }
 
@@ -610,10 +644,7 @@ impl ReviewWorkspaceSession {
                 )
                 .unwrap_or(section.start_row..section.end_row);
             debug_assert!(display_rows.covers_row_range(visible_row_range.clone()));
-            let left_display_rows = self
-                .build_display_rows_for_side(visible_row_range.clone(), &display_rows.left_by_row);
-            let right_display_rows = self
-                .build_display_rows_for_side(visible_row_range.clone(), &display_rows.right_by_row);
+            let display_row_entries = display_rows.entries_for_raw_range(visible_row_range.clone());
             let _top_spacer_height_px = self
                 .row_boundary_offset_px(visible_row_range.start)
                 .unwrap_or(pixel_range.start)
@@ -622,11 +653,12 @@ impl ReviewWorkspaceSession {
                 self.row_boundary_offset_px(visible_row_range.end)
                     .unwrap_or(pixel_range.end),
             );
-            let rows = visible_row_range
-                .clone()
-                .zip(left_display_rows.into_iter())
-                .zip(right_display_rows.into_iter())
-                .filter_map(|((row_index, left_display_row), right_display_row)| {
+            let rows = display_row_entries
+                .into_iter()
+                .filter_map(|entry| {
+                    let row_index = entry.row_index;
+                    let left_display_row = entry.left;
+                    let right_display_row = entry.right;
                     let visible_start_px = self
                         .row_boundary_offset_px(visible_row_range.start)
                         .unwrap_or(pixel_range.start);
@@ -1419,20 +1451,6 @@ impl ReviewWorkspaceSession {
         .visible_rows
     }
 
-    fn build_display_rows_for_side(
-        &self,
-        visible_row_range: Range<usize>,
-        display_rows_by_index: &BTreeMap<usize, WorkspaceDisplayRow>,
-    ) -> Vec<WorkspaceDisplayRow> {
-        if visible_row_range.is_empty() {
-            return Vec::new();
-        }
-
-        visible_row_range
-            .filter_map(|row_index| display_rows_by_index.get(&row_index).cloned())
-            .collect()
-    }
-
     #[cfg(test)]
     #[allow(dead_code)]
     fn build_display_rows_for_viewport_projection(
@@ -1442,6 +1460,7 @@ impl ReviewWorkspaceSession {
         overscan_sections: usize,
         overscan_rows: usize,
     ) -> ReviewWorkspaceDisplayRows {
+        let mut rows = Vec::new();
         let mut left_by_row = BTreeMap::new();
         let mut right_by_row = BTreeMap::new();
         for section_ix in self.visible_section_range_for_viewport(
@@ -1473,7 +1492,16 @@ impl ReviewWorkspaceSession {
                 right_by_row.insert(row.row_index, row);
             }
         }
+        rows.extend(left_by_row.iter().filter_map(|(row_index, left)| {
+            Some(ReviewWorkspaceDisplayRowEntry {
+                display_row_index: *row_index,
+                row_index: *row_index,
+                left: left.clone(),
+                right: right_by_row.get(row_index)?.clone(),
+            })
+        }));
         ReviewWorkspaceDisplayRows {
+            rows,
             left_by_row,
             right_by_row,
             left_syntax_by_row: BTreeMap::new(),

@@ -525,7 +525,19 @@ fn review_workspace_surface_snapshot_prefers_display_row_search_highlights() {
             .any(|row| !row.search_highlights.is_empty())
     );
 
+    let rows = left_by_row
+        .iter()
+        .filter_map(|(row_index, left)| {
+            Some(review_workspace_session::ReviewWorkspaceDisplayRowEntry {
+                display_row_index: *row_index,
+                row_index: *row_index,
+                left: left.clone(),
+                right: right_by_row.get(row_index)?.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
     let display_rows = ReviewWorkspaceDisplayRows {
+        rows,
         left_by_row,
         right_by_row: std::mem::take(&mut right_by_row),
         left_syntax_by_row: BTreeMap::new(),
@@ -1523,6 +1535,20 @@ fn review_workspace_session_builds_comment_anchors_from_render_rows() {
 #[test]
 fn review_workspace_display_rows_require_complete_left_and_right_coverage() {
     let full = ReviewWorkspaceDisplayRows {
+        rows: vec![
+            review_workspace_session::ReviewWorkspaceDisplayRowEntry {
+                display_row_index: 3,
+                row_index: 3,
+                left: display_row(3, "left-a"),
+                right: display_row(3, "right-a"),
+            },
+            review_workspace_session::ReviewWorkspaceDisplayRowEntry {
+                display_row_index: 4,
+                row_index: 4,
+                left: display_row(4, "left-b"),
+                right: display_row(4, "right-b"),
+            },
+        ],
         left_by_row: BTreeMap::from([(3, display_row(3, "left-a")), (4, display_row(4, "left-b"))]),
         right_by_row: BTreeMap::from([
             (3, display_row(3, "right-a")),
@@ -1534,6 +1560,7 @@ fn review_workspace_display_rows_require_complete_left_and_right_coverage() {
     assert!(full.covers_row_range(3..5));
 
     let missing_right = ReviewWorkspaceDisplayRows {
+        rows: Vec::new(),
         left_by_row: full.left_by_row.clone(),
         right_by_row: BTreeMap::from([(3, display_row(3, "right-a"))]),
         left_syntax_by_row: BTreeMap::new(),
