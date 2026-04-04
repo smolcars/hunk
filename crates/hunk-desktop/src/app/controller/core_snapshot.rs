@@ -115,10 +115,7 @@ impl DiffViewer {
         self.reset_comment_row_match_cache();
         self.clear_comment_ui_state();
         self.file_line_stats.clear();
-        self.reset_diff_surface_rows(vec![message_row(
-            DiffRowKind::Empty,
-            "Use File > Open Project... (Cmd/Ctrl+Shift+O) to load a Git repository.",
-        )]);
+        self.reset_review_surface_runtime_state();
         self.repo_discovery_failed = true;
         self.error_message = None;
         self.repo_tree.nodes.clear();

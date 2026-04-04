@@ -3,44 +3,10 @@ pub(super) type FileAnchorReconcileState =
 
 impl DiffViewer {
     pub(super) fn file_anchor_reconcile_state(&self, file_path: &str) -> FileAnchorReconcileState {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.file_anchor_reconcile_state(file_path, self.patch_loading);
-        }
-
-        let row_count = self.active_diff_row_count();
-        let mut has_anchor_rows = false;
-        let mut saw_rows_for_file = false;
-        for row_ix in 0..row_count {
-            let Some(row) = self.active_diff_row_metadata(row_ix) else {
-                return FileAnchorReconcileState::Deferred;
-            };
-            if row.file_path.as_deref() != Some(file_path) {
-                continue;
-            }
-            saw_rows_for_file = true;
-            match row.kind {
-                DiffStreamRowKind::CoreCode
-                | DiffStreamRowKind::CoreHunkHeader
-                | DiffStreamRowKind::CoreMeta
-                | DiffStreamRowKind::CoreEmpty => {
-                    has_anchor_rows = true;
-                }
-                DiffStreamRowKind::FileLoading
-                | DiffStreamRowKind::FileCollapsed => return FileAnchorReconcileState::Deferred,
-                DiffStreamRowKind::FileError => return FileAnchorReconcileState::Unavailable,
-                DiffStreamRowKind::FileHeader | DiffStreamRowKind::EmptyState => {}
-            }
-        }
-
-        if has_anchor_rows {
-            FileAnchorReconcileState::Ready
-        } else if self.patch_loading || saw_rows_for_file {
-            FileAnchorReconcileState::Deferred
-        } else {
-            FileAnchorReconcileState::Unavailable
-        }
+        self.review_workspace_session
+            .as_ref()
+            .map(|session| session.file_anchor_reconcile_state(file_path, self.patch_loading))
+            .unwrap_or(FileAnchorReconcileState::Unavailable)
     }
 
     fn find_matching_row_for_comment(&self, comment: &CommentRecord) -> Option<usize> {
@@ -276,31 +242,5 @@ impl DiffViewer {
     fn row_file_path(&self, row_ix: usize) -> Option<String> {
         self.active_diff_row_metadata(row_ix)
             .and_then(|row| row.file_path.clone())
-            .or_else(|| {
-                (self.workspace_view_mode == WorkspaceViewMode::Diff)
-                    .then(|| {
-                        self.review_workspace_session
-                            .as_ref()?
-                            .row_file_path(row_ix)
-                            .map(ToString::to_string)
-                    })
-                    .flatten()
-            })
-    }
-
-    fn row_hunk_header(&self, row_ix: usize) -> Option<String> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.row_hunk_header(row_ix).map(ToString::to_string);
-        }
-
-        let hunk_ix = self
-            .review_surface
-            .diff_visible_hunk_header_lookup
-            .get(row_ix)
-            .copied()
-            .flatten()?;
-        self.active_diff_row(hunk_ix).map(|row| row.text.clone())
     }
 }

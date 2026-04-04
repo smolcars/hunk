@@ -268,17 +268,15 @@ impl DiffViewer {
                 path: range.path.clone(),
                 status: range.status,
                 start_row: range.start_row,
-                end_row: range.end_row,
             })
             .or_else(|| {
                 self.current_review_surface_row()
-            .and_then(|row_ix| session.file_at_or_after_surface_row(row_ix))
-            .map(|range| FileRowRange {
-                path: range.path.clone(),
-                status: range.status,
-                start_row: range.start_row,
-                end_row: range.end_row,
-            })
+                    .and_then(|row_ix| session.file_at_or_after_surface_row(row_ix))
+                    .map(|range| FileRowRange {
+                        path: range.path.clone(),
+                        status: range.status,
+                        start_row: range.start_row,
+                    })
             })
             .or_else(|| {
                 self.review_surface.selected_path
@@ -290,7 +288,6 @@ impl DiffViewer {
                     path: range.path.clone(),
                     status: range.status,
                     start_row: range.start_row,
-                    end_row: range.end_row,
                 })
             })
     }
@@ -495,17 +492,6 @@ impl DiffViewer {
         }
     }
 
-    pub(crate) fn active_diff_file_line_stats(&self) -> &BTreeMap<String, LineStats> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            if let Some(session) = self.review_workspace_session.as_ref() {
-                return session.file_line_stats();
-            }
-            &self.review_file_line_stats
-        } else {
-            &self.file_line_stats
-        }
-    }
-
     pub(crate) fn active_diff_file_count(&self) -> usize {
         self.active_diff_files().len()
     }
@@ -539,45 +525,28 @@ impl DiffViewer {
     }
 
     pub(crate) fn active_diff_file_range_for_path(&self, path: &str) -> Option<FileRowRange> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-            && let Some(range) = session.file_range_for_path(path)
-        {
-            return Some(FileRowRange {
+        self.review_workspace_session
+            .as_ref()
+            .and_then(|session| session.file_range_for_path(path))
+            .map(|range| FileRowRange {
                 path: range.path.clone(),
                 status: range.status,
                 start_row: range.start_row,
-                end_row: range.end_row,
-            });
-        }
-
-        self.file_row_ranges
-            .iter()
-            .find(|range| range.path == path)
-            .cloned()
+            })
     }
 
     pub(crate) fn active_diff_file_range_at_or_after_row(
         &self,
         row_ix: usize,
     ) -> Option<FileRowRange> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-            && let Some(range) = session.file_at_or_after_surface_row(row_ix)
-        {
-            return Some(FileRowRange {
+        self.review_workspace_session
+            .as_ref()
+            .and_then(|session| session.file_at_or_after_surface_row(row_ix))
+            .map(|range| FileRowRange {
                 path: range.path.clone(),
                 status: range.status,
                 start_row: range.start_row,
-                end_row: range.end_row,
-            });
-        }
-
-        self.file_row_ranges
-            .iter()
-            .find(|range| row_ix < range.end_row)
-            .or_else(|| self.file_row_ranges.last())
-            .cloned()
+            })
     }
 
     fn default_review_right_source_id_from_sources(
@@ -833,7 +802,8 @@ impl DiffViewer {
     }
 
     pub(crate) fn review_comments_enabled(&self) -> bool {
-        self.workspace_view_mode != WorkspaceViewMode::Diff || self.active_review_compare_is_default_pair()
+        self.workspace_view_mode == WorkspaceViewMode::Diff
+            && self.active_review_compare_is_default_pair()
     }
 
     fn build_review_workspace_editors(
@@ -896,8 +866,7 @@ impl DiffViewer {
         self.comment_miss_streaks.clear();
         self.reset_comment_row_match_cache();
         self.clear_comment_ui_state();
-        self.reset_diff_surface_rows(Vec::new());
-        self.review_surface.clear_legacy_diff_row_lookups();
+        self.reset_review_surface_runtime_state();
         self.review_surface.clear_workspace_surface_snapshot();
         self.review_surface.status_message = Some(empty_message.to_string());
         self.request_repo_tree_reload(cx);
@@ -919,6 +888,9 @@ impl DiffViewer {
             self.review_compare_error = None;
             self.review_surface.status_message = None;
             self.review_surface.selected_path = self.current_review_path();
+            if self.review_comments_enabled() {
+                self.refresh_comments_cache_from_store();
+            }
             if self.editor_search_visible {
                 self.sync_editor_search_query(cx);
             }
@@ -936,8 +908,7 @@ impl DiffViewer {
         self.review_compare_loading = true;
         self.review_compare_error = None;
         self.patch_loading = false;
-        self.reset_diff_surface_rows(Vec::new());
-        self.review_surface.clear_legacy_diff_row_lookups();
+        self.reset_review_surface_runtime_state();
         self.review_surface.clear_workspace_surface_snapshot();
         self.review_surface.status_message = Some("Loading comparison...".to_string());
 
@@ -1088,11 +1059,6 @@ impl DiffViewer {
                     "review workspace session surface rows diverged from render rows"
                 );
             }
-            self.file_row_ranges.clear();
-            self.diff_rows.clear();
-            self.diff_row_metadata.clear();
-            self.diff_row_segment_cache.clear();
-            self.review_surface.clear_legacy_diff_row_lookups();
         }
 
         let has_selection = preferred_selected_path

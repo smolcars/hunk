@@ -4,9 +4,7 @@ use std::path::PathBuf;
 
 use hunk_domain::db::{CommentLineSide, compute_comment_anchor_hash};
 use hunk_domain::diff::SideBySideRow;
-use hunk_domain::diff::{
-    DiffCellKind, DiffDocument, DiffHunk, DiffLineKind, DiffRowKind, parse_patch_document,
-};
+use hunk_domain::diff::{DiffCellKind, DiffHunk, DiffLineKind, DiffRowKind, parse_patch_document};
 use hunk_editor::{
     Viewport, WorkspaceDisplayRow, WorkspaceDocument, WorkspaceDocumentId, WorkspaceExcerptId,
     WorkspaceExcerptKind, WorkspaceExcerptSpec, WorkspaceLayout, WorkspaceLayoutError,
@@ -370,9 +368,6 @@ impl ReviewWorkspaceSession {
         let mut documents = Vec::with_capacity(snapshot.files.len());
         let mut excerpt_specs = Vec::new();
         let mut excerpt_headers = BTreeMap::new();
-        let mut file_plans = Vec::with_capacity(snapshot.files.len());
-        let mut hunk_ranges = Vec::new();
-        let mut next_surface_row = 0_usize;
 
         for file in &snapshot.files {
             let patch = snapshot
@@ -384,29 +379,8 @@ impl ReviewWorkspaceSession {
             let document_id = WorkspaceDocumentId::new(next_document_id);
             next_document_id = next_document_id.saturating_add(1);
 
-            let line_count = review_document_line_count(&document);
-            documents.push(WorkspaceDocument::new(
-                document_id,
-                file.path.clone(),
-                BufferId::new(document_id.get()),
-                line_count,
-            ));
-
-            if document.hunks.is_empty() {
-                let excerpt_id = WorkspaceExcerptId::new(next_excerpt_id);
-                next_excerpt_id = next_excerpt_id.saturating_add(1);
-                excerpt_specs.push(
-                    WorkspaceExcerptSpec::new(
-                        excerpt_id,
-                        document_id,
-                        WorkspaceExcerptKind::DiffHunk,
-                        0..line_count.max(1),
-                    )
-                    .with_chrome_rows(FILE_HEADER_SURFACE_ROWS, 0),
-                );
-                excerpt_headers.insert(excerpt_id, None);
-            } else {
-                for (hunk_ix, hunk) in document.hunks.iter().enumerate() {
+            let document_line_count =
+                if collapsed_files.contains(file.path.as_str()) || document.hunks.is_empty() {
                     let excerpt_id = WorkspaceExcerptId::new(next_excerpt_id);
                     next_excerpt_id = next_excerpt_id.saturating_add(1);
                     excerpt_specs.push(
@@ -414,55 +388,55 @@ impl ReviewWorkspaceSession {
                             excerpt_id,
                             document_id,
                             WorkspaceExcerptKind::DiffHunk,
-                            review_hunk_line_range(hunk, line_count),
+                            0..1,
                         )
-                        .with_chrome_rows(
-                            usize::from(hunk_ix == 0).saturating_add(HUNK_HEADER_SURFACE_ROWS),
-                            hunk.trailing_meta.len(),
-                        ),
+                        .with_chrome_rows(FILE_HEADER_SURFACE_ROWS, 0),
                     );
-                    excerpt_headers.insert(excerpt_id, Some(hunk.header.clone()));
-                }
-            }
+                    excerpt_headers.insert(excerpt_id, None);
+                    1
+                } else {
+                    let mut next_document_line = 0_usize;
+                    for (hunk_ix, hunk) in document.hunks.iter().enumerate() {
+                        let code_row_count = surface_code_row_count_for_hunk(hunk);
+                        let line_range =
+                            next_document_line..next_document_line.saturating_add(code_row_count);
+                        let excerpt_id = WorkspaceExcerptId::new(next_excerpt_id);
+                        next_excerpt_id = next_excerpt_id.saturating_add(1);
+                        excerpt_specs.push(
+                            WorkspaceExcerptSpec::new(
+                                excerpt_id,
+                                document_id,
+                                WorkspaceExcerptKind::DiffHunk,
+                                line_range,
+                            )
+                            .with_chrome_rows(
+                                usize::from(hunk_ix == 0).saturating_add(HUNK_HEADER_SURFACE_ROWS),
+                                hunk.trailing_meta.len(),
+                            ),
+                        );
+                        excerpt_headers.insert(excerpt_id, Some(hunk.header.clone()));
+                        next_document_line = next_document_line.saturating_add(code_row_count);
+                    }
+                    next_document_line
+                };
 
-            let start_row = next_surface_row;
-            if collapsed_files.contains(file.path.as_str()) || document.hunks.is_empty() {
-                next_surface_row = next_surface_row.saturating_add(2);
-            } else {
-                let mut next_hunk_surface_row =
-                    next_surface_row.saturating_add(FILE_HEADER_SURFACE_ROWS);
-                for hunk in &document.hunks {
-                    let hunk_row_count = surface_row_count_for_hunk(hunk);
-                    hunk_ranges.push(ReviewWorkspaceHunkRange {
-                        path: file.path.clone(),
-                        header: hunk.header.clone(),
-                        start_row: next_hunk_surface_row,
-                        end_row: next_hunk_surface_row.saturating_add(hunk_row_count),
-                    });
-                    next_hunk_surface_row = next_hunk_surface_row.saturating_add(hunk_row_count);
-                }
-                next_surface_row = next_hunk_surface_row;
-            }
-
-            file_plans.push((file.path.clone(), file.status, start_row..next_surface_row));
+            documents.push(WorkspaceDocument::new(
+                document_id,
+                file.path.clone(),
+                BufferId::new(document_id.get()),
+                document_line_count,
+            ));
         }
 
         let layout = WorkspaceLayout::new(documents, excerpt_specs, 0)?;
-        let mut file_ranges = Vec::with_capacity(file_plans.len());
+        let mut file_ranges = Vec::<ReviewWorkspaceFileRange>::with_capacity(snapshot.files.len());
         let file_status_by_path = snapshot
             .files
             .iter()
             .map(|file| (file.path.clone(), file.status))
             .collect::<BTreeMap<_, _>>();
-
-        for (path, status, surface_row_range) in file_plans {
-            file_ranges.push(ReviewWorkspaceFileRange {
-                path,
-                status,
-                start_row: surface_row_range.start,
-                end_row: surface_row_range.end,
-            });
-        }
+        let mut file_range_index_by_document = BTreeMap::<WorkspaceDocumentId, usize>::new();
+        let mut hunk_ranges = Vec::new();
 
         let mut sections = Vec::with_capacity(layout.excerpts().len());
         let mut first_excerpt_by_document = BTreeSet::new();
@@ -474,6 +448,30 @@ impl ReviewWorkspaceSession {
             let Some(status) = file_status_by_path.get(path.as_str()).copied() else {
                 continue;
             };
+            let show_file_header = first_excerpt_by_document.insert(document.id);
+            if let Some(file_range_ix) = file_range_index_by_document.get(&document.id).copied() {
+                file_ranges[file_range_ix].end_row = excerpt.global_row_range.end;
+            } else {
+                file_range_index_by_document.insert(document.id, file_ranges.len());
+                file_ranges.push(ReviewWorkspaceFileRange {
+                    path: path.clone(),
+                    status,
+                    start_row: excerpt.global_row_range.start,
+                    end_row: excerpt.global_row_range.end,
+                });
+            }
+            let hunk_header = excerpt_headers.get(&excerpt.spec.id).cloned().flatten();
+            if let Some(header) = hunk_header.as_ref() {
+                hunk_ranges.push(ReviewWorkspaceHunkRange {
+                    path: path.clone(),
+                    header: header.clone(),
+                    start_row: excerpt
+                        .global_row_range
+                        .start
+                        .saturating_add(usize::from(show_file_header)),
+                    end_row: excerpt.global_row_range.end,
+                });
+            }
             sections.push(ReviewWorkspaceSection {
                 index: section_ix,
                 excerpt_id: excerpt.spec.id,
@@ -481,8 +479,8 @@ impl ReviewWorkspaceSession {
                 status,
                 start_row: excerpt.global_row_range.start,
                 end_row: excerpt.global_row_range.end,
-                show_file_header: first_excerpt_by_document.insert(document.id),
-                hunk_header: excerpt_headers.get(&excerpt.spec.id).cloned().flatten(),
+                show_file_header,
+                hunk_header,
             });
         }
 
@@ -503,7 +501,13 @@ impl ReviewWorkspaceSession {
     }
 
     pub(crate) fn with_render_stream(mut self, stream: &DiffStream) -> Self {
-        debug_assert_eq!(self.layout.total_rows(), stream.rows.len());
+        if self.layout.total_rows() != stream.rows.len() {
+            tracing::error!(
+                layout_rows = self.layout.total_rows(),
+                stream_rows = stream.rows.len(),
+                "review workspace layout rows diverged from render stream"
+            );
+        }
         debug_assert_eq!(stream.rows.len(), stream.row_metadata.len());
         debug_assert_eq!(stream.rows.len(), stream.row_segments.len());
         self.rows = stream.rows.clone();
@@ -517,10 +521,6 @@ impl ReviewWorkspaceSession {
 
     pub(crate) fn file_ranges(&self) -> &[ReviewWorkspaceFileRange] {
         &self.file_ranges
-    }
-
-    pub(crate) fn file_line_stats(&self) -> &BTreeMap<String, LineStats> {
-        &self.file_line_stats
     }
 
     pub(crate) fn file_range_for_path(&self, path: &str) -> Option<&ReviewWorkspaceFileRange> {
@@ -2004,66 +2004,6 @@ fn prioritized_prefetch_row_indices_for_rows(
 
 fn review_decimal_digits(value: u32) -> u32 {
     if value == 0 { 1 } else { value.ilog10() + 1 }
-}
-
-fn review_document_line_count(document: &DiffDocument) -> usize {
-    let max_old_line = document
-        .hunks
-        .iter()
-        .flat_map(|hunk| hunk.lines.iter())
-        .filter_map(|line| line.old_line)
-        .max()
-        .unwrap_or(0) as usize;
-    let max_new_line = document
-        .hunks
-        .iter()
-        .flat_map(|hunk| hunk.lines.iter())
-        .filter_map(|line| line.new_line)
-        .max()
-        .unwrap_or(0) as usize;
-    let fallback_lines = document
-        .hunks
-        .iter()
-        .map(|hunk| hunk.lines.len())
-        .max()
-        .unwrap_or(0);
-
-    max_old_line.max(max_new_line).max(fallback_lines).max(1)
-}
-
-fn review_hunk_line_range(hunk: &DiffHunk, line_count: usize) -> Range<usize> {
-    let first_line = hunk
-        .lines
-        .iter()
-        .filter_map(|line| line.new_line.or(line.old_line))
-        .min()
-        .or(hunk.new_start)
-        .or(hunk.old_start)
-        .unwrap_or(1) as usize;
-    let last_line = hunk
-        .lines
-        .iter()
-        .filter_map(|line| line.new_line.or(line.old_line))
-        .max()
-        .or(hunk.new_start)
-        .or(hunk.old_start)
-        .unwrap_or(1) as usize;
-
-    let start = first_line
-        .saturating_sub(1)
-        .min(line_count.saturating_sub(1));
-    let mut end = last_line.max(first_line).min(line_count.max(1));
-    if end <= start {
-        end = (start + 1).min(line_count.max(1));
-    }
-
-    start..end
-}
-
-fn surface_row_count_for_hunk(hunk: &DiffHunk) -> usize {
-    HUNK_HEADER_SURFACE_ROWS
-        .saturating_add(surface_code_row_count_for_hunk(hunk))
-        .saturating_add(hunk.trailing_meta.len())
 }
 
 fn surface_code_row_count_for_hunk(hunk: &DiffHunk) -> usize {

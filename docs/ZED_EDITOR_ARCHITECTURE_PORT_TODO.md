@@ -350,6 +350,36 @@ Current state:
 - The remaining session-projection display-row builder is now test-only; production Diff viewport assembly and viewport-row enumeration both require explicit side-editor display rows instead of routing through an optional fallback parameter.
 - Files and Diff now both render from workspace-editor-derived display rows, search state, syntax spans, and native paint helpers. Diff still wraps those rows in a multi-file surface, but it no longer maintains a separate preview-only rendering/highlighting pipeline outside the shared editor-derived path.
 
+### Phase 8: Delete Remaining Legacy Diff-Row Infrastructure
+
+Status: Done
+
+Targets:
+
+- `crates/hunk-desktop/src/app/controller/core_diff.rs`
+- `crates/hunk-desktop/src/app/controller/scroll.rs`
+- `crates/hunk-desktop/src/app/controller/comments.rs`
+- `crates/hunk-desktop/src/app/controller/comments_match.rs`
+- `crates/hunk-desktop/src/app/controller/core_runtime.rs`
+- `crates/hunk-desktop/src/app/controller/core_workspace_projects.rs`
+- `crates/hunk-desktop/src/app/workspace_view.rs`
+- `crates/hunk-desktop/src/app.rs`
+
+Tasks:
+
+- [x] Stop Files mode from requesting or storing legacy patch-based diff row streams.
+- [x] Scope row-based comment anchoring/reconcile behavior to the loaded Review workspace surface.
+- [x] Remove legacy `diff_rows` / `diff_row_metadata` / `diff_row_segment_cache` / `file_row_ranges` state and storage.
+- [x] Remove legacy visible-row segment prefetch and header-lookup fallback branches.
+- [x] Delete unused old diff-row helpers once no live callers remain.
+
+Current state:
+- Files mode no longer requests or stores legacy patch-based diff row streams; the generic reload path now routes only to Review compare refresh.
+- Comment reconcile and row-anchor behavior are scoped to the loaded Review workspace surface and shared session state.
+- Top-level app and workspace project state no longer carry legacy `diff_rows` / `diff_row_metadata` / `diff_row_segment_cache` / `file_row_ranges` storage.
+- Legacy visible-row segment-prefetch and header-lookup fallback branches have been removed from the active runtime path.
+- The remaining diff-stream row builder code exists only as Review compare-load staging, not as a live alternate renderer.
+
 ## Acceptance Criteria
 
 - Files and Diff both render through the same editor-native workspace model.

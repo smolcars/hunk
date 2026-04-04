@@ -41,8 +41,7 @@ use hunk_domain::config::{
 };
 use hunk_domain::db::{
     CommentLineSide, CommentRecord, CommentStatus, DatabaseStore, NewComment,
-    compute_comment_anchor_hash, format_comment_clipboard_blob, next_status_for_unmatched_anchor,
-    now_unix_ms,
+    format_comment_clipboard_blob, next_status_for_unmatched_anchor, now_unix_ms,
 };
 use hunk_domain::diff::{DiffCell, DiffCellKind, DiffRowKind, SideBySideRow};
 use hunk_domain::markdown_preview::MarkdownPreviewBlock;
@@ -144,7 +143,6 @@ const MARKDOWN_PREVIEW_DEBOUNCE: Duration = Duration::from_millis(200);
 const DIFF_SEGMENT_PREFETCH_RADIUS_ROWS: usize = 120;
 const DIFF_SEGMENT_PREFETCH_STEP_ROWS: usize = 24;
 const DIFF_SEGMENT_PREFETCH_BATCH_ROWS: usize = 96;
-const DIFF_PROGRESSIVE_BATCH_FILES: usize = 8;
 const SIDEBAR_REPO_LIST_ESTIMATED_ROW_HEIGHT: f32 = 24.0;
 const COMMENT_CONTEXT_RADIUS_ROWS: usize = 2;
 const COMMENT_RETENTION_DAYS: i64 = 14;
@@ -1030,10 +1028,6 @@ struct WorkspaceProjectState {
     collapsed_files: BTreeSet<String>,
     selected_path: Option<String>,
     selected_status: Option<FileStatus>,
-    diff_rows: Vec<SideBySideRow>,
-    diff_row_metadata: Vec<DiffStreamRowMeta>,
-    diff_row_segment_cache: Vec<Option<DiffRowSegmentCache>>,
-    file_row_ranges: Vec<FileRowRange>,
     file_line_stats: BTreeMap<String, LineStats>,
     review_surface: ReviewWorkspaceSurfaceState,
     review_files: Vec<ChangedFile>,
@@ -1076,8 +1070,6 @@ struct ReviewWorkspaceSurfaceState {
     workspace_search_matches: Vec<review_workspace_session::ReviewWorkspaceSearchTarget>,
     selection_anchor_row: Option<usize>,
     selection_head_row: Option<usize>,
-    diff_visible_file_header_lookup: Vec<Option<usize>>,
-    diff_visible_hunk_header_lookup: Vec<Option<usize>>,
     diff_scroll_handle: ScrollHandle,
     diff_split_ratio: f32,
     diff_split_bounds: Option<Bounds<Pixels>>,
@@ -1098,8 +1090,6 @@ impl ReviewWorkspaceSurfaceState {
             workspace_search_matches: Vec::new(),
             selection_anchor_row: None,
             selection_head_row: None,
-            diff_visible_file_header_lookup: Vec::new(),
-            diff_visible_hunk_header_lookup: Vec::new(),
             diff_scroll_handle: ScrollHandle::default(),
             diff_split_ratio: 0.5,
             diff_split_bounds: None,
@@ -1113,11 +1103,6 @@ impl ReviewWorkspaceSurfaceState {
             last_prefetched_visible_row_range: None,
             last_diff_scroll_offset: None,
         }
-    }
-
-    fn clear_legacy_diff_row_lookups(&mut self) {
-        self.diff_visible_file_header_lookup.clear();
-        self.diff_visible_hunk_header_lookup.clear();
     }
 
     fn clear_workspace_surface_snapshot(&mut self) {
@@ -1354,10 +1339,6 @@ struct DiffViewer {
     collapsed_files: BTreeSet<String>,
     selected_path: Option<String>,
     selected_status: Option<FileStatus>,
-    diff_rows: Vec<SideBySideRow>,
-    diff_row_metadata: Vec<DiffStreamRowMeta>,
-    diff_row_segment_cache: Vec<Option<DiffRowSegmentCache>>,
-    file_row_ranges: Vec<FileRowRange>,
     file_line_stats: BTreeMap<String, LineStats>,
     review_surface: ReviewWorkspaceSurfaceState,
     review_files: Vec<ChangedFile>,
@@ -1407,7 +1388,6 @@ struct DiffViewer {
     drag_selecting_rows: bool,
     scroll_selected_after_reload: bool,
     last_scroll_activity_at: Instant,
-    segment_prefetch_anchor_row: Option<usize>,
     segment_prefetch_epoch: usize,
     segment_prefetch_task: Task<()>,
     fps: f32,

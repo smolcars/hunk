@@ -275,63 +275,23 @@ impl DiffViewer {
     }
 
     fn select_file_relative(&mut self, direction: isize, cx: &mut Context<Self>) {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            let current_path = self
-                .current_review_file_range()
-                .map(|range| range.path)
-                .or_else(|| self.current_review_path());
-            let Some((path, status, start_row)) = session
-                .adjacent_file(current_path.as_deref(), direction)
-                .map(|range| (range.path.clone(), range.status, range.start_row))
-            else {
-                return;
-            };
-
-            self.set_review_selected_file(Some(path.clone()), Some(status));
-            self.scroll_to_file_start(path.as_str());
-            self.select_row(start_row, false, cx);
-            cx.notify();
+        let Some(session) = self.review_workspace_session.as_ref() else {
             return;
-        }
-
-        let file_ranges = if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            self.file_row_ranges
-                .iter()
-                .map(|range| (range.path.clone(), range.status, range.start_row))
-                .collect::<Vec<_>>()
-        } else {
-            self.file_row_ranges
-                .iter()
-                .map(|range| (range.path.clone(), range.status, range.start_row))
-                .collect::<Vec<_>>()
         };
 
-        if file_ranges.is_empty() {
+        let current_path = self
+            .current_review_file_range()
+            .map(|range| range.path)
+            .or_else(|| self.current_review_path());
+        let Some((path, status, start_row)) = session
+            .adjacent_file(current_path.as_deref(), direction)
+            .map(|range| (range.path.clone(), range.status, range.start_row))
+        else {
             return;
-        }
+        };
 
-        let current_ix = self
-            .selected_path
-            .as_ref()
-            .and_then(|path| {
-                file_ranges
-                    .iter()
-                    .position(|(candidate_path, _, _)| candidate_path == path)
-            })
-            .unwrap_or(0);
-        let max_ix = file_ranges.len().saturating_sub(1) as isize;
-        let target_ix = (current_ix as isize + direction).clamp(0, max_ix) as usize;
-        let (path, status, start_row) = file_ranges[target_ix].clone();
-
-        if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            self.set_review_selected_file(Some(path.clone()), Some(status));
-        } else {
-            self.selected_path = Some(path.clone());
-            self.selected_status = Some(status);
-        }
-        self.scroll_to_file_start(&path);
+        self.set_review_selected_file(Some(path.clone()), Some(status));
+        self.scroll_to_file_start(path.as_str());
         self.select_row(start_row, false, cx);
         cx.notify();
     }

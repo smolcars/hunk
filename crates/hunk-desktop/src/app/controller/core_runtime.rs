@@ -117,7 +117,7 @@ impl DiffViewer {
                 1,
                 8,
                 &surface_options,
-                &display_rows,
+                display_rows,
             );
             self.review_surface.last_surface_snapshot = Some(snapshot);
         }
@@ -312,115 +312,33 @@ impl DiffViewer {
 
     pub(super) fn active_diff_row_count(&self) -> usize {
         if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            return self
-                .review_workspace_session
+            self.review_workspace_session
                 .as_ref()
                 .map(|session| session.row_count())
-                .unwrap_or(0);
+                .unwrap_or(0)
+        } else {
+            0
         }
-
-        self.diff_rows.len()
     }
 
     pub(super) fn active_diff_row(&self, row_ix: usize) -> Option<&SideBySideRow> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            return self
-                .review_workspace_session
-                .as_ref()
-                .and_then(|session| session.row(row_ix));
-        }
-
-        self.diff_rows.get(row_ix)
+        (self.workspace_view_mode == WorkspaceViewMode::Diff)
+            .then(|| {
+                self.review_workspace_session
+                    .as_ref()
+                    .and_then(|session| session.row(row_ix))
+            })
+            .flatten()
     }
 
     pub(super) fn active_diff_row_metadata(&self, row_ix: usize) -> Option<&DiffStreamRowMeta> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            return self
-                .review_workspace_session
-                .as_ref()
-                .and_then(|session| session.row_metadata(row_ix));
-        }
-
-        self.diff_row_metadata.get(row_ix)
-    }
-
-    pub(super) fn active_diff_row_segment_cache(
-        &self,
-        row_ix: usize,
-    ) -> Option<&DiffRowSegmentCache> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff {
-            return self
-                .review_workspace_session
-                .as_ref()
-                .and_then(|session| session.row_segment_cache(row_ix));
-        }
-
-        self.diff_row_segment_cache
-            .get(row_ix)
-            .and_then(Option::as_ref)
-    }
-
-    fn recompute_diff_visible_header_lookup(&mut self) {
-        let row_count = self.active_diff_row_count();
-        self.review_surface.clear_legacy_diff_row_lookups();
-        if row_count == 0 {
-            return;
-        }
-
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            debug_assert_eq!(session.row_count(), row_count);
-            return;
-        }
-
-        self.review_surface.diff_visible_file_header_lookup = vec![None; row_count];
-        self.review_surface.diff_visible_hunk_header_lookup = vec![None; row_count];
-
-        let mut current_file_header = None::<usize>;
-        let mut current_hunk_header = None::<usize>;
-        for row_ix in 0..row_count {
-            let containing_file_header = self.file_row_ranges.iter().find_map(|range| {
-                if row_ix >= range.start_row && row_ix < range.end_row {
-                    Some(range.start_row)
-                } else {
-                    None
-                }
-            });
-
-            if let Some(meta) = self.active_diff_row_metadata(row_ix) {
-                match meta.kind {
-                    DiffStreamRowKind::EmptyState => {
-                        current_file_header = None;
-                        current_hunk_header = None;
-                    }
-                    DiffStreamRowKind::FileHeader => {
-                        current_file_header = Some(row_ix);
-                        current_hunk_header = None;
-                    }
-                    DiffStreamRowKind::CoreHunkHeader => {
-                        current_file_header = current_file_header.or(containing_file_header);
-                        current_hunk_header = Some(row_ix);
-                    }
-                    _ => {
-                        if containing_file_header.is_some() {
-                            current_file_header = containing_file_header;
-                        }
-                    }
-                }
-            } else if self
-                .active_diff_row(row_ix)
-                .is_some_and(|row| row.kind == DiffRowKind::HunkHeader)
-            {
-                current_file_header = current_file_header.or(containing_file_header);
-                current_hunk_header = Some(row_ix);
-            } else if containing_file_header.is_some() {
-                current_file_header = containing_file_header;
-            }
-
-            self.review_surface.diff_visible_file_header_lookup[row_ix] = current_file_header;
-            self.review_surface.diff_visible_hunk_header_lookup[row_ix] = current_hunk_header;
-        }
+        (self.workspace_view_mode == WorkspaceViewMode::Diff)
+            .then(|| {
+                self.review_workspace_session
+                    .as_ref()
+                    .and_then(|session| session.row_metadata(row_ix))
+            })
+            .flatten()
     }
 
     fn next_snapshot_epoch(&mut self) -> usize {
@@ -886,7 +804,6 @@ impl DiffViewer {
     fn invalidate_segment_prefetch(&mut self) {
         self.next_segment_prefetch_epoch();
         self.segment_prefetch_task = Task::ready(());
-        self.segment_prefetch_anchor_row = None;
         self.review_surface.last_prefetched_visible_row_range = None;
     }
 
@@ -978,9 +895,7 @@ fn projected_review_workspace_side_rows(
     let mut rows = Vec::<ReviewWorkspaceProjectedSideRow>::new();
     let mut rows_by_display_row = BTreeMap::<usize, hunk_editor::WorkspaceDisplayRow>::new();
     for row in snapshot.visible_rows {
-        let Some(workspace_row_range) = row.workspace_row_range else {
-            return None;
-        };
+        let workspace_row_range = row.workspace_row_range?;
         if workspace_row_range.is_empty() {
             return None;
         }

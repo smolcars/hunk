@@ -65,8 +65,28 @@ where
     let mut projected_rows = Vec::new();
 
     for (excerpt_ix, excerpt) in layout.excerpts().iter().enumerate() {
+        for leading_row_ix in 0..excerpt.spec.leading_rows {
+            projected_rows.push(project_chrome_row(
+                excerpt,
+                row_index,
+                leading_row_ix,
+                WorkspaceRowKind::LeadingChrome,
+            ));
+            row_index = row_index.saturating_add(1);
+        }
+
         for row in display_rows_for_excerpt(excerpt) {
             projected_rows.push(project_display_row(excerpt, row_index, &row));
+            row_index = row_index.saturating_add(1);
+        }
+
+        for trailing_row_ix in 0..excerpt.spec.trailing_rows {
+            projected_rows.push(project_chrome_row(
+                excerpt,
+                row_index,
+                excerpt.spec.leading_rows + excerpt.spec.content_row_count() + trailing_row_ix,
+                WorkspaceRowKind::TrailingChrome,
+            ));
             row_index = row_index.saturating_add(1);
         }
 
@@ -94,6 +114,37 @@ where
     }
 
     projected_rows
+}
+
+fn project_chrome_row(
+    excerpt: &WorkspaceExcerptLayout,
+    row_index: usize,
+    row_in_excerpt: usize,
+    row_kind: WorkspaceRowKind,
+) -> WorkspaceProjectedRow {
+    let raw_row_start = excerpt.global_row_range.start + row_in_excerpt;
+    WorkspaceProjectedRow {
+        row_index,
+        workspace_row_range: Some(raw_row_start..raw_row_start.saturating_add(1)),
+        location: Some(WorkspaceRowLocation {
+            excerpt_id: excerpt.spec.id,
+            document_id: excerpt.spec.document_id,
+            row_kind,
+            document_line: None,
+            row_in_excerpt,
+        }),
+        kind: DisplayRowKind::Text,
+        raw_start_column: 0,
+        raw_end_column: 0,
+        raw_column_offsets: vec![0],
+        start_column: 0,
+        end_column: 0,
+        text: String::new(),
+        is_wrapped: false,
+        whitespace_markers: Vec::new(),
+        search_highlights: Vec::new(),
+        overlays: Vec::new(),
+    }
 }
 
 fn project_display_row(
@@ -137,5 +188,120 @@ fn project_display_row(
         whitespace_markers: row.whitespace_markers.clone(),
         search_highlights: row.search_highlights.clone(),
         overlays: row.overlays.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        DisplayRow, DisplayRowKind, WorkspaceDocument, WorkspaceDocumentId, WorkspaceExcerptId,
+        WorkspaceExcerptKind, WorkspaceExcerptSpec, WorkspaceLayout,
+    };
+    use hunk_text::BufferId;
+
+    #[test]
+    fn projected_snapshot_includes_excerpt_chrome_rows() {
+        let layout = WorkspaceLayout::new(
+            vec![WorkspaceDocument::new(
+                WorkspaceDocumentId::new(1),
+                "src/main.rs",
+                BufferId::new(1),
+                3,
+            )],
+            vec![
+                WorkspaceExcerptSpec::new(
+                    WorkspaceExcerptId::new(1),
+                    WorkspaceDocumentId::new(1),
+                    WorkspaceExcerptKind::DiffHunk,
+                    0..3,
+                )
+                .with_chrome_rows(1, 1),
+            ],
+            0,
+        )
+        .expect("layout");
+
+        let snapshot = build_workspace_projected_snapshot(
+            &layout,
+            Viewport {
+                first_visible_row: 0,
+                visible_row_count: usize::MAX,
+                horizontal_offset: 0,
+            },
+            |_| {
+                vec![
+                    DisplayRow {
+                        row_index: 0,
+                        source_line: 0,
+                        kind: DisplayRowKind::Text,
+                        raw_start_column: 0,
+                        raw_end_column: 1,
+                        raw_column_offsets: vec![0, 1],
+                        start_column: 0,
+                        end_column: 1,
+                        text: "a".to_string(),
+                        is_wrapped: false,
+                        whitespace_markers: Vec::new(),
+                        search_highlights: Vec::new(),
+                        overlays: Vec::new(),
+                    },
+                    DisplayRow {
+                        row_index: 1,
+                        source_line: 1,
+                        kind: DisplayRowKind::Text,
+                        raw_start_column: 0,
+                        raw_end_column: 1,
+                        raw_column_offsets: vec![0, 1],
+                        start_column: 0,
+                        end_column: 1,
+                        text: "b".to_string(),
+                        is_wrapped: false,
+                        whitespace_markers: Vec::new(),
+                        search_highlights: Vec::new(),
+                        overlays: Vec::new(),
+                    },
+                    DisplayRow {
+                        row_index: 2,
+                        source_line: 2,
+                        kind: DisplayRowKind::Text,
+                        raw_start_column: 0,
+                        raw_end_column: 1,
+                        raw_column_offsets: vec![0, 1],
+                        start_column: 0,
+                        end_column: 1,
+                        text: "c".to_string(),
+                        is_wrapped: false,
+                        whitespace_markers: Vec::new(),
+                        search_highlights: Vec::new(),
+                        overlays: Vec::new(),
+                    },
+                ]
+            },
+        );
+
+        assert_eq!(snapshot.total_display_rows, 5);
+        assert_eq!(
+            snapshot
+                .visible_rows
+                .iter()
+                .map(|row| row.workspace_row_range.clone())
+                .collect::<Vec<_>>(),
+            vec![Some(0..1), Some(1..2), Some(2..3), Some(3..4), Some(4..5),]
+        );
+        assert_eq!(
+            snapshot
+                .visible_rows
+                .iter()
+                .map(|row| row.location.as_ref().map(|location| location.row_kind))
+                .collect::<Vec<_>>(),
+            vec![
+                Some(WorkspaceRowKind::LeadingChrome),
+                Some(WorkspaceRowKind::Content),
+                Some(WorkspaceRowKind::Content),
+                Some(WorkspaceRowKind::Content),
+                Some(WorkspaceRowKind::TrailingChrome),
+            ]
+        );
     }
 }

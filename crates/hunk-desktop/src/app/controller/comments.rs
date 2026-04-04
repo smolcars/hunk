@@ -54,26 +54,10 @@ impl DiffViewer {
     fn build_comment_row_anchor_index(
         &self,
     ) -> (BTreeMap<usize, RowCommentAnchor>, BTreeMap<String, Vec<usize>>) {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.build_comment_anchor_index(COMMENT_CONTEXT_RADIUS_ROWS);
-        }
-
-        let mut row_anchor_index = BTreeMap::new();
-        let mut rows_by_path = BTreeMap::<String, Vec<usize>>::new();
-
-        for row_ix in 0..self.active_diff_row_count() {
-            if let Some(anchor) = self.build_row_comment_anchor(row_ix) {
-                rows_by_path
-                    .entry(anchor.file_path.clone())
-                    .or_default()
-                    .push(row_ix);
-                row_anchor_index.insert(row_ix, anchor);
-            }
-        }
-
-        (row_anchor_index, rows_by_path)
+        self.review_workspace_session
+            .as_ref()
+            .map(|session| session.build_comment_anchor_index(COMMENT_CONTEXT_RADIUS_ROWS))
+            .unwrap_or_default()
     }
 
     fn load_database_store() -> Option<DatabaseStore> {
@@ -274,24 +258,9 @@ impl DiffViewer {
         if !self.review_comments_enabled() {
             return false;
         }
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.row_supports_comments(row_ix);
-        }
-        let Some(row) = self.active_diff_row(row_ix) else {
-            return false;
-        };
-        if !matches!(row.kind, DiffRowKind::Code | DiffRowKind::Meta | DiffRowKind::Empty) {
-            return false;
-        }
-
-        self.active_diff_row_metadata(row_ix).is_some_and(|meta| {
-            matches!(
-                meta.kind,
-                DiffStreamRowKind::CoreCode | DiffStreamRowKind::CoreMeta | DiffStreamRowKind::CoreEmpty
-            )
-        })
+        self.review_workspace_session
+            .as_ref()
+            .is_some_and(|session| session.row_supports_comments(row_ix))
     }
 
     pub(super) fn on_diff_row_hover(&mut self, row_ix: usize, cx: &mut Context<Self>) {
@@ -650,9 +619,9 @@ impl DiffViewer {
 
         let now = now_unix_ms();
         let changed_paths = self
-            .files
+            .active_diff_files()
             .iter()
-            .map(|file| file.path.as_str())
+            .map(|file| file.path.clone())
             .collect::<BTreeSet<_>>();
         let mut should_reload = false;
         let mut seen_ids = Vec::new();
@@ -727,83 +696,9 @@ impl DiffViewer {
     }
 
     pub(super) fn build_row_comment_anchor(&self, row_ix: usize) -> Option<RowCommentAnchor> {
-        if self.workspace_view_mode == WorkspaceViewMode::Diff
-            && let Some(session) = self.review_workspace_session.as_ref()
-        {
-            return session.build_comment_anchor(row_ix, COMMENT_CONTEXT_RADIUS_ROWS);
-        }
-
-        if !self.row_supports_comments(row_ix) {
-            return None;
-        }
-        let row = self.active_diff_row(row_ix)?;
-        let file_path = self.row_file_path(row_ix)?;
-        let hunk_header = self.row_hunk_header(row_ix);
-        let line_text = Self::row_diff_lines(row).join("\n");
-
-        let (line_side, old_line, new_line) = if row.kind == DiffRowKind::Code {
-            if row.right.kind != DiffCellKind::None {
-                (CommentLineSide::Right, row.left.line, row.right.line)
-            } else if row.left.kind != DiffCellKind::None {
-                (CommentLineSide::Left, row.left.line, row.right.line)
-            } else {
-                (CommentLineSide::Meta, None, None)
-            }
-        } else {
-            (CommentLineSide::Meta, None, None)
-        };
-
-        let context_before = self.collect_row_context(row_ix, true);
-        let context_after = self.collect_row_context(row_ix, false);
-        let anchor_hash = compute_comment_anchor_hash(
-            file_path.as_str(),
-            hunk_header.as_deref(),
-            line_text.as_str(),
-            context_before.as_str(),
-            context_after.as_str(),
-        );
-
-        Some(RowCommentAnchor {
-            file_path,
-            line_side,
-            old_line,
-            new_line,
-            hunk_header,
-            line_text,
-            context_before,
-            context_after,
-            anchor_hash,
-        })
-    }
-
-    fn collect_row_context(&self, row_ix: usize, before: bool) -> String {
-        let row_count = self.active_diff_row_count();
-        if row_count == 0 {
-            return String::new();
-        }
-        let anchor_path = self.row_file_path(row_ix);
-
-        let range = if before {
-            let start = row_ix.saturating_sub(COMMENT_CONTEXT_RADIUS_ROWS);
-            start..row_ix
-        } else {
-            let start = row_ix.saturating_add(1);
-            let end = start
-                .saturating_add(COMMENT_CONTEXT_RADIUS_ROWS)
-                .min(row_count);
-            start..end
-        };
-
-        let mut lines = Vec::new();
-        for ix in range {
-            if let Some(row) = self.active_diff_row(ix) {
-                if anchor_path.is_some() && self.row_file_path(ix) != anchor_path {
-                    continue;
-                }
-                lines.extend(Self::row_diff_lines(row));
-            }
-        }
-        lines.join("\n")
+        self.review_workspace_session
+            .as_ref()
+            .and_then(|session| session.build_comment_anchor(row_ix, COMMENT_CONTEXT_RADIUS_ROWS))
     }
 
     pub(super) fn row_diff_lines(row: &SideBySideRow) -> Vec<String> {

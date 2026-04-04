@@ -1032,6 +1032,7 @@ fn review_workspace_session_surface_rows_match_current_side_by_side_shape() {
         file_range.end_row - file_range.start_row,
         expected_surface_rows
     );
+    assert_eq!(session.layout().total_rows(), expected_surface_rows);
     assert_eq!(
         session.visible_file_header_row(file_range.start_row.saturating_add(1)),
         Some(file_range.start_row)
@@ -1044,6 +1045,37 @@ fn review_workspace_session_surface_rows_match_current_side_by_side_shape() {
         session.hunk_header_at_surface_row(file_range.start_row.saturating_add(2)),
         Some("@@ -3,5 +3,4 @@")
     );
+}
+
+#[test]
+fn review_workspace_session_layout_matches_render_rows_for_mixed_change_blocks() {
+    let patch = "\
+@@ -10,8 +10,8 @@
+ keep one
+-old a
+-old b
+-old c
++new a
+ keep two
+-old d
++new d
++new e
++new f
+ keep three
+";
+    let snapshot = CompareSnapshot {
+        files: vec![changed_file("src/app.rs", FileStatus::Modified)],
+        file_line_stats: BTreeMap::new(),
+        overall_line_stats: LineStats::default(),
+        patches_by_path: BTreeMap::from([("src/app.rs".to_string(), patch.to_string())]),
+    };
+
+    let session = ReviewWorkspaceSession::from_compare_snapshot(&snapshot, &BTreeSet::new())
+        .expect("workspace session should build");
+    let expected_surface_rows = 1 + parse_patch_side_by_side(patch).len();
+
+    assert_eq!(session.layout().total_rows(), expected_surface_rows);
+    assert_eq!(session.file_ranges()[0].end_row, expected_surface_rows);
 }
 
 #[test]
@@ -1867,14 +1899,14 @@ fn review_workspace_session_exports_editor_documents_for_each_side() {
         session.editor_documents(ReviewWorkspaceEditorSide::Left),
         vec![(
             std::path::PathBuf::from("src/main.rs"),
-            "before\nstay\n".to_string(),
+            "before\nstay".to_string()
         )]
     );
     assert_eq!(
         session.editor_documents(ReviewWorkspaceEditorSide::Right),
         vec![(
             std::path::PathBuf::from("src/main.rs"),
-            "after\nstay\n".to_string(),
+            "after\nstay".to_string()
         )]
     );
 }

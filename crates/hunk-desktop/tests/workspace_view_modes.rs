@@ -43,11 +43,11 @@ fn ai_controller_switch_action_targets_ai_mode() {
 }
 
 #[test]
-fn ai_mode_does_not_enable_sidebar_or_diff_stream() {
+fn only_review_mode_enables_diff_stream() {
     assert!(!WorkspaceViewMode::Ai.supports_sidebar_tree());
     assert!(!WorkspaceViewMode::Ai.supports_diff_stream());
     assert!(WorkspaceViewMode::Files.supports_sidebar_tree());
-    assert!(WorkspaceViewMode::Files.supports_diff_stream());
+    assert!(!WorkspaceViewMode::Files.supports_diff_stream());
     assert!(WorkspaceViewMode::Diff.supports_sidebar_tree());
     assert!(WorkspaceViewMode::Diff.supports_diff_stream());
     assert!(!WorkspaceViewMode::GitWorkspace.supports_sidebar_tree());

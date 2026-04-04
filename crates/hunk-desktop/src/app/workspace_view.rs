@@ -27,7 +27,7 @@ impl WorkspaceViewMode {
     }
 
     pub(super) const fn supports_diff_stream(self) -> bool {
-        matches!(self, Self::Files | Self::Diff)
+        matches!(self, Self::Diff)
     }
 
     pub(super) const fn shows_toolbar_workspace_identity(self) -> bool {

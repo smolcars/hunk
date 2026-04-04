@@ -1,5 +1,4 @@
-use std::io::ErrorKind;
-use std::net::TcpStream;
+use std::future::Future;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -12,12 +11,26 @@ use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
+use fastwebsockets::FragmentCollector;
+use fastwebsockets::Frame;
+use fastwebsockets::OpCode;
+use fastwebsockets::Payload;
+use fastwebsockets::handshake;
+use http_body_util::Empty;
+use hyper::Request;
+use hyper::body::Bytes;
+use hyper::header::CONNECTION;
+use hyper::header::HOST;
+use hyper::header::UPGRADE;
+use hyper::upgrade::Upgraded;
+use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tungstenite::Message;
-use tungstenite::WebSocket;
-use tungstenite::stream::MaybeTlsStream;
+use tokio::net::TcpStream;
+use tokio::runtime::Builder;
+use tokio::runtime::Handle;
+use tokio::runtime::Runtime;
 use url::Url;
 
 use crate::api;
@@ -25,6 +38,8 @@ use crate::api::InitializeOptions;
 use crate::errors::CodexIntegrationError;
 use crate::errors::Result;
 use crate::rpc::RequestIdGenerator;
+
+type CodexWebSocket = FragmentCollector<TokioIo<Upgraded>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebSocketEndpoint {
@@ -53,6 +68,12 @@ impl WebSocketEndpoint {
         Url::parse(&raw)
             .map_err(|error| CodexIntegrationError::InvalidEndpoint(format!("{raw} ({error})")))
     }
+
+    fn as_http_url(&self) -> Result<Url> {
+        let raw = format!("http://{}:{}/", self.host, self.port);
+        Url::parse(&raw)
+            .map_err(|error| CodexIntegrationError::InvalidEndpoint(format!("{raw} ({error})")))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,22 +91,33 @@ impl Default for RequestRetryPolicy {
     }
 }
 
-#[derive(Debug)]
 pub struct JsonRpcSession {
-    socket: WebSocket<MaybeTlsStream<TcpStream>>,
+    runtime: Runtime,
+    socket: CodexWebSocket,
     request_ids: RequestIdGenerator,
     retry_policy: RequestRetryPolicy,
     server_notifications: Vec<ServerNotification>,
     server_requests: Vec<ServerRequest>,
 }
 
+const CODEX_WS_MAX_MESSAGE_SIZE_BYTES: usize = 64 << 20;
+
 impl JsonRpcSession {
     pub fn connect(endpoint: &WebSocketEndpoint) -> Result<Self> {
-        let url = endpoint.as_url()?.to_string();
-        let (socket, _) = tungstenite::connect(url.as_str())
-            .map_err(|error| CodexIntegrationError::WebSocketTransport(error.to_string()))?;
+        let runtime = Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .map_err(|error| {
+                CodexIntegrationError::WebSocketTransport(format!(
+                    "failed to build websocket runtime: {error}"
+                ))
+            })?;
+
+        let socket = runtime.block_on(connect_fastwebsocket(endpoint, runtime.handle().clone()))?;
 
         Ok(Self {
+            runtime,
             socket,
             request_ids: RequestIdGenerator::default(),
             retry_policy: RequestRetryPolicy::default(),
@@ -108,10 +140,6 @@ impl JsonRpcSession {
             .map_err(CodexIntegrationError::Serialization)?;
 
         let response_value = self.request(api::method::INITIALIZE, Some(params), timeout)?;
-        // The app-server now reports its resolved `$CODEX_HOME` in the initialize
-        // response. Hunk currently keeps using its own configured `codex_home`
-        // for host launch and rollout lookup, but we still deserialize the field
-        // here to stay compatible with the upstream protocol schema.
         let response: InitializeResponse =
             serde_json::from_value(response_value).map_err(CodexIntegrationError::Serialization)?;
 
@@ -288,70 +316,111 @@ impl JsonRpcSession {
     }
 
     fn send_message(&mut self, message: JSONRPCMessage) -> Result<()> {
-        let payload =
-            serde_json::to_string(&message).map_err(CodexIntegrationError::Serialization)?;
-        self.socket
-            .send(Message::Text(payload.into()))
-            .map_err(|error| CodexIntegrationError::WebSocketTransport(error.to_string()))
+        let payload = serde_json::to_vec(&message).map_err(CodexIntegrationError::Serialization)?;
+        let frame = Frame::text(Payload::Owned(payload));
+        self.runtime
+            .block_on(self.socket.write_frame(frame))
+            .map_err(fastwebsocket_transport_error)
     }
 
     fn read_message(&mut self, timeout: Duration) -> Result<JSONRPCMessage> {
-        self.set_read_timeout(Some(timeout))?;
-
         loop {
-            let frame = match self.socket.read() {
-                Ok(frame) => frame,
-                Err(tungstenite::Error::Io(error))
-                    if error.kind() == ErrorKind::WouldBlock
-                        || error.kind() == ErrorKind::TimedOut =>
-                {
-                    return Err(CodexIntegrationError::RequestTimedOut {
-                        method: "read".to_string(),
-                        timeout_ms: duration_ms(timeout),
-                    });
-                }
-                Err(error) => {
-                    return Err(CodexIntegrationError::WebSocketTransport(error.to_string()));
-                }
-            };
+            let frame = self
+                .runtime
+                .block_on(async { tokio::time::timeout(timeout, self.socket.read_frame()).await })
+                .map_err(|_| CodexIntegrationError::RequestTimedOut {
+                    method: "read".to_string(),
+                    timeout_ms: duration_ms(timeout),
+                })?
+                .map_err(fastwebsocket_transport_error)?;
 
-            match frame {
-                Message::Text(text) => {
-                    let message: JSONRPCMessage = serde_json::from_str(text.as_ref())
+            if frame.payload.len() > CODEX_WS_MAX_MESSAGE_SIZE_BYTES {
+                return Err(CodexIntegrationError::WebSocketTransport(format!(
+                    "message exceeded {} bytes",
+                    CODEX_WS_MAX_MESSAGE_SIZE_BYTES
+                )));
+            }
+
+            match frame.opcode {
+                OpCode::Text => {
+                    let message: JSONRPCMessage = serde_json::from_slice(frame.payload.as_ref())
                         .map_err(CodexIntegrationError::Serialization)?;
                     return Ok(message);
                 }
-                Message::Binary(binary) => {
-                    let message: JSONRPCMessage = serde_json::from_slice(binary.as_ref())
+                OpCode::Binary => {
+                    let message: JSONRPCMessage = serde_json::from_slice(frame.payload.as_ref())
                         .map_err(CodexIntegrationError::Serialization)?;
                     return Ok(message);
                 }
-                Message::Ping(payload) => {
-                    self.socket.send(Message::Pong(payload)).map_err(|error| {
-                        CodexIntegrationError::WebSocketTransport(error.to_string())
-                    })?;
-                }
-                Message::Pong(_) | Message::Frame(_) => {}
-                Message::Close(frame) => {
-                    let close_text = frame
-                        .map(|value| value.reason.to_string())
-                        .unwrap_or_else(|| "closed without reason".to_string());
+                OpCode::Close => {
+                    let close_text = String::from_utf8_lossy(frame.payload.as_ref()).into_owned();
+                    let close_text = if close_text.is_empty() {
+                        "closed without reason".to_string()
+                    } else {
+                        close_text
+                    };
                     return Err(CodexIntegrationError::WebSocketTransport(format!(
                         "socket closed: {close_text}"
                     )));
                 }
+                OpCode::Ping | OpCode::Pong | OpCode::Continuation => {}
             }
         }
     }
+}
 
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<()> {
-        if let MaybeTlsStream::Plain(stream) = self.socket.get_mut() {
-            stream
-                .set_read_timeout(timeout)
-                .map_err(CodexIntegrationError::HostProcessIo)?;
-        }
-        Ok(())
+async fn connect_fastwebsocket(
+    endpoint: &WebSocketEndpoint,
+    handle: Handle,
+) -> Result<CodexWebSocket> {
+    let address = format!("{}:{}", endpoint.host(), endpoint.port());
+    let stream = TcpStream::connect(address)
+        .await
+        .map_err(CodexIntegrationError::HostProcessIo)?;
+    let request = websocket_handshake_request(endpoint)?;
+    let executor = TokioSpawnExecutor { handle };
+    let (mut socket, _) = handshake::client(&executor, request, stream)
+        .await
+        .map_err(fastwebsocket_transport_error)?;
+    socket.set_auto_close(true);
+    socket.set_auto_pong(true);
+    socket.set_writev(true);
+    Ok(FragmentCollector::new(socket))
+}
+
+fn websocket_handshake_request(endpoint: &WebSocketEndpoint) -> Result<Request<Empty<Bytes>>> {
+    let url = endpoint.as_http_url()?;
+    Request::builder()
+        .method("GET")
+        .uri(url.as_str())
+        .header(HOST, format!("{}:{}", endpoint.host(), endpoint.port()))
+        .header(UPGRADE, "websocket")
+        .header(CONNECTION, "upgrade")
+        .header("Sec-WebSocket-Key", handshake::generate_key())
+        .header("Sec-WebSocket-Version", "13")
+        .body(Empty::<Bytes>::new())
+        .map_err(|error| {
+            CodexIntegrationError::InvalidEndpoint(format!("{} ({error})", url.as_str()))
+        })
+}
+
+#[derive(Clone)]
+struct TokioSpawnExecutor {
+    handle: Handle,
+}
+
+impl<Fut> hyper::rt::Executor<Fut> for TokioSpawnExecutor
+where
+    Fut: Future + Send + 'static,
+    Fut::Output: Send + 'static,
+{
+    fn execute(&self, fut: Fut) {
+        self.handle.spawn(fut);
     }
+}
+
+fn fastwebsocket_transport_error(error: impl std::fmt::Display) -> CodexIntegrationError {
+    CodexIntegrationError::WebSocketTransport(error.to_string())
 }
 
 fn backoff_for_attempt(base: Duration, attempt: u8) -> Duration {
@@ -371,4 +440,39 @@ fn is_read_timeout(error: &CodexIntegrationError) -> bool {
         error,
         CodexIntegrationError::RequestTimedOut { method, .. } if method == "read"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CODEX_WS_MAX_MESSAGE_SIZE_BYTES, WebSocketEndpoint, websocket_handshake_request};
+
+    #[test]
+    fn websocket_handshake_request_uses_upgrade_headers() {
+        let endpoint = WebSocketEndpoint::loopback(4321);
+        let request = websocket_handshake_request(&endpoint).expect("request");
+        assert_eq!(request.method(), hyper::Method::GET);
+        assert_eq!(request.uri().to_string(), "http://127.0.0.1:4321/");
+        assert_eq!(
+            request.headers().get(hyper::header::HOST).unwrap(),
+            "127.0.0.1:4321"
+        );
+        assert_eq!(
+            request.headers().get(hyper::header::UPGRADE).unwrap(),
+            "websocket"
+        );
+        assert_eq!(
+            request.headers().get(hyper::header::CONNECTION).unwrap(),
+            "upgrade"
+        );
+        assert_eq!(
+            request.headers().get("Sec-WebSocket-Version").unwrap(),
+            "13"
+        );
+        assert!(request.headers().contains_key("Sec-WebSocket-Key"));
+    }
+
+    #[test]
+    fn websocket_max_message_size_matches_expected_limit() {
+        assert_eq!(CODEX_WS_MAX_MESSAGE_SIZE_BYTES, 64 << 20);
+    }
 }

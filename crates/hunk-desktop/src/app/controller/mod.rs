@@ -15,12 +15,10 @@ use crate::app::ai_thread_flow::{
 use crate::app::markdown_links::open_url_in_browser;
 
 use super::data::{
-    DiffSegmentQuality, DiffStream, DiffStreamRowKind, RepoTreeNodeKind,
-    base_segment_quality_for_file, build_changed_files_tree,
+    DiffSegmentQuality, DiffStream, DiffStreamRowKind, RepoTreeNodeKind, build_changed_files_tree,
     build_diff_row_segment_cache_from_cells, build_diff_stream_from_patch_map, build_repo_tree,
-    count_repo_tree_kind, decimal_digits, effective_segment_quality, flatten_repo_tree_rows,
-    is_markdown_path, line_number_column_width, load_file_editor_document, message_row,
-    save_file_editor_document,
+    count_repo_tree_kind, flatten_repo_tree_rows, is_markdown_path, line_number_column_width,
+    load_file_editor_document, save_file_editor_document,
 };
 use super::*;
 use hunk_git::branch::{
@@ -30,12 +28,11 @@ use hunk_git::branch::{
 use hunk_git::compare::{CompareSource, load_compare_snapshot, resolve_default_base_branch_name};
 use hunk_git::git::{
     RepoSnapshotFingerprint, WorkflowSnapshot, count_non_ignored_repo_tree_entries,
-    invalidate_repo_metadata_caches, load_patches_for_files_from_session,
-    load_repo_file_line_stats_for_paths_without_refresh, load_repo_file_line_stats_without_refresh,
-    load_repo_tree, load_snapshot_fingerprint, load_workflow_snapshot,
-    load_workflow_snapshot_if_changed, load_workflow_snapshot_if_changed_without_refresh,
-    load_workflow_snapshot_with_fingerprint,
-    load_workflow_snapshot_with_fingerprint_without_refresh, open_patch_session,
+    invalidate_repo_metadata_caches, load_repo_file_line_stats_for_paths_without_refresh,
+    load_repo_file_line_stats_without_refresh, load_repo_tree, load_snapshot_fingerprint,
+    load_workflow_snapshot, load_workflow_snapshot_if_changed,
+    load_workflow_snapshot_if_changed_without_refresh, load_workflow_snapshot_with_fingerprint,
+    load_workflow_snapshot_with_fingerprint_without_refresh,
 };
 use hunk_git::history::{
     DEFAULT_RECENT_AUTHORED_COMMIT_LIMIT, load_recent_authored_commits_fingerprint,

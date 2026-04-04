@@ -1,10 +1,3 @@
-fn should_store_legacy_diff_surface_state(
-    workspace_view_mode: WorkspaceViewMode,
-    _has_review_workspace_session: bool,
-) -> bool {
-    workspace_view_mode != WorkspaceViewMode::Diff
-}
-
 impl DiffViewer {
     fn empty_workspace_project_state() -> WorkspaceProjectState {
         WorkspaceProjectState {
@@ -36,10 +29,6 @@ impl DiffViewer {
             collapsed_files: BTreeSet::new(),
             selected_path: None,
             selected_status: None,
-            diff_rows: Vec::new(),
-            diff_row_metadata: Vec::new(),
-            diff_row_segment_cache: Vec::new(),
-            file_row_ranges: Vec::new(),
             file_line_stats: BTreeMap::new(),
             review_surface: ReviewWorkspaceSurfaceState::new(),
             review_files: Vec::new(),
@@ -115,37 +104,6 @@ impl DiffViewer {
 
     fn take_current_workspace_project_state(&mut self) -> WorkspaceProjectState {
         self.prepare_current_workspace_project_state_for_storage();
-        let store_legacy_diff_state = should_store_legacy_diff_surface_state(
-            self.workspace_view_mode,
-            self.review_workspace_session.is_some(),
-        );
-        let diff_rows = if store_legacy_diff_state {
-            std::mem::take(&mut self.diff_rows)
-        } else {
-            self.diff_rows.clear();
-            Vec::new()
-        };
-        let diff_row_metadata = if store_legacy_diff_state {
-            std::mem::take(&mut self.diff_row_metadata)
-        } else {
-            self.diff_row_metadata.clear();
-            Vec::new()
-        };
-        let diff_row_segment_cache = if store_legacy_diff_state {
-            std::mem::take(&mut self.diff_row_segment_cache)
-        } else {
-            self.diff_row_segment_cache.clear();
-            Vec::new()
-        };
-        let file_row_ranges = if store_legacy_diff_state {
-            std::mem::take(&mut self.file_row_ranges)
-        } else {
-            self.file_row_ranges.clear();
-            Vec::new()
-        };
-        if !store_legacy_diff_state {
-            self.review_surface.clear_legacy_diff_row_lookups();
-        }
         WorkspaceProjectState {
             repo_root: self.repo_root.take(),
             workspace_targets: std::mem::take(&mut self.workspace_targets),
@@ -175,10 +133,6 @@ impl DiffViewer {
             collapsed_files: std::mem::take(&mut self.collapsed_files),
             selected_path: self.selected_path.take(),
             selected_status: self.selected_status.take(),
-            diff_rows,
-            diff_row_metadata,
-            diff_row_segment_cache,
-            file_row_ranges,
             file_line_stats: std::mem::take(&mut self.file_line_stats),
             review_surface: std::mem::replace(
                 &mut self.review_surface,
@@ -265,10 +219,6 @@ impl DiffViewer {
         self.collapsed_files = state.collapsed_files;
         self.selected_path = state.selected_path;
         self.selected_status = state.selected_status;
-        self.diff_rows = state.diff_rows;
-        self.diff_row_metadata = state.diff_row_metadata;
-        self.diff_row_segment_cache = state.diff_row_segment_cache;
-        self.file_row_ranges = state.file_row_ranges;
         self.file_line_stats = state.file_line_stats;
         self.review_surface = state.review_surface;
         self.review_files = state.review_files;
@@ -388,31 +338,5 @@ impl DiffViewer {
             "failed to sync project picker state",
             cx,
         );
-    }
-}
-
-#[cfg(test)]
-mod workspace_project_state_tests {
-    use super::should_store_legacy_diff_surface_state;
-    use crate::app::data::WorkspaceViewMode;
-
-    #[test]
-    fn diff_mode_with_workspace_session_drops_legacy_surface_state() {
-        assert!(!should_store_legacy_diff_surface_state(
-            WorkspaceViewMode::Diff,
-            true,
-        ));
-    }
-
-    #[test]
-    fn files_mode_keeps_flat_rows_but_diff_mode_does_not() {
-        assert!(should_store_legacy_diff_surface_state(
-            WorkspaceViewMode::Files,
-            true,
-        ));
-        assert!(!should_store_legacy_diff_surface_state(
-            WorkspaceViewMode::Diff,
-            false,
-        ));
     }
 }
