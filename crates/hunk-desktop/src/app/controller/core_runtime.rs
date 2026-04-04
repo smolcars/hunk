@@ -160,10 +160,10 @@ impl DiffViewer {
         if session.row_count() == 0 {
             return false;
         }
-        let Some(left_workspace_editor) = self.review_surface.left_workspace_editor.as_ref() else {
+        let Some(left_workspace_editor) = self.review_surface.left_workspace_editor() else {
             return false;
         };
-        let Some(right_workspace_editor) = self.review_surface.right_workspace_editor.as_ref() else {
+        let Some(right_workspace_editor) = self.review_surface.right_workspace_editor() else {
             return false;
         };
 

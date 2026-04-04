@@ -3,8 +3,7 @@ use super::theme::*;
 use super::*;
 use crate::app::markdown_links::{MarkdownLinkRange, markdown_inline_text_and_link_ranges};
 use gpui::{
-    AnyElement, Bounds, ContentMask, Element, ElementId, GlobalElementId, Hsla, InspectorElementId,
-    IntoElement, LayoutId, Pixels, Point, fill, size,
+    AnyElement, Bounds, ContentMask, Hsla, IntoElement, Pixels, Point, fill, size,
 };
 use gpui_component::Disableable as _;
 use gpui_component::Sizable as _;

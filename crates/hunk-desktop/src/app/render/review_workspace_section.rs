@@ -361,21 +361,23 @@ impl DiffViewer {
             .is_some_and(|header| {
                 self.can_open_file_in_files_workspace(header.path.as_str(), header.status)
             });
-        crate::app::workspace_surface::ReviewWorkspaceSurfaceElement {
-            view: cx.entity(),
-            viewport: std::rc::Rc::new(viewport.clone()),
-            sticky_file_header: surface.sticky_file_header.clone(),
-            sticky_file_can_view,
-            viewport_origin_px,
-            selected_row_range: self.selected_row_range(),
-            left_panel_width: layout.map(|layout| layout.left_panel_width),
-            right_panel_width: layout.map(|layout| layout.right_panel_width),
-            left_line_number_width: self.review_surface.diff_left_line_number_width,
-            right_line_number_width: self.review_surface.diff_right_line_number_width,
-            center_divider: chrome.center_divider,
-            mono_font_family: cx.theme().mono_font_family.clone(),
-            ui_font_family: cx.theme().font_family.clone(),
-        }
+        crate::app::workspace_surface::WorkspaceSurfaceElement::Review(
+            crate::app::workspace_surface::ReviewWorkspaceSurfaceElement {
+                view: cx.entity(),
+                viewport: std::rc::Rc::new(viewport.clone()),
+                sticky_file_header: surface.sticky_file_header.clone(),
+                sticky_file_can_view,
+                viewport_origin_px,
+                selected_row_range: self.selected_row_range(),
+                left_panel_width: layout.map(|layout| layout.left_panel_width),
+                right_panel_width: layout.map(|layout| layout.right_panel_width),
+                left_line_number_width: self.review_surface.diff_left_line_number_width,
+                right_line_number_width: self.review_surface.diff_right_line_number_width,
+                center_divider: chrome.center_divider,
+                mono_font_family: cx.theme().mono_font_family.clone(),
+                ui_font_family: cx.theme().font_family.clone(),
+            },
+        )
         .into_any_element()
     }
 }

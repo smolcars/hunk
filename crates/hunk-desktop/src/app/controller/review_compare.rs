@@ -176,8 +176,7 @@ fn update_persisted_review_compare_selection(
 impl DiffViewer {
     pub(crate) fn current_review_editor_path(&self) -> Option<String> {
         self.review_surface
-            .left_workspace_editor
-            .as_ref()
+            .left_workspace_editor()
             .and_then(|editor| editor.borrow().active_workspace_path_buf())
             .map(|path| path.to_string_lossy().to_string())
     }
@@ -186,12 +185,12 @@ impl DiffViewer {
         let Some(path) = path else {
             return;
         };
-        if let Some(editor) = self.review_surface.left_workspace_editor.as_ref() {
+        if let Some(editor) = self.review_surface.left_workspace_editor() {
             let _ = editor
                 .borrow_mut()
                 .activate_workspace_path(std::path::Path::new(path));
         }
-        if let Some(editor) = self.review_surface.right_workspace_editor.as_ref() {
+        if let Some(editor) = self.review_surface.right_workspace_editor() {
             let _ = editor
                 .borrow_mut()
                 .activate_workspace_path(std::path::Path::new(path));
@@ -205,14 +204,14 @@ impl DiffViewer {
         if let Some(excerpt_id) = session.excerpt_id_at_surface_row(row_ix)
         {
             let mut handled = false;
-            if let Some(editor) = self.review_surface.left_workspace_editor.as_ref() {
+            if let Some(editor) = self.review_surface.left_workspace_editor() {
                 handled |= editor
                     .borrow_mut()
                     .activate_workspace_excerpt(excerpt_id)
                     .ok()
                     == Some(true);
             }
-            if let Some(editor) = self.review_surface.right_workspace_editor.as_ref() {
+            if let Some(editor) = self.review_surface.right_workspace_editor() {
                 handled |= editor
                     .borrow_mut()
                     .activate_workspace_excerpt(excerpt_id)
@@ -1025,8 +1024,8 @@ impl DiffViewer {
         else {
             return;
         };
-        self.review_surface.left_workspace_editor = Some(left_workspace_editor);
-        self.review_surface.right_workspace_editor = Some(right_workspace_editor);
+        self.review_surface
+            .set_workspace_owner(left_workspace_editor, right_workspace_editor);
         let seeded_display_rows = self.seed_review_surface_display_rows();
         self.review_files = snapshot.files;
         self.review_file_status_by_path = self

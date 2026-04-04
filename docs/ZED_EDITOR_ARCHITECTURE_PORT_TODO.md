@@ -450,7 +450,7 @@ Zed reference points:
 
 ### Phase 12: Unify Files And Diff On One Workspace Surface Entry Point
 
-Status: Pending
+Status: Done
 
 Targets:
 
@@ -461,10 +461,15 @@ Targets:
 
 Tasks:
 
-- [ ] Make Files mode mount the same workspace surface contract used by Diff.
-- [ ] Remove remaining render-entry assumptions that Files is single-buffer and Diff is custom-surface.
-- [ ] Keep persistent selection, scroll, and search state under the shared editor/session owner.
-- [ ] Ensure excerpt-order navigation behaves consistently in Files and Diff.
+- [x] Make Files mode mount the same workspace surface contract used by Diff.
+- [x] Remove remaining render-entry assumptions that Files is single-buffer and Diff is custom-surface.
+- [x] Keep persistent selection, scroll, and search state under the shared editor/session owner.
+- [x] Ensure excerpt-order navigation behaves consistently in Files and Diff.
+
+Current state:
+- Files and Diff now both enter through one `WorkspaceSurfaceElement` contract in `crates/hunk-desktop/src/app/workspace_surface.rs`.
+- Files and Diff now also share the same tree-plus-surface screen shell in `crates/hunk-desktop/src/app/render/root.rs`, instead of mounting separate top-level screen structures.
+- Review workspace search/state consumers now resolve the persistent side editors through the Review surface owner accessors instead of reaching into ad hoc top-level fields.
 
 ### Phase 13: Replace Paired-Side Diff Orchestration With One Diff Surface Owner
 

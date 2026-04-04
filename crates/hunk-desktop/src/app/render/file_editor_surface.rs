@@ -69,6 +69,8 @@ impl DiffViewer {
             },
         );
 
+        let surface = crate::app::workspace_surface::WorkspaceSurfaceElement::Files(editor_element);
+
         v_flex()
             .flex_1()
             .min_h_0()
@@ -177,7 +179,7 @@ impl DiffViewer {
                     }
                 }
             })
-            .child(div().flex_1().min_h_0().child(editor_element))
+            .child(div().flex_1().min_h_0().child(surface))
             .into_any_element()
     }
 }

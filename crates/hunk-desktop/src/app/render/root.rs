@@ -1,4 +1,28 @@
 impl DiffViewer {
+    fn render_tree_workspace_screen(
+        &mut self,
+        resize_id: &'static str,
+        surface: AnyElement,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .size_full()
+            .child(if self.sidebar_collapsed {
+                surface
+            } else {
+                h_resizable(resize_id)
+                    .child(
+                        resizable_panel()
+                            .size(px(300.0))
+                            .size_range(px(240.0)..px(520.0))
+                            .child(self.render_tree(cx)),
+                    )
+                    .child(resizable_panel().child(surface))
+                    .into_any_element()
+            })
+            .into_any_element()
+    }
+
     fn render_linux_client_title_bar(&self, cx: &mut Context<Self>) -> AnyElement {
         let menu_bar = self.in_app_menu_bar.clone();
         let is_dark = cx.theme().mode.is_dark();
@@ -92,22 +116,8 @@ impl DiffViewer {
                 .into_any_element();
         }
 
-        div()
-            .size_full()
-            .child(if self.sidebar_collapsed {
-                self.render_file_editor(window, cx).into_any_element()
-            } else {
-                h_resizable("hunk-file-workspace")
-                    .child(
-                        resizable_panel()
-                            .size(px(300.0))
-                            .size_range(px(240.0)..px(520.0))
-                            .child(self.render_tree(cx)),
-                    )
-                    .child(resizable_panel().child(self.render_file_editor(window, cx)))
-                    .into_any_element()
-            })
-            .into_any_element()
+        let surface = self.render_file_editor(window, cx);
+        self.render_tree_workspace_screen("hunk-file-workspace", surface, cx)
     }
 
     fn render_git_workspace_screen(&mut self, cx: &mut Context<Self>) -> AnyElement {

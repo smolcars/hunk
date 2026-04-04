@@ -1,12 +1,28 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, ContentMask, DispatchPhase, Element, ElementId, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    Point, SharedString, Window, point, px,
+    App, Bounds, ContentMask, DispatchPhase, Element, ElementId, GlobalElementId,
+    InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, SharedString, Window, point, px,
 };
 
 use crate::app::{DiffViewer, review_workspace_session};
+
+pub(crate) enum WorkspaceSurfaceElement {
+    Files(crate::app::native_files_editor::FilesEditorElement),
+    Review(ReviewWorkspaceSurfaceElement),
+}
+
+impl IntoElement for WorkspaceSurfaceElement {
+    type Element = gpui::AnyElement;
+
+    fn into_element(self) -> Self::Element {
+        match self {
+            Self::Files(element) => element.into_any_element(),
+            Self::Review(element) => element.into_any_element(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct ReviewWorkspaceSurfaceElement {

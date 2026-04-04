@@ -1066,8 +1066,7 @@ struct WorkspaceProjectState {
 struct ReviewWorkspaceSurfaceState {
     status_message: Option<String>,
     selected_path: Option<String>,
-    left_workspace_editor: Option<native_files_editor::SharedFilesEditor>,
-    right_workspace_editor: Option<native_files_editor::SharedFilesEditor>,
+    workspace_owner: Option<ReviewWorkspaceSurfaceOwner>,
     workspace_search_matches: Vec<review_workspace_session::ReviewWorkspaceSearchTarget>,
     selection_anchor_row: Option<usize>,
     selection_head_row: Option<usize>,
@@ -1081,13 +1080,17 @@ struct ReviewWorkspaceSurfaceState {
     last_diff_scroll_offset: Option<gpui::Point<gpui::Pixels>>,
 }
 
+struct ReviewWorkspaceSurfaceOwner {
+    left_workspace_editor: native_files_editor::SharedFilesEditor,
+    right_workspace_editor: native_files_editor::SharedFilesEditor,
+}
+
 impl ReviewWorkspaceSurfaceState {
     fn new() -> Self {
         Self {
             status_message: None,
             selected_path: None,
-            left_workspace_editor: None,
-            right_workspace_editor: None,
+            workspace_owner: None,
             workspace_search_matches: Vec::new(),
             selection_anchor_row: None,
             selection_head_row: None,
@@ -1111,8 +1114,7 @@ impl ReviewWorkspaceSurfaceState {
     }
 
     fn clear_workspace_editors(&mut self) {
-        self.left_workspace_editor = None;
-        self.right_workspace_editor = None;
+        self.workspace_owner = None;
     }
 
     fn clear_workspace_search_matches(&mut self) {
@@ -1122,6 +1124,31 @@ impl ReviewWorkspaceSurfaceState {
     fn clear_row_selection(&mut self) {
         self.selection_anchor_row = None;
         self.selection_head_row = None;
+    }
+
+    fn workspace_owner(&self) -> Option<&ReviewWorkspaceSurfaceOwner> {
+        self.workspace_owner.as_ref()
+    }
+
+    fn left_workspace_editor(&self) -> Option<&native_files_editor::SharedFilesEditor> {
+        self.workspace_owner()
+            .map(|owner| &owner.left_workspace_editor)
+    }
+
+    fn right_workspace_editor(&self) -> Option<&native_files_editor::SharedFilesEditor> {
+        self.workspace_owner()
+            .map(|owner| &owner.right_workspace_editor)
+    }
+
+    fn set_workspace_owner(
+        &mut self,
+        left_workspace_editor: native_files_editor::SharedFilesEditor,
+        right_workspace_editor: native_files_editor::SharedFilesEditor,
+    ) {
+        self.workspace_owner = Some(ReviewWorkspaceSurfaceOwner {
+            left_workspace_editor,
+            right_workspace_editor,
+        });
     }
 }
 
