@@ -194,10 +194,12 @@ pub(crate) struct ReviewWorkspaceSurfaceOptions {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ReviewWorkspaceDisplayRows {
     pub(crate) rows: Vec<ReviewWorkspaceDisplayRowEntry>,
-    pub(crate) left_by_row: BTreeMap<usize, WorkspaceDisplayRow>,
-    pub(crate) right_by_row: BTreeMap<usize, WorkspaceDisplayRow>,
-    pub(crate) left_syntax_by_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
-    pub(crate) right_syntax_by_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
+    #[allow(dead_code)]
+    pub(crate) left_by_display_row: BTreeMap<usize, WorkspaceDisplayRow>,
+    #[allow(dead_code)]
+    pub(crate) right_by_display_row: BTreeMap<usize, WorkspaceDisplayRow>,
+    pub(crate) left_syntax_by_display_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
+    pub(crate) right_syntax_by_display_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,31 +214,17 @@ impl ReviewWorkspaceDisplayRows {
     pub(crate) fn covers_row_range(&self, row_range: Range<usize>) -> bool {
         row_range
             .clone()
-            .all(|row| self.left_by_row.contains_key(&row) && self.right_by_row.contains_key(&row))
+            .all(|row| self.rows.iter().any(|entry| entry.row_index == row))
     }
 
     fn entries_for_raw_range(
         &self,
         row_range: Range<usize>,
     ) -> Vec<ReviewWorkspaceDisplayRowEntry> {
-        if !self.rows.is_empty() {
-            return self
-                .rows
-                .iter()
-                .filter(|entry| row_range.contains(&entry.row_index))
-                .cloned()
-                .collect();
-        }
-
-        row_range
-            .filter_map(|row_index| {
-                Some(ReviewWorkspaceDisplayRowEntry {
-                    display_row_index: row_index,
-                    row_index,
-                    left: self.left_by_row.get(&row_index)?.clone(),
-                    right: self.right_by_row.get(&row_index)?.clone(),
-                })
-            })
+        self.rows
+            .iter()
+            .filter(|entry| row_range.contains(&entry.row_index))
+            .cloned()
             .collect()
     }
 }
@@ -659,6 +647,8 @@ impl ReviewWorkspaceSession {
                 .into_iter()
                 .filter_map(|entry| {
                     let row_index = entry.row_index;
+                    let left_display_row_index = entry.left.row_index;
+                    let right_display_row_index = entry.right.row_index;
                     let left_display_row = entry.left;
                     let right_display_row = entry.right;
                     let visible_start_px = self
@@ -737,13 +727,17 @@ impl ReviewWorkspaceSession {
                         surface_top_px,
                         height_px: self.surface_row_height_px(row_index),
                         left_segments: review_viewport_render_segments(
-                            display_rows.left_syntax_by_row.get(&row_index),
+                            display_rows
+                                .left_syntax_by_display_row
+                                .get(&left_display_row_index),
                             row_segment_cache.map(|cache| &cache.left),
                             left_display_row.text.as_str(),
                             &[],
                         ),
                         right_segments: review_viewport_render_segments(
-                            display_rows.right_syntax_by_row.get(&row_index),
+                            display_rows
+                                .right_syntax_by_display_row
+                                .get(&right_display_row_index),
                             row_segment_cache.map(|cache| &cache.right),
                             right_display_row.text.as_str(),
                             right_search_highlights.as_slice(),
@@ -1464,8 +1458,8 @@ impl ReviewWorkspaceSession {
         overscan_rows: usize,
     ) -> ReviewWorkspaceDisplayRows {
         let mut rows = Vec::new();
-        let mut left_by_row = BTreeMap::new();
-        let mut right_by_row = BTreeMap::new();
+        let mut left_by_display_row = BTreeMap::new();
+        let mut right_by_display_row = BTreeMap::new();
         for section_ix in self.visible_section_range_for_viewport(
             scroll_top_px,
             viewport_height_px,
@@ -1486,29 +1480,33 @@ impl ReviewWorkspaceSession {
                 visible_row_range.clone(),
                 ReviewWorkspaceEditorSide::Left,
             ) {
-                left_by_row.insert(row.row_index, row);
+                left_by_display_row.insert(row.row_index, row);
             }
             for row in self.build_display_snapshot_for_side(
                 visible_row_range.clone(),
                 ReviewWorkspaceEditorSide::Right,
             ) {
-                right_by_row.insert(row.row_index, row);
+                right_by_display_row.insert(row.row_index, row);
             }
         }
-        rows.extend(left_by_row.iter().filter_map(|(row_index, left)| {
-            Some(ReviewWorkspaceDisplayRowEntry {
-                display_row_index: *row_index,
-                row_index: *row_index,
-                left: left.clone(),
-                right: right_by_row.get(row_index)?.clone(),
-            })
-        }));
+        rows.extend(
+            left_by_display_row
+                .iter()
+                .filter_map(|(display_row_index, left)| {
+                    Some(ReviewWorkspaceDisplayRowEntry {
+                        display_row_index: *display_row_index,
+                        row_index: *display_row_index,
+                        left: left.clone(),
+                        right: right_by_display_row.get(display_row_index)?.clone(),
+                    })
+                }),
+        );
         ReviewWorkspaceDisplayRows {
             rows,
-            left_by_row,
-            right_by_row,
-            left_syntax_by_row: BTreeMap::new(),
-            right_syntax_by_row: BTreeMap::new(),
+            left_by_display_row,
+            right_by_display_row,
+            left_syntax_by_display_row: BTreeMap::new(),
+            right_syntax_by_display_row: BTreeMap::new(),
         }
     }
 

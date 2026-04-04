@@ -147,11 +147,13 @@ impl DiffViewer {
         let left_editor = self.review_surface.left_workspace_editor.as_ref()?;
         let right_editor = self.review_surface.right_workspace_editor.as_ref()?;
         let mut left_editor = left_editor.borrow_mut();
-        let left_rows = if let Some(projected) =
-            left_editor.build_workspace_projected_snapshot(viewport, 4)
-                && let Some(rows) = workspace_display_rows_from_projected_snapshot(projected)
-        {
-            rows
+        let left_projected =
+            left_editor.build_workspace_projected_snapshot(viewport, 4).and_then(projected_review_workspace_side_rows);
+        let left_rows = if left_projected.is_some() {
+            left_projected
+                .as_ref()
+                .map(|rows| rows.rows_by_display_row.clone())
+                .unwrap_or_default()
         } else {
             let left_snapshot = left_editor.build_workspace_display_snapshot(viewport, 4, false)?;
             left_snapshot
@@ -161,15 +163,18 @@ impl DiffViewer {
                 .collect::<BTreeMap<_, _>>()
         };
         let left_syntax_rows = left_rows.values().cloned().collect::<Vec<_>>();
-        let left_syntax_by_row = left_editor.workspace_display_segments_by_row(&left_syntax_rows)?;
+        let left_syntax_by_display_row =
+            left_editor.workspace_display_segments_by_row(&left_syntax_rows)?;
         drop(left_editor);
 
         let mut right_editor = right_editor.borrow_mut();
-        let right_rows = if let Some(projected) =
-            right_editor.build_workspace_projected_snapshot(viewport, 4)
-                && let Some(rows) = workspace_display_rows_from_projected_snapshot(projected)
-        {
-            rows
+        let right_projected =
+            right_editor.build_workspace_projected_snapshot(viewport, 4).and_then(projected_review_workspace_side_rows);
+        let right_rows = if right_projected.is_some() {
+            right_projected
+                .as_ref()
+                .map(|rows| rows.rows_by_display_row.clone())
+                .unwrap_or_default()
         } else {
             let right_snapshot = right_editor.build_workspace_display_snapshot(viewport, 4, false)?;
             right_snapshot
@@ -179,15 +184,26 @@ impl DiffViewer {
                 .collect::<BTreeMap<_, _>>()
         };
         let right_syntax_rows = right_rows.values().cloned().collect::<Vec<_>>();
-        let right_syntax_by_row =
+        let right_syntax_by_display_row =
             right_editor.workspace_display_segments_by_row(&right_syntax_rows)?;
 
+        let rows = if let (Some(left_projected), Some(right_projected)) =
+            (left_projected, right_projected)
+        {
+            review_workspace_display_row_entries_from_projected_sides(
+                &left_projected,
+                &right_projected,
+            )?
+        } else {
+            review_workspace_display_row_entries(&left_rows, &right_rows)
+        };
+
         let display_rows = review_workspace_session::ReviewWorkspaceDisplayRows {
-            rows: review_workspace_display_row_entries(&left_rows, &right_rows),
-            left_by_row: left_rows,
-            right_by_row: right_rows,
-            left_syntax_by_row,
-            right_syntax_by_row,
+            rows,
+            left_by_display_row: left_rows,
+            right_by_display_row: right_rows,
+            left_syntax_by_display_row,
+            right_syntax_by_display_row,
         };
         display_rows
             .covers_row_range(first_visible_row..last_visible_row)
@@ -914,21 +930,24 @@ impl DiffViewer {
     }
 }
 
-fn workspace_display_rows_from_projected_snapshot(
-    snapshot: hunk_editor::WorkspaceProjectedSnapshot,
-) -> Option<BTreeMap<usize, hunk_editor::WorkspaceDisplayRow>> {
-    projected_workspace_display_rows(snapshot).map(|entries| {
-        entries
-            .into_iter()
-            .map(|entry| (entry.row_index, entry.left))
-            .collect()
-    })
+#[derive(Debug, Clone)]
+struct ReviewWorkspaceProjectedSideRow {
+    display_row_index: usize,
+    row_index: usize,
+    row: hunk_editor::WorkspaceDisplayRow,
 }
 
-fn projected_workspace_display_rows(
+#[derive(Debug, Clone)]
+struct ReviewWorkspaceProjectedSideRows {
+    rows: Vec<ReviewWorkspaceProjectedSideRow>,
+    rows_by_display_row: BTreeMap<usize, hunk_editor::WorkspaceDisplayRow>,
+}
+
+fn projected_review_workspace_side_rows(
     snapshot: hunk_editor::WorkspaceProjectedSnapshot,
-) -> Option<Vec<review_workspace_session::ReviewWorkspaceDisplayRowEntry>> {
-    let mut rows = Vec::<review_workspace_session::ReviewWorkspaceDisplayRowEntry>::new();
+) -> Option<ReviewWorkspaceProjectedSideRows> {
+    let mut rows = Vec::<ReviewWorkspaceProjectedSideRow>::new();
+    let mut rows_by_display_row = BTreeMap::<usize, hunk_editor::WorkspaceDisplayRow>::new();
     for row in snapshot.visible_rows {
         let Some(workspace_row_range) = row.workspace_row_range else {
             return None;
@@ -937,35 +956,79 @@ fn projected_workspace_display_rows(
             return None;
         }
         let raw_row_index = workspace_row_range.start;
-        if rows.iter().any(|entry| entry.row_index == raw_row_index) {
+        let display_row_index = row.row_index;
+        let display_row = hunk_editor::WorkspaceDisplayRow {
+            row_index: display_row_index,
+            location: row.location,
+            raw_start_column: row.raw_start_column,
+            raw_end_column: row.raw_end_column,
+            raw_column_offsets: row.raw_column_offsets,
+            text: row.text,
+            whitespace_markers: row.whitespace_markers,
+            search_highlights: row.search_highlights,
+        };
+        rows.push(ReviewWorkspaceProjectedSideRow {
+            display_row_index,
+            row_index: raw_row_index,
+            row: display_row.clone(),
+        });
+        rows_by_display_row.insert(display_row_index, display_row);
+    }
+    Some(ReviewWorkspaceProjectedSideRows {
+        rows,
+        rows_by_display_row,
+    })
+}
+
+#[cfg(test)]
+fn projected_workspace_display_rows(
+    snapshot: hunk_editor::WorkspaceProjectedSnapshot,
+) -> Option<Vec<review_workspace_session::ReviewWorkspaceDisplayRowEntry>> {
+    projected_review_workspace_side_rows(snapshot).map(|rows| {
+        rows.rows
+            .into_iter()
+            .map(|row| review_workspace_session::ReviewWorkspaceDisplayRowEntry {
+                display_row_index: row.display_row_index,
+                row_index: row.row_index,
+                left: row.row.clone(),
+                right: hunk_editor::WorkspaceDisplayRow {
+                    row_index: row.display_row_index,
+                    location: None,
+                    raw_start_column: 0,
+                    raw_end_column: 0,
+                    raw_column_offsets: vec![0],
+                    text: String::new(),
+                    whitespace_markers: Vec::new(),
+                    search_highlights: Vec::new(),
+                },
+            })
+            .collect()
+    })
+}
+
+fn review_workspace_display_row_entries_from_projected_sides(
+    left: &ReviewWorkspaceProjectedSideRows,
+    right: &ReviewWorkspaceProjectedSideRows,
+) -> Option<Vec<review_workspace_session::ReviewWorkspaceDisplayRowEntry>> {
+    let right_rows_by_display = right
+        .rows
+        .iter()
+        .map(|row| (row.display_row_index, row))
+        .collect::<BTreeMap<_, _>>();
+    let mut entries = Vec::with_capacity(left.rows.len());
+    for left_row in &left.rows {
+        let right_row = right_rows_by_display.get(&left_row.display_row_index)?;
+        if right_row.row_index != left_row.row_index {
             return None;
         }
-        rows.push(review_workspace_session::ReviewWorkspaceDisplayRowEntry {
-            display_row_index: row.row_index,
-            row_index: raw_row_index,
-            left: hunk_editor::WorkspaceDisplayRow {
-                row_index: raw_row_index,
-                location: row.location,
-                raw_start_column: row.raw_start_column,
-                raw_end_column: row.raw_end_column,
-                raw_column_offsets: row.raw_column_offsets,
-                text: row.text,
-                whitespace_markers: row.whitespace_markers,
-                search_highlights: row.search_highlights,
-            },
-            right: hunk_editor::WorkspaceDisplayRow {
-                row_index: raw_row_index,
-                location: None,
-                raw_start_column: 0,
-                raw_end_column: 0,
-                raw_column_offsets: vec![0],
-                text: String::new(),
-                whitespace_markers: Vec::new(),
-                search_highlights: Vec::new(),
-            },
+        entries.push(review_workspace_session::ReviewWorkspaceDisplayRowEntry {
+            display_row_index: left_row.display_row_index,
+            row_index: left_row.row_index,
+            left: left_row.row.clone(),
+            right: right_row.row.clone(),
         });
     }
-    Some(rows)
+    Some(entries)
 }
 
 fn review_workspace_display_row_entries(
@@ -974,12 +1037,12 @@ fn review_workspace_display_row_entries(
 ) -> Vec<review_workspace_session::ReviewWorkspaceDisplayRowEntry> {
     left_rows
         .iter()
-        .filter_map(|(row_index, left)| {
+        .filter_map(|(display_row_index, left)| {
             Some(review_workspace_session::ReviewWorkspaceDisplayRowEntry {
-                display_row_index: *row_index,
-                row_index: *row_index,
+                display_row_index: *display_row_index,
+                row_index: *display_row_index,
                 left: left.clone(),
-                right: right_rows.get(row_index)?.clone(),
+                right: right_rows.get(display_row_index)?.clone(),
             })
         })
         .collect()
@@ -1046,7 +1109,7 @@ mod review_projection_tests {
     }
 
     #[test]
-    fn projected_workspace_rows_fall_back_when_projection_expands_one_raw_row() {
+    fn projected_workspace_rows_preserve_duplicate_raw_row_mappings() {
         let rows = projected_workspace_display_rows(
             hunk_editor::WorkspaceProjectedSnapshot {
                 viewport: hunk_editor::Viewport {
@@ -1092,7 +1155,12 @@ mod review_projection_tests {
             },
         );
 
-        assert!(rows.is_none());
+        let rows = rows.expect("projected rows should preserve wrapped display rows");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].display_row_index, 0);
+        assert_eq!(rows[1].display_row_index, 1);
+        assert_eq!(rows[0].row_index, 4);
+        assert_eq!(rows[1].row_index, 4);
     }
 
     #[test]
@@ -1140,6 +1208,109 @@ mod review_projection_tests {
                 .collect::<Vec<_>>(),
             vec![4, 5]
         );
+    }
+
+    #[test]
+    fn projected_review_workspace_side_rows_merge_by_display_row_index() {
+        let left = projected_review_workspace_side_rows(hunk_editor::WorkspaceProjectedSnapshot {
+            viewport: hunk_editor::Viewport {
+                first_visible_row: 0,
+                visible_row_count: 2,
+                horizontal_offset: 0,
+            },
+            total_display_rows: 2,
+            visible_rows: vec![
+                hunk_editor::WorkspaceProjectedRow {
+                    row_index: 0,
+                    workspace_row_range: Some(4..5),
+                    location: None,
+                    kind: hunk_editor::DisplayRowKind::Text,
+                    raw_start_column: 0,
+                    raw_end_column: 5,
+                    raw_column_offsets: vec![0, 1, 2, 3, 4, 5],
+                    start_column: 0,
+                    end_column: 5,
+                    text: "left".to_string(),
+                    is_wrapped: false,
+                    whitespace_markers: Vec::new(),
+                    search_highlights: Vec::new(),
+                    overlays: Vec::new(),
+                },
+                hunk_editor::WorkspaceProjectedRow {
+                    row_index: 1,
+                    workspace_row_range: Some(4..5),
+                    location: None,
+                    kind: hunk_editor::DisplayRowKind::Text,
+                    raw_start_column: 5,
+                    raw_end_column: 9,
+                    raw_column_offsets: vec![0, 1, 2, 3, 4],
+                    start_column: 5,
+                    end_column: 9,
+                    text: "wrap".to_string(),
+                    is_wrapped: true,
+                    whitespace_markers: Vec::new(),
+                    search_highlights: Vec::new(),
+                    overlays: Vec::new(),
+                },
+            ],
+        })
+        .expect("left projected rows should build");
+        let right = projected_review_workspace_side_rows(hunk_editor::WorkspaceProjectedSnapshot {
+            viewport: hunk_editor::Viewport {
+                first_visible_row: 0,
+                visible_row_count: 2,
+                horizontal_offset: 0,
+            },
+            total_display_rows: 2,
+            visible_rows: vec![
+                hunk_editor::WorkspaceProjectedRow {
+                    row_index: 0,
+                    workspace_row_range: Some(4..5),
+                    location: None,
+                    kind: hunk_editor::DisplayRowKind::Text,
+                    raw_start_column: 0,
+                    raw_end_column: 5,
+                    raw_column_offsets: vec![0, 1, 2, 3, 4, 5],
+                    start_column: 0,
+                    end_column: 5,
+                    text: "right".to_string(),
+                    is_wrapped: false,
+                    whitespace_markers: Vec::new(),
+                    search_highlights: Vec::new(),
+                    overlays: Vec::new(),
+                },
+                hunk_editor::WorkspaceProjectedRow {
+                    row_index: 1,
+                    workspace_row_range: Some(4..5),
+                    location: None,
+                    kind: hunk_editor::DisplayRowKind::Text,
+                    raw_start_column: 5,
+                    raw_end_column: 9,
+                    raw_column_offsets: vec![0, 1, 2, 3, 4],
+                    start_column: 5,
+                    end_column: 9,
+                    text: "cell".to_string(),
+                    is_wrapped: true,
+                    whitespace_markers: Vec::new(),
+                    search_highlights: Vec::new(),
+                    overlays: Vec::new(),
+                },
+            ],
+        })
+        .expect("right projected rows should build");
+
+        let entries = review_workspace_display_row_entries_from_projected_sides(&left, &right)
+            .expect("projected sides should merge");
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].display_row_index, 0);
+        assert_eq!(entries[1].display_row_index, 1);
+        assert_eq!(entries[0].row_index, 4);
+        assert_eq!(entries[1].row_index, 4);
+        assert_eq!(entries[0].left.row_index, 0);
+        assert_eq!(entries[1].left.row_index, 1);
+        assert_eq!(entries[0].right.row_index, 0);
+        assert_eq!(entries[1].right.row_index, 1);
     }
 }
 

@@ -538,10 +538,10 @@ fn review_workspace_surface_snapshot_prefers_display_row_search_highlights() {
         .collect::<Vec<_>>();
     let display_rows = ReviewWorkspaceDisplayRows {
         rows,
-        left_by_row,
-        right_by_row: std::mem::take(&mut right_by_row),
-        left_syntax_by_row: BTreeMap::new(),
-        right_syntax_by_row: BTreeMap::new(),
+        left_by_display_row: left_by_row,
+        right_by_display_row: std::mem::take(&mut right_by_row),
+        left_syntax_by_display_row: BTreeMap::new(),
+        right_syntax_by_display_row: BTreeMap::new(),
     };
     let surface = session.build_surface_snapshot_with_display_rows(
         0,
@@ -1549,22 +1549,25 @@ fn review_workspace_display_rows_require_complete_left_and_right_coverage() {
                 right: display_row(4, "right-b"),
             },
         ],
-        left_by_row: BTreeMap::from([(3, display_row(3, "left-a")), (4, display_row(4, "left-b"))]),
-        right_by_row: BTreeMap::from([
+        left_by_display_row: BTreeMap::from([
+            (3, display_row(3, "left-a")),
+            (4, display_row(4, "left-b")),
+        ]),
+        right_by_display_row: BTreeMap::from([
             (3, display_row(3, "right-a")),
             (4, display_row(4, "right-b")),
         ]),
-        left_syntax_by_row: BTreeMap::new(),
-        right_syntax_by_row: BTreeMap::new(),
+        left_syntax_by_display_row: BTreeMap::new(),
+        right_syntax_by_display_row: BTreeMap::new(),
     };
     assert!(full.covers_row_range(3..5));
 
     let missing_right = ReviewWorkspaceDisplayRows {
         rows: Vec::new(),
-        left_by_row: full.left_by_row.clone(),
-        right_by_row: BTreeMap::from([(3, display_row(3, "right-a"))]),
-        left_syntax_by_row: BTreeMap::new(),
-        right_syntax_by_row: BTreeMap::new(),
+        left_by_display_row: full.left_by_display_row.clone(),
+        right_by_display_row: BTreeMap::from([(3, display_row(3, "right-a"))]),
+        left_syntax_by_display_row: BTreeMap::new(),
+        right_syntax_by_display_row: BTreeMap::new(),
     };
     assert!(!missing_right.covers_row_range(3..5));
 }
@@ -1580,10 +1583,7 @@ fn review_workspace_surface_snapshot_preserves_display_row_identity() {
         files: vec![changed_file("src/main.rs", FileStatus::Modified)],
         file_line_stats: BTreeMap::new(),
         overall_line_stats: LineStats::default(),
-        patches_by_path: BTreeMap::from([(
-            "src/main.rs".to_string(),
-            patch.to_string(),
-        )]),
+        patches_by_path: BTreeMap::from([("src/main.rs".to_string(), patch.to_string())]),
     };
     let rows = parse_patch_side_by_side(patch);
     let stream = review_stream_for_rows(&rows, "src/main.rs", FileStatus::Modified);
@@ -1616,10 +1616,10 @@ fn review_workspace_surface_snapshot_preserves_display_row_identity() {
     rows[0].display_row_index = 42;
     let display_rows = ReviewWorkspaceDisplayRows {
         rows,
-        left_by_row,
-        right_by_row,
-        left_syntax_by_row: BTreeMap::new(),
-        right_syntax_by_row: BTreeMap::new(),
+        left_by_display_row: left_by_row,
+        right_by_display_row: right_by_row,
+        left_syntax_by_display_row: BTreeMap::new(),
+        right_syntax_by_display_row: BTreeMap::new(),
     };
 
     let surface = session.build_surface_snapshot_with_display_rows(
