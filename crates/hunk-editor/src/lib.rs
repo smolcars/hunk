@@ -1,6 +1,7 @@
 mod display;
 mod workspace;
 mod workspace_display;
+mod workspace_display_projection;
 
 use std::cell::RefCell;
 use std::cmp::min;
@@ -21,6 +22,9 @@ pub use workspace::{
 };
 pub use workspace_display::{
     WorkspaceDisplayRow, WorkspaceDisplaySnapshot, build_workspace_display_snapshot,
+};
+pub use workspace_display_projection::{
+    WorkspaceProjectedRow, WorkspaceProjectedSnapshot, build_workspace_projected_snapshot,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
