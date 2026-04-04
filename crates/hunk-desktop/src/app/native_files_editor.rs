@@ -33,6 +33,8 @@ mod workspace_display_impl;
 mod workspace_search_impl;
 #[path = "native_files_editor_workspace.rs"]
 mod workspace_session;
+#[path = "native_files_editor_workspace_syntax.rs"]
+mod workspace_syntax_impl;
 
 use language_impl::overlay_kind_for_diagnostic_severity;
 use paint::{EditorLayout, RowSyntaxSpan, build_row_syntax_spans_for_row};
@@ -79,6 +81,8 @@ pub(crate) struct FilesEditor {
     next_buffer_id: u64,
     workspace_session: WorkspaceEditorSession,
     workspace_buffers: BTreeMap<PathBuf, TextBuffer>,
+    workspace_syntax_by_path:
+        BTreeMap<PathBuf, workspace_syntax_impl::WorkspaceDocumentSyntaxState>,
     view_state_by_path: BTreeMap<PathBuf, FilesEditorViewState>,
     language_label: String,
     pointer_selection: Option<PointerSelectionState>,
@@ -217,6 +221,7 @@ impl FilesEditor {
             next_buffer_id: 2,
             workspace_session: WorkspaceEditorSession::new(),
             workspace_buffers: BTreeMap::new(),
+            workspace_syntax_by_path: BTreeMap::new(),
             view_state_by_path: BTreeMap::new(),
             language_label: "text".to_string(),
             pointer_selection: None,
@@ -238,6 +243,7 @@ impl FilesEditor {
     pub(crate) fn clear(&mut self) {
         self.workspace_session.clear();
         self.workspace_buffers.clear();
+        self.workspace_syntax_by_path.clear();
         self.view_state_by_path.clear();
         self.editor = EditorState::new(TextBuffer::new(BufferId::new(self.next_buffer_id), ""));
         self.next_buffer_id = self.next_buffer_id.saturating_add(1);

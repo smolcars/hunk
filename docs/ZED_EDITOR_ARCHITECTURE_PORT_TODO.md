@@ -231,7 +231,7 @@ Targets:
 
 Tasks:
 
-- [ ] Make visible-range syntax work operate on workspace excerpts, not separate preview paths.
+- [x] Make visible-range syntax work operate on workspace excerpts, not separate preview paths.
 - [ ] Make fold placeholders and search results work across excerpt boundaries.
 - [ ] Ensure inactive diff sections do not need a separate rendering/highlighting system.
 - [ ] Keep the 8ms frame budget for 120fps scrolling.
@@ -270,6 +270,7 @@ Current state:
 - Diff mode no longer persists duplicate `file_row_ranges` or visible header lookup vectors when a Review workspace session exists; those file-range and header queries are now expected to resolve from the shared session instead of cached flat-row state.
 - FilesEditor workspace layouts now also search across excerpt/document order instead of only the active buffer, which moves another default editor behavior closer to Zed’s multibuffer `Editor` model for both Files and Diff surfaces.
 - FilesEditor workspace search/navigation now also follows excerpt order within the shared layout instead of collapsing everything to one result stream per document, which moves search behavior closer to Zed’s multibuffer excerpt model and closes part of the remaining search-across-excerpts gap.
+- Visible Review code-row syntax now also comes from persistent left/right `FilesEditor` workspace-document syntax state keyed by the shared `WorkspaceLayout`, and the Review surface only converts those editor-owned spans into cached render segments for changed-flag decoration at paint time. That removes the last visible-row syntax ownership seam between Files and Diff.
 
 ### Phase 6: Persist Editor Entities Across Tab Switches
 

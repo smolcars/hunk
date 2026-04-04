@@ -471,6 +471,73 @@ fn workspace_display_snapshot_projects_rows_across_stored_workspace_buffers() {
 }
 
 #[test]
+fn workspace_syntax_segments_cover_inactive_layout_documents() {
+    let mut editor = FilesEditor::new();
+    let main_document_id = WorkspaceDocumentId::new(1);
+    let lib_document_id = WorkspaceDocumentId::new(2);
+    let layout = WorkspaceLayout::new(
+        vec![
+            WorkspaceDocument::new(main_document_id, "src/main.rs", BufferId::new(11), 2),
+            WorkspaceDocument::new(lib_document_id, "src/lib.rs", BufferId::new(21), 2),
+        ],
+        vec![
+            WorkspaceExcerptSpec::new(
+                WorkspaceExcerptId::new(1),
+                main_document_id,
+                WorkspaceExcerptKind::FullFile,
+                0..2,
+            ),
+            WorkspaceExcerptSpec::new(
+                WorkspaceExcerptId::new(2),
+                lib_document_id,
+                WorkspaceExcerptKind::FullFile,
+                0..2,
+            ),
+        ],
+        1,
+    )
+    .expect("workspace layout should build");
+
+    editor
+        .open_workspace_layout_documents(
+            layout,
+            vec![
+                (
+                    PathBuf::from("src/main.rs"),
+                    "fn main() {}\nlet answer = 42;".to_string(),
+                ),
+                (PathBuf::from("src/lib.rs"), "plain\ntext".to_string()),
+            ],
+            Some(Path::new("src/lib.rs")),
+        )
+        .expect("workspace layout documents should open");
+
+    let snapshot = editor
+        .build_workspace_display_snapshot(
+            Viewport {
+                first_visible_row: 0,
+                visible_row_count: 5,
+                horizontal_offset: 0,
+            },
+            4,
+            false,
+        )
+        .expect("workspace display snapshot should exist");
+
+    let main_row_index = snapshot
+        .visible_rows
+        .iter()
+        .find(|row| row.text == "fn main() {}")
+        .map(|row| row.row_index)
+        .expect("main row should be visible");
+
+    assert!(
+        editor.workspace_row_has_non_plain_syntax_for_test(&snapshot.visible_rows, main_row_index),
+        "inactive workspace rows should use cached editor-owned syntax state"
+    );
+}
+
+#[test]
 fn search_navigation_selects_next_match() {
     let mut editor = FilesEditor::new();
     let path = PathBuf::from("example.rs");

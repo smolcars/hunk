@@ -9,6 +9,15 @@ mod app {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum SyntaxTokenKind {
         Plain,
+        Keyword,
+        String,
+        Number,
+        Comment,
+        Function,
+        TypeName,
+        Constant,
+        Variable,
+        Operator,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,10 +119,91 @@ mod app {
                 })
                 .collect()
         }
+
+        pub fn merge_cached_segments_with_changed_flags(
+            syntax_segments: Vec<CachedStyledSegment>,
+            changed_segments: Option<&Vec<CachedStyledSegment>>,
+            text: &str,
+        ) -> Vec<CachedStyledSegment> {
+            let Some(changed_segments) = changed_segments else {
+                return syntax_segments;
+            };
+            if syntax_segments.is_empty() {
+                return syntax_segments;
+            }
+
+            let total_columns = text.chars().count();
+            let mut changed_by_column = Vec::with_capacity(total_columns);
+            for segment in changed_segments {
+                changed_by_column.extend(std::iter::repeat_n(
+                    segment.changed,
+                    segment.plain_text.chars().count(),
+                ));
+            }
+            changed_by_column.resize(total_columns, false);
+
+            let mut merged = Vec::new();
+            let mut column = 0usize;
+            for segment in syntax_segments {
+                let column_end = (column + segment.plain_text.chars().count()).min(total_columns);
+                if column >= column_end {
+                    continue;
+                }
+
+                let mut run_start = column;
+                while run_start < column_end {
+                    let run_changed = changed_by_column[run_start];
+                    let mut run_end = run_start + 1;
+                    while run_end < column_end && changed_by_column[run_end] == run_changed {
+                        run_end += 1;
+                    }
+
+                    merged.push(CachedStyledSegment {
+                        plain_text: SharedString::from(segment_slice(
+                            segment.plain_text.as_ref(),
+                            run_start.saturating_sub(column),
+                            run_end.saturating_sub(column),
+                        )),
+                        syntax: segment.syntax,
+                        changed: run_changed,
+                        search_match: false,
+                    });
+                    run_start = run_end;
+                }
+
+                column = column_end;
+            }
+
+            merged
+        }
+
+        fn segment_slice(text: &str, start_column: usize, end_column: usize) -> String {
+            if start_column >= end_column {
+                return String::new();
+            }
+
+            text.chars()
+                .skip(start_column)
+                .take(end_column.saturating_sub(start_column))
+                .collect()
+        }
+    }
+
+    pub mod highlight {
+        pub use super::SyntaxTokenKind;
     }
 
     pub mod native_files_editor {
         pub(crate) use crate::workspace_editor_session::WorkspaceEditorSession;
+
+        pub(crate) mod paint {
+            #[derive(Debug, Clone, PartialEq, Eq)]
+            pub(crate) struct RowSyntaxSpan {
+                pub(crate) start_column: usize,
+                pub(crate) end_column: usize,
+                pub(crate) style_key: String,
+            }
+        }
     }
 
     pub mod comment_overlay {
@@ -1365,12 +1455,16 @@ fn review_workspace_display_rows_require_complete_left_and_right_coverage() {
             (3, display_row(3, "right-a")),
             (4, display_row(4, "right-b")),
         ]),
+        left_syntax_by_row: BTreeMap::new(),
+        right_syntax_by_row: BTreeMap::new(),
     };
     assert!(full.covers_row_range(3..5));
 
     let missing_right = ReviewWorkspaceDisplayRows {
         left_by_row: full.left_by_row.clone(),
         right_by_row: BTreeMap::from([(3, display_row(3, "right-a"))]),
+        left_syntax_by_row: BTreeMap::new(),
+        right_syntax_by_row: BTreeMap::new(),
     };
     assert!(!missing_right.covers_row_range(3..5));
 }

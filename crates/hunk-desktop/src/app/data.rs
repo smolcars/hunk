@@ -10,6 +10,7 @@ use anyhow::{Result, anyhow};
 pub(super) use super::data_segments::{
     apply_search_highlights_to_cached_segments, cached_runtime_fallback_segments,
     compact_cached_segments_for_render, is_binary_patch, is_probably_binary_extension,
+    merge_cached_segments_with_changed_flags,
 };
 use super::highlight::{
     StyledSegment, SyntaxTokenKind, build_line_segments, build_syntax_only_line_segments,

@@ -62,9 +62,9 @@ pub(super) struct LineNumberPaintParams {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RowSyntaxSpan {
-    pub(super) start_column: usize,
-    pub(super) end_column: usize,
-    pub(super) style_key: String,
+    pub(crate) start_column: usize,
+    pub(crate) end_column: usize,
+    pub(crate) style_key: String,
 }
 
 #[derive(Clone, Copy)]

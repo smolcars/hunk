@@ -146,17 +146,20 @@ impl DiffViewer {
         };
         let left_editor = self.review_surface.left_workspace_editor.as_ref()?;
         let right_editor = self.review_surface.right_workspace_editor.as_ref()?;
-        let left_snapshot = left_editor
-            .borrow()
-            .build_workspace_display_snapshot(viewport, 4, false)?;
-        let right_snapshot = right_editor
-            .borrow()
-            .build_workspace_display_snapshot(viewport, 4, false)?;
+        let mut left_editor = left_editor.borrow_mut();
+        let left_snapshot = left_editor.build_workspace_display_snapshot(viewport, 4, false)?;
+        let left_syntax_by_row = left_editor.workspace_display_segments_by_row(&left_snapshot.visible_rows)?;
         let left_rows = left_snapshot
             .visible_rows
             .into_iter()
             .map(|row| (row.row_index, row))
             .collect::<BTreeMap<_, _>>();
+        drop(left_editor);
+
+        let mut right_editor = right_editor.borrow_mut();
+        let right_snapshot = right_editor.build_workspace_display_snapshot(viewport, 4, false)?;
+        let right_syntax_by_row =
+            right_editor.workspace_display_segments_by_row(&right_snapshot.visible_rows)?;
         let right_rows = right_snapshot
             .visible_rows
             .into_iter()
@@ -166,6 +169,8 @@ impl DiffViewer {
         let display_rows = review_workspace_session::ReviewWorkspaceDisplayRows {
             left_by_row: left_rows,
             right_by_row: right_rows,
+            left_syntax_by_row,
+            right_syntax_by_row,
         };
         display_rows
             .covers_row_range(first_visible_row..last_visible_row)

@@ -196,6 +196,7 @@ impl FilesEditor {
         workspace_buffers: BTreeMap<PathBuf, TextBuffer>,
     ) -> Result<()> {
         self.workspace_buffers = workspace_buffers;
+        self.workspace_syntax_by_path.clear();
         let active_path = self
             .active_path_buf()
             .ok_or_else(|| anyhow!("workspace session should pick an active document"))?;

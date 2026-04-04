@@ -27,9 +27,11 @@ mod workspace_display_buffers;
 use crate::app::data::{
     CachedStyledSegment, DiffSegmentQuality, DiffStream, DiffStreamRowKind,
     apply_search_highlights_to_cached_segments, cached_runtime_fallback_segments,
-    compact_cached_segments_for_render,
+    compact_cached_segments_for_render, merge_cached_segments_with_changed_flags,
 };
+use crate::app::highlight::SyntaxTokenKind;
 use crate::app::native_files_editor::WorkspaceEditorSession;
+use crate::app::native_files_editor::paint::RowSyntaxSpan;
 use crate::app::{DiffRowSegmentCache, DiffStreamRowMeta};
 #[cfg(test)]
 use hunk_editor::Viewport;
@@ -191,6 +193,8 @@ pub(crate) struct ReviewWorkspaceSurfaceOptions {
 pub(crate) struct ReviewWorkspaceDisplayRows {
     pub(crate) left_by_row: BTreeMap<usize, WorkspaceDisplayRow>,
     pub(crate) right_by_row: BTreeMap<usize, WorkspaceDisplayRow>,
+    pub(crate) left_syntax_by_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
+    pub(crate) right_syntax_by_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
 }
 
 impl ReviewWorkspaceDisplayRows {
@@ -689,11 +693,13 @@ impl ReviewWorkspaceSession {
                         surface_top_px,
                         height_px: self.surface_row_height_px(row_index),
                         left_segments: review_viewport_render_segments(
+                            display_rows.left_syntax_by_row.get(&row_index),
                             row_segment_cache.map(|cache| &cache.left),
                             left_display_row.text.as_str(),
                             &[],
                         ),
                         right_segments: review_viewport_render_segments(
+                            display_rows.right_syntax_by_row.get(&row_index),
                             row_segment_cache.map(|cache| &cache.right),
                             right_display_row.text.as_str(),
                             right_search_highlights.as_slice(),
@@ -1461,6 +1467,8 @@ impl ReviewWorkspaceSession {
         ReviewWorkspaceDisplayRows {
             left_by_row,
             right_by_row,
+            left_syntax_by_row: BTreeMap::new(),
+            right_syntax_by_row: BTreeMap::new(),
         }
     }
 
@@ -1573,13 +1581,20 @@ fn review_effective_segment_quality(
 }
 
 fn review_viewport_render_segments(
+    editor_syntax_spans: Option<&Vec<RowSyntaxSpan>>,
     cached_segments: Option<&Vec<CachedStyledSegment>>,
     display_text: &str,
     search_highlights: &[Range<usize>],
 ) -> Vec<CachedStyledSegment> {
     apply_search_highlights_to_cached_segments(
-        cached_segments
-            .cloned()
+        editor_syntax_spans
+            .map(|spans: &Vec<RowSyntaxSpan>| {
+                review_cached_segments_from_editor_syntax(display_text, spans.as_slice())
+            })
+            .map(|segments| {
+                merge_cached_segments_with_changed_flags(segments, cached_segments, display_text)
+            })
+            .or_else(|| cached_segments.cloned())
             .map(|segments| {
                 compact_cached_segments_for_render(
                     segments,
@@ -1589,6 +1604,104 @@ fn review_viewport_render_segments(
             .unwrap_or_else(|| cached_runtime_fallback_segments(display_text)),
         search_highlights,
     )
+}
+
+fn review_cached_segments_from_editor_syntax(
+    display_text: &str,
+    spans: &[RowSyntaxSpan],
+) -> Vec<CachedStyledSegment> {
+    let total_columns = display_text.chars().count();
+    if total_columns == 0 {
+        return Vec::new();
+    }
+
+    let mut segments = Vec::new();
+    let mut cursor = 0usize;
+    for span in spans {
+        let start = span.start_column.min(total_columns);
+        let end = span.end_column.min(total_columns);
+        if cursor < start {
+            review_push_cached_syntax_segment(
+                &mut segments,
+                SyntaxTokenKind::Plain,
+                review_display_text_slice(display_text, cursor, start),
+            );
+        }
+        if start < end {
+            review_push_cached_syntax_segment(
+                &mut segments,
+                review_syntax_token_for_style_key(span.style_key.as_str()),
+                review_display_text_slice(display_text, start, end),
+            );
+        }
+        cursor = end;
+    }
+
+    if cursor < total_columns {
+        review_push_cached_syntax_segment(
+            &mut segments,
+            SyntaxTokenKind::Plain,
+            review_display_text_slice(display_text, cursor, total_columns),
+        );
+    }
+
+    if segments.is_empty() {
+        review_push_cached_syntax_segment(
+            &mut segments,
+            SyntaxTokenKind::Plain,
+            display_text.to_string(),
+        );
+    }
+
+    segments
+}
+
+fn review_push_cached_syntax_segment(
+    segments: &mut Vec<CachedStyledSegment>,
+    syntax: SyntaxTokenKind,
+    text: String,
+) {
+    if text.is_empty() {
+        return;
+    }
+
+    if let Some(previous) = segments.last_mut()
+        && previous.syntax == syntax
+        && !previous.changed
+        && !previous.search_match
+    {
+        previous.plain_text = format!("{}{}", previous.plain_text.as_ref(), text).into();
+        return;
+    }
+
+    segments.push(CachedStyledSegment {
+        plain_text: text.into(),
+        syntax,
+        changed: false,
+        search_match: false,
+    });
+}
+
+fn review_display_text_slice(text: &str, start_column: usize, end_column: usize) -> String {
+    text.chars()
+        .skip(start_column)
+        .take(end_column.saturating_sub(start_column))
+        .collect()
+}
+
+fn review_syntax_token_for_style_key(style_key: &str) -> SyntaxTokenKind {
+    match style_key.split('.').next().unwrap_or_default() {
+        "keyword" => SyntaxTokenKind::Keyword,
+        "string" => SyntaxTokenKind::String,
+        "number" => SyntaxTokenKind::Number,
+        "comment" => SyntaxTokenKind::Comment,
+        "function" => SyntaxTokenKind::Function,
+        "type" | "constructor" | "tag" => SyntaxTokenKind::TypeName,
+        "constant" | "attribute" | "boolean" => SyntaxTokenKind::Constant,
+        "variable" | "property" | "parameter" => SyntaxTokenKind::Variable,
+        "operator" | "punctuation" => SyntaxTokenKind::Operator,
+        _ => SyntaxTokenKind::Plain,
+    }
 }
 
 fn review_project_search_highlights_for_display_row(
