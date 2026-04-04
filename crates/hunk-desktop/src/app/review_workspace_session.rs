@@ -242,15 +242,18 @@ pub(crate) struct ReviewWorkspaceDisplayRows {
 pub(crate) struct ReviewWorkspaceDisplayRowEntry {
     pub(crate) display_row_index: usize,
     pub(crate) row_index: usize,
+    pub(crate) raw_row_range: Range<usize>,
     pub(crate) left: WorkspaceDisplayRow,
     pub(crate) right: WorkspaceDisplayRow,
 }
 
 impl ReviewWorkspaceDisplayRows {
     pub(crate) fn covers_row_range(&self, row_range: Range<usize>) -> bool {
-        row_range
-            .clone()
-            .all(|row| self.rows.iter().any(|entry| entry.row_index == row))
+        row_range.clone().all(|row| {
+            self.rows
+                .iter()
+                .any(|entry| entry.raw_row_range.start <= row && row < entry.raw_row_range.end)
+        })
     }
 
     fn entries_for_raw_range(
@@ -259,7 +262,9 @@ impl ReviewWorkspaceDisplayRows {
     ) -> Vec<ReviewWorkspaceDisplayRowEntry> {
         self.rows
             .iter()
-            .filter(|entry| row_range.contains(&entry.row_index))
+            .filter(|entry| {
+                entry.raw_row_range.start < row_range.end && row_range.start < entry.raw_row_range.end
+            })
             .cloned()
             .collect()
     }
@@ -1646,6 +1651,7 @@ impl ReviewWorkspaceSession {
                     Some(ReviewWorkspaceDisplayRowEntry {
                         display_row_index: *display_row_index,
                         row_index: *display_row_index,
+                        raw_row_range: *display_row_index..display_row_index.saturating_add(1),
                         left: left.clone(),
                         right: right_by_display_row.get(display_row_index)?.clone(),
                     })
@@ -1728,10 +1734,10 @@ impl ReviewWorkspaceSession {
             return 0;
         }
 
-        match row_boundaries.binary_search(&pixel_offset) {
-            Ok(ix) => ix.min(row_count.saturating_sub(1)),
-            Err(ix) => ix.saturating_sub(1).min(row_count.saturating_sub(1)),
-        }
+        row_boundaries
+            .partition_point(|boundary| *boundary <= pixel_offset)
+            .saturating_sub(1)
+            .min(row_count.saturating_sub(1))
     }
 }
 

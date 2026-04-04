@@ -936,6 +936,7 @@ impl DiffViewer {
 struct ReviewWorkspaceProjectedSideRow {
     display_row_index: usize,
     row_index: usize,
+    raw_row_range: std::ops::Range<usize>,
     row: hunk_editor::WorkspaceDisplayRow,
 }
 
@@ -954,7 +955,7 @@ fn projected_review_workspace_side_rows(
         let Some(workspace_row_range) = row.workspace_row_range else {
             return None;
         };
-        if workspace_row_range.end != workspace_row_range.start.saturating_add(1) {
+        if workspace_row_range.is_empty() {
             return None;
         }
         let raw_row_index = workspace_row_range.start;
@@ -972,6 +973,7 @@ fn projected_review_workspace_side_rows(
         rows.push(ReviewWorkspaceProjectedSideRow {
             display_row_index,
             row_index: raw_row_index,
+            raw_row_range: workspace_row_range,
             row: display_row.clone(),
         });
         rows_by_display_row.insert(display_row_index, display_row);
@@ -992,6 +994,7 @@ fn projected_workspace_display_rows(
             .map(|row| review_workspace_session::ReviewWorkspaceDisplayRowEntry {
                 display_row_index: row.display_row_index,
                 row_index: row.row_index,
+                raw_row_range: row.raw_row_range,
                 left: row.row.clone(),
                 right: hunk_editor::WorkspaceDisplayRow {
                     row_index: row.display_row_index,
@@ -1020,12 +1023,13 @@ fn review_workspace_display_row_entries_from_projected_sides(
     let mut entries = Vec::with_capacity(left.rows.len());
     for left_row in &left.rows {
         let right_row = right_rows_by_display.get(&left_row.display_row_index)?;
-        if right_row.row_index != left_row.row_index {
+        if right_row.raw_row_range != left_row.raw_row_range {
             return None;
         }
         entries.push(review_workspace_session::ReviewWorkspaceDisplayRowEntry {
             display_row_index: left_row.display_row_index,
             row_index: left_row.row_index,
+            raw_row_range: left_row.raw_row_range.clone(),
             left: left_row.row.clone(),
             right: right_row.row.clone(),
         });
@@ -1043,6 +1047,7 @@ fn review_workspace_display_row_entries(
             Some(review_workspace_session::ReviewWorkspaceDisplayRowEntry {
                 display_row_index: *display_row_index,
                 row_index: *display_row_index,
+                raw_row_range: *display_row_index..display_row_index.saturating_add(1),
                 left: left.clone(),
                 right: right_rows.get(display_row_index)?.clone(),
             })
@@ -1163,6 +1168,46 @@ mod review_projection_tests {
         assert_eq!(rows[1].display_row_index, 1);
         assert_eq!(rows[0].row_index, 4);
         assert_eq!(rows[1].row_index, 4);
+        assert_eq!(rows[0].raw_row_range, 4..5);
+        assert_eq!(rows[1].raw_row_range, 4..5);
+    }
+
+    #[test]
+    fn projected_workspace_rows_preserve_multi_row_raw_ranges() {
+        let rows = projected_workspace_display_rows(
+            hunk_editor::WorkspaceProjectedSnapshot {
+                viewport: hunk_editor::Viewport {
+                    first_visible_row: 0,
+                    visible_row_count: 1,
+                    horizontal_offset: 0,
+                },
+                total_display_rows: 1,
+                visible_rows: vec![hunk_editor::WorkspaceProjectedRow {
+                    row_index: 0,
+                    workspace_row_range: Some(4..7),
+                    location: None,
+                    kind: hunk_editor::DisplayRowKind::FoldPlaceholder {
+                        hidden_line_count: 2,
+                    },
+                    raw_start_column: 0,
+                    raw_end_column: 18,
+                    raw_column_offsets: (0..=18).collect(),
+                    start_column: 0,
+                    end_column: 18,
+                    text: "… 2 hidden lines".to_string(),
+                    is_wrapped: false,
+                    whitespace_markers: Vec::new(),
+                    search_highlights: Vec::new(),
+                    overlays: Vec::new(),
+                }],
+            },
+        )
+        .expect("fold placeholder rows should convert");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].row_index, 4);
+        assert_eq!(rows[0].raw_row_range, 4..7);
+        assert_eq!(rows[0].display_row_index, 0);
     }
 
     #[test]
@@ -1309,6 +1354,8 @@ mod review_projection_tests {
         assert_eq!(entries[1].display_row_index, 1);
         assert_eq!(entries[0].row_index, 4);
         assert_eq!(entries[1].row_index, 4);
+        assert_eq!(entries[0].raw_row_range, 4..5);
+        assert_eq!(entries[1].raw_row_range, 4..5);
         assert_eq!(entries[0].left.row_index, 0);
         assert_eq!(entries[1].left.row_index, 1);
         assert_eq!(entries[0].right.row_index, 0);

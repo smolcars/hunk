@@ -26,14 +26,31 @@ impl ReviewWorkspaceDisplayGeometry {
         let mut display_row_counts = vec![1usize; rows.len()];
         if let Some(display_rows) = display_rows {
             let mut counts_by_raw_row = vec![0usize; rows.len()];
+            let mut covered_rows = vec![false; rows.len()];
             for entry in &display_rows.rows {
-                if let Some(count) = counts_by_raw_row.get_mut(entry.row_index) {
+                let start = entry.raw_row_range.start.min(rows.len());
+                let end = entry.raw_row_range.end.min(rows.len());
+                if start >= end {
+                    continue;
+                }
+                if let Some(count) = counts_by_raw_row.get_mut(start) {
                     *count = count.saturating_add(1);
                 }
+                for row_ix in start..end {
+                    if let Some(covered) = covered_rows.get_mut(row_ix) {
+                        *covered = true;
+                    }
+                }
             }
-            for (raw_row, count) in counts_by_raw_row.into_iter().enumerate() {
+            for (raw_row, covered) in covered_rows.into_iter().enumerate() {
+                if !covered {
+                    continue;
+                }
+                let count = counts_by_raw_row[raw_row];
                 if count > 0 {
                     display_row_counts[raw_row] = count;
+                } else {
+                    display_row_counts[raw_row] = 0;
                 }
             }
         }
@@ -46,7 +63,7 @@ impl ReviewWorkspaceDisplayGeometry {
         let mut next_display_row = 0usize;
         let mut next_pixel_offset = 0usize;
         for (row_ix, row) in rows.iter().enumerate() {
-            let display_row_count = display_row_counts[row_ix].max(1);
+            let display_row_count = display_row_counts[row_ix];
             next_display_row = next_display_row.saturating_add(display_row_count);
             next_pixel_offset = next_pixel_offset.saturating_add(
                 display_row_count.saturating_mul(surface_row_height_for_kind(row.kind)),

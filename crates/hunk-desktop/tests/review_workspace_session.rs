@@ -531,6 +531,7 @@ fn review_workspace_surface_snapshot_prefers_display_row_search_highlights() {
             Some(review_workspace_session::ReviewWorkspaceDisplayRowEntry {
                 display_row_index: *row_index,
                 row_index: *row_index,
+                raw_row_range: *row_index..row_index.saturating_add(1),
                 left: left.clone(),
                 right: right_by_row.get(row_index)?.clone(),
             })
@@ -638,6 +639,7 @@ fn review_workspace_display_geometry_tracks_expanded_display_rows() {
             rows.push(ReviewWorkspaceDisplayRowEntry {
                 display_row_index: next_display_row,
                 row_index: row_ix,
+                raw_row_range: row_ix..row_ix.saturating_add(1),
                 left: left.clone(),
                 right: right.clone(),
             });
@@ -754,6 +756,7 @@ fn review_workspace_surface_snapshot_positions_expanded_display_rows_by_display_
             rows.push(ReviewWorkspaceDisplayRowEntry {
                 display_row_index: next_display_row,
                 row_index: row_ix,
+                raw_row_range: row_ix..row_ix.saturating_add(1),
                 left: left.clone(),
                 right: right.clone(),
             });
@@ -888,6 +891,7 @@ fn review_workspace_session_builds_display_viewport_for_expanded_rows() {
             rows.push(ReviewWorkspaceDisplayRowEntry {
                 display_row_index: next_display_row,
                 row_index: row_ix,
+                raw_row_range: row_ix..row_ix.saturating_add(1),
                 left: left.clone(),
                 right: right.clone(),
             });
@@ -931,6 +935,74 @@ fn review_workspace_session_builds_display_viewport_for_expanded_rows() {
             .saturating_add(1)
             .min(session.display_geometry_total_display_rows())
             .saturating_sub(target_display_range.start.saturating_sub(1))
+    );
+}
+
+#[test]
+fn review_workspace_display_geometry_collapses_hidden_rows_from_multi_row_entries() {
+    let patch = "\
+@@ -1,4 +1,4 @@
+-before
++after
+ keep
+ tail
+ stay
+";
+    let snapshot = CompareSnapshot {
+        files: vec![changed_file("src/lib.rs", FileStatus::Modified)],
+        file_line_stats: BTreeMap::new(),
+        overall_line_stats: LineStats::default(),
+        patches_by_path: BTreeMap::from([("src/lib.rs".to_string(), patch.to_string())]),
+    };
+
+    let rows = parse_patch_side_by_side(patch);
+    let stream = review_stream_for_rows(&rows, "src/lib.rs", FileStatus::Modified);
+    let mut session = ReviewWorkspaceSession::from_compare_snapshot(&snapshot, &BTreeSet::new())
+        .expect("review workspace session should build")
+        .with_render_stream(&stream);
+    let base_total_display_rows = session.display_geometry_total_display_rows();
+
+    let first_code_row = (0..session.row_count())
+        .find(|&row_ix| {
+            session
+                .row(row_ix)
+                .is_some_and(|row| row.kind == DiffRowKind::Code)
+        })
+        .expect("first code row");
+    let folded_range = first_code_row..first_code_row.saturating_add(3);
+    let left = display_row(0, "… 2 hidden lines");
+    let right = display_row(0, "… 2 hidden lines");
+    let display_rows = ReviewWorkspaceDisplayRows {
+        rows: vec![ReviewWorkspaceDisplayRowEntry {
+            display_row_index: 0,
+            row_index: folded_range.start,
+            raw_row_range: folded_range.clone(),
+            left: left.clone(),
+            right: right.clone(),
+        }],
+        left_by_display_row: BTreeMap::from([(0, left)]),
+        right_by_display_row: BTreeMap::from([(0, right)]),
+        left_syntax_by_display_row: BTreeMap::new(),
+        right_syntax_by_display_row: BTreeMap::new(),
+    };
+
+    session.refresh_display_geometry_from_display_rows(&display_rows);
+
+    let folded_display_range = session
+        .display_row_range_for_raw_row(folded_range.start)
+        .expect("folded display range");
+    assert_eq!(folded_display_range.len(), 1);
+    assert_eq!(
+        session.display_row_range_for_raw_row(folded_range.start + 1),
+        Some(folded_display_range.end..folded_display_range.end)
+    );
+    assert_eq!(
+        session.display_row_range_for_raw_row(folded_range.start + 2),
+        Some(folded_display_range.end..folded_display_range.end)
+    );
+    assert_eq!(
+        session.display_geometry_total_display_rows(),
+        base_total_display_rows.saturating_sub(2)
     );
 }
 
@@ -1920,12 +1992,14 @@ fn review_workspace_display_rows_require_complete_left_and_right_coverage() {
             ReviewWorkspaceDisplayRowEntry {
                 display_row_index: 3,
                 row_index: 3,
+                raw_row_range: 3..4,
                 left: display_row(3, "left-a"),
                 right: display_row(3, "right-a"),
             },
             ReviewWorkspaceDisplayRowEntry {
                 display_row_index: 4,
                 row_index: 4,
+                raw_row_range: 4..5,
                 left: display_row(4, "left-b"),
                 right: display_row(4, "right-b"),
             },
@@ -1989,6 +2063,7 @@ fn review_workspace_surface_snapshot_preserves_display_row_identity() {
             Some(ReviewWorkspaceDisplayRowEntry {
                 display_row_index: *row_index,
                 row_index: *row_index,
+                raw_row_range: *row_index..row_index.saturating_add(1),
                 left: left.clone(),
                 right: right_by_row.get(row_index)?.clone(),
             })
