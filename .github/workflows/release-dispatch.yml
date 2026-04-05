@@ -1,9 +1,17 @@
-name: Release
+name: Release Manual Test
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Override the release version used for artifact naming. Leave blank to use scripts/resolve_hunk_version.sh."
+        required: false
+        type: string
+      asset_base_url:
+        description: "Base URL written into stable.json for OTA assets. Use a real public location only if you want end-to-end updater downloads to work."
+        required: false
+        default: "https://example.invalid/hunk-test"
+        type: string
 
 permissions:
   contents: write
@@ -59,8 +67,8 @@ jobs:
 
       - name: Resolve release version
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "push" && "${GITHUB_REF_TYPE:-}" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
+          if [[ -n "${{ inputs.release_version }}" ]]; then
+            version="${{ inputs.release_version }}"
           else
             version="$(./scripts/resolve_hunk_version.sh)"
           fi
@@ -174,8 +182,8 @@ jobs:
 
       - name: Resolve release version
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "push" && "${GITHUB_REF_TYPE:-}" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
+          if [[ -n "${{ inputs.release_version }}" ]]; then
+            version="${{ inputs.release_version }}"
           else
             version="$(./scripts/resolve_hunk_version.sh)"
           fi
@@ -269,8 +277,8 @@ jobs:
 
       - name: Resolve release version
         run: |
-          if ($env:GITHUB_EVENT_NAME -eq "push" -and $env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME.StartsWith("v")) {
-              $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          if (![string]::IsNullOrWhiteSpace("${{ inputs.release_version }}")) {
+              $version = "${{ inputs.release_version }}"
           } else {
               $version = (bash ./scripts/resolve_hunk_version.sh).Trim()
           }
@@ -326,8 +334,8 @@ jobs:
 
       - name: Resolve release version
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "push" && "${GITHUB_REF_TYPE:-}" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
+          if [[ -n "${{ inputs.release_version }}" ]]; then
+            version="${{ inputs.release_version }}"
           else
             version="$(./scripts/resolve_hunk_version.sh)"
           fi
@@ -342,7 +350,7 @@ jobs:
       - name: Generate updater manifest and detached signatures
         if: env.HUNK_UPDATE_PRIVATE_KEY_BASE64 != ''
         run: |
-          base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          base_url="${{ inputs.asset_base_url }}"
           pub_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           macos_ota_path="$(find dist/hunk-macos-arm64-app-tarball -type f -name "Hunk-${HUNK_RELEASE_VERSION}-macos-arm64.app.tar.gz" | head -n 1)"
           windows_msi_path="$(find dist/hunk-windows-x86_64-msi -type f -name '*.msi' | head -n 1)"
@@ -414,9 +422,7 @@ jobs:
           echo "Cloudflare R2 manifest publishing is not configured; skipping stable.json upload." >&2
         shell: bash
 
-      - name: List prepared release artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: List prepared artifacts
         run: |
           mapfile -d '' files < <(find dist -type f -print0 | sort -z)
           if [[ ${#files[@]} -eq 0 ]]; then
@@ -424,14 +430,7 @@ jobs:
             exit 1
           fi
 
-          release_args=(--repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes)
-
-          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" "${release_args[@]}"
-          fi
-
-          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
-
-          printf 'Prepared release artifacts:\n'
+          printf 'Prepared test artifacts:\n'
           printf ' - %s\n' "${files[@]}"
+          printf '\nConfigured OTA asset base URL: %s\n' "${{ inputs.asset_base_url }}"
         shell: bash

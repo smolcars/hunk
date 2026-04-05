@@ -274,9 +274,66 @@ struct SettingsDraft {
     theme: ThemePreference,
     reduce_motion: bool,
     show_fps_counter: bool,
+    auto_update_enabled: bool,
     terminal: SettingsTerminalState,
     shortcuts: SettingsShortcutInputs,
     error_message: Option<String>,
+}
+
+fn settings_format_update_status(status: &UpdateStatus) -> String {
+    match status {
+        UpdateStatus::Idle => "Idle".to_string(),
+        UpdateStatus::Checking => "Checking for updates...".to_string(),
+        UpdateStatus::Downloading { version } => format!("Downloading update ({version})"),
+        UpdateStatus::Installing { version } => format!("Installing update ({version})"),
+        UpdateStatus::DisabledByInstallSource { explanation } => explanation.clone(),
+        UpdateStatus::UpToDate { version, .. } => format!("Up to date ({version})"),
+        UpdateStatus::UpdateAvailable(update) => format!("Update available ({})", update.version),
+        UpdateStatus::Error(message) => format!("Error: {message}"),
+    }
+}
+
+fn settings_format_last_update_check(last_update_check_at: Option<i64>) -> String {
+    let Some(unix_ms) = last_update_check_at else {
+        return "Never".to_string();
+    };
+    let unix_seconds = unix_ms.div_euclid(1_000);
+    let Ok(utc_datetime) = time::OffsetDateTime::from_unix_timestamp(unix_seconds) else {
+        return unix_ms.to_string();
+    };
+
+    let local_datetime = time::UtcOffset::current_local_offset()
+        .map(|offset| utc_datetime.to_offset(offset))
+        .unwrap_or(utc_datetime);
+    let month = match local_datetime.month() {
+        time::Month::January => "Jan",
+        time::Month::February => "Feb",
+        time::Month::March => "Mar",
+        time::Month::April => "Apr",
+        time::Month::May => "May",
+        time::Month::June => "Jun",
+        time::Month::July => "Jul",
+        time::Month::August => "Aug",
+        time::Month::September => "Sep",
+        time::Month::October => "Oct",
+        time::Month::November => "Nov",
+        time::Month::December => "Dec",
+    };
+    let hour_24 = local_datetime.hour();
+    let (hour, meridiem) = match hour_24 {
+        0 => (12, "AM"),
+        1..=11 => (hour_24, "AM"),
+        12 => (12, "PM"),
+        _ => (hour_24 - 12, "PM"),
+    };
+
+    format!(
+        "{month} {}, {} {:02}:{:02} {meridiem}",
+        local_datetime.day(),
+        local_datetime.year(),
+        hour,
+        local_datetime.minute(),
+    )
 }
 
 fn settings_terminal_input(

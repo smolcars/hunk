@@ -274,6 +274,7 @@ impl DiffViewer {
             theme: self.config.theme,
             reduce_motion: self.config.reduce_motion,
             show_fps_counter: self.config.show_fps_counter,
+            auto_update_enabled: self.config.auto_update_enabled,
             terminal,
             shortcuts,
             error_message: None,
@@ -362,6 +363,22 @@ impl DiffViewer {
         cx.notify();
     }
 
+    pub(super) fn set_settings_auto_update_enabled(
+        &mut self,
+        auto_update_enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(settings) = self.settings_draft.as_mut() else {
+            return;
+        };
+        if settings.auto_update_enabled == auto_update_enabled {
+            return;
+        }
+        settings.auto_update_enabled = auto_update_enabled;
+        settings.error_message = None;
+        cx.notify();
+    }
+
     pub(super) fn set_settings_terminal_shell_choice(
         &mut self,
         shell_choice: SettingsTerminalShellChoice,
@@ -411,7 +428,14 @@ impl DiffViewer {
     }
 
     pub(super) fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (theme, reduce_motion, show_fps_counter, terminal, keyboard_shortcuts) = {
+        let (
+            theme,
+            reduce_motion,
+            show_fps_counter,
+            auto_update_enabled,
+            terminal,
+            keyboard_shortcuts,
+        ) = {
             let Some(settings) = self.settings_draft.as_mut() else {
                 return;
             };
@@ -511,6 +535,7 @@ impl DiffViewer {
                 settings.theme,
                 settings.reduce_motion,
                 settings.show_fps_counter,
+                settings.auto_update_enabled,
                 terminal,
                 keyboard_shortcuts,
             )
@@ -518,17 +543,22 @@ impl DiffViewer {
 
         let keyboard_shortcuts_changed = self.config.keyboard_shortcuts != keyboard_shortcuts;
         let terminal_changed = self.config.terminal != terminal;
+        let auto_update_changed = self.config.auto_update_enabled != auto_update_enabled;
         let terminal_requires_restart = self.config.terminal.hydrate_app_environment_on_launch
             != terminal.hydrate_app_environment_on_launch;
 
         self.config.theme = theme;
         self.config.reduce_motion = reduce_motion;
         self.config.show_fps_counter = show_fps_counter;
+        self.config.auto_update_enabled = auto_update_enabled;
         self.config.terminal = terminal;
         self.config.keyboard_shortcuts = keyboard_shortcuts;
         self.apply_theme_preference(window, cx);
         self.restart_auto_refresh(cx);
         self.persist_config();
+        if auto_update_enabled {
+            self.maybe_schedule_startup_update_check(cx);
+        }
 
         let saved_path = self
             .config_store
@@ -537,19 +567,27 @@ impl DiffViewer {
             .unwrap_or_else(|| "~/.hunkdiff/config.toml".to_string());
         let save_message = format!("Saved settings to {}.", saved_path);
         let follow_up =
-            match (keyboard_shortcuts_changed, terminal_changed, terminal_requires_restart) {
-                (true, true, true) => {
+            match (
+                keyboard_shortcuts_changed,
+                terminal_changed,
+                terminal_requires_restart,
+                auto_update_changed,
+            ) {
+                (true, true, true, _) => {
                     " Restart Hunk to reload keyboard shortcuts and startup terminal environment changes."
                 }
-                (true, true, false) => {
+                (true, true, false, _) => {
                     " Restart Hunk to reload keyboard shortcuts. Reopen the AI terminal to apply shell changes."
                 }
-                (true, false, _) => " Restart Hunk to reload keyboard shortcuts.",
-                (false, true, true) => {
+                (true, false, _, _) => " Restart Hunk to reload keyboard shortcuts.",
+                (false, true, true, _) => {
                     " Restart Hunk to apply startup terminal environment changes."
                 }
-                (false, true, false) => " Reopen the AI terminal to apply shell changes.",
-                (false, false, _) => "",
+                (false, true, false, _) => " Reopen the AI terminal to apply shell changes.",
+                (false, false, _, true) => {
+                    " Automatic update checks were updated."
+                }
+                (false, false, _, false) => "",
             };
         self.git_status_message = Some(format!("{save_message}{follow_up}"));
         gpui_component::WindowExt::push_notification(

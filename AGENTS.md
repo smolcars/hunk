@@ -17,6 +17,9 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - On macOS, run cargo via `./scripts/run_with_macos_sdk_env.sh` so build scripts can link against the SDK `iconv` stubs without ad hoc env exports.
 - For CARGO_HOME check this path /Volumes/hulk/dev/cache/cargo or the default CARGO_HOME path for rust, nowhere else on the machine.
 - Do not run clippy and tests over and over again, run them after you finished your work and make sure they pass at the end. Just once is enough.
+- When asked to update Codex, bump the pinned `rust-v...` tag in both `crates/hunk-codex/Cargo.toml` and `crates/hunk-desktop/Cargo.toml`, then refresh `Cargo.lock` with `./scripts/run_with_macos_sdk_env.sh cargo update -p codex-app-server-protocol -p codex-protocol`.
+- Replace the bundled local macOS runtime with `./scripts/download_codex_runtime_unix.sh macos` so `assets/codex-runtime/macos/codex` matches the pinned release.
+- Update `docs/AI_CODEX_SPEC.md` to the new pinned tag and commit SHA, search for any stale Codex version strings in docs, and expect small protocol/API fixes in `hunk-desktop` or `hunk-codex` after the bump.
 - GPUI docs https://raw.githubusercontent.com/zed-industries/zed/refs/heads/main/crates/gpui/README.md
 - GPUI component library docs https://docs.rs/gpui-component/latest/gpui_component/
 - List of available prebuilt components https://longbridge.github.io/gpui-component/docs/components/

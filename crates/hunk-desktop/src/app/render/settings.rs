@@ -264,6 +264,20 @@ impl DiffViewer {
         };
         let reduced_motion_label = if settings.reduce_motion { "On" } else { "Off" };
         let show_fps_counter_label = if settings.show_fps_counter { "On" } else { "Off" };
+        let auto_update_label = if settings.auto_update_enabled { "On" } else { "Off" };
+        let update_status_label = settings_format_update_status(&self.update_status);
+        let last_checked_label = settings_format_last_update_check(self.config.last_update_check_at);
+        let updates_disabled_by_install_source =
+            matches!(self.update_install_source, InstallSource::PackageManaged { .. });
+        let update_action_in_progress = self.update_activity_in_progress();
+        let update_available = matches!(self.update_status, UpdateStatus::UpdateAvailable(_));
+        let update_explanation = match &self.update_install_source {
+            InstallSource::SelfManaged => {
+                "Hunk can check the stable release manifest in the background and prompt when a newer build is available."
+                    .to_string()
+            }
+            InstallSource::PackageManaged { explanation } => explanation.clone(),
+        };
         v_flex()
             .w_full()
             .gap_3()
@@ -481,7 +495,154 @@ impl DiffViewer {
                                     .text_sm()
                                     .font_semibold()
                                     .text_color(cx.theme().foreground)
-                                    .child("Update behavior"),
+                                    .child("Updater"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(update_explanation),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child("Automatic update checks"),
+                            )
+                            .child({
+                                let view = view.clone();
+                                let auto_update_enabled = settings.auto_update_enabled;
+                                Button::new("settings-auto-update-dropdown")
+                                    .outline()
+                                    .compact()
+                                    .rounded(px(8.0))
+                                    .bg(dropdown_bg)
+                                    .dropdown_caret(true)
+                                    .label(auto_update_label)
+                                    .disabled(updates_disabled_by_install_source)
+                                    .dropdown_menu(move |menu, _, _| {
+                                        menu.item(
+                                            PopupMenuItem::new("On")
+                                                .checked(auto_update_enabled)
+                                                .on_click({
+                                                    let view = view.clone();
+                                                    move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            this.set_settings_auto_update_enabled(
+                                                                true, cx,
+                                                            );
+                                                        });
+                                                    }
+                                                }),
+                                        )
+                                        .item(
+                                            PopupMenuItem::new("Off")
+                                                .checked(!auto_update_enabled)
+                                                .on_click({
+                                                    let view = view.clone();
+                                                    move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            this.set_settings_auto_update_enabled(
+                                                                false, cx,
+                                                            );
+                                                        });
+                                                    }
+                                                }),
+                                        )
+                                    })
+                            }),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child("Updater status"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(update_status_label),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child("Last checked"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(last_checked_label),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_end()
+                            .gap_2()
+                            .children(update_available.then(|| {
+                                let view = view.clone();
+                                Button::new("settings-install-update")
+                                    .rounded(px(8.0))
+                                    .label("Install Update")
+                                    .disabled(updates_disabled_by_install_source || update_action_in_progress)
+                                    .on_click(move |_, window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.install_available_update(Some(window), cx);
+                                        });
+                                    })
+                                    .into_any_element()
+                            }))
+                            .child({
+                                let view = view.clone();
+                                Button::new("settings-check-for-updates")
+                                    .outline()
+                                    .rounded(px(8.0))
+                                    .label("Check Now")
+                                    .disabled(updates_disabled_by_install_source || update_action_in_progress)
+                                    .on_click(move |_, window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.check_for_updates_action(&CheckForUpdates, window, cx);
+                                        });
+                                    })
+                            }),
+                    )
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child("Refresh behavior"),
                             )
                             .child(
                                 div()
@@ -489,8 +650,7 @@ impl DiffViewer {
                                     .text_color(cx.theme().muted_foreground)
                                     .child(
                                         "Diffs refresh immediately on file events. The app also performs \
-                            a background periodic check as a fallback if file events are missed. \
-                            Reduced Motion disables animated transitions in the Git workspace.",
+a background periodic check as a fallback if file events are missed. Reduced Motion disables animated transitions in the Git workspace.",
                                     ),
                             ),
                     ),

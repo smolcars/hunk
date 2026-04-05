@@ -482,6 +482,7 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::next_editor_tab_action))
             .on_action(cx.listener(Self::previous_editor_tab_action))
             .on_action(cx.listener(Self::close_editor_tab_action))
+            .on_action(cx.listener(Self::check_for_updates_action))
             .on_action(cx.listener(Self::open_about_hunk_action))
             .on_action(cx.listener(Self::open_settings_action))
             .bg(cx.theme().background)

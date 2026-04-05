@@ -1,6 +1,6 @@
 [package]
 name = "hunk-desktop"
-version = "0.0.1-alpha.25"
+version = "0.0.1"
 license.workspace = true
 edition = "2024"
 authors = ["Nitesh Balusu"]
@@ -59,8 +59,9 @@ hunk-terminal = { path = "../hunk-terminal" }
 hunk-editor = { path = "../hunk-editor" }
 hunk-language = { path = "../hunk-language" }
 hunk-text = { path = "../hunk-text" }
-codex-app-server-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.117.0" }
-codex-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.117.0" }
+hunk-updater = { path = "../hunk-updater" }
+codex-app-server-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.118.0" }
+codex-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.118.0" }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 git2 = { version = "0.20", features = ["https", "ssh", "vendored-libgit2", "vendored-openssl"] }

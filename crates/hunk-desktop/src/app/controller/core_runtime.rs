@@ -164,6 +164,22 @@ impl DiffViewer {
             .max(Pixels::ZERO)
             .as_f32()
             .round() as usize;
+        if self.seed_review_surface_display_rows_for_range(
+            scroll_top_px,
+            viewport_height_px,
+            8,
+        ) {
+            return true;
+        }
+        self.seed_review_surface_display_rows_full()
+    }
+
+    fn seed_review_surface_display_rows_for_range(
+        &mut self,
+        scroll_top_px: usize,
+        viewport_height_px: usize,
+        overscan_rows: usize,
+    ) -> bool {
         let Some(session) = self.review_workspace_session.as_mut() else {
             return false;
         };
@@ -178,7 +194,6 @@ impl DiffViewer {
         else {
             return false;
         };
-        let overscan_rows = 8usize;
         let first_visible_row = visible_row_range.start.saturating_sub(overscan_rows);
         let last_visible_row = visible_row_range
             .end
@@ -195,6 +210,38 @@ impl DiffViewer {
             return true;
         }
 
+        let Some(display_rows) = workspace_owner.build_display_rows_for_viewport(viewport) else {
+            return false;
+        };
+        if !display_rows.covers_row_range(requested_row_range) {
+            return false;
+        }
+        session.cache_display_rows(display_rows);
+        true
+    }
+
+    fn seed_review_surface_display_rows_full(&mut self) -> bool {
+        let Some(session) = self.review_workspace_session.as_mut() else {
+            return false;
+        };
+        if session.row_count() == 0 {
+            return false;
+        }
+        let Some(workspace_owner) = self.review_surface.workspace_owner() else {
+            return false;
+        };
+
+        let requested_row_range = 0..session.row_count();
+        if session.cached_display_rows_covering(requested_row_range.clone()) {
+            session.refresh_display_geometry_from_cached_display_rows();
+            return true;
+        }
+
+        let viewport = hunk_editor::Viewport {
+            first_visible_row: 0,
+            visible_row_count: usize::MAX,
+            horizontal_offset: 0,
+        };
         let Some(display_rows) = workspace_owner.build_display_rows_for_viewport(viewport) else {
             return false;
         };

@@ -5,6 +5,7 @@
 
 mod app;
 mod terminal_env;
+mod updater_helper;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -16,6 +17,9 @@ static SIGNAL_SHUTDOWN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<()> {
     if terminal_env::maybe_handle_terminal_env_helper_mode()? {
+        return Ok(());
+    }
+    if updater_helper::maybe_handle_updater_helper_mode()? {
         return Ok(());
     }
     run_with_platform_stack_workaround()

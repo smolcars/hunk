@@ -638,6 +638,32 @@ impl AiWorkerRuntime {
                             }
                         }
                     }
+                    LoginAccountResponse::ChatgptDeviceCode {
+                        login_id,
+                        verification_url,
+                        user_code,
+                    } => {
+                        self.pending_chatgpt_login_id = Some(login_id.clone());
+                        self.pending_chatgpt_auth_url = Some(verification_url.clone());
+                        match open_url_in_system_browser(verification_url.as_str()) {
+                            Ok(()) => {
+                                self.send_event(
+                                    event_tx,
+                                    AiWorkerEventPayload::Status(format!(
+                                        "Opened browser for ChatGPT login. Enter code {user_code} at {verification_url}"
+                                    )),
+                                );
+                            }
+                            Err(_) => {
+                                self.send_event(
+                                    event_tx,
+                                    AiWorkerEventPayload::Status(format!(
+                                        "Open {verification_url} and enter code {user_code} to continue ChatGPT login."
+                                    )),
+                                );
+                            }
+                        }
+                    }
                     LoginAccountResponse::ApiKey { .. } => {
                         self.send_event(
                             event_tx,

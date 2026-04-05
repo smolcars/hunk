@@ -3,7 +3,7 @@
 ## Status
 - In progress
 - Owner: Hunk
-- Last Updated: 2026-03-26
+- Last Updated: 2026-04-05
 
 ## Product Decisions (Locked)
 1. Transport is WebSocket-only. Hunk will not implement a stdio integration path.
@@ -17,9 +17,9 @@
 
 ## Pinned Upstream Baseline
 - Codex repo: `https://github.com/openai/codex`
-- Pinned tag: `rust-v0.117.0`
-- Pinned commit SHA: `4c70bff480af37b1bf1a9b352b8341060fe55755`
-- Pin captured on: 2026-03-26
+- Pinned tag: `rust-v0.118.0`
+- Pinned commit SHA: `b630ce9a4e754d35a1f33e4366ba638d18626142`
+- Pin captured on: 2026-04-05
 
 ## Architecture Boundary
 - New crate: `crates/hunk-codex`

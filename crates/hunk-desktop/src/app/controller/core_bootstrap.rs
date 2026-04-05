@@ -283,6 +283,15 @@ impl DiffViewer {
         let (state_store, mut state) = Self::load_app_state();
         let preferred_ai_session = hunk_domain::state::AiThreadSessionState::preferred_defaults();
         let database_store = Self::load_database_store();
+        let update_install_source = hunk_updater::detect_install_source();
+        let update_status = match &update_install_source {
+            InstallSource::SelfManaged => UpdateStatus::Idle,
+            InstallSource::PackageManaged { explanation } => {
+                UpdateStatus::DisabledByInstallSource {
+                    explanation: explanation.clone(),
+                }
+            }
+        };
         state.normalize_workspace_state();
         let initial_project_path = state.active_project_path().cloned();
         let initial_ai_workspace_key = initial_project_path
@@ -391,6 +400,10 @@ impl DiffViewer {
             config_store,
             config,
             settings_draft: None,
+            update_install_source,
+            update_status,
+            update_check_task: Task::ready(()),
+            update_apply_task: Task::ready(()),
             state_store,
             state,
             database_store,
@@ -907,6 +920,7 @@ impl DiffViewer {
         view.rebuild_ai_thread_sidebar_state();
         view.prune_expired_comments();
         view.refresh_comments_cache_from_store();
+        view.maybe_schedule_startup_update_check(cx);
         view
     }
 

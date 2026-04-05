@@ -59,6 +59,7 @@ use hunk_terminal::{
     TerminalEvent, TerminalScreenSnapshot, TerminalScroll, TerminalSessionHandle,
     TerminalSpawnRequest, spawn_terminal_session,
 };
+use hunk_updater::{InstallSource, UpdateStatus};
 
 const AI_TERMINAL_TEXT_SELECTION_ROW_ID: &str = "ai-terminal";
 const FILES_TERMINAL_TEXT_SELECTION_ROW_ID: &str = "files-terminal";
@@ -258,6 +259,7 @@ actions!(
         PreviousEditorTab,
         CloseEditorTab,
         SaveCurrentFile,
+        CheckForUpdates,
         AboutHunk,
         OpenSettings,
         QuitApp,
@@ -296,6 +298,8 @@ fn build_application_menus() -> Vec<Menu> {
                 items: vec![
                     MenuItem::action("About Hunk", AboutHunk),
                     MenuItem::separator(),
+                    MenuItem::action("Check for Updates...", CheckForUpdates),
+                    MenuItem::separator(),
                     MenuItem::os_submenu("Services", SystemMenuType::Services),
                     MenuItem::separator(),
                     MenuItem::action("Settings...", OpenSettings),
@@ -309,6 +313,8 @@ fn build_application_menus() -> Vec<Menu> {
                     MenuItem::action("Open Project...", OpenProject),
                     MenuItem::action("Quick Open...", QuickOpenFile),
                     MenuItem::action("Save File", SaveCurrentFile),
+                    MenuItem::separator(),
+                    MenuItem::action("Check for Updates...", CheckForUpdates),
                     MenuItem::separator(),
                     MenuItem::action("About Hunk", AboutHunk),
                     MenuItem::action("Settings...", OpenSettings),
@@ -330,6 +336,8 @@ fn build_application_menus() -> Vec<Menu> {
                     MenuItem::action("Open Project...", OpenProject),
                     MenuItem::action("Quick Open...", QuickOpenFile),
                     MenuItem::action("Save File", SaveCurrentFile),
+                    MenuItem::separator(),
+                    MenuItem::action("Check for Updates...", CheckForUpdates),
                     MenuItem::separator(),
                     MenuItem::action("About Hunk", AboutHunk),
                     MenuItem::action("Settings...", OpenSettings),
@@ -1333,6 +1341,10 @@ struct DiffViewer {
     config_store: Option<ConfigStore>,
     config: AppConfig,
     settings_draft: Option<SettingsDraft>,
+    update_install_source: InstallSource,
+    update_status: UpdateStatus,
+    update_check_task: Task<()>,
+    update_apply_task: Task<()>,
     state_store: Option<AppStateStore>,
     state: AppState,
     database_store: Option<DatabaseStore>,

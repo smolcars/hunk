@@ -94,6 +94,10 @@ fn app_config_defaults_include_existing_keyboard_shortcuts() {
         config.show_fps_counter,
         "fps counter should default to enabled"
     );
+    assert!(
+        config.auto_update_enabled,
+        "automatic update checks should default to enabled"
+    );
     assert_eq!(config.terminal.shell, TerminalShell::System);
     assert!(
         config.terminal.inherit_login_environment,
@@ -103,6 +107,7 @@ fn app_config_defaults_include_existing_keyboard_shortcuts() {
         config.terminal.hydrate_app_environment_on_launch,
         default_terminal_hydrate_app_environment_on_launch()
     );
+    assert_eq!(config.last_update_check_at, None);
 }
 
 #[test]
@@ -124,6 +129,11 @@ theme = "dark"
         config.show_fps_counter,
         "configs missing show_fps_counter should fall back to true"
     );
+    assert!(
+        config.auto_update_enabled,
+        "configs missing auto_update_enabled should fall back to true"
+    );
+    assert_eq!(config.last_update_check_at, None);
 }
 
 #[test]
@@ -134,6 +144,18 @@ show_fps_counter = true
     let config: AppConfig = toml::from_str(raw).expect("config with show_fps_counter should parse");
 
     assert!(config.show_fps_counter);
+}
+
+#[test]
+fn app_config_parses_auto_update_fields_when_present() {
+    let raw = r#"
+auto_update_enabled = false
+last_update_check_at = 12345
+"#;
+    let config: AppConfig = toml::from_str(raw).expect("config with updater fields should parse");
+
+    assert!(!config.auto_update_enabled);
+    assert_eq!(config.last_update_check_at, Some(12345));
 }
 
 #[test]

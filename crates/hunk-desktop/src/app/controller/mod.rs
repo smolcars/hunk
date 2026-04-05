@@ -77,3 +77,4 @@ include!("ai_perf.rs");
 include!("fps.rs");
 include!("about.rs");
 include!("settings.rs");
+include!("updates.rs");

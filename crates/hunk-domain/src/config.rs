@@ -171,11 +171,13 @@ pub struct AppConfig {
     pub theme: ThemePreference,
     pub reduce_motion: bool,
     pub show_fps_counter: bool,
+    pub auto_update_enabled: bool,
     pub terminal: TerminalConfig,
     pub keyboard_shortcuts: KeyboardShortcuts,
     pub review_provider_mappings: Vec<ReviewProviderMapping>,
     #[serde(default = "default_auto_refresh_interval_ms")]
     pub auto_refresh_interval_ms: u64,
+    pub last_update_check_at: Option<i64>,
 }
 
 impl Default for AppConfig {
@@ -184,10 +186,12 @@ impl Default for AppConfig {
             theme: ThemePreference::System,
             reduce_motion: false,
             show_fps_counter: true,
+            auto_update_enabled: true,
             terminal: TerminalConfig::default(),
             keyboard_shortcuts: KeyboardShortcuts::default(),
             review_provider_mappings: Vec::new(),
             auto_refresh_interval_ms: default_auto_refresh_interval_ms(),
+            last_update_check_at: None,
         };
         config.keyboard_shortcuts.normalize_files_tab_shortcuts();
         config
