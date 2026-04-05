@@ -234,9 +234,6 @@ impl DiffViewer {
             };
 
             this.update(cx, |this, cx| {
-                this.config.last_update_check_at = Some(checked_at);
-                this.persist_config();
-
                 match result {
                     Ok(hunk_updater::UpdateCheckResult::UpToDate { version }) => {
                         debug!(
@@ -245,6 +242,8 @@ impl DiffViewer {
                             elapsed_ms = total_elapsed.as_millis(),
                             "update check completed: up to date"
                         );
+                        this.config.last_update_check_at = Some(checked_at);
+                        this.persist_config();
                         this.update_status = UpdateStatus::UpToDate {
                             version: version.clone(),
                             checked_at_unix_ms: checked_at,
@@ -265,6 +264,8 @@ impl DiffViewer {
                             elapsed_ms = total_elapsed.as_millis(),
                             "update check completed: update available"
                         );
+                        this.config.last_update_check_at = Some(checked_at);
+                        this.persist_config();
                         this.update_status = UpdateStatus::UpdateAvailable(update);
                         let message = format!("Hunk {version} is available.");
                         this.git_status_message = Some(message.clone());
