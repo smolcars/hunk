@@ -163,6 +163,7 @@ mod ai_composer_completion;
 mod ai_paths;
 mod ai_thread_catalog_scheduler;
 mod ai_thread_flow;
+mod ai_workspace_render;
 mod ai_workspace_session;
 mod ai_workspace_surface;
 mod branch_activation;

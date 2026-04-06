@@ -2,7 +2,7 @@
 
 ## Status
 
-- Implemented
+- Implemented: session-backed AI timeline surface is live and the legacy-parity pass landed
 - Owner: Hunk
 - Last Updated: 2026-04-06
 - Supersedes: `docs/AI_CHAT_TIMELINE_V2_TODO.md` for the AI timeline render architecture
@@ -26,6 +26,22 @@ The new direction is:
 - add a right-side review pane inside the AI tab so timeline-selected diffs render in place instead of bouncing to the Review tab
 
 We do not need feature-flag gating. Breaking changes are acceptable. The legacy timeline path should be removed as part of this migration, not preserved indefinitely.
+
+## Current Assessment
+
+The backend migration succeeded and the parity pass is now in the codebase.
+
+What shipped:
+
+- the AI tab no longer depends on the old list-based thread body
+- the timeline scrolls through a dedicated session-backed surface with cached geometry
+- inline review stays inside the AI tab
+- the new surface uses neutral legacy-aligned palette choices instead of the earlier synthetic chrome
+- message projection restores markdown block structure, inline emphasis, links, and fenced-code syntax colors
+- plan rows restore explanation emphasis and completed-step strike-through behavior
+- expansion moved back toward disclosure-row semantics instead of the temporary `Show more` pill
+
+Remaining work is no longer architectural. The follow-up is validation on representative Windows hardware and targeted visual cleanup if any parity drift is still found during manual QA.
 
 ## Problem Statement
 
@@ -79,6 +95,7 @@ That means Hunk should not copy a nonexistent Zed pattern. We should instead bui
 - Support in-tab review: timeline on the left, review pane on the right.
 - Reuse existing workspace/buffer primitives where they genuinely help.
 - Remove the old list-based timeline path once the new surface reaches parity.
+- Preserve old timeline visuals and behavior at feature parity.
 
 ## Non-Goals
 
@@ -100,6 +117,23 @@ That means Hunk should not copy a nonexistent Zed pattern. We should instead bui
 8. There will be no feature flag and no long-lived dual render path.
 9. We should prefer copy-then-converge over premature deep abstraction between AI and Review.
 10. Files must stay under 1000 lines as the new surface/session code is introduced.
+
+## Parity Work Landed
+
+- Restored legacy lane widths and neutralized the experimental palette drift.
+- Removed the synthetic surface chrome that made the AI timeline look redesigned.
+- Restored message markdown projection with headings, paragraphs, lists, quotes, thematic breaks, inline links, inline code, bold, italic, and strike-through styling.
+- Restored fenced-code syntax coloring in the painted surface path.
+- Restored raw markdown link hit-testing and text-selection surface mapping.
+- Restored plan explanation emphasis and completed-step strike-through handling in the projected layout.
+- Kept inline review in the AI tab while preserving the left-side timeline surface path.
+- Kept the new session/surface path cached and paint-first rather than reintroducing the legacy list renderer.
+
+## Validation and Follow-up
+
+- Run manual parity QA against the old AI timeline on representative threads, especially long markdown-heavy and command-heavy turns.
+- Validate smooth scrolling and streaming on the Windows hardware that originally exposed the regression.
+- Treat any remaining visual drift as normal follow-up bug fixes, not architecture work.
 
 ## Performance SLOs
 

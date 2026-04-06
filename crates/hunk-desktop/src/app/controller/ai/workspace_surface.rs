@@ -144,7 +144,7 @@ impl DiffViewer {
                     kind: ai_workspace_session::AiWorkspaceBlockKind::Plan,
                     expandable: false,
                     expanded: true,
-                    title: "Plan".to_string(),
+                    title: "Updated Plan".to_string(),
                     preview: ai_workspace_plan_preview(plan),
                     last_sequence: row.last_sequence,
                 })
@@ -546,26 +546,157 @@ fn ai_workspace_plan_preview(plan: &hunk_codex::state::TurnPlanSummary) -> Strin
     }
 }
 
-fn ai_workspace_diff_preview(diff: &str) -> String {
-    let mut file_count = 0usize;
-    let mut additions = 0usize;
-    let mut removals = 0usize;
-    for line in diff.lines() {
-        if line.starts_with("diff --git ") {
-            file_count = file_count.saturating_add(1);
-        } else if line.starts_with('+') && !line.starts_with("+++") {
-            additions = additions.saturating_add(1);
-        } else if line.starts_with('-') && !line.starts_with("---") {
-            removals = removals.saturating_add(1);
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiWorkspaceDiffFileSummary {
+    path: String,
+    added: usize,
+    removed: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AiWorkspaceDiffSummary {
+    files: Vec<AiWorkspaceDiffFileSummary>,
+    total_added: usize,
+    total_removed: usize,
+}
+
+fn ai_workspace_turn_diff_file_header_paths(line: &str) -> Option<(String, String)> {
+    let mut parts = line.split_whitespace();
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some("diff"), Some("--git"), Some(old_path), Some(new_path)) => {
+            Some((old_path.to_string(), new_path.to_string()))
+        }
+        _ => None,
+    }
+}
+
+fn ai_workspace_turn_diff_display_path(old_path: &str, new_path: &str) -> String {
+    let normalized_new = new_path.strip_prefix("b/").unwrap_or(new_path);
+    if normalized_new != "/dev/null" {
+        return normalized_new.to_string();
+    }
+
+    let normalized_old = old_path.strip_prefix("a/").unwrap_or(old_path);
+    if normalized_old != "/dev/null" {
+        return normalized_old.to_string();
+    }
+
+    "changes".to_string()
+}
+
+fn ai_workspace_turn_diff_fallback_file(
+    files: &mut Vec<AiWorkspaceDiffFileSummary>,
+) -> &mut AiWorkspaceDiffFileSummary {
+    if files.is_empty() {
+        files.push(AiWorkspaceDiffFileSummary {
+            path: "changes".to_string(),
+            added: 0,
+            removed: 0,
+        });
+    }
+
+    files
+        .last_mut()
+        .expect("fallback diff file must exist after initialization")
+}
+
+fn ai_workspace_turn_diff_summary(diff_text: &str) -> AiWorkspaceDiffSummary {
+    let mut files = Vec::new();
+    let mut total_added = 0usize;
+    let mut total_removed = 0usize;
+
+    for line in diff_text.lines() {
+        if let Some((old_path, new_path)) = ai_workspace_turn_diff_file_header_paths(line) {
+            files.push(AiWorkspaceDiffFileSummary {
+                path: ai_workspace_turn_diff_display_path(old_path.as_str(), new_path.as_str()),
+                added: 0,
+                removed: 0,
+            });
+            continue;
+        }
+
+        if let Some(path) = line.strip_prefix("+++ ") {
+            let path = path.strip_prefix("b/").unwrap_or(path);
+            let file = ai_workspace_turn_diff_fallback_file(&mut files);
+            if file.path == "changes" && path != "/dev/null" {
+                file.path = path.to_string();
+            }
+            continue;
+        }
+
+        if let Some(path) = line.strip_prefix("--- ") {
+            let path = path.strip_prefix("a/").unwrap_or(path);
+            let file = ai_workspace_turn_diff_fallback_file(&mut files);
+            if file.path == "changes" && path != "/dev/null" {
+                file.path = path.to_string();
+            }
+            continue;
+        }
+
+        if line.starts_with("+++") || line.starts_with("---") {
+            continue;
+        }
+
+        if line.starts_with('+') {
+            let file = ai_workspace_turn_diff_fallback_file(&mut files);
+            file.added = file.added.saturating_add(1);
+            total_added = total_added.saturating_add(1);
+            continue;
+        }
+
+        if line.starts_with('-') {
+            let file = ai_workspace_turn_diff_fallback_file(&mut files);
+            file.removed = file.removed.saturating_add(1);
+            total_removed = total_removed.saturating_add(1);
         }
     }
 
-    match (file_count, additions, removals) {
-        (0, 0, 0) => "Diff ready".to_string(),
-        (0, adds, removes) => format!("{adds} additions, {removes} removals"),
-        (1, adds, removes) => format!("1 file changed, +{adds} -{removes}"),
-        (files, adds, removes) => format!("{files} files changed, +{adds} -{removes}"),
+    if files.is_empty() && !diff_text.trim().is_empty() {
+        files.push(AiWorkspaceDiffFileSummary {
+            path: "changes".to_string(),
+            added: total_added,
+            removed: total_removed,
+        });
     }
+
+    AiWorkspaceDiffSummary {
+        files,
+        total_added,
+        total_removed,
+    }
+}
+
+fn ai_workspace_diff_preview(diff: &str) -> String {
+    const AI_WORKSPACE_DIFF_VISIBLE_FILE_LIMIT: usize = 4;
+
+    let summary = ai_workspace_turn_diff_summary(diff);
+    if summary.files.is_empty() {
+        return "Diff ready".to_string();
+    }
+
+    let mut lines = summary
+        .files
+        .iter()
+        .take(AI_WORKSPACE_DIFF_VISIBLE_FILE_LIMIT)
+        .map(|file| format!("Edited {}  +{} -{}", file.path, file.added, file.removed))
+        .collect::<Vec<_>>();
+    let hidden_file_count = summary
+        .files
+        .len()
+        .saturating_sub(AI_WORKSPACE_DIFF_VISIBLE_FILE_LIMIT);
+    if hidden_file_count > 0 {
+        lines.push(format!("+{hidden_file_count} more files"));
+    }
+    let file_count_label = if summary.files.len() == 1 {
+        "1 file changed".to_string()
+    } else {
+        format!("{} files changed", summary.files.len())
+    };
+    lines.push(format!(
+        "{file_count_label}, +{} -{}",
+        summary.total_added, summary.total_removed
+    ));
+    lines.join("\n")
 }
 
 fn ai_workspace_collapsed_preview_text(value: &str) -> String {

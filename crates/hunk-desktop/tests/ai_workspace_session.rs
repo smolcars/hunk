@@ -1,3 +1,10 @@
+#[path = "../src/app/markdown_links.rs"]
+mod markdown_links_impl;
+
+mod app {
+    pub(crate) use super::markdown_links_impl as markdown_links;
+}
+
 #[path = "../src/app/ai_workspace_session.rs"]
 mod ai_workspace_session;
 
@@ -252,7 +259,7 @@ fn narrower_widths_increase_wrapped_height() {
 #[test]
 fn message_blocks_are_no_longer_limited_to_six_preview_lines() {
     let preview = (1..=12)
-        .map(|line| format!("line {line}"))
+        .map(|line| format!("line {line}  "))
         .collect::<Vec<_>>()
         .join("\n");
     let block = AiWorkspaceBlock {
@@ -299,4 +306,69 @@ fn expanded_tool_blocks_take_more_height_than_collapsed_tool_blocks() {
 
     assert!(collapsed_layout.preview_lines.len() < expanded_layout.preview_lines.len());
     assert!(collapsed_layout.height_px < expanded_layout.height_px);
+}
+
+#[test]
+fn very_narrow_surface_widths_do_not_panic() {
+    let block = AiWorkspaceBlock {
+        id: "row-narrow".to_string(),
+        source_row_id: "row-narrow".to_string(),
+        role: AiWorkspaceBlockRole::Assistant,
+        kind: AiWorkspaceBlockKind::Message,
+        expandable: false,
+        expanded: true,
+        title: "Assistant".to_string(),
+        preview: "narrow viewport".to_string(),
+        last_sequence: 1,
+    };
+    let mut session =
+        AiWorkspaceSession::new("thread-1", source_rows(&[("row-narrow", 1)]), vec![block]);
+
+    let snapshot = session.surface_snapshot(0, 200, 1);
+
+    assert_eq!(snapshot.viewport.visible_blocks.len(), 1);
+    assert!(snapshot.viewport.total_surface_height_px > 0);
+}
+
+#[test]
+fn markdown_message_layout_preserves_heading_links_and_inline_styles() {
+    let block = AiWorkspaceBlock {
+        id: "row-markdown".to_string(),
+        source_row_id: "row-markdown".to_string(),
+        role: AiWorkspaceBlockRole::Assistant,
+        kind: AiWorkspaceBlockKind::Message,
+        expandable: false,
+        expanded: true,
+        title: "Assistant".to_string(),
+        preview: "# Heading\nA **bold** [link](https://example.com) with `code`.".to_string(),
+        last_sequence: 1,
+    };
+
+    let layout = ai_workspace_text_layout_for_block(&block, 640);
+
+    assert_eq!(
+        layout.preview_line_kinds.first().copied(),
+        Some(ai_workspace_session::AiWorkspacePreviewLineKind::Heading)
+    );
+    assert!(
+        layout
+            .preview_line_style_spans
+            .iter()
+            .flatten()
+            .any(|span| span.bold)
+    );
+    assert!(
+        layout
+            .preview_line_style_spans
+            .iter()
+            .flatten()
+            .any(|span| span.code)
+    );
+    assert!(
+        layout
+            .preview_line_link_ranges
+            .iter()
+            .flatten()
+            .any(|range| range.raw_target == "https://example.com")
+    );
 }
