@@ -56,7 +56,7 @@ Create `crates/hunk-updater` to hold all OTA logic that is not UI-specific:
 
 Publish a single manifest for the stable channel, for example:
 
-- `https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json`
+- `https://hunkstablereleases.smolcars.com/stable.json`
 
 Recommended manifest shape:
 

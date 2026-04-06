@@ -10,7 +10,7 @@ on:
       public_base_url:
         description: "Public base URL used for temporary OTA test uploads."
         required: false
-        default: "https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev"
+        default: "https://hunkstablereleases.smolcars.com"
         type: string
 
 permissions:

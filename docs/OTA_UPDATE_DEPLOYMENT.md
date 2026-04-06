@@ -9,7 +9,7 @@ Hunk does **not** need a custom backend for OTA updates right now.
 The updater design is:
 
 - Hunk downloads a small signed manifest from:
-  - `https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json`
+  - `https://hunkstablereleases.smolcars.com/stable.json`
 - That manifest points at release binaries already hosted on GitHub Releases.
 - Hunk verifies the signed payloads before applying them.
 
@@ -96,8 +96,8 @@ The release workflow can now upload the manifest files directly to your public R
 
 The public URLs are:
 
-- `https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json`
-- `https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json.sig`
+- `https://hunkstablereleases.smolcars.com/stable.json`
+- `https://hunkstablereleases.smolcars.com/stable.json.sig`
 
 ### Release procedure
 
@@ -106,8 +106,8 @@ The public URLs are:
 3. The workflow generates `stable.json` and `stable.json.sig`.
 4. The workflow uploads both files to your R2 bucket automatically.
 5. Confirm these URLs work:
-   - `https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json`
-   - `https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json.sig`
+   - `https://hunkstablereleases.smolcars.com/stable.json`
+   - `https://hunkstablereleases.smolcars.com/stable.json.sig`
 6. Confirm the JSON points to the correct GitHub Release asset URLs.
 
 ### Manual workflow test
@@ -140,7 +140,7 @@ Important:
 - this manual workflow does **not** create or upload a GitHub Release
 - it is intended for real end-to-end updater tests against temporary public R2 URLs
 - by default it uses:
-  - `https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev`
+  - `https://hunkstablereleases.smolcars.com`
 - you can override that with the `public_base_url` workflow input if you move buckets later
 
 ## How to test the updater
@@ -171,11 +171,11 @@ python3 -m http.server 8080
 1. Build or install an older Hunk version.
 2. Run the `Release Manual Test` workflow from GitHub Actions.
 3. Copy the manifest URL from the workflow summary. It will look like:
-   - `https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/test/<run-id>/<attempt>/stable.json`
+   - `https://hunkstablereleases.smolcars.com/test/<run-id>/<attempt>/stable.json`
 4. Point Hunk at that manifest:
 
 ```bash
-export HUNK_UPDATE_MANIFEST_URL="https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/test/<run-id>/<attempt>/stable.json"
+export HUNK_UPDATE_MANIFEST_URL="https://hunkstablereleases.smolcars.com/test/<run-id>/<attempt>/stable.json"
 ```
 
 5. Launch Hunk.

@@ -53,7 +53,7 @@ fn sample_manifest(version: &str) -> ReleaseManifest {
 #[test]
 fn manifest_update_result_uses_target_asset() {
     let result = evaluate_manifest(
-        "https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json",
+        "https://hunkstablereleases.smolcars.com/stable.json",
         "0.0.1",
         "linux-x86_64",
         sample_manifest("0.0.2"),
@@ -74,7 +74,7 @@ fn manifest_update_result_uses_target_asset() {
 #[test]
 fn manifest_up_to_date_when_remote_is_not_newer() {
     let result = evaluate_manifest(
-        "https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json",
+        "https://hunkstablereleases.smolcars.com/stable.json",
         "0.0.2",
         "windows-x86_64",
         sample_manifest("0.0.2"),
@@ -92,7 +92,7 @@ fn manifest_up_to_date_when_remote_is_not_newer() {
 #[test]
 fn prerelease_manifest_versions_are_rejected() {
     let error = evaluate_manifest(
-        "https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json",
+        "https://hunkstablereleases.smolcars.com/stable.json",
         "0.0.1",
         "macos-aarch64",
         sample_manifest("0.0.2-alpha.1"),

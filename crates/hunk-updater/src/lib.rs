@@ -17,8 +17,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use tar::Archive;
 
-pub const DEFAULT_UPDATE_MANIFEST_URL: &str =
-    "https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json";
+pub const DEFAULT_UPDATE_MANIFEST_URL: &str = "https://hunkstablereleases.smolcars.com/stable.json";
 pub const DEFAULT_UPDATE_PUBLIC_KEY_BASE64: &str = "SvgG78zhTeV1LsDRNZcq4DGytd2X+nKEx0HUf/g19i8=";
 pub const UPDATE_EXPLANATION_ENV_VAR: &str = "HUNK_UPDATE_EXPLANATION";
 pub const UPDATE_MANIFEST_URL_ENV_VAR: &str = "HUNK_UPDATE_MANIFEST_URL";
