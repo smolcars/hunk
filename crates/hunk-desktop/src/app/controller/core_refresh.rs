@@ -455,7 +455,10 @@ impl DiffViewer {
         root: PathBuf,
         snapshot: WorkflowSnapshot,
         file_line_stats: BTreeMap<String, LineStats>,
+        cx: &mut Context<Self>,
     ) {
+        let previous_working_copy_commit_id = self.git_workspace.working_copy_commit_id.clone();
+        let previous_files = self.git_workspace.files.clone();
         let WorkflowSnapshot {
             working_copy_commit_id,
             branch_name,
@@ -468,7 +471,7 @@ impl DiffViewer {
             ..
         } = snapshot;
 
-        self.git_workspace.root = Some(root);
+        self.git_workspace.root = Some(root.clone());
         self.git_workspace.working_copy_commit_id = Some(working_copy_commit_id);
         self.git_workspace.branch_name = branch_name;
         self.git_workspace.branch_has_upstream = branch_has_upstream;
@@ -495,6 +498,16 @@ impl DiffViewer {
                 }),
         );
         self.last_commit_subject = last_commit_subject;
+
+        let diff_changed = previous_working_copy_commit_id.as_deref()
+            != self.git_workspace.working_copy_commit_id.as_deref()
+            || previous_files != self.git_workspace.files;
+        if diff_changed
+            && self.workspace_view_mode == WorkspaceViewMode::Diff
+            && self.review_compare_references_workspace_root(root.as_path())
+        {
+            self.request_selected_diff_reload(cx);
+        }
     }
 
     pub(super) fn request_git_workspace_refresh(&mut self, refresh_recent_commits: bool, cx: &mut Context<Self>) {
@@ -589,7 +602,12 @@ impl DiffViewer {
                                 workflow_snapshot.files.len()
                             );
                             this.last_git_workspace_fingerprint = Some(fingerprint);
-                            this.apply_git_workspace_snapshot(root.clone(), workflow_snapshot, file_line_stats);
+                            this.apply_git_workspace_snapshot(
+                                root.clone(),
+                                workflow_snapshot,
+                                file_line_stats,
+                                cx,
+                            );
                             if refresh_recent_commits {
                                 this.request_recent_commits_refresh(true, cx);
                             }

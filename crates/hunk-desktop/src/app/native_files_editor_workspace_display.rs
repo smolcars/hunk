@@ -1,34 +1,42 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-
-use hunk_editor::{
-    DisplayRow, EditorCommand, EditorState, Viewport, WorkspaceDisplayRow,
-    WorkspaceProjectedSnapshot, build_workspace_projected_snapshot,
-};
 #[cfg(test)]
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
+
+#[cfg(test)]
+use hunk_editor::DisplayRow;
+#[cfg(test)]
+use hunk_editor::{
+    EditorCommand, EditorState, WorkspaceProjectedSnapshot, build_workspace_projected_snapshot,
+};
 use hunk_editor::{
     SearchHighlight, WorkspaceDisplaySnapshot, WorkspaceDocumentId, WorkspaceExcerptId,
     WorkspaceLayout, WorkspaceRowLocation,
 };
-#[cfg(test)]
+use hunk_editor::{Viewport, WorkspaceDisplayRow};
+use hunk_text::TextBuffer;
 use hunk_text::TextSnapshot;
-use hunk_text::{Selection, TextBuffer, TextPosition};
+#[cfg(test)]
+use hunk_text::{Selection, TextPosition};
 
 #[allow(clippy::duplicate_mod)]
 #[path = "workspace_display_buffers.rs"]
-#[cfg(test)]
 mod workspace_display_buffers;
 
-#[cfg(test)]
 use workspace_display_buffers::{
     WorkspaceSearchMatch, build_workspace_display_snapshot_from_document_snapshots,
     find_workspace_search_matches,
 };
 
+use super::FilesEditor;
 use super::RowSyntaxSpan;
-use super::{FilesEditor, FilesEditorViewState, default_show_whitespace_for_path};
+#[cfg(test)]
+use super::{FilesEditorViewState, default_show_whitespace_for_path};
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(crate) struct WorkspaceProjectedRenderSnapshot {
     pub(crate) projection: WorkspaceProjectedSnapshot,
     pub(crate) visible_display_rows: Vec<WorkspaceDisplayRow>,
@@ -38,9 +46,13 @@ pub(crate) struct WorkspaceProjectedRenderSnapshot {
     pub(crate) line_number_digits: usize,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct WorkspaceVisibleRenderSnapshot {
+    pub(crate) rows_by_display_row: BTreeMap<usize, WorkspaceDisplayRow>,
+    pub(crate) syntax_by_display_row: BTreeMap<usize, Vec<RowSyntaxSpan>>,
+}
+
 impl FilesEditor {
-    #[cfg(test)]
-    #[allow(dead_code)]
     pub(crate) fn build_workspace_display_snapshot(
         &self,
         viewport: Viewport,
@@ -74,6 +86,27 @@ impl FilesEditor {
         Some(snapshot)
     }
 
+    pub(crate) fn build_workspace_visible_render_snapshot(
+        &mut self,
+        viewport: Viewport,
+        tab_width: usize,
+    ) -> Option<WorkspaceVisibleRenderSnapshot> {
+        let snapshot = self.build_workspace_display_snapshot(viewport, tab_width, false)?;
+        let syntax_by_display_row =
+            self.workspace_display_segments_by_row(&snapshot.visible_rows)?;
+        let rows_by_display_row = snapshot
+            .visible_rows
+            .into_iter()
+            .map(|row| (row.row_index, row))
+            .collect();
+        Some(WorkspaceVisibleRenderSnapshot {
+            rows_by_display_row,
+            syntax_by_display_row,
+        })
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn build_workspace_projected_snapshot(
         &self,
         viewport: Viewport,
@@ -107,6 +140,8 @@ impl FilesEditor {
         ))
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn build_workspace_projected_render_snapshot(
         &mut self,
         viewport: Viewport,
@@ -133,8 +168,6 @@ impl FilesEditor {
         })
     }
 
-    #[cfg(test)]
-    #[allow(dead_code)]
     fn workspace_buffer_for_document(
         &self,
         document_id: WorkspaceDocumentId,
@@ -147,6 +180,8 @@ impl FilesEditor {
         self.workspace_buffers.get(document.path())
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
     fn workspace_document_display_rows(
         &self,
         path: &Path,
@@ -173,6 +208,8 @@ impl FilesEditor {
         Some(editor.display_snapshot().visible_rows)
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
     fn workspace_document_view_state(&self, path: &Path) -> FilesEditorViewState {
         if self.active_path() == Some(path) {
             return FilesEditorViewState {
@@ -197,6 +234,8 @@ impl FilesEditor {
     }
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn workspace_display_rows_from_projected_snapshot(
     projected_rows: &[hunk_editor::WorkspaceProjectedRow],
 ) -> Option<Vec<WorkspaceDisplayRow>> {
@@ -225,8 +264,6 @@ fn workspace_display_rows_from_projected_snapshot(
         .collect()
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
 fn apply_workspace_search_highlights(
     layout: &WorkspaceLayout,
     visible_rows: &mut [WorkspaceDisplayRow],
@@ -270,8 +307,6 @@ fn apply_workspace_search_highlights(
     }
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
 fn workspace_search_highlights_for_row(
     row: &WorkspaceDisplayRow,
     location: &WorkspaceRowLocation,
@@ -316,8 +351,6 @@ fn workspace_search_highlights_for_row(
     highlights
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
 fn workspace_display_column_for_raw(row: &WorkspaceDisplayRow, raw_column: usize) -> usize {
     if row.raw_column_offsets.is_empty() {
         return 0;

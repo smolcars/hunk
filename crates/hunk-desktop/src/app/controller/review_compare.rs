@@ -1,5 +1,5 @@
 #[derive(Clone, Copy)]
-struct LoadedReviewCompareReuseState<'a, F> {
+struct LoadedReviewCompareReuseState<'a> {
     has_loaded_session: bool,
     review_compare_loading: bool,
     review_compare_error: Option<&'a str>,
@@ -9,20 +9,19 @@ struct LoadedReviewCompareReuseState<'a, F> {
     loaded_right_source_id: Option<&'a str>,
     current_collapsed_files: &'a BTreeSet<String>,
     loaded_collapsed_files: &'a BTreeSet<String>,
-    current_snapshot_fingerprint: Option<&'a F>,
-    loaded_snapshot_fingerprint: Option<&'a F>,
+    current_reuse_token: Option<&'a ReviewCompareReuseToken>,
+    loaded_reuse_token: Option<&'a ReviewCompareReuseToken>,
 }
 
-fn should_reuse_loaded_review_compare<F: PartialEq>(
-    state: LoadedReviewCompareReuseState<'_, F>,
-) -> bool {
+fn should_reuse_loaded_review_compare(state: LoadedReviewCompareReuseState<'_>) -> bool {
     state.has_loaded_session
         && !state.review_compare_loading
         && state.review_compare_error.is_none()
         && state.current_left_source_id == state.loaded_left_source_id
         && state.current_right_source_id == state.loaded_right_source_id
         && state.current_collapsed_files == state.loaded_collapsed_files
-        && state.current_snapshot_fingerprint == state.loaded_snapshot_fingerprint
+        && state.current_reuse_token.is_some()
+        && state.current_reuse_token == state.loaded_reuse_token
 }
 
 fn preferred_review_workspace_path_for_session(
@@ -285,7 +284,71 @@ impl DiffViewer {
         self.review_surface.selected_path.clone()
     }
 
+    fn current_review_compare_source_reuse_state(
+        &self,
+        source_id: &str,
+    ) -> Option<ReviewCompareSourceReuseState> {
+        let source = self.review_compare_source_option(source_id)?;
+        match source.kind {
+            crate::app::review_compare_picker::ReviewCompareSourceKind::Branch => {
+                let branch_name = source.branch_name.as_deref()?;
+                let branch = self
+                    .branches
+                    .iter()
+                    .find(|branch| branch.name == branch_name)?;
+                Some(ReviewCompareSourceReuseState::Branch {
+                    name: branch.name.clone(),
+                    tip_unix_time: branch.tip_unix_time,
+                    is_current: branch.is_current,
+                })
+            }
+            crate::app::review_compare_picker::ReviewCompareSourceKind::WorkspaceTarget => {
+                let workspace_root = source.workspace_root.clone()?;
+                let fingerprint = if self.repo_root.as_ref() == Some(&workspace_root) {
+                    self.last_snapshot_fingerprint.clone()
+                } else if self.selected_git_workspace_root().as_ref() == Some(&workspace_root) {
+                    self.last_git_workspace_fingerprint.clone()
+                } else {
+                    None
+                }?;
+                Some(ReviewCompareSourceReuseState::Workspace {
+                    root: workspace_root,
+                    fingerprint,
+                })
+            }
+        }
+    }
+
+    fn current_review_compare_reuse_token(&self) -> Option<ReviewCompareReuseToken> {
+        Some(ReviewCompareReuseToken {
+            left: self.current_review_compare_source_reuse_state(
+                self.review_left_source_id.as_deref()?,
+            )?,
+            right: self.current_review_compare_source_reuse_state(
+                self.review_right_source_id.as_deref()?,
+            )?,
+        })
+    }
+
+    fn review_compare_references_workspace_root(
+        &self,
+        root: &std::path::Path,
+    ) -> bool {
+        [
+            self.review_left_source_id.as_deref(),
+            self.review_right_source_id.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|source_id| {
+            self.review_compare_source_option(source_id)
+                .and_then(|source| source.workspace_root.as_deref())
+                .is_some_and(|workspace_root| workspace_root == root)
+        })
+    }
+
     pub(crate) fn should_reuse_loaded_review_compare(&self) -> bool {
+        let current_reuse_token = self.current_review_compare_reuse_token();
         should_reuse_loaded_review_compare(LoadedReviewCompareReuseState {
             has_loaded_session: self.review_workspace_session.is_some(),
             review_compare_loading: self.review_compare_loading,
@@ -296,8 +359,8 @@ impl DiffViewer {
             loaded_right_source_id: self.review_loaded_right_source_id.as_deref(),
             current_collapsed_files: &self.collapsed_files,
             loaded_collapsed_files: &self.review_loaded_collapsed_files,
-            current_snapshot_fingerprint: self.last_snapshot_fingerprint.as_ref(),
-            loaded_snapshot_fingerprint: self.review_loaded_snapshot_fingerprint.as_ref(),
+            current_reuse_token: current_reuse_token.as_ref(),
+            loaded_reuse_token: self.review_loaded_reuse_token.as_ref(),
         })
     }
 
@@ -793,7 +856,7 @@ impl DiffViewer {
         self.review_loaded_left_source_id = None;
         self.review_loaded_right_source_id = None;
         self.review_loaded_collapsed_files.clear();
-        self.review_loaded_snapshot_fingerprint = None;
+        self.review_loaded_reuse_token = None;
         self.review_surface.clear_workspace_editors();
         self.review_surface.clear_workspace_search_matches();
         self.review_surface.selected_path = None;
@@ -839,6 +902,7 @@ impl DiffViewer {
             return;
         }
 
+        let current_reuse_token = self.current_review_compare_reuse_token();
         let previous_review_line_stats = self.review_file_line_stats.clone();
         let collapsed_files = self.collapsed_files.clone();
         let left_source_id = self.review_left_source_id.clone();
@@ -887,7 +951,12 @@ impl DiffViewer {
                                 elapsed_ms = started_at.elapsed().as_millis(),
                                 "review compare snapshot loaded"
                             );
-                            this.apply_loaded_review_compare_stream(snapshot, stream, cx);
+                            this.apply_loaded_review_compare_stream(
+                                snapshot,
+                                stream,
+                                current_reuse_token.clone(),
+                                cx,
+                            );
                         }
                         Err(err) => {
                             error!(
@@ -913,10 +982,12 @@ impl DiffViewer {
         &mut self,
         snapshot: hunk_git::compare::CompareSnapshot,
         stream: DiffStream,
+        loaded_reuse_token: Option<ReviewCompareReuseToken>,
         cx: &mut Context<Self>,
     ) {
         self.review_compare_error = None;
         self.review_surface.status_message = None;
+        let session_started_at = Instant::now();
         self.review_workspace_session =
             match crate::app::review_workspace_session::ReviewWorkspaceSession::from_compare_snapshot(
                 &snapshot,
@@ -929,6 +1000,7 @@ impl DiffViewer {
                         workspace_excerpts = session.layout().excerpts().len(),
                         workspace_rows = session.layout().total_rows(),
                         render_rows = session.row_count(),
+                        elapsed_ms = session_started_at.elapsed().as_millis(),
                         "review workspace session rebuilt"
                     );
                     Some(session)
@@ -943,6 +1015,7 @@ impl DiffViewer {
                     return;
                 }
             };
+        let owner_started_at = Instant::now();
         let preferred_selected_path = self
             .current_review_editor_path()
             .or_else(|| self.review_surface.selected_path.clone());
@@ -968,7 +1041,12 @@ impl DiffViewer {
         else {
             return;
         };
+        debug!(
+            elapsed_ms = owner_started_at.elapsed().as_millis(),
+            "review workspace editors initialized"
+        );
         self.review_surface.set_workspace_owner(workspace_owner);
+        let seed_started_at = Instant::now();
         let seeded_display_rows = self.seed_review_surface_display_rows();
         self.review_files = snapshot.files;
         self.review_file_status_by_path = self
@@ -979,7 +1057,7 @@ impl DiffViewer {
         self.review_loaded_left_source_id = self.review_left_source_id.clone();
         self.review_loaded_right_source_id = self.review_right_source_id.clone();
         self.review_loaded_collapsed_files = self.collapsed_files.clone();
-        self.review_loaded_snapshot_fingerprint = self.last_snapshot_fingerprint.clone();
+        self.review_loaded_reuse_token = loaded_reuse_token;
         self.review_file_line_stats = snapshot.file_line_stats;
         self.review_overall_line_stats = snapshot.overall_line_stats;
         self.collapsed_files
@@ -988,6 +1066,7 @@ impl DiffViewer {
         self.apply_loaded_review_workspace_surface();
         debug!(
             seeded_display_rows,
+            elapsed_ms = seed_started_at.elapsed().as_millis(),
             "review workspace surface projection initialized"
         );
 
@@ -1086,7 +1165,7 @@ impl DiffViewer {
         self.review_loaded_left_source_id = None;
         self.review_loaded_right_source_id = None;
         self.review_loaded_collapsed_files.clear();
-        self.review_loaded_snapshot_fingerprint = None;
+        self.review_loaded_reuse_token = None;
         if self.workspace_view_mode == WorkspaceViewMode::Diff {
             self.scroll_selected_after_reload = true;
             self.request_review_compare_refresh(cx);
@@ -1099,8 +1178,8 @@ impl DiffViewer {
 #[cfg(test)]
 mod review_compare_tests {
     use super::{
-        LoadedReviewCompareReuseState, preferred_review_workspace_path_for_session,
-        should_reuse_loaded_review_compare,
+        LoadedReviewCompareReuseState, ReviewCompareReuseToken, ReviewCompareSourceReuseState,
+        preferred_review_workspace_path_for_session, should_reuse_loaded_review_compare,
     };
     use hunk_git::compare::CompareSnapshot;
     use hunk_git::git::{ChangedFile, FileStatus, LineStats};
@@ -1110,6 +1189,30 @@ mod review_compare_tests {
     fn loaded_review_compare_reuse_requires_matching_identity() {
         let current_collapsed_files = BTreeSet::new();
         let loaded_collapsed_files = BTreeSet::new();
+        let matching_token = ReviewCompareReuseToken {
+            left: ReviewCompareSourceReuseState::Branch {
+                name: "left".to_string(),
+                tip_unix_time: Some(1),
+                is_current: false,
+            },
+            right: ReviewCompareSourceReuseState::Branch {
+                name: "right".to_string(),
+                tip_unix_time: Some(2),
+                is_current: true,
+            },
+        };
+        let other_token = ReviewCompareReuseToken {
+            left: ReviewCompareSourceReuseState::Branch {
+                name: "left".to_string(),
+                tip_unix_time: Some(3),
+                is_current: false,
+            },
+            right: ReviewCompareSourceReuseState::Branch {
+                name: "right".to_string(),
+                tip_unix_time: Some(2),
+                is_current: true,
+            },
+        };
         let matching_state = LoadedReviewCompareReuseState {
             has_loaded_session: true,
             review_compare_loading: false,
@@ -1120,8 +1223,8 @@ mod review_compare_tests {
             loaded_right_source_id: Some("right"),
             current_collapsed_files: &current_collapsed_files,
             loaded_collapsed_files: &loaded_collapsed_files,
-            current_snapshot_fingerprint: Some(&1_u8),
-            loaded_snapshot_fingerprint: Some(&1_u8),
+            current_reuse_token: Some(&matching_token),
+            loaded_reuse_token: Some(&matching_token),
         };
 
         assert!(should_reuse_loaded_review_compare(matching_state));
@@ -1130,7 +1233,7 @@ mod review_compare_tests {
             ..matching_state
         }));
         assert!(!should_reuse_loaded_review_compare(LoadedReviewCompareReuseState {
-            loaded_snapshot_fingerprint: Some(&2_u8),
+            loaded_reuse_token: Some(&other_token),
             ..matching_state
         }));
         let loaded_with_collapse = BTreeSet::from([String::from("src/main.rs")]);
@@ -1144,6 +1247,11 @@ mod review_compare_tests {
         }));
         assert!(!should_reuse_loaded_review_compare(LoadedReviewCompareReuseState {
             has_loaded_session: false,
+            ..matching_state
+        }));
+        assert!(!should_reuse_loaded_review_compare(LoadedReviewCompareReuseState {
+            current_reuse_token: None,
+            loaded_reuse_token: None,
             ..matching_state
         }));
     }

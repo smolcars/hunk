@@ -201,8 +201,11 @@ impl DiffViewer {
                     "Select two compare sources.".to_string()
                 } else if self.review_files.is_empty() {
                     "No files changed between the selected sources.".to_string()
+                } else if self.review_workspace_session.is_some() {
+                    "Comparison loaded, but the review surface is unavailable. Refresh to reload."
+                        .to_string()
                 } else {
-                    "Loading comparison...".to_string()
+                    "Comparison unavailable. Refresh to reload.".to_string()
                 }
             });
 

@@ -1046,7 +1046,7 @@ struct WorkspaceProjectState {
     review_compare_loading: bool,
     review_compare_error: Option<String>,
     review_workspace_session: Option<review_workspace_session::ReviewWorkspaceSession>,
-    review_loaded_snapshot_fingerprint: Option<RepoSnapshotFingerprint>,
+    review_loaded_reuse_token: Option<ReviewCompareReuseToken>,
     overall_line_stats: LineStats,
     last_git_workspace_fingerprint: Option<RepoSnapshotFingerprint>,
     recent_commits_loading: bool,
@@ -1088,25 +1088,28 @@ struct ReviewWorkspaceSurfaceState {
     last_diff_scroll_offset: Option<gpui::Point<gpui::Pixels>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReviewCompareReuseToken {
+    left: ReviewCompareSourceReuseState,
+    right: ReviewCompareSourceReuseState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReviewCompareSourceReuseState {
+    Branch {
+        name: String,
+        tip_unix_time: Option<i64>,
+        is_current: bool,
+    },
+    Workspace {
+        root: PathBuf,
+        fingerprint: RepoSnapshotFingerprint,
+    },
+}
+
 struct ReviewWorkspaceSurfaceOwner {
     left_workspace_editor: native_files_editor::SharedFilesEditor,
     right_workspace_editor: native_files_editor::SharedFilesEditor,
-}
-
-#[derive(Debug, Clone)]
-struct ReviewWorkspaceProjectedSideRow {
-    display_row_index: usize,
-    row_index: usize,
-    raw_row_range: std::ops::Range<usize>,
-    row: hunk_editor::WorkspaceDisplayRow,
-}
-
-#[derive(Debug, Clone)]
-struct ReviewWorkspaceProjectedSideRows {
-    rows: Vec<ReviewWorkspaceProjectedSideRow>,
-    rows_by_display_row: BTreeMap<usize, hunk_editor::WorkspaceDisplayRow>,
-    syntax_by_display_row:
-        BTreeMap<usize, Vec<crate::app::native_files_editor::paint::RowSyntaxSpan>>,
 }
 
 impl ReviewWorkspaceSurfaceOwner {
@@ -1196,24 +1199,17 @@ impl ReviewWorkspaceSurfaceOwner {
         viewport: hunk_editor::Viewport,
     ) -> Option<crate::app::review_workspace_session::ReviewWorkspaceDisplayRows> {
         let mut left_editor = self.left_workspace_editor.borrow_mut();
-        let left_projected = projected_review_workspace_side_rows(
-            left_editor.build_workspace_projected_render_snapshot(viewport, 4)?,
-        )?;
-        let left_rows = left_projected.rows_by_display_row.clone();
-        let left_syntax_by_display_row = left_projected.syntax_by_display_row.clone();
+        let left_visible = left_editor.build_workspace_visible_render_snapshot(viewport, 4)?;
+        let left_rows = left_visible.rows_by_display_row.clone();
+        let left_syntax_by_display_row = left_visible.syntax_by_display_row.clone();
         drop(left_editor);
 
         let mut right_editor = self.right_workspace_editor.borrow_mut();
-        let right_projected = projected_review_workspace_side_rows(
-            right_editor.build_workspace_projected_render_snapshot(viewport, 4)?,
-        )?;
-        let right_rows = right_projected.rows_by_display_row.clone();
-        let right_syntax_by_display_row = right_projected.syntax_by_display_row.clone();
+        let right_visible = right_editor.build_workspace_visible_render_snapshot(viewport, 4)?;
+        let right_rows = right_visible.rows_by_display_row.clone();
+        let right_syntax_by_display_row = right_visible.syntax_by_display_row.clone();
 
-        let rows = review_workspace_display_row_entries_from_projected_sides(
-            &left_projected,
-            &right_projected,
-        )?;
+        let rows = review_workspace_display_row_entries(&left_rows, &right_rows);
 
         Some(
             crate::app::review_workspace_session::ReviewWorkspaceDisplayRows {
@@ -1227,64 +1223,24 @@ impl ReviewWorkspaceSurfaceOwner {
     }
 }
 
-fn projected_review_workspace_side_rows(
-    render_snapshot: crate::app::native_files_editor::WorkspaceProjectedRenderSnapshot,
-) -> Option<ReviewWorkspaceProjectedSideRows> {
-    let mut rows = Vec::<ReviewWorkspaceProjectedSideRow>::new();
-    let mut rows_by_display_row = BTreeMap::<usize, hunk_editor::WorkspaceDisplayRow>::new();
-    for (row, display_row) in render_snapshot
-        .projection
-        .visible_rows
-        .into_iter()
-        .zip(render_snapshot.visible_display_rows)
-    {
-        let workspace_row_range = row.workspace_row_range?;
-        if workspace_row_range.is_empty() {
-            return None;
-        }
-        let raw_row_index = workspace_row_range.start;
-        let display_row_index = row.row_index;
-        rows.push(ReviewWorkspaceProjectedSideRow {
-            display_row_index,
-            row_index: raw_row_index,
-            raw_row_range: workspace_row_range,
-            row: display_row.clone(),
-        });
-        rows_by_display_row.insert(display_row_index, display_row);
-    }
-    Some(ReviewWorkspaceProjectedSideRows {
-        rows,
-        rows_by_display_row,
-        syntax_by_display_row: render_snapshot.syntax_by_display_row,
-    })
-}
-
-fn review_workspace_display_row_entries_from_projected_sides(
-    left: &ReviewWorkspaceProjectedSideRows,
-    right: &ReviewWorkspaceProjectedSideRows,
-) -> Option<Vec<crate::app::review_workspace_session::ReviewWorkspaceDisplayRowEntry>> {
-    let right_rows_by_display = right
-        .rows
+fn review_workspace_display_row_entries(
+    left_rows: &BTreeMap<usize, hunk_editor::WorkspaceDisplayRow>,
+    right_rows: &BTreeMap<usize, hunk_editor::WorkspaceDisplayRow>,
+) -> Vec<crate::app::review_workspace_session::ReviewWorkspaceDisplayRowEntry> {
+    left_rows
         .iter()
-        .map(|row| (row.display_row_index, row))
-        .collect::<BTreeMap<_, _>>();
-    let mut entries = Vec::with_capacity(left.rows.len());
-    for left_row in &left.rows {
-        let right_row = right_rows_by_display.get(&left_row.display_row_index)?;
-        if right_row.raw_row_range != left_row.raw_row_range {
-            return None;
-        }
-        entries.push(
-            crate::app::review_workspace_session::ReviewWorkspaceDisplayRowEntry {
-                display_row_index: left_row.display_row_index,
-                row_index: left_row.row_index,
-                raw_row_range: left_row.raw_row_range.clone(),
-                left: left_row.row.clone(),
-                right: right_row.row.clone(),
-            },
-        );
-    }
-    Some(entries)
+        .filter_map(|(display_row_index, left)| {
+            Some(
+                crate::app::review_workspace_session::ReviewWorkspaceDisplayRowEntry {
+                    display_row_index: *display_row_index,
+                    row_index: *display_row_index,
+                    raw_row_range: *display_row_index..display_row_index.saturating_add(1),
+                    left: left.clone(),
+                    right: right_rows.get(display_row_index)?.clone(),
+                },
+            )
+        })
+        .collect()
 }
 
 impl ReviewWorkspaceSurfaceState {
@@ -1567,7 +1523,7 @@ struct DiffViewer {
     review_compare_loading: bool,
     review_compare_error: Option<String>,
     review_workspace_session: Option<review_workspace_session::ReviewWorkspaceSession>,
-    review_loaded_snapshot_fingerprint: Option<RepoSnapshotFingerprint>,
+    review_loaded_reuse_token: Option<ReviewCompareReuseToken>,
     overall_line_stats: LineStats,
     refresh_epoch: usize,
     auto_refresh_unmodified_streak: u32,
