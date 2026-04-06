@@ -51,26 +51,23 @@ There are two updater keys in play:
 - `HUNK_UPDATE_PRIVATE_KEY_BASE64`
   - used only in CI to sign manifests and OTA payloads
   - this must stay secret
-- `HUNK_UPDATE_PUBLIC_KEY`
-  - embedded into release builds at compile time
-  - also accepted as a runtime env override for local testing
+- hardcoded updater public key
+  - committed in `crates/hunk-updater/src/lib.rs`
+  - used by shipped apps to verify manifests and OTA payloads
+  - can still be overridden with `HUNK_UPDATE_PUBLIC_KEY` at runtime for local testing
 
 The release workflow now reads:
 
 - `HUNK_UPDATE_PRIVATE_KEY_BASE64` to generate `stable.json` and signatures
-- `HUNK_UPDATE_PUBLIC_KEY` while compiling release builds so shipped apps can verify downloads
 
 ## GitHub Actions setup
 
 Add these repository secrets:
 
 1. `HUNK_UPDATE_PRIVATE_KEY_BASE64`
-2. `HUNK_UPDATE_PUBLIC_KEY`
-3. `HUNK_UPDATE_MANIFEST_R2_ACCESS_KEY_ID`
-4. `HUNK_UPDATE_MANIFEST_R2_SECRET_ACCESS_KEY`
-5. `HUNK_UPDATE_MANIFEST_R2_S3_API_URL`
-
-You can keep the public key in a secret for convenience even though it is not sensitive.
+2. `HUNK_UPDATE_MANIFEST_R2_ACCESS_KEY_ID`
+3. `HUNK_UPDATE_MANIFEST_R2_SECRET_ACCESS_KEY`
+4. `HUNK_UPDATE_MANIFEST_R2_S3_API_URL`
 
 For your current bucket, `HUNK_UPDATE_MANIFEST_R2_S3_API_URL` should be:
 

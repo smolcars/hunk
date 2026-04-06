@@ -70,8 +70,7 @@ fn main() -> Result<()> {
     let manifest_path = args.output_dir.join(args.manifest_name);
     let manifest_bytes =
         serde_json::to_vec_pretty(&manifest).context("failed to serialize update manifest")?;
-    fs::write(&manifest_path, &manifest_bytes)
-    .with_context(|| {
+    fs::write(&manifest_path, &manifest_bytes).with_context(|| {
         format!(
             "failed to write update manifest {}",
             manifest_path.display()
@@ -79,11 +78,16 @@ fn main() -> Result<()> {
     })?;
     let manifest_signature = sign_payload(&manifest_bytes, args.private_key_base64.as_str())
         .context("failed to sign update manifest")?;
-    let manifest_signature_path = args
-        .output_dir
-        .join(format!("{}.sig", manifest_path.file_name().and_then(|name| name.to_str()).ok_or_else(
-            || anyhow!("manifest path has no file name: {}", manifest_path.display())
-        )?));
+    let manifest_signature_path = args.output_dir.join(format!(
+        "{}.sig",
+        manifest_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow!(
+                "manifest path has no file name: {}",
+                manifest_path.display()
+            ))?
+    ));
     fs::write(&manifest_signature_path, format!("{manifest_signature}\n")).with_context(|| {
         format!(
             "failed to write update manifest signature {}",

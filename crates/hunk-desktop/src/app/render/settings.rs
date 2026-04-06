@@ -270,10 +270,11 @@ impl DiffViewer {
         let updates_disabled_by_install_source =
             matches!(self.update_install_source, InstallSource::PackageManaged { .. });
         let update_action_in_progress = self.update_activity_in_progress();
-        let update_available = matches!(self.update_status, UpdateStatus::UpdateAvailable(_));
+        let update_ready_to_restart =
+            matches!(self.update_status, UpdateStatus::ReadyToRestart { .. });
         let update_explanation = match &self.update_install_source {
             InstallSource::SelfManaged => {
-                "Hunk can check the stable release manifest in the background and prompt when a newer build is available."
+                "Hunk checks the stable release manifest in the background, downloads verified updates automatically, and prompts before restarting."
                     .to_string()
             }
             InstallSource::PackageManaged { explanation } => explanation.clone(),
@@ -606,11 +607,12 @@ impl DiffViewer {
                             .items_center()
                             .justify_end()
                             .gap_2()
-                            .children(update_available.then(|| {
+                            .children(update_ready_to_restart.then(|| {
                                 let view = view.clone();
                                 Button::new("settings-install-update")
+                                    .primary()
                                     .rounded(px(8.0))
-                                    .label("Install Update")
+                                    .label("Restart to Update")
                                     .disabled(updates_disabled_by_install_source || update_action_in_progress)
                                     .on_click(move |_, window, cx| {
                                         view.update(cx, |this, cx| {

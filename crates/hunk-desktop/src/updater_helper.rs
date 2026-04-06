@@ -77,11 +77,12 @@ fn handle_apply_staged_update_helper(args: impl Iterator<Item = OsString>) -> Re
             bail!("missing value for updater helper flag `{flag}`");
         }
 
-        let wait_pid = wait_pid.ok_or_else(|| anyhow!("missing required updater helper flag `{WAIT_PID_ARG}`"))?;
-        let package_path =
-            package_path.ok_or_else(|| anyhow!("missing required updater helper flag `{PACKAGE_ARG}`"))?;
-        let asset_format =
-            asset_format.ok_or_else(|| anyhow!("missing required updater helper flag `{FORMAT_ARG}`"))?;
+        let wait_pid = wait_pid
+            .ok_or_else(|| anyhow!("missing required updater helper flag `{WAIT_PID_ARG}`"))?;
+        let package_path = package_path
+            .ok_or_else(|| anyhow!("missing required updater helper flag `{PACKAGE_ARG}`"))?;
+        let asset_format = asset_format
+            .ok_or_else(|| anyhow!("missing required updater helper flag `{FORMAT_ARG}`"))?;
 
         hunk_updater::wait_for_process_to_exit(wait_pid, UPDATE_HELPER_WAIT_TIMEOUT)?;
         let current_executable =
@@ -113,17 +114,23 @@ fn launch_updated_app(relaunch_executable: &Path) -> Result<()> {
         return Ok(());
     }
 
-    Command::new(relaunch_executable)
-        .spawn()
-        .with_context(|| format!("launch updated executable {}", relaunch_executable.display()))?;
+    Command::new(relaunch_executable).spawn().with_context(|| {
+        format!(
+            "launch updated executable {}",
+            relaunch_executable.display()
+        )
+    })?;
     Ok(())
 }
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 fn launch_updated_app(relaunch_executable: &Path) -> Result<()> {
-    Command::new(relaunch_executable)
-        .spawn()
-        .with_context(|| format!("launch updated executable {}", relaunch_executable.display()))?;
+    Command::new(relaunch_executable).spawn().with_context(|| {
+        format!(
+            "launch updated executable {}",
+            relaunch_executable.display()
+        )
+    })?;
     Ok(())
 }
 

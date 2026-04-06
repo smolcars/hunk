@@ -228,6 +228,31 @@ impl DiffViewer {
                 }
             },
         );
+        let footer_update_tooltip = match &self.update_status {
+            UpdateStatus::Checking => "Checking for updates...".to_string(),
+            UpdateStatus::Downloading { version } => {
+                format!("Downloading Hunk {version}...")
+            }
+            UpdateStatus::ReadyToRestart { version } => {
+                format!("Restart to update Hunk {version}")
+            }
+            UpdateStatus::Installing { version } => {
+                format!("Installing Hunk {version}...")
+            }
+            _ => String::new(),
+        };
+        let footer_update_button_visible = matches!(
+            self.update_status,
+            UpdateStatus::Checking
+                | UpdateStatus::Downloading { .. }
+                | UpdateStatus::ReadyToRestart { .. }
+        );
+        let footer_update_ready = matches!(self.update_status, UpdateStatus::ReadyToRestart { .. });
+        let footer_update_loading = matches!(
+            self.update_status,
+            UpdateStatus::Checking | UpdateStatus::Downloading { .. }
+        );
+        let footer_update_label = footer_update_ready.then_some("Restart to update");
 
         let element = h_flex()
             .w_full()
@@ -385,6 +410,61 @@ impl DiffViewer {
                 h_flex()
                     .items_center()
                     .gap_2()
+                    .children(footer_update_button_visible.then(|| {
+                        let view = view.clone();
+                        let mut button = Button::new("footer-update-status")
+                            .compact()
+                            .rounded(px(7.0))
+                            .icon(Icon::new(HunkIconName::RotateCcw).size(px(14.0)))
+                            .min_w(if footer_update_ready { px(156.0) } else { px(30.0) })
+                            .h(px(28.0))
+                            .tooltip(footer_update_tooltip.clone())
+                            .loading(footer_update_loading)
+                            .disabled(footer_update_loading)
+                            .on_click(move |_, window, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.install_available_update(Some(window), cx);
+                                });
+                            });
+                        if let Some(label) = footer_update_label {
+                            button = button.label(label);
+                        }
+                        if footer_update_ready {
+                            button = button.primary();
+                        } else {
+                            button = button.outline();
+                        }
+
+                        div()
+                            .relative()
+                            .child(button)
+                            .when(footer_update_ready, |this| {
+                                this.child(
+                                    div()
+                                        .absolute()
+                                        .top(px(2.0))
+                                        .right(px(2.0))
+                                        .w(px(8.0))
+                                        .h(px(8.0))
+                                        .rounded_full()
+                                        .bg(hunk_blend(
+                                            cx.theme().warning,
+                                            cx.theme().accent,
+                                            is_dark,
+                                            0.28,
+                                            0.18,
+                                        ))
+                                        .border_1()
+                                        .border_color(hunk_opacity(
+                                            cx.theme().background,
+                                            is_dark,
+                                            0.95,
+                                            0.95,
+                                        )),
+                                )
+                            })
+                            .into_any_element()
+                    }))
                     .when_some(active_terminal_kind, |this, kind| {
                         this.child({
                             let view = view.clone();

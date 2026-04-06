@@ -338,7 +338,7 @@ Completed in the current repo state:
 - [x] Add an `Install Update` settings action and helper-mode startup entrypoint in `hunk-desktop`.
 - [x] Add integration coverage for macOS install-target detection and bundle replacement.
 - [x] Add deployment documentation for the static update manifest host.
-- [x] Allow release builds to embed the updater public key while retaining a runtime override for local testing.
+- [x] Hardcode the production updater public key in source while retaining a runtime override for local testing.
 - [x] Verify the update manifest itself with the updater signing key and publish a companion `stable.json.sig`.
 - [x] Automate `stable.json` and `stable.json.sig` publishing to the current Cloudflare R2 public bucket from the release workflow.
 

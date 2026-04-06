@@ -17,11 +17,11 @@ use tar::Archive;
 
 pub const DEFAULT_UPDATE_MANIFEST_URL: &str =
     "https://pub-de32dfa5fe9845849590fa075f3edafa.r2.dev/stable.json";
+pub const DEFAULT_UPDATE_PUBLIC_KEY_BASE64: &str = "SvgG78zhTeV1LsDRNZcq4DGytd2X+nKEx0HUf/g19i8=";
 pub const UPDATE_EXPLANATION_ENV_VAR: &str = "HUNK_UPDATE_EXPLANATION";
 pub const UPDATE_MANIFEST_URL_ENV_VAR: &str = "HUNK_UPDATE_MANIFEST_URL";
 pub const UPDATE_PUBLIC_KEY_ENV_VAR: &str = "HUNK_UPDATE_PUBLIC_KEY";
 pub const UPDATE_PRIVATE_KEY_ENV_VAR: &str = "HUNK_UPDATE_PRIVATE_KEY";
-pub const UPDATE_PUBLIC_KEY_BUILD_ENV_VAR: &str = "HUNK_UPDATE_PUBLIC_KEY";
 
 const UPDATE_HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 const PROCESS_EXIT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(200);
@@ -134,10 +134,12 @@ impl UpdateInstallTarget {
     pub fn relaunch_executable(&self) -> &Path {
         match self {
             Self::MacOsApp {
-                relaunch_executable, ..
+                relaunch_executable,
+                ..
             } => relaunch_executable.as_path(),
             Self::LinuxBundle {
-                relaunch_executable, ..
+                relaunch_executable,
+                ..
             } => relaunch_executable.as_path(),
             Self::WindowsMsi { current_executable } => current_executable.as_path(),
         }
@@ -154,8 +156,15 @@ pub enum UpdateStatus {
     #[default]
     Idle,
     Checking,
-    Downloading { version: String },
-    Installing { version: String },
+    Downloading {
+        version: String,
+    },
+    ReadyToRestart {
+        version: String,
+    },
+    Installing {
+        version: String,
+    },
     DisabledByInstallSource {
         explanation: String,
     },
@@ -180,18 +189,13 @@ pub fn resolve_public_key_base64() -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .or_else(|| {
-            option_env!("HUNK_UPDATE_PUBLIC_KEY")
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-        })
+        .or_else(|| Some(DEFAULT_UPDATE_PUBLIC_KEY_BASE64.to_string()))
 }
 
 pub fn required_public_key_base64() -> Result<String> {
     resolve_public_key_base64().ok_or_else(|| {
         anyhow!(
-            "updater public key is not configured; set {} at runtime or compile it into the build",
+            "updater public key is not configured; set {} at runtime or hardcode it in the updater crate",
             UPDATE_PUBLIC_KEY_ENV_VAR
         )
     })
@@ -258,13 +262,9 @@ pub fn fetch_release_manifest(manifest_url: &str) -> Result<ReleaseManifest> {
     let signature = client
         .get(signature_url.as_str())
         .send()
-        .with_context(|| {
-            format!("failed to fetch update manifest signature from {signature_url}")
-        })?
+        .with_context(|| format!("failed to fetch update manifest signature from {signature_url}"))?
         .error_for_status()
-        .with_context(|| {
-            format!("update manifest signature request failed for {signature_url}")
-        })?
+        .with_context(|| format!("update manifest signature request failed for {signature_url}"))?
         .text()
         .with_context(|| {
             format!("failed to read update manifest signature from {signature_url}")
@@ -363,7 +363,8 @@ pub fn detect_install_target(current_executable: &Path) -> Result<UpdateInstallT
 
     #[cfg(target_os = "linux")]
     {
-        if let Some(install_root) = linux_bundle_install_root_from_current_executable(current_executable)
+        if let Some(install_root) =
+            linux_bundle_install_root_from_current_executable(current_executable)
         {
             let executable_name = current_executable.file_name().ok_or_else(|| {
                 anyhow!(
@@ -408,7 +409,11 @@ pub fn apply_staged_update_from_current_executable(
                     asset_format.as_str()
                 );
             }
-            apply_archive_replace(staged_package_path, app_path.as_path(), locate_extracted_macos_app)?;
+            apply_archive_replace(
+                staged_package_path,
+                app_path.as_path(),
+                locate_extracted_macos_app,
+            )?;
         }
         #[cfg(target_os = "linux")]
         UpdateInstallTarget::LinuxBundle { install_root, .. } => {
@@ -721,7 +726,11 @@ fn is_linux_bundle_root(path: &Path) -> bool {
     path.join("hunk_desktop_bin").is_file()
         && path.join("hunk-desktop").is_file()
         && path.join("lib").is_dir()
-        && path.join("codex-runtime").join("linux").join("codex").is_file()
+        && path
+            .join("codex-runtime")
+            .join("linux")
+            .join("codex")
+            .is_file()
 }
 
 #[cfg(target_os = "macos")]
@@ -764,10 +773,7 @@ fn locate_single_directory_child(root: &Path) -> Result<PathBuf> {
     locate_single_matching_child(root, |candidate| candidate.is_dir())
 }
 
-fn locate_single_matching_child(
-    root: &Path,
-    predicate: impl Fn(&Path) -> bool,
-) -> Result<PathBuf> {
+fn locate_single_matching_child(root: &Path, predicate: impl Fn(&Path) -> bool) -> Result<PathBuf> {
     let mut matches = Vec::new();
     for entry in fs::read_dir(root)
         .with_context(|| format!("failed to read directory {}", root.display()))?
@@ -781,7 +787,13 @@ fn locate_single_matching_child(
 
     match matches.len() {
         1 => Ok(matches.remove(0)),
-        0 => bail!("failed to locate extracted content inside {}", root.display()),
-        _ => bail!("multiple extracted content candidates found inside {}", root.display()),
+        0 => bail!(
+            "failed to locate extracted content inside {}",
+            root.display()
+        ),
+        _ => bail!(
+            "multiple extracted content candidates found inside {}",
+            root.display()
+        ),
     }
 }

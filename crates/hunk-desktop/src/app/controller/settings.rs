@@ -555,6 +555,7 @@ impl DiffViewer {
         self.config.keyboard_shortcuts = keyboard_shortcuts;
         self.apply_theme_preference(window, cx);
         self.restart_auto_refresh(cx);
+        self.restart_periodic_update_checks(cx);
         self.persist_config();
         if auto_update_enabled {
             self.maybe_schedule_startup_update_check(cx);

@@ -23,7 +23,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
-  HUNK_UPDATE_PUBLIC_KEY: ${{ secrets.HUNK_UPDATE_PUBLIC_KEY }}
 
 jobs:
   macos:

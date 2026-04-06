@@ -59,7 +59,7 @@ use hunk_terminal::{
     TerminalEvent, TerminalScreenSnapshot, TerminalScroll, TerminalSessionHandle,
     TerminalSpawnRequest, spawn_terminal_session,
 };
-use hunk_updater::{InstallSource, UpdateStatus};
+use hunk_updater::{InstallSource, StagedUpdate, UpdateStatus};
 
 const AI_TERMINAL_TEXT_SELECTION_ROW_ID: &str = "ai-terminal";
 const FILES_TERMINAL_TEXT_SELECTION_ROW_ID: &str = "files-terminal";
@@ -1343,8 +1343,10 @@ struct DiffViewer {
     settings_draft: Option<SettingsDraft>,
     update_install_source: InstallSource,
     update_status: UpdateStatus,
+    ready_update: Option<StagedUpdate>,
     update_check_task: Task<()>,
     update_apply_task: Task<()>,
+    update_poll_task: Task<()>,
     state_store: Option<AppStateStore>,
     state: AppState,
     database_store: Option<DatabaseStore>,

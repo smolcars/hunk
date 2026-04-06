@@ -11,6 +11,9 @@ impl DiffViewer {
             UpdateStatus::Downloading { version } => {
                 Some(format!("Downloading update: {version}"))
             }
+            UpdateStatus::ReadyToRestart { version } => {
+                Some(format!("Update ready to restart: {version}"))
+            }
             UpdateStatus::Installing { version } => Some(format!("Installing update: {version}")),
             UpdateStatus::DisabledByInstallSource { explanation } => Some(explanation.clone()),
             UpdateStatus::UpToDate { version, .. } => Some(format!("Updater status: {version} is current")),

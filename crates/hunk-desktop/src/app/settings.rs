@@ -285,6 +285,9 @@ fn settings_format_update_status(status: &UpdateStatus) -> String {
         UpdateStatus::Idle => "Idle".to_string(),
         UpdateStatus::Checking => "Checking for updates...".to_string(),
         UpdateStatus::Downloading { version } => format!("Downloading update ({version})"),
+        UpdateStatus::ReadyToRestart { version } => {
+            format!("Ready to restart ({version})")
+        }
         UpdateStatus::Installing { version } => format!("Installing update ({version})"),
         UpdateStatus::DisabledByInstallSource { explanation } => explanation.clone(),
         UpdateStatus::UpToDate { version, .. } => format!("Up to date ({version})"),

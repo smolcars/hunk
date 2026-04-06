@@ -194,11 +194,8 @@ fn signature_verification_rejects_tampered_payloads() {
 #[test]
 fn detect_install_target_resolves_macos_app_bundle() {
     let tempdir = tempfile::tempdir().expect("tempdir");
-    let current_executable = create_fake_macos_app(
-        tempdir.path(),
-        "Current.app",
-        "current-version",
-    );
+    let current_executable =
+        create_fake_macos_app(tempdir.path(), "Current.app", "current-version");
 
     let install_target =
         detect_install_target(current_executable.as_path()).expect("install target");

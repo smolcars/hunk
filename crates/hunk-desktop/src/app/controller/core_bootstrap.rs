@@ -402,8 +402,10 @@ impl DiffViewer {
             settings_draft: None,
             update_install_source,
             update_status,
+            ready_update: None,
             update_check_task: Task::ready(()),
             update_apply_task: Task::ready(()),
+            update_poll_task: Task::ready(()),
             state_store,
             state,
             database_store,
@@ -921,6 +923,7 @@ impl DiffViewer {
         view.prune_expired_comments();
         view.refresh_comments_cache_from_store();
         view.maybe_schedule_startup_update_check(cx);
+        view.restart_periodic_update_checks(cx);
         view
     }
 
