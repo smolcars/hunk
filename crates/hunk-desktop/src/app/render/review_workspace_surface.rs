@@ -343,8 +343,12 @@ impl DiffViewer {
         let terminal_state = self.files_terminal_panel_state();
         let view = cx.entity();
         let review_surface = self.render_review_workspace_surface(cx);
-        let workspace =
-            self.render_tree_workspace_screen("hunk-diff-workspace", review_surface, cx);
+        let workspace = self.render_tree_workspace_screen(
+            "hunk-diff-workspace",
+            self.review_sidebar_collapsed,
+            review_surface,
+            cx,
+        );
 
         v_flex()
             .size_full()

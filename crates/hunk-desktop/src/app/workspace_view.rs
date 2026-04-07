@@ -14,6 +14,13 @@ pub(super) enum WorkspaceViewMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkspaceSidebarKind {
+    Files,
+    Review,
+    AiThreads,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum WorkspaceSwitchAction {
     Files,
     Review,
@@ -22,6 +29,15 @@ pub(super) enum WorkspaceSwitchAction {
 }
 
 impl WorkspaceViewMode {
+    pub(crate) const fn collapsible_sidebar_kind(self) -> Option<WorkspaceSidebarKind> {
+        match self {
+            Self::Files => Some(WorkspaceSidebarKind::Files),
+            Self::Diff => Some(WorkspaceSidebarKind::Review),
+            Self::Ai => Some(WorkspaceSidebarKind::AiThreads),
+            Self::GitWorkspace => None,
+        }
+    }
+
     pub(super) const fn supports_sidebar_tree(self) -> bool {
         matches!(self, Self::Files | Self::Diff)
     }
