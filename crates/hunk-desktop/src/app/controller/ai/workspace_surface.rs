@@ -139,6 +139,7 @@ impl DiffViewer {
                     .unwrap_or_default()
             }
             AiTimelineRowSource::TurnDiff { turn_key } => {
+                let expanded = self.ai_workspace_row_is_expanded(row.id.as_str());
                 self.ai_state_snapshot
                     .turn_diffs
                     .get(turn_key.as_str())
@@ -150,6 +151,7 @@ impl DiffViewer {
                             diff,
                         ),
                         Some(Arc::<str>::from(diff.as_str())),
+                        expanded,
                         false,
                     )])
                     .unwrap_or_default()
@@ -631,6 +633,7 @@ impl DiffViewer {
                         row.last_sequence,
                         &summary,
                         None,
+                        false,
                         nested,
                     )
                 }),
@@ -791,6 +794,7 @@ impl DiffViewer {
                 row.last_sequence,
                 &summary,
                 None,
+                false,
                 false,
             )];
         }

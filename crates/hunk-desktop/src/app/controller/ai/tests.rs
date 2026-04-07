@@ -13,6 +13,8 @@ mod ai_tests {
     use super::ai_auth_required_message;
     use super::ai_branch_name_for_thread;
     use super::ai_completion_reload_workspace_root;
+    use super::ai_workspace_diff_block;
+    use super::ai_workspace_row_signature;
     use super::ai_prominent_worker_status_error;
     use super::AI_AUTH_REQUIRED_MESSAGE;
     use super::ai_workspace_catalog_inputs_from_target_sets;

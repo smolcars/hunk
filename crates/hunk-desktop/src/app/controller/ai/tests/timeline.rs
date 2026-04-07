@@ -280,6 +280,52 @@
     }
 
     #[test]
+    fn ai_workspace_diff_block_uses_inline_diff_source_for_expansion_state() {
+        let summary = crate::app::ai_workspace_timeline_projection::AiWorkspaceDiffSummary {
+            files: vec![],
+            total_added: 2,
+            total_removed: 1,
+        };
+        let expanded_block = ai_workspace_diff_block(
+            "row-diff".to_string(),
+            "row-diff".to_string(),
+            7,
+            &summary,
+            Some(std::sync::Arc::<str>::from(
+                "diff --git a/src/main.rs b/src/main.rs",
+            )),
+            true,
+            false,
+        );
+        let summary_only_block = ai_workspace_diff_block(
+            "row-summary".to_string(),
+            "row-summary".to_string(),
+            7,
+            &summary,
+            None,
+            false,
+            false,
+        );
+
+        assert!(expanded_block.expandable);
+        assert!(expanded_block.expanded);
+        assert!(expanded_block.inline_diff_source.is_some());
+        assert!(!expanded_block.open_review_tab);
+        assert!(!summary_only_block.expandable);
+        assert!(!summary_only_block.expanded);
+        assert!(summary_only_block.inline_diff_source.is_none());
+        assert!(!summary_only_block.open_review_tab);
+    }
+
+    #[test]
+    fn ai_workspace_row_signature_changes_when_expansion_state_changes() {
+        assert_ne!(
+            ai_workspace_row_signature(12, false),
+            ai_workspace_row_signature(12, true)
+        );
+    }
+
+    #[test]
     fn timeline_grouping_merges_contiguous_exploration_rows() {
         let thread_id = "thread-1";
         let turn_id = "turn-1";

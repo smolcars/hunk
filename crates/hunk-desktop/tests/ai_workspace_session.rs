@@ -217,6 +217,109 @@ fn inline_diff_cache_skips_non_diff_blocks() {
 }
 
 #[test]
+fn expanded_diff_blocks_project_inline_diff_lines_into_snapshot() {
+    let diff_text = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,3 @@
+-fn old() {
+-    println!(\"old\");
++fn new() {
++    println!(\"new\");
+ }
+ ";
+    let mut expanded = diff_block("row-diff", diff_text);
+    expanded.expandable = true;
+    expanded.expanded = true;
+    let mut session =
+        AiWorkspaceSession::new("thread-1", source_rows(&[("row-diff", 1)]), vec![expanded]);
+
+    let snapshot = session.surface_snapshot_with_stats(0, 640, 800).snapshot;
+    let block = snapshot
+        .viewport
+        .visible_blocks
+        .first()
+        .expect("expanded diff block should be visible");
+
+    assert!(
+        block
+            .text_layout
+            .preview_lines
+            .iter()
+            .any(|line| line.contains("src/main.rs"))
+    );
+    assert!(
+        block
+            .text_layout
+            .preview_lines
+            .iter()
+            .any(|line| line.contains("@@ -1,3 +1,3 @@"))
+    );
+    assert!(
+        block
+            .text_layout
+            .preview_line_kinds
+            .iter()
+            .any(|kind| *kind == ai_workspace_session::AiWorkspacePreviewLineKind::DiffAdded)
+    );
+    assert!(
+        block
+            .text_layout
+            .preview_line_kinds
+            .iter()
+            .any(|kind| *kind == ai_workspace_session::AiWorkspacePreviewLineKind::DiffRemoved)
+    );
+}
+
+#[test]
+fn expanded_diff_blocks_are_taller_than_collapsed_summaries() {
+    let diff_text = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,2 +1,2 @@
+-fn old() {}
++fn new() {}
+ ";
+    let mut collapsed = diff_block("row-diff", diff_text);
+    collapsed.expandable = true;
+    collapsed.expanded = false;
+    let mut expanded = collapsed.clone();
+    expanded.expanded = true;
+
+    let collapsed_layout = {
+        let mut session =
+            AiWorkspaceSession::new("thread-1", source_rows(&[("row-diff", 1)]), vec![collapsed]);
+        session
+            .surface_snapshot_with_stats(0, 640, 800)
+            .snapshot
+            .viewport
+            .visible_blocks
+            .first()
+            .expect("collapsed diff block")
+            .text_layout
+            .clone()
+    };
+    let expanded_layout = {
+        let mut session =
+            AiWorkspaceSession::new("thread-1", source_rows(&[("row-diff", 1)]), vec![expanded]);
+        session
+            .surface_snapshot_with_stats(0, 640, 800)
+            .snapshot
+            .viewport
+            .visible_blocks
+            .first()
+            .expect("expanded diff block")
+            .text_layout
+            .clone()
+    };
+
+    assert!(collapsed_layout.preview_lines.len() < expanded_layout.preview_lines.len());
+    assert!(collapsed_layout.height_px < expanded_layout.height_px);
+}
+
+#[test]
 fn surface_snapshot_projects_visible_blocks_and_total_height() {
     let mut session = AiWorkspaceSession::new(
         "thread-1",
