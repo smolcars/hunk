@@ -185,3 +185,50 @@
         assert_eq!(surfaces[1].separator_before, "\n");
         assert_eq!(surfaces[1].text, "Hello from the workspace surface.");
     }
+
+    #[test]
+    fn ai_workspace_context_menu_target_preserves_existing_selection() {
+        let surfaces = ai_selection_surfaces([("surface", "hello world", "")]);
+        let mut selection =
+            AiTextSelection::new("row".to_string(), surfaces.as_slice(), "surface", 0);
+        selection.set_head_for_surface("surface", 5);
+        selection.dragging = false;
+
+        let (should_place_caret, target) = ai_workspace_selectable_text_context_menu_target(
+            Some(&selection),
+            "row",
+            "surface",
+            2,
+            std::sync::Arc::<[AiTextSelectionSurfaceSpec]>::from(surfaces),
+            Some("https://example.com".to_string()),
+        );
+
+        assert!(!should_place_caret);
+        assert_eq!(target.row_id, "row");
+        assert!(target.can_copy);
+        assert!(target.can_select_all);
+        assert_eq!(target.link_target.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn ai_workspace_context_menu_target_places_caret_for_unselected_hit() {
+        let surfaces = ai_selection_surfaces([("surface", "hello world", "")]);
+        let mut selection =
+            AiTextSelection::new("row".to_string(), surfaces.as_slice(), "surface", 0);
+        selection.set_head_for_surface("surface", 5);
+        selection.dragging = false;
+
+        let (should_place_caret, target) = ai_workspace_selectable_text_context_menu_target(
+            Some(&selection),
+            "row",
+            "surface",
+            8,
+            std::sync::Arc::<[AiTextSelectionSurfaceSpec]>::from(surfaces),
+            None,
+        );
+
+        assert!(should_place_caret);
+        assert!(!target.can_copy);
+        assert!(target.can_select_all);
+        assert!(target.link_target.is_none());
+    }

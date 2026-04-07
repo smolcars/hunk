@@ -11,7 +11,10 @@ use gpui::{
 use crate::app::ai_workspace_render::{
     ai_workspace_drag_text_hit, ai_workspace_hit_test, paint_ai_workspace_block,
 };
-use crate::app::{AiPressedMarkdownLink, DiffViewer, ai_workspace_session};
+use crate::app::{
+    AiPressedMarkdownLink, AiTextSelection, AiTextSelectionSurfaceSpec, DiffViewer,
+    SelectableTextContextMenuTarget, WorkspaceTextContextMenuTarget, ai_workspace_session,
+};
 
 pub(crate) struct AiWorkspaceSurfaceElement {
     pub(crate) view: gpui::Entity<DiffViewer>,
@@ -25,6 +28,33 @@ pub(crate) struct AiWorkspaceSurfaceElement {
 #[derive(Clone)]
 pub(crate) struct AiWorkspaceSurfaceLayout {
     hitbox: Hitbox,
+}
+
+pub(crate) fn ai_workspace_selectable_text_context_menu_target(
+    selection: Option<&AiTextSelection>,
+    row_id: &str,
+    surface_id: &str,
+    index: usize,
+    selection_surfaces: std::sync::Arc<[AiTextSelectionSurfaceSpec]>,
+    link_target: Option<String>,
+) -> (bool, SelectableTextContextMenuTarget) {
+    let preserve_selection = selection.is_some_and(|selection| {
+        selection.row_id == row_id
+            && selection
+                .range_for_surface(surface_id)
+                .is_some_and(|range| range.start <= index && index < range.end)
+    });
+
+    (
+        !preserve_selection,
+        SelectableTextContextMenuTarget {
+            row_id: row_id.to_string(),
+            selection_surfaces: selection_surfaces.clone(),
+            can_copy: preserve_selection,
+            can_select_all: !selection_surfaces.is_empty(),
+            link_target,
+        },
+    )
 }
 
 impl IntoElement for AiWorkspaceSurfaceElement {
@@ -152,6 +182,69 @@ impl Element for AiWorkspaceSurfaceElement {
                 }
                 cx.stop_propagation();
             });
+        });
+
+        let snapshot_for_secondary_mouse_down = self.snapshot.clone();
+        let view_for_secondary_mouse_down = self.view.clone();
+        let workspace_root_for_secondary_mouse_down = self.workspace_root.clone();
+        let hitbox_for_secondary_mouse_down = layout.hitbox.clone();
+        window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+            if phase != DispatchPhase::Bubble
+                || event.button != MouseButton::Right
+                || !hitbox_for_secondary_mouse_down.is_hovered(window)
+            {
+                return;
+            }
+
+            view_for_secondary_mouse_down
+                .read(cx)
+                .record_ai_workspace_surface_hit_test();
+            let Some(hit) = ai_workspace_hit_test(
+                snapshot_for_secondary_mouse_down.as_ref(),
+                event.position,
+                hitbox_for_secondary_mouse_down.bounds,
+                workspace_root_for_secondary_mouse_down.as_deref(),
+            ) else {
+                return;
+            };
+            let Some(text_hit) = hit.text_hit.as_ref() else {
+                return;
+            };
+
+            view_for_secondary_mouse_down.update(cx, |this, cx| {
+                this.focus_handle.focus(window, cx);
+                this.ai_set_pressed_markdown_link(None);
+                if this.ai_workspace_selection.as_ref() != Some(&hit.selection) {
+                    this.ai_workspace_selection = Some(hit.selection.clone());
+                }
+
+                let (should_place_caret, target) = ai_workspace_selectable_text_context_menu_target(
+                    this.ai_text_selection.as_ref(),
+                    snapshot_for_secondary_mouse_down
+                        .selection_scope_id
+                        .as_str(),
+                    text_hit.surface_id.as_str(),
+                    text_hit.index,
+                    text_hit.selection_surfaces.clone(),
+                    text_hit.link_target.clone(),
+                );
+                if should_place_caret {
+                    this.ai_place_text_selection_caret(
+                        snapshot_for_secondary_mouse_down.selection_scope_id.clone(),
+                        text_hit.selection_surfaces.clone(),
+                        text_hit.surface_id.as_str(),
+                        text_hit.index,
+                        window,
+                        cx,
+                    );
+                }
+                this.open_workspace_text_context_menu(
+                    WorkspaceTextContextMenuTarget::SelectableText(target),
+                    event.position,
+                    cx,
+                );
+            });
+            cx.stop_propagation();
         });
 
         let snapshot_for_mouse_move = self.snapshot.clone();

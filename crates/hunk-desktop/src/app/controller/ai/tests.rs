@@ -89,6 +89,7 @@ mod ai_tests {
     use crate::app::ai_composer_completion::merge_rebased_ai_composer_skill_bindings;
     use crate::app::ai_runtime::AiConnectionState;
     use crate::app::ai_workspace_session;
+    use crate::app::ai_workspace_surface::ai_workspace_selectable_text_context_menu_target;
     use crate::app::AiTurnSessionOverrides;
     use crate::app::ai_runtime::AiPendingUserInputQuestion;
     use crate::app::ai_runtime::AiPendingUserInputQuestionOption;
