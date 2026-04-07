@@ -82,6 +82,17 @@ impl DiffViewer {
         cx.notify();
     }
 
+    pub(super) fn ai_set_text_selection_drag_pointer(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+    ) {
+        self.ai_text_selection_drag_pointer = Some(position);
+    }
+
+    pub(super) fn ai_clear_text_selection_drag_pointer(&mut self) {
+        self.ai_text_selection_drag_pointer = None;
+    }
+
     pub(super) fn ai_place_text_selection_caret(
         &mut self,
         row_id: String,
@@ -134,11 +145,15 @@ impl DiffViewer {
         }
 
         selection.dragging = false;
+        self.ai_clear_text_selection_drag_pointer();
+        self.ai_text_selection_auto_scroll_task = Task::ready(());
         cx.notify();
     }
 
     pub(super) fn ai_clear_text_selection(&mut self, cx: &mut Context<Self>) {
         if self.ai_text_selection.take().is_some() {
+            self.ai_clear_text_selection_drag_pointer();
+            self.ai_text_selection_auto_scroll_task = Task::ready(());
             cx.notify();
         }
     }
@@ -151,7 +166,7 @@ impl DiffViewer {
         let Some(selection) = self.ai_text_selection.as_ref() else {
             return;
         };
-        if row_ids.contains(selection.row_id.as_str()) {
+        if selection.intersects_row_ids(row_ids) {
             self.ai_clear_text_selection(cx);
         }
     }
@@ -182,7 +197,7 @@ impl DiffViewer {
             return true;
         }
 
-        self.ai_select_all_workspace_block_text(cx)
+        self.ai_select_all_workspace_thread_text(cx)
     }
 
     pub(super) fn ai_select_all_text_for_surfaces(

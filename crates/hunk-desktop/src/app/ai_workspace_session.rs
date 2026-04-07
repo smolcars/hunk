@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::app::AiTextSelectionSurfaceSpec;
 use crate::app::markdown_links::MarkdownLinkRange;
 use crate::app::markdown_links::markdown_inline_text_and_link_ranges;
 
@@ -119,6 +120,8 @@ pub(crate) struct AiWorkspaceViewportSnapshot {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AiWorkspaceSurfaceSnapshot {
+    pub(crate) selection_scope_id: String,
+    pub(crate) selection_surfaces: Arc<[AiTextSelectionSurfaceSpec]>,
     pub(crate) scroll_top_px: usize,
     pub(crate) viewport_height_px: usize,
     pub(crate) viewport: AiWorkspaceViewportSnapshot,
@@ -208,7 +211,9 @@ pub(crate) struct AiWorkspaceSession {
     thread_id: String,
     source_rows: Arc<[AiWorkspaceSourceRow]>,
     blocks: Vec<AiWorkspaceBlock>,
+    selection_scope_id: String,
     geometry_by_width_bucket: BTreeMap<usize, AiWorkspaceDisplayGeometry>,
+    selection_surfaces_by_width_bucket: BTreeMap<usize, Arc<[AiTextSelectionSurfaceSpec]>>,
 }
 
 impl AiWorkspaceSession {
@@ -217,11 +222,15 @@ impl AiWorkspaceSession {
         source_rows: Arc<[AiWorkspaceSourceRow]>,
         blocks: Vec<AiWorkspaceBlock>,
     ) -> Self {
+        let thread_id = thread_id.into();
+        let selection_scope_id = format!("ai-workspace-thread:{thread_id}");
         Self {
-            thread_id: thread_id.into(),
+            thread_id,
             source_rows,
             blocks,
+            selection_scope_id,
             geometry_by_width_bucket: BTreeMap::new(),
+            selection_surfaces_by_width_bucket: BTreeMap::new(),
         }
     }
 
@@ -235,6 +244,27 @@ impl AiWorkspaceSession {
 
     pub(crate) fn block_count(&self) -> usize {
         self.blocks.len()
+    }
+
+    pub(crate) fn selection_scope_id(&self) -> &str {
+        self.selection_scope_id.as_str()
+    }
+
+    pub(crate) fn selection_surfaces_for_width(
+        &mut self,
+        width_px: usize,
+    ) -> Arc<[AiTextSelectionSurfaceSpec]> {
+        let width_bucket = ai_workspace_width_bucket(width_px);
+        if let Some(selection_surfaces) = self.selection_surfaces_by_width_bucket.get(&width_bucket)
+        {
+            return selection_surfaces.clone();
+        }
+
+        let selection_surfaces =
+            build_ai_workspace_selection_surfaces(self.blocks.as_slice(), width_bucket);
+        self.selection_surfaces_by_width_bucket
+            .insert(width_bucket, selection_surfaces.clone());
+        selection_surfaces
     }
 
     pub(crate) fn block(&self, block_id: &str) -> Option<&AiWorkspaceBlock> {
@@ -269,10 +299,11 @@ impl AiWorkspaceSession {
         viewport_height_px: usize,
         width_px: usize,
     ) -> AiWorkspaceSurfaceSnapshotResult {
-        let blocks = &self.blocks;
         let width_bucket = ai_workspace_width_bucket(width_px);
         let geometry_rebuild_started_at =
             (!self.geometry_by_width_bucket.contains_key(&width_bucket)).then(Instant::now);
+        let selection_surfaces = self.selection_surfaces_for_width(width_bucket);
+        let blocks = &self.blocks;
         let geometry = self
             .geometry_by_width_bucket
             .entry(width_bucket)
@@ -303,6 +334,8 @@ impl AiWorkspaceSession {
 
         AiWorkspaceSurfaceSnapshotResult {
             snapshot: AiWorkspaceSurfaceSnapshot {
+                selection_scope_id: self.selection_scope_id.clone(),
+                selection_surfaces,
                 scroll_top_px,
                 viewport_height_px,
                 viewport: AiWorkspaceViewportSnapshot {
@@ -316,6 +349,53 @@ impl AiWorkspaceSession {
             geometry_rebuild_duration,
         }
     }
+}
+
+fn build_ai_workspace_selection_surfaces(
+    blocks: &[AiWorkspaceBlock],
+    surface_width_px: usize,
+) -> Arc<[AiTextSelectionSurfaceSpec]> {
+    let mut surfaces = Vec::new();
+
+    for block in blocks {
+        let block_separator = (!surfaces.is_empty()).then_some("\n\n");
+        let text_layout = ai_workspace_text_layout_for_block(block, surface_width_px);
+        let title_text = text_layout.title_lines.join("\n");
+        let preview_text = text_layout.preview_lines.join("\n");
+        let has_title = !title_text.is_empty();
+
+        if has_title {
+            let mut title_surface = AiTextSelectionSurfaceSpec::new(
+                format!("ai-workspace:{}:title", block.id),
+                title_text,
+            )
+            .with_row_id(block.source_row_id.clone());
+            if let Some(separator) = block_separator {
+                title_surface = title_surface.with_separator_before(separator);
+            }
+            surfaces.push(title_surface);
+        }
+
+        if !preview_text.is_empty() {
+            let mut preview_surface = AiTextSelectionSurfaceSpec::new(
+                format!("ai-workspace:{}:preview", block.id),
+                preview_text,
+            )
+            .with_row_id(block.source_row_id.clone());
+            preview_surface = if !has_title {
+                if let Some(separator) = block_separator {
+                    preview_surface.with_separator_before(separator)
+                } else {
+                    preview_surface
+                }
+            } else {
+                preview_surface.with_separator_before("\n")
+            };
+            surfaces.push(preview_surface);
+        }
+    }
+
+    Arc::<[AiTextSelectionSurfaceSpec]>::from(surfaces)
 }
 
 pub(crate) fn ai_workspace_text_layout_for_block(

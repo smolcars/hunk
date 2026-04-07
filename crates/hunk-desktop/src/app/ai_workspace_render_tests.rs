@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use gpui::{Bounds, Pixels, point, px, size};
 
 use super::ai_workspace_render::ai_workspace_hit_test;
@@ -6,6 +8,7 @@ use super::ai_workspace_session::{
     AiWorkspaceBlockTextLayout, AiWorkspacePreviewColorRole, AiWorkspaceSurfaceSnapshot,
     AiWorkspaceViewportBlock, AiWorkspaceViewportSnapshot, ai_workspace_text_layout_for_block,
 };
+use crate::app::AiTextSelectionSurfaceSpec;
 
 fn test_block(
     id: &str,
@@ -71,6 +74,8 @@ fn ai_workspace_hit_test_ignores_gutter_clicks_outside_block_bounds() {
         800,
     );
     let snapshot = AiWorkspaceSurfaceSnapshot {
+        selection_scope_id: "thread-1".to_string(),
+        selection_surfaces: Arc::<[AiTextSelectionSurfaceSpec]>::from([]),
         scroll_top_px: 0,
         viewport_height_px: 400,
         viewport: AiWorkspaceViewportSnapshot {

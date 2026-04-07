@@ -495,6 +495,8 @@ impl DiffViewer {
             ai_expanded_timeline_row_ids: BTreeSet::new(),
             ai_pressed_markdown_link: None,
             ai_text_selection: None,
+            ai_text_selection_drag_pointer: None,
+            ai_text_selection_auto_scroll_task: Task::ready(()),
             ai_pending_approvals: Vec::new(),
             ai_pending_user_inputs: Vec::new(),
             ai_pending_user_input_answers: BTreeMap::new(),

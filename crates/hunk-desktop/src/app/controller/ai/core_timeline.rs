@@ -931,6 +931,8 @@ impl DiffViewer {
         self.invalidate_ai_visible_frame_state_with_reason("timeline");
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
             self.ai_text_selection = None;
+            self.ai_text_selection_drag_pointer = None;
+            self.ai_text_selection_auto_scroll_task = Task::ready(());
             self.flush_ai_timeline_scroll_request();
         }
         cx.notify();
@@ -950,6 +952,8 @@ impl DiffViewer {
         self.invalidate_ai_visible_frame_state_with_reason("timeline");
         if self.ai_selected_thread_id.as_deref() == Some(thread_id.as_str()) {
             self.ai_text_selection = None;
+            self.ai_text_selection_drag_pointer = None;
+            self.ai_text_selection_auto_scroll_task = Task::ready(());
             self.flush_ai_timeline_scroll_request();
         }
         cx.notify();

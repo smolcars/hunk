@@ -135,7 +135,14 @@ pub(crate) fn ai_workspace_hit_test(
         .toggle_bounds
         .filter(|toggle_bounds| toggle_bounds.contains(&position))
         .map(|_| block.block.source_row_id.clone());
-    let text_hit = ai_workspace_text_hit(block, &render_layout, position, workspace_root);
+    let text_hit = ai_workspace_text_hit(
+        block,
+        &render_layout,
+        position,
+        workspace_root,
+        snapshot.selection_surfaces.clone(),
+        false,
+    );
 
     Some(AiWorkspaceBlockHit {
         selection,
@@ -143,6 +150,48 @@ pub(crate) fn ai_workspace_hit_test(
         toggle_row_id,
         open_review_tab: block.block.open_review_tab,
     })
+}
+
+pub(crate) fn ai_workspace_drag_text_hit(
+    snapshot: &ai_workspace_session::AiWorkspaceSurfaceSnapshot,
+    position: Point<Pixels>,
+    bounds: Bounds<Pixels>,
+    workspace_root: Option<&Path>,
+) -> Option<AiWorkspaceTextHit> {
+    if let Some(hit) = ai_workspace_hit_test(snapshot, position, bounds, workspace_root)
+        .and_then(|hit| hit.text_hit)
+    {
+        return Some(hit);
+    }
+
+    let local_y_px = (position.y - bounds.origin.y)
+        .max(Pixels::ZERO)
+        .as_f32()
+        .round() as usize;
+    let surface_y_px = snapshot.scroll_top_px.saturating_add(local_y_px);
+    let target_block = snapshot
+        .viewport
+        .visible_blocks
+        .iter()
+        .min_by_key(|block| {
+            if surface_y_px < block.top_px {
+                block.top_px.saturating_sub(surface_y_px)
+            } else if surface_y_px >= block.top_px.saturating_add(block.height_px) {
+                surface_y_px.saturating_sub(block.top_px.saturating_add(block.height_px))
+            } else {
+                0
+            }
+        })?;
+    let render_layout =
+        ai_workspace_block_render_layout(bounds, snapshot.scroll_top_px, target_block);
+    ai_workspace_text_hit(
+        target_block,
+        &render_layout,
+        position,
+        workspace_root,
+        snapshot.selection_surfaces.clone(),
+        true,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -531,9 +580,11 @@ fn ai_workspace_text_hit(
     render_layout: &AiWorkspaceBlockRenderLayout,
     position: Point<Pixels>,
     workspace_root: Option<&Path>,
+    selection_surfaces: Arc<[AiTextSelectionSurfaceSpec]>,
+    clamp_to_nearest: bool,
 ) -> Option<AiWorkspaceTextHit> {
     let lines = ai_workspace_paint_lines_for_block(block, render_layout, workspace_root);
-    let line = lines.iter().find(|line| {
+    let line = if let Some(line) = lines.iter().find(|line| {
         let line_bounds = Bounds {
             origin: point(line.origin.x, line.origin.y),
             size: size(
@@ -549,10 +600,27 @@ fn ai_workspace_text_hit(
             && position.x >= render_layout.text_origin_x
             && position.x
                 < render_layout.block_bounds.origin.x + render_layout.block_bounds.size.width
-    })?;
+    }) {
+        line
+    } else if clamp_to_nearest {
+        lines.iter().min_by_key(|line| {
+            let line_top = line.origin.y;
+            let line_bottom = line.origin.y + line.line_height;
+            if position.y < line_top {
+                (line_top - position.y).as_f32().round() as usize
+            } else if position.y > line_bottom {
+                (position.y - line_bottom).as_f32().round() as usize
+            } else {
+                0
+            }
+        })?
+    } else {
+        return None;
+    };
     let relative_x = (position.x - render_layout.text_origin_x).max(Pixels::ZERO);
     let max_column = line.column_byte_offsets.len().saturating_sub(1);
-    let column = ((relative_x / line.char_width).floor() as usize).min(max_column);
+    let unclamped_column = (relative_x / line.char_width).floor() as usize;
+    let column = unclamped_column.min(max_column);
     let index = line.surface_byte_range.start + line.column_byte_offsets[column];
     let line_local_index = line.column_byte_offsets[column];
     let link_target = line
@@ -565,32 +633,8 @@ fn ai_workspace_text_hit(
         surface_id: line.surface_id.clone(),
         index,
         link_target,
-        selection_surfaces: ai_workspace_selection_surfaces_for_viewport_block(block),
+        selection_surfaces,
     })
-}
-
-fn ai_workspace_selection_surfaces_for_viewport_block(
-    block: &ai_workspace_session::AiWorkspaceViewportBlock,
-) -> Arc<[AiTextSelectionSurfaceSpec]> {
-    let mut surfaces = Vec::with_capacity(2);
-    if !block.text_layout.title_lines.is_empty() {
-        surfaces.push(AiTextSelectionSurfaceSpec::new(
-            ai_workspace_title_surface_id(block.block.id.as_str()),
-            block.text_layout.title_lines.join("\n"),
-        ));
-    }
-    if !block.text_layout.preview_lines.is_empty() {
-        let preview_surface = AiTextSelectionSurfaceSpec::new(
-            ai_workspace_preview_surface_id(block.block.id.as_str()),
-            block.text_layout.preview_lines.join("\n"),
-        );
-        surfaces.push(if surfaces.is_empty() {
-            preview_surface
-        } else {
-            preview_surface.with_separator_before("\n")
-        });
-    }
-    Arc::<[AiTextSelectionSurfaceSpec]>::from(surfaces)
 }
 
 fn ai_workspace_title_surface_id(block_id: &str) -> String {

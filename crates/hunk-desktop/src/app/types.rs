@@ -767,22 +767,30 @@ struct AiTimelineGroup {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct AiTextSelectionSurfaceSpec {
+pub(crate) struct AiTextSelectionSurfaceSpec {
     surface_id: String,
+    row_id: String,
     text: String,
     separator_before: String,
 }
 
 impl AiTextSelectionSurfaceSpec {
-    fn new(surface_id: impl Into<String>, text: impl Into<String>) -> Self {
+    pub(crate) fn new(surface_id: impl Into<String>, text: impl Into<String>) -> Self {
+        let surface_id = surface_id.into();
         Self {
-            surface_id: surface_id.into(),
+            row_id: surface_id.clone(),
+            surface_id,
             text: text.into(),
             separator_before: String::new(),
         }
     }
 
-    fn with_separator_before(mut self, separator_before: impl Into<String>) -> Self {
+    pub(crate) fn with_row_id(mut self, row_id: impl Into<String>) -> Self {
+        self.row_id = row_id.into();
+        self
+    }
+
+    pub(crate) fn with_separator_before(mut self, separator_before: impl Into<String>) -> Self {
         self.separator_before = separator_before.into();
         self
     }
@@ -790,6 +798,7 @@ impl AiTextSelectionSurfaceSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiTextSelectionSurfaceRange {
+    row_id: String,
     surface_id: String,
     range: Range<usize>,
 }
@@ -829,6 +838,7 @@ impl AiTextSelection {
             full_text.push_str(surface.text.as_str());
             let end = full_text.len();
             surface_ranges.push(AiTextSelectionSurfaceRange {
+                row_id: surface.row_id.clone(),
                 surface_id: surface.surface_id.clone(),
                 range: start..end,
             });
@@ -896,6 +906,26 @@ impl AiTextSelection {
         self.anchor = 0;
         self.head = self.full_text.len();
         self.dragging = false;
+    }
+
+    fn intersects_row_ids(&self, row_ids: &std::collections::BTreeSet<String>) -> bool {
+        let selection_range = self.range();
+        if selection_range.is_empty() {
+            return self
+                .surface_ranges
+                .iter()
+                .find(|surface| {
+                    self.anchor >= surface.range.start && self.anchor <= surface.range.end
+                })
+                .is_some_and(|surface| row_ids.contains(surface.row_id.as_str()));
+        }
+
+        self.surface_ranges
+            .iter()
+            .filter(|surface| {
+                selection_range.start < surface.range.end && selection_range.end > surface.range.start
+            })
+            .any(|surface| row_ids.contains(surface.row_id.as_str()))
     }
 }
 

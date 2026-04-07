@@ -3,6 +3,36 @@ mod markdown_links_impl;
 
 mod app {
     pub(crate) use super::markdown_links_impl as markdown_links;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    pub(crate) struct AiTextSelectionSurfaceSpec {
+        pub(crate) surface_id: String,
+        pub(crate) row_id: String,
+        pub(crate) text: String,
+        pub(crate) separator_before: String,
+    }
+
+    impl AiTextSelectionSurfaceSpec {
+        pub(crate) fn new(surface_id: impl Into<String>, text: impl Into<String>) -> Self {
+            let surface_id = surface_id.into();
+            Self {
+                row_id: surface_id.clone(),
+                surface_id,
+                text: text.into(),
+                separator_before: String::new(),
+            }
+        }
+
+        pub(crate) fn with_row_id(mut self, row_id: impl Into<String>) -> Self {
+            self.row_id = row_id.into();
+            self
+        }
+
+        pub(crate) fn with_separator_before(mut self, separator_before: impl Into<String>) -> Self {
+            self.separator_before = separator_before.into();
+            self
+        }
+    }
 }
 
 #[path = "../src/app/ai_workspace_session.rs"]
@@ -71,16 +101,40 @@ fn source_rows(entries: &[(&str, u64)]) -> Arc<[AiWorkspaceSourceRow]> {
 
 #[test]
 fn session_matches_source_thread_and_row_ids() {
-    let session = AiWorkspaceSession::new(
+    let mut session = AiWorkspaceSession::new(
         "thread-1",
         source_rows(&[("row-1", 1), ("row-2", 2)]),
         vec![block("row-1", AiWorkspaceBlockKind::Message, "preview")],
     );
 
+    assert_eq!(session.selection_scope_id(), "ai-workspace-thread:thread-1");
+    assert_eq!(session.selection_surfaces_for_width(640).len(), 2);
     assert!(session.matches_source("thread-1", &source_rows(&[("row-1", 1), ("row-2", 2)])));
     assert!(!session.matches_source("thread-2", &source_rows(&[("row-1", 1), ("row-2", 2)])));
     assert!(!session.matches_source("thread-1", &source_rows(&[("row-1", 1)])));
     assert!(!session.matches_source("thread-1", &source_rows(&[("row-1", 1), ("row-2", 3)])));
+}
+
+#[test]
+fn selection_surfaces_follow_rendered_message_text() {
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-1", 1)]),
+        vec![block(
+            "row-1",
+            AiWorkspaceBlockKind::Message,
+            "**bold** and `inline`",
+        )],
+    );
+
+    let selection_surfaces = session.selection_surfaces_for_width(640);
+
+    assert_eq!(selection_surfaces.len(), 2);
+    assert_eq!(
+        selection_surfaces[1].surface_id,
+        "ai-workspace:row-1:preview"
+    );
+    assert_eq!(selection_surfaces[1].text, "bold and inline");
 }
 
 #[test]
@@ -98,6 +152,10 @@ fn surface_snapshot_projects_visible_blocks_and_total_height() {
     let snapshot = session.surface_snapshot_with_stats(0, 220, 640).snapshot;
 
     assert_eq!(snapshot.viewport.visible_blocks.len(), 3);
+    assert_eq!(snapshot.selection_scope_id, "ai-workspace-thread:thread-1");
+    assert_eq!(snapshot.selection_surfaces.len(), 5);
+    assert_eq!(snapshot.selection_surfaces[1].separator_before, "\n");
+    assert_eq!(snapshot.selection_surfaces[2].separator_before, "\n\n");
     let first = snapshot
         .viewport
         .visible_blocks

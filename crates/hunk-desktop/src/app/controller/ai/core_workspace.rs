@@ -602,6 +602,8 @@ impl DiffViewer {
         self.ai_terminal_session = state.terminal_session;
         self.invalidate_ai_visible_frame_state_with_reason("workspace");
         self.ai_text_selection = None;
+        self.ai_text_selection_drag_pointer = None;
+        self.ai_text_selection_auto_scroll_task = Task::ready(());
         self.rebuild_ai_timeline_indexes();
         self.sync_ai_in_progress_turn_started_at();
         self.ai_composer_activity_elapsed_second =

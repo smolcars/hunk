@@ -140,6 +140,8 @@ impl DiffViewer {
         self.ai_scroll_timeline_to_bottom = false;
         self.ai_expanded_timeline_row_ids.clear();
         self.ai_text_selection = None;
+        self.ai_text_selection_drag_pointer = None;
+        self.ai_text_selection_auto_scroll_task = Task::ready(());
         self.invalidate_ai_visible_frame_state_with_reason("thread");
         if previous_draft_key != self.current_ai_composer_draft_key() {
             self.restore_ai_visible_composer_from_current_draft_in_window(window, cx);
@@ -766,6 +768,8 @@ impl DiffViewer {
         self.ai_workspace_surface_last_scroll_offset = None;
         self.ai_expanded_timeline_row_ids.clear();
         self.ai_text_selection = None;
+        self.ai_text_selection_drag_pointer = None;
+        self.ai_text_selection_auto_scroll_task = Task::ready(());
         self.ai_new_thread_draft_active = false;
         self.ai_pending_new_thread_selection = false;
         let previous_terminal_thread_id = self.current_ai_thread_id();

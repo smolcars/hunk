@@ -4,7 +4,7 @@
 
 - Implemented: session-backed AI timeline surface is live and the legacy-parity pass landed
 - Owner: Hunk
-- Last Updated: 2026-04-06
+- Last Updated: 2026-04-07
 - Supersedes: `docs/AI_CHAT_TIMELINE_V2_TODO.md` for the AI timeline render architecture
 
 ## Summary
@@ -218,8 +218,47 @@ Implementation plan for the reviewer follow-up:
 3. Rework cached geometry to align by block index instead of cloned block identifiers.
    Geometry entries should stay position-only and match the stable block order so snapshot projection can borrow cached geometry directly without cloning the whole vector or every block id.
 4. Project visible blocks from cached geometry in one linear pass.
-   Snapshot creation should iterate visible geometry entries and index directly into the block slice instead of rescanning `self.blocks` for every visible block.
-5. Re-run full workspace verification, then commit and push once the regression fixes are green.
+
+## Thread-Wide Text Selection Follow-up
+
+The next AI timeline interaction gap is text selection. The painted surface currently allows drag selection inside one projected block at a time, but it does not support thread-wide drag selection across adjacent assistant, user, tool, and status rows.
+
+Confirmed current limitation:
+
+- `AiTextSelection` is scoped to a single selection id and only receives the surfaces for the block where the drag started
+- AI workspace hit-testing returns only block-local selection surfaces
+- drag updates stop extending once the pointer reaches another block or non-text whitespace
+- drag updates also stop once the pointer leaves the surface hitbox, so selection cannot keep growing while dragging beyond the viewport
+
+Implementation plan:
+
+1. Replace the block-local AI text selection payload with a thread-wide selection scope.
+   The selection model should keep one ordered surface list for the whole AI thread while still preserving per-surface range mapping for painting and copy.
+2. Project stable selection surfaces from the AI workspace session.
+   The session should expose ordered title/preview surfaces for every block, with deterministic separators between sections and between blocks.
+3. Update AI workspace hit-testing to anchor into the thread-wide surface list.
+   Mouse down should start selection from the clicked surface/index, but the returned selection surfaces should span the whole thread instead of just the current block.
+4. Extend drag selection across blocks and whitespace.
+   Mouse drag should clamp to the nearest visible text boundary when the pointer is between blocks or outside text runs, rather than dropping the update.
+5. Add viewport-edge drag auto-scroll.
+   When the pointer leaves the top or bottom of the AI timeline while dragging, the surface should scroll and continue extending the selection as new blocks enter the viewport.
+6. Add focused coverage for cross-block selection.
+   Tests need to cover forward and reverse multi-block selection, row-invalidation clearing, and drag clamping behavior.
+
+Polish follow-up:
+
+1. Promote `Select all` in the AI timeline to thread scope.
+   Once thread-wide surfaces exist, keyboard and context-menu select-all should operate on the whole AI thread instead of falling back to the currently selected block.
+2. Make edge auto-scroll timer-driven instead of move-event-driven.
+   Dragging should keep pulling the thread even if the pointer is held stationary just outside the viewport, which matches native editor selection behavior better than one-step-per-mousemove scrolling.
+
+Reviewer follow-up plan:
+
+1. Rebuild thread-wide selection surfaces from rendered text, not raw block payload.
+   The width-bucketed session cache should derive selection surfaces from `title_lines.join("\n")` and `preview_lines.join("\n")` so drag offsets, copy text, and visible text stay identical even for wrapped markdown-heavy messages.
+2. Restrict row invalidation to the active selection span.
+   `AiTextSelection` should only treat rows touched by the current anchor/head range as selected. Starting a thread-wide selection must not make unrelated rows eligible to clear the caret during streaming updates elsewhere in the thread.
+3. Re-run full workspace verification, then commit and push once the regression fixes are green.
 
 ## Validation and Follow-up
 

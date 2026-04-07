@@ -1400,6 +1400,8 @@ struct DiffViewer {
     ai_expanded_timeline_row_ids: BTreeSet<String>,
     ai_pressed_markdown_link: Option<AiPressedMarkdownLink>,
     ai_text_selection: Option<AiTextSelection>,
+    ai_text_selection_drag_pointer: Option<Point<Pixels>>,
+    ai_text_selection_auto_scroll_task: Task<()>,
     ai_pending_approvals: Vec<AiPendingApproval>,
     ai_pending_user_inputs: Vec<AiPendingUserInputRequest>,
     ai_pending_user_input_answers: BTreeMap<String, BTreeMap<String, Vec<String>>>,

@@ -213,6 +213,8 @@ impl DiffViewer {
             self.ai_workspace_surface_last_scroll_offset = None;
             self.ai_expanded_timeline_row_ids.clear();
             self.ai_text_selection = None;
+            self.ai_text_selection_drag_pointer = None;
+            self.ai_text_selection_auto_scroll_task = Task::ready(());
         }
         if let Some(selected_thread_id) = self.ai_selected_thread_id.as_deref()
             && previous_selected_thread.as_deref() == Some(selected_thread_id)
