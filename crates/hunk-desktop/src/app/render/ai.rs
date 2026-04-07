@@ -106,6 +106,9 @@ impl DiffViewer {
             ai_delete_worktree_blocker: ai_view_state.ai_delete_worktree_blocker.clone(),
             ai_delete_worktree_loading,
             ai_error_message: self.ai_error_message.clone(),
+            ai_requires_openai_auth: self.ai_requires_openai_auth,
+            ai_pending_chatgpt_login_id: self.ai_pending_chatgpt_login_id.clone(),
+            ai_account_connected: self.ai_account.is_some(),
         };
         let composer_state = AiComposerPanelState {
             composer_feedback: ai_view_state.composer_feedback.clone(),

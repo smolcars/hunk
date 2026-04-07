@@ -181,9 +181,24 @@ impl DiffViewer {
     fn apply_ai_worker_event(&mut self, event: AiWorkerEventPayload, cx: &mut Context<Self>) {
         match event {
             AiWorkerEventPayload::Snapshot(snapshot) => {
+                let previous_auth_message = ai_auth_required_message(
+                    self.ai_account.as_ref(),
+                    self.ai_requires_openai_auth,
+                    self.ai_pending_chatgpt_login_id.as_deref(),
+                );
                 self.apply_ai_snapshot(*snapshot, cx);
                 self.ai_connection_state = AiConnectionState::Ready;
-                self.ai_error_message = None;
+                let next_auth_message = ai_auth_required_message(
+                    self.ai_account.as_ref(),
+                    self.ai_requires_openai_auth,
+                    self.ai_pending_chatgpt_login_id.as_deref(),
+                );
+                self.ai_error_message = next_auth_message.clone();
+                if previous_auth_message != next_auth_message
+                    && let Some(message) = next_auth_message
+                {
+                    Self::push_error_notification(message, cx);
+                }
                 let visible_workspace_key = self.ai_worker_workspace_key.clone();
                 self.clear_ai_runtime_start_in_flight_for_workspace(visible_workspace_key.as_deref());
             }
@@ -211,6 +226,18 @@ impl DiffViewer {
             }
             AiWorkerEventPayload::Status(message) => {
                 self.ai_status_message = Some(message);
+                if let Some(error_message) = self
+                    .ai_status_message
+                    .as_deref()
+                    .and_then(ai_prominent_worker_status_error)
+                {
+                    let should_notify =
+                        self.ai_error_message.as_deref() != Some(error_message.as_str());
+                    self.ai_error_message = Some(error_message.clone());
+                    if should_notify {
+                        Self::push_error_notification(error_message, cx);
+                    }
+                }
             }
             AiWorkerEventPayload::Error(message) => {
                 self.restore_ai_new_thread_draft_after_failure(cx);

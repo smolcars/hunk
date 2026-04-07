@@ -811,7 +811,11 @@ impl DiffViewer {
         state.include_hidden_models = include_hidden_models;
         state.mad_max_mode = mad_max_mode;
         state.connection_state = AiConnectionState::Ready;
-        state.error_message = None;
+        state.error_message = ai_auth_required_message(
+            state.account.as_ref(),
+            state.requires_openai_auth,
+            state.pending_chatgpt_login_id.as_deref(),
+        );
 
         if let Some(thread_id) = pending_new_thread_selection_ready_thread_id(
             state.pending_new_thread_selection,
@@ -943,7 +947,10 @@ impl DiffViewer {
                 state.status_message = Some(message);
             }
             AiWorkerEventPayload::Status(message) => {
-                state.status_message = Some(message);
+                state.status_message = Some(message.clone());
+                if let Some(error_message) = ai_prominent_worker_status_error(message.as_str()) {
+                    state.error_message = Some(error_message);
+                }
             }
             AiWorkerEventPayload::Error(message) => {
                 Self::restore_ai_workspace_state_after_failure_for_state(state);

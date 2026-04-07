@@ -32,6 +32,9 @@ struct AiTimelinePanelState {
     ai_delete_worktree_blocker: Option<String>,
     ai_delete_worktree_loading: bool,
     ai_error_message: Option<String>,
+    ai_requires_openai_auth: bool,
+    ai_pending_chatgpt_login_id: Option<String>,
+    ai_account_connected: bool,
 }
 
 struct AiWorkspaceContentSections<'a> {
@@ -648,18 +651,13 @@ impl DiffViewer {
                         .bg(cx.theme().background)
                         .child(self.render_ai_timeline_toolbar(view.clone(), state, is_dark, cx))
                         .when_some(state.ai_error_message.clone(), |this, error| {
-                            this.child(
-                                div()
-                                    .rounded_md()
-                                    .border_1()
-                                    .border_color(cx.theme().danger)
-                                    .bg(hunk_opacity(cx.theme().danger, is_dark, 0.16, 0.10))
-                                    .p_2()
-                                    .text_xs()
-                                    .text_color(cx.theme().danger)
-                                    .whitespace_normal()
-                                    .child(error),
-                            )
+                            this.child(self.render_ai_timeline_error_banner(
+                                view.clone(),
+                                state,
+                                error,
+                                is_dark,
+                                cx,
+                            ))
                         })
                         .when(
                             !state.pending_approvals.is_empty()
@@ -717,6 +715,79 @@ impl DiffViewer {
                             },
                         ),
                 ),
+            )
+            .into_any_element()
+    }
+
+    fn render_ai_timeline_error_banner(
+        &self,
+        view: Entity<Self>,
+        state: &AiTimelinePanelState,
+        error: String,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let login_pending = state.ai_pending_chatgpt_login_id.is_some();
+        let show_auth_actions = state.ai_requires_openai_auth && !state.ai_account_connected;
+
+        let actions = h_flex()
+            .items_center()
+            .gap_1()
+            .flex_wrap()
+            .when(show_auth_actions && !login_pending, |this| {
+                this.child({
+                    let view = view.clone();
+                    Button::new("ai-auth-error-login")
+                        .compact()
+                        .primary()
+                        .with_size(gpui_component::Size::Small)
+                        .label("Sign in")
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.ai_start_chatgpt_login_action(cx);
+                            });
+                        })
+                })
+            })
+            .when(show_auth_actions && login_pending, |this| {
+                this.child({
+                    let view = view.clone();
+                    Button::new("ai-auth-error-cancel-login")
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .label("Cancel login")
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.ai_cancel_chatgpt_login_action(cx);
+                            });
+                        })
+                })
+            });
+
+        div()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().danger)
+            .bg(hunk_opacity(cx.theme().danger, is_dark, 0.16, 0.10))
+            .p_2()
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .flex_wrap()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(cx.theme().danger)
+                            .whitespace_normal()
+                            .child(error),
+                    )
+                    .child(actions),
             )
             .into_any_element()
     }

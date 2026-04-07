@@ -1568,3 +1568,66 @@
         assert_eq!(pending_steers.len(), 1);
         assert_eq!(pending_steers[0].prompt, "Keep waiting");
     }
+
+    #[test]
+    fn auth_required_message_requires_sign_in_when_account_missing() {
+        assert_eq!(
+            ai_auth_required_message(None, true, None),
+            Some(AI_AUTH_REQUIRED_MESSAGE.to_string())
+        );
+        assert_eq!(ai_auth_required_message(None, true, Some("login-1")), None);
+        assert_eq!(
+            ai_auth_required_message(None, false, None),
+            None
+        );
+    }
+
+    #[test]
+    fn prominent_worker_status_error_recognizes_auth_failures() {
+        assert_eq!(
+            ai_prominent_worker_status_error(
+                "Unable to read account state: json-rpc server error 401: unauthorized"
+            ),
+            Some(AI_AUTH_REQUIRED_MESSAGE.to_string())
+        );
+        assert_eq!(
+            ai_prominent_worker_status_error("ChatGPT login failed: token expired"),
+            Some("ChatGPT login failed: token expired".to_string())
+        );
+        assert_eq!(
+            ai_prominent_worker_status_error("Connected over websocket."),
+            None
+        );
+    }
+
+    #[test]
+    fn apply_ai_snapshot_to_workspace_state_sets_auth_error_when_sign_in_required() {
+        let mut workspace_state = AiWorkspaceState::default();
+
+        DiffViewer::apply_ai_snapshot_to_workspace_state(
+            &mut workspace_state,
+            AiSnapshot {
+                state: AiState::default(),
+                active_thread_id: None,
+                pending_approvals: Vec::new(),
+                pending_user_inputs: Vec::new(),
+                account: None,
+                requires_openai_auth: true,
+                pending_chatgpt_login_id: None,
+                pending_chatgpt_auth_url: None,
+                rate_limits: None,
+                models: Vec::new(),
+                experimental_features: Vec::new(),
+                collaboration_modes: Vec::new(),
+                skills: Vec::new(),
+                include_hidden_models: false,
+                mad_max_mode: false,
+            },
+        );
+
+        assert_eq!(
+            workspace_state.error_message.as_deref(),
+            Some(AI_AUTH_REQUIRED_MESSAGE)
+        );
+        assert_eq!(workspace_state.connection_state, AiConnectionState::Ready);
+    }
