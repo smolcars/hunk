@@ -335,44 +335,7 @@ fn should_retry_bootstrap_with_new_port(error: &CodexIntegrationError) -> bool {
 }
 
 fn open_url_in_system_browser(url: &str) -> Result<(), CodexIntegrationError> {
-    let mut command = if cfg!(target_os = "windows") {
-        let mut command = Command::new("cmd");
-        command.arg("/C").arg("start").arg("").arg(url);
-        configure_background_windows_command(&mut command);
-        command
-    } else if cfg!(target_os = "macos") {
-        let mut command = Command::new("open");
-        command.arg(url);
-        command
-    } else {
-        let mut command = Command::new("xdg-open");
-        command.arg(url);
-        command
-    };
-
-    let status = command
-        .status()
-        .map_err(CodexIntegrationError::HostProcessIo)?;
-    if status.success() {
-        return Ok(());
-    }
-
-    Err(CodexIntegrationError::HostProcessIo(io::Error::other(
-        format!("failed to open browser for URL '{url}'"),
-    )))
-}
-
-fn configure_background_windows_command(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    #[cfg(not(windows))]
-    {
-        let _ = command;
-    }
+    webbrowser::open(url)
+        .map(|_| ())
+        .map_err(|error| CodexIntegrationError::HostProcessIo(io::Error::other(error)))
 }

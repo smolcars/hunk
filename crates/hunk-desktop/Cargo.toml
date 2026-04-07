@@ -52,6 +52,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 time = { version = "0.3", features = ["formatting", "local-offset"] }
 rust-embed = "8.5"
+webbrowser = "1.0"
 hunk-domain = { path = "../hunk-domain" }
 hunk-git = { path = "../hunk-git" }
 hunk-codex = { path = "../hunk-codex" }

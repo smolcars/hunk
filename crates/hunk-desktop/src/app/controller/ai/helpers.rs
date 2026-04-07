@@ -216,7 +216,7 @@ fn ai_visible_thread_sections(
 }
 
 pub(crate) const AI_AUTH_REQUIRED_MESSAGE: &str =
-    "ChatGPT sign-in expired. Sign in again to keep using AI.";
+    "Codex sign-in expired. Sign in to talk to the AI Gods.";
 
 pub(crate) fn ai_auth_required_message(
     account: Option<&codex_app_server_protocol::Account>,
