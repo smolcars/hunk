@@ -174,6 +174,7 @@
             run_in_terminal_cwd: None,
             status_label: None,
             status_color_role: None,
+            inline_diff_source: None,
             last_sequence: 1,
         };
 

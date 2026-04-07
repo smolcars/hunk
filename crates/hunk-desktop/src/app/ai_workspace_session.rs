@@ -5,6 +5,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::app::AiTextSelectionSurfaceSpec;
+use crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffOptions;
+use crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffPresentationPolicy;
+use crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffProjection;
+use crate::app::ai_workspace_inline_diff::ai_workspace_inline_diff_presentation_policy;
+use crate::app::ai_workspace_inline_diff::ai_workspace_project_inline_diff;
 use crate::app::markdown_links::MarkdownLinkRange;
 use crate::app::markdown_links::markdown_inline_text_and_link_ranges;
 
@@ -63,6 +68,7 @@ pub(crate) struct AiWorkspaceBlock {
     pub(crate) run_in_terminal_cwd: Option<PathBuf>,
     pub(crate) status_label: Option<String>,
     pub(crate) status_color_role: Option<AiWorkspacePreviewColorRole>,
+    pub(crate) inline_diff_source: Option<Arc<str>>,
     pub(crate) last_sequence: u64,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +137,12 @@ pub(crate) struct AiWorkspaceSurfaceSnapshot {
 pub(crate) struct AiWorkspaceSurfaceSnapshotResult {
     pub(crate) snapshot: AiWorkspaceSurfaceSnapshot,
     pub(crate) geometry_rebuild_duration: Option<Duration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AiWorkspaceInlineDiffState {
+    pub(crate) projection: Arc<AiWorkspaceInlineDiffProjection>,
+    pub(crate) presentation_policy: AiWorkspaceInlineDiffPresentationPolicy,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -214,6 +226,9 @@ pub(crate) struct AiWorkspaceSession {
     selection_scope_id: String,
     geometry_by_width_bucket: BTreeMap<usize, AiWorkspaceDisplayGeometry>,
     selection_surfaces_by_width_bucket: BTreeMap<usize, Arc<[AiTextSelectionSurfaceSpec]>>,
+    #[allow(dead_code)]
+    inline_diffs_by_width_bucket:
+        BTreeMap<usize, BTreeMap<(String, u64), Arc<AiWorkspaceInlineDiffState>>>,
 }
 
 impl AiWorkspaceSession {
@@ -231,6 +246,7 @@ impl AiWorkspaceSession {
             selection_scope_id,
             geometry_by_width_bucket: BTreeMap::new(),
             selection_surfaces_by_width_bucket: BTreeMap::new(),
+            inline_diffs_by_width_bucket: BTreeMap::new(),
         }
     }
 
@@ -291,6 +307,43 @@ impl AiWorkspaceSession {
             .entry(width_bucket)
             .or_insert_with(|| build_ai_workspace_geometry(self.blocks.as_slice(), width_bucket));
         geometry.blocks.get(block_index).cloned()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn inline_diff_for_block(
+        &mut self,
+        block_id: &str,
+        width_px: usize,
+    ) -> Option<Arc<AiWorkspaceInlineDiffState>> {
+        let block = self.block(block_id)?.clone();
+        let inline_diff_source = block.inline_diff_source.clone()?;
+        let width_bucket = ai_workspace_width_bucket(width_px);
+        let cache_key = (block.source_row_id.clone(), block.last_sequence);
+        if let Some(cached) = self
+            .inline_diffs_by_width_bucket
+            .get(&width_bucket)
+            .and_then(|entries| entries.get(&cache_key))
+        {
+            return Some(cached.clone());
+        }
+
+        let options = AiWorkspaceInlineDiffOptions::default();
+        let projection = Arc::new(ai_workspace_project_inline_diff(
+            inline_diff_source.as_ref(),
+            options,
+        ));
+        let inline_diff_state = Arc::new(AiWorkspaceInlineDiffState {
+            presentation_policy: ai_workspace_inline_diff_presentation_policy(
+                projection.as_ref(),
+                options,
+            ),
+            projection,
+        });
+        self.inline_diffs_by_width_bucket
+            .entry(width_bucket)
+            .or_default()
+            .insert(cache_key, inline_diff_state.clone());
+        Some(inline_diff_state)
     }
 
     pub(crate) fn surface_snapshot_with_stats(

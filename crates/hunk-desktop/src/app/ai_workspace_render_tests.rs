@@ -38,6 +38,7 @@ fn test_block(
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: Some(AiWorkspacePreviewColorRole::Muted),
+        inline_diff_source: None,
         last_sequence: 1,
     }
 }

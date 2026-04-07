@@ -1,7 +1,10 @@
+#[path = "../src/app/ai_workspace_inline_diff.rs"]
+mod ai_workspace_inline_diff_impl;
 #[path = "../src/app/markdown_links.rs"]
 mod markdown_links_impl;
 
 mod app {
+    pub(crate) use super::ai_workspace_inline_diff_impl as ai_workspace_inline_diff;
     pub(crate) use super::markdown_links_impl as markdown_links;
 
     #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -83,6 +86,7 @@ fn block(id: &str, kind: AiWorkspaceBlockKind, preview: &str) -> AiWorkspaceBloc
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source: None,
         last_sequence: 1,
     }
 }
@@ -97,6 +101,14 @@ fn source_rows(entries: &[(&str, u64)]) -> Arc<[AiWorkspaceSourceRow]> {
             })
             .collect::<Vec<_>>(),
     )
+}
+
+fn diff_block(id: &str, diff_text: &str) -> AiWorkspaceBlock {
+    AiWorkspaceBlock {
+        inline_diff_source: Some(Arc::<str>::from(diff_text)),
+        open_review_tab: true,
+        ..block(id, AiWorkspaceBlockKind::DiffSummary, "1 file changed")
+    }
 }
 
 #[test]
@@ -135,6 +147,73 @@ fn selection_surfaces_follow_rendered_message_text() {
         "ai-workspace:row-1:preview"
     );
     assert_eq!(selection_surfaces[1].text, "bold and inline");
+}
+
+#[test]
+fn inline_diff_cache_reuses_projection_within_same_width_bucket() {
+    let diff_text = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,2 +1,2 @@
+-fn old() {}
++fn new() {}
+ ";
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-diff", 1)]),
+        vec![diff_block("row-diff", diff_text)],
+    );
+
+    let first = session
+        .inline_diff_for_block("row-diff", 640)
+        .expect("inline diff state should exist");
+    let second = session
+        .inline_diff_for_block("row-diff", 659)
+        .expect("same width bucket should reuse inline diff state");
+
+    assert!(Arc::ptr_eq(&first, &second));
+    assert_eq!(first.projection.files.len(), 1);
+    assert_eq!(first.projection.files[0].display_path, "src/main.rs");
+    assert!(first.presentation_policy.collapsed_by_default);
+}
+
+#[test]
+fn inline_diff_cache_is_separate_per_width_bucket() {
+    let diff_text = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,2 +1,2 @@
+-fn old() {}
++fn new() {}
+ ";
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-diff", 1)]),
+        vec![diff_block("row-diff", diff_text)],
+    );
+
+    let narrow = session
+        .inline_diff_for_block("row-diff", 640)
+        .expect("narrow inline diff state should exist");
+    let wide = session
+        .inline_diff_for_block("row-diff", 680)
+        .expect("wide inline diff state should exist");
+
+    assert!(!Arc::ptr_eq(&narrow, &wide));
+    assert_eq!(narrow.projection, wide.projection);
+}
+
+#[test]
+fn inline_diff_cache_skips_non_diff_blocks() {
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-1", 1)]),
+        vec![block("row-1", AiWorkspaceBlockKind::Message, "hello")],
+    );
+
+    assert!(session.inline_diff_for_block("row-1", 640).is_none());
 }
 
 #[test]
@@ -241,6 +320,7 @@ fn surface_snapshot_supports_all_block_kinds_and_roles() {
                 run_in_terminal_cwd: None,
                 status_label: None,
                 status_color_role: None,
+                inline_diff_source: None,
                 last_sequence: 1,
             },
             block("row-group", AiWorkspaceBlockKind::Group, "group"),
@@ -337,6 +417,7 @@ fn narrower_widths_increase_wrapped_height() {
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source: None,
         last_sequence: 1,
     };
 
@@ -373,6 +454,7 @@ fn message_blocks_are_no_longer_limited_to_six_preview_lines() {
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source: None,
         last_sequence: 1,
     };
 
@@ -407,6 +489,7 @@ fn expanded_tool_blocks_take_more_height_than_collapsed_tool_blocks() {
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source: None,
         last_sequence: 1,
     };
     let expanded = AiWorkspaceBlock {
@@ -443,6 +526,7 @@ fn very_narrow_surface_widths_do_not_panic() {
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source: None,
         last_sequence: 1,
     };
     let mut session =
@@ -476,6 +560,7 @@ fn markdown_message_layout_preserves_heading_links_and_inline_styles() {
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source: None,
         last_sequence: 1,
     };
 
@@ -530,6 +615,7 @@ fn diff_summary_layout_marks_filename_and_line_stats_with_color_roles() {
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source: None,
         last_sequence: 1,
     };
 
@@ -581,6 +667,7 @@ fn plan_layout_marks_in_progress_steps_with_accent_and_completed_steps_as_muted(
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source: None,
         last_sequence: 1,
     };
 
@@ -624,6 +711,7 @@ fn markdown_code_blocks_expose_copy_regions() {
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source: None,
         last_sequence: 1,
     };
 
@@ -656,6 +744,7 @@ fn title_layout_marks_pending_and_streaming_status_text_with_accent() {
         run_in_terminal_cwd: None,
         status_label: Some("Waiting to steer running turn...".to_string()),
         status_color_role: Some(AiWorkspacePreviewColorRole::Accent),
+        inline_diff_source: None,
         last_sequence: 1,
     };
     let streaming_block = AiWorkspaceBlock {
@@ -678,6 +767,7 @@ fn title_layout_marks_pending_and_streaming_status_text_with_accent() {
         run_in_terminal_cwd: None,
         status_label: Some("streaming".to_string()),
         status_color_role: Some(AiWorkspacePreviewColorRole::Accent),
+        inline_diff_source: None,
         last_sequence: 1,
     };
 

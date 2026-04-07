@@ -73,6 +73,7 @@ impl DiffViewer {
                 run_in_terminal_cwd: None,
                 status_label: Some("Waiting to steer running turn...".to_string()),
                 status_color_role: Some(ai_workspace_session::AiWorkspacePreviewColorRole::Accent),
+                inline_diff_source: None,
                 last_sequence: ai_workspace_pending_steer_signature(&pending),
             }];
         }
@@ -115,6 +116,7 @@ impl DiffViewer {
                     }
                 }),
                 status_color_role: Some(ai_workspace_session::AiWorkspacePreviewColorRole::Accent),
+                inline_diff_source: None,
                 last_sequence: ai_workspace_queued_message_signature(&queued),
             }];
         }
@@ -147,6 +149,7 @@ impl DiffViewer {
                         &crate::app::ai_workspace_timeline_projection::ai_workspace_turn_diff_summary(
                             diff,
                         ),
+                        Some(Arc::<str>::from(diff.as_str())),
                         false,
                     )])
                     .unwrap_or_default()
@@ -175,6 +178,7 @@ impl DiffViewer {
                     run_in_terminal_cwd: None,
                     status_label: None,
                     status_color_role: None,
+                    inline_diff_source: None,
                     last_sequence: row.last_sequence,
                     }])
                     .unwrap_or_default()
@@ -615,6 +619,7 @@ impl DiffViewer {
                 run_in_terminal_cwd: None,
                 status_label: None,
                 status_color_role: None,
+                inline_diff_source: None,
                 last_sequence: row.last_sequence,
                 })
             }
@@ -625,6 +630,7 @@ impl DiffViewer {
                         row.id.clone(),
                         row.last_sequence,
                         &summary,
+                        None,
                         nested,
                     )
                 }),
@@ -686,6 +692,7 @@ impl DiffViewer {
                     status_color_role: Some(ai_workspace_command_status_color_role(
                         command_details.as_ref(),
                     )),
+                    inline_diff_source: None,
                     last_sequence: row.last_sequence,
                 })
             }
@@ -740,6 +747,7 @@ impl DiffViewer {
                         }),
                     status_color_role: (item.status != hunk_codex::state::ItemStatus::Completed)
                         .then_some(ai_workspace_session::AiWorkspacePreviewColorRole::Accent),
+                    inline_diff_source: None,
                     last_sequence: row.last_sequence,
                 })
             }
@@ -763,6 +771,7 @@ impl DiffViewer {
                 run_in_terminal_cwd: None,
                 status_label: None,
                 status_color_role: None,
+                inline_diff_source: None,
                 last_sequence: row.last_sequence,
             }),
         }
@@ -781,6 +790,7 @@ impl DiffViewer {
                 row.id.clone(),
                 row.last_sequence,
                 &summary,
+                None,
                 false,
             )];
         }
@@ -810,6 +820,7 @@ impl DiffViewer {
             run_in_terminal_cwd: None,
             status_label: None,
             status_color_role: None,
+            inline_diff_source: None,
             last_sequence: row.last_sequence,
         }];
 

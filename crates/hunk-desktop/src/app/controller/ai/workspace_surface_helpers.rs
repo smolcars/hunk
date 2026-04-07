@@ -64,6 +64,7 @@ fn ai_workspace_diff_block(
     source_row_id: String,
     last_sequence: u64,
     summary: &crate::app::ai_workspace_timeline_projection::AiWorkspaceDiffSummary,
+    inline_diff_source: Option<std::sync::Arc<str>>,
     nested: bool,
 ) -> ai_workspace_session::AiWorkspaceBlock {
     let preview =
@@ -95,6 +96,7 @@ fn ai_workspace_diff_block(
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
+        inline_diff_source,
         last_sequence,
     }
 }
