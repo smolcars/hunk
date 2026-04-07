@@ -89,7 +89,7 @@ impl AiWorkspaceSelection {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AiWorkspaceBlockGeometry {
-    pub(crate) block_id: String,
+    pub(crate) block_index: usize,
     pub(crate) top_px: usize,
     pub(crate) height_px: usize,
 }
@@ -254,26 +254,13 @@ impl AiWorkspaceSession {
         block_id: &str,
         width_px: usize,
     ) -> Option<AiWorkspaceBlockGeometry> {
+        let block_index = self.block_index(block_id)?;
         let width_bucket = ai_workspace_width_bucket(width_px);
         let geometry = self
             .geometry_by_width_bucket
             .entry(width_bucket)
             .or_insert_with(|| build_ai_workspace_geometry(self.blocks.as_slice(), width_bucket));
-        geometry
-            .blocks
-            .iter()
-            .find(|entry| entry.block_id == block_id)
-            .cloned()
-    }
-
-    pub(crate) fn surface_snapshot(
-        &mut self,
-        scroll_top_px: usize,
-        viewport_height_px: usize,
-        width_px: usize,
-    ) -> AiWorkspaceSurfaceSnapshot {
-        self.surface_snapshot_with_stats(scroll_top_px, viewport_height_px, width_px)
-            .snapshot
+        geometry.blocks.get(block_index).cloned()
     }
 
     pub(crate) fn surface_snapshot_with_stats(
@@ -282,14 +269,14 @@ impl AiWorkspaceSession {
         viewport_height_px: usize,
         width_px: usize,
     ) -> AiWorkspaceSurfaceSnapshotResult {
+        let blocks = &self.blocks;
         let width_bucket = ai_workspace_width_bucket(width_px);
         let geometry_rebuild_started_at =
             (!self.geometry_by_width_bucket.contains_key(&width_bucket)).then(Instant::now);
         let geometry = self
             .geometry_by_width_bucket
             .entry(width_bucket)
-            .or_insert_with(|| build_ai_workspace_geometry(self.blocks.as_slice(), width_bucket))
-            .clone();
+            .or_insert_with(|| build_ai_workspace_geometry(blocks.as_slice(), width_bucket));
         let geometry_rebuild_duration =
             geometry_rebuild_started_at.map(|started_at| started_at.elapsed());
         let viewport_end_px = scroll_top_px.saturating_add(viewport_height_px);
@@ -301,20 +288,16 @@ impl AiWorkspaceSession {
                     return None;
                 }
 
-                self.blocks
-                    .iter()
-                    .find(|block| block.id == entry.block_id)
-                    .cloned()
-                    .map(|block| {
-                        let text_layout = ai_workspace_text_layout_for_block(&block, width_bucket);
-                        debug_assert_eq!(text_layout.height_px, entry.height_px);
-                        AiWorkspaceViewportBlock {
-                            block,
-                            top_px: entry.top_px,
-                            height_px: entry.height_px,
-                            text_layout,
-                        }
-                    })
+                blocks.get(entry.block_index).cloned().map(|block| {
+                    let text_layout = ai_workspace_text_layout_for_block(&block, width_bucket);
+                    debug_assert_eq!(text_layout.height_px, entry.height_px);
+                    AiWorkspaceViewportBlock {
+                        block,
+                        top_px: entry.top_px,
+                        height_px: entry.height_px,
+                        text_layout,
+                    }
+                })
             })
             .collect::<Vec<_>>();
 
@@ -495,10 +478,10 @@ fn build_ai_workspace_geometry(
     let mut top_px = AI_WORKSPACE_SURFACE_BLOCK_TOP_PADDING_PX;
     let mut geometry_blocks = Vec::with_capacity(blocks.len());
 
-    for block in blocks {
+    for (block_index, block) in blocks.iter().enumerate() {
         let height_px = ai_workspace_text_layout_for_block(block, surface_width_px).height_px;
         geometry_blocks.push(AiWorkspaceBlockGeometry {
-            block_id: block.id.clone(),
+            block_index,
             top_px,
             height_px,
         });

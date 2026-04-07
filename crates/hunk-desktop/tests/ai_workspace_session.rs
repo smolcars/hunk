@@ -95,7 +95,7 @@ fn surface_snapshot_projects_visible_blocks_and_total_height() {
         ],
     );
 
-    let snapshot = session.surface_snapshot(0, 220, 640);
+    let snapshot = session.surface_snapshot_with_stats(0, 220, 640).snapshot;
 
     assert_eq!(snapshot.viewport.visible_blocks.len(), 3);
     let first = snapshot
@@ -140,7 +140,7 @@ fn surface_snapshot_limits_visible_blocks_to_requested_range() {
         ],
     );
 
-    let snapshot = session.surface_snapshot(96, 90, 640);
+    let snapshot = session.surface_snapshot_with_stats(96, 90, 640).snapshot;
     let visible_ids = snapshot
         .viewport
         .visible_blocks
@@ -192,7 +192,7 @@ fn surface_snapshot_supports_all_block_kinds_and_roles() {
         ],
     );
 
-    let snapshot = session.surface_snapshot(0, 640, 800);
+    let snapshot = session.surface_snapshot_with_stats(0, 640, 800).snapshot;
     let ids = snapshot
         .viewport
         .visible_blocks
@@ -390,7 +390,7 @@ fn very_narrow_surface_widths_do_not_panic() {
     let mut session =
         AiWorkspaceSession::new("thread-1", source_rows(&[("row-narrow", 1)]), vec![block]);
 
-    let snapshot = session.surface_snapshot(0, 200, 1);
+    let snapshot = session.surface_snapshot_with_stats(0, 200, 1).snapshot;
 
     assert_eq!(snapshot.viewport.visible_blocks.len(), 1);
     assert!(snapshot.viewport.total_surface_height_px > 0);

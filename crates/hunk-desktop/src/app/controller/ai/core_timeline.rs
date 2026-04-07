@@ -282,14 +282,6 @@ impl DiffViewer {
             selected_thread_id.as_deref(),
             timeline_visible_row_ids.as_slice(),
         );
-        if let Some(session) = self.ai_workspace_session.as_mut() {
-            // Phase 1 scaffolding: keep a live prototype snapshot warm while the painted
-            // surface is being wired into the AI timeline render path.
-            let prototype_viewport_height_px =
-                timeline_visible_row_ids.len().saturating_mul(72).max(1);
-            let _prototype_surface_snapshot =
-                session.surface_snapshot(0, prototype_viewport_height_px, 960);
-        }
         self.record_ai_visible_frame_timeline_rows_timing(timeline_rows_started_at.elapsed());
         let show_no_turns_empty_state = crate::app::render::ai_should_show_no_turns_empty_state(
             timeline_visible_row_ids.len(),

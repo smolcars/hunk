@@ -209,6 +209,18 @@ Implementation plan for the latest interaction follow-up:
    The overlay wrapper and button click path need to stop propagation so the timeline row underneath does not also expand or navigate.
 5. Re-run full workspace verification, then commit and push once the follow-up slice is green.
 
+Implementation plan for the reviewer follow-up:
+
+1. Tighten hit-testing to rendered block bounds.
+   The painted surface must reject clicks in the empty gutter, even when the Y coordinate overlaps a visible block, so selection and review-tab navigation only trigger from inside the rendered bubble.
+2. Remove unused snapshot warm-up work from visible-frame rebuilds.
+   The timeline visible-frame path should only sync the session state; it must not build and discard a prototype snapshot before the real render snapshot runs.
+3. Rework cached geometry to align by block index instead of cloned block identifiers.
+   Geometry entries should stay position-only and match the stable block order so snapshot projection can borrow cached geometry directly without cloning the whole vector or every block id.
+4. Project visible blocks from cached geometry in one linear pass.
+   Snapshot creation should iterate visible geometry entries and index directly into the block slice instead of rescanning `self.blocks` for every visible block.
+5. Re-run full workspace verification, then commit and push once the regression fixes are green.
+
 ## Validation and Follow-up
 
 - Run manual parity QA against the old AI timeline on representative threads, especially long markdown-heavy and command-heavy turns.

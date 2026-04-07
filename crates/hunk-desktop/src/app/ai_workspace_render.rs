@@ -80,6 +80,9 @@ pub(crate) fn ai_workspace_hit_test(
         surface_y_px >= block.top_px && surface_y_px < bottom_px
     })?;
     let render_layout = ai_workspace_block_render_layout(bounds, snapshot.scroll_top_px, block);
+    if !render_layout.block_bounds.contains(&position) {
+        return None;
+    }
     let block_local_y_px = surface_y_px.saturating_sub(block.top_px);
     let title_start_px = ai_workspace_session::AI_WORKSPACE_BLOCK_CONTENT_TOP_PADDING_PX;
     let title_height_px = block.text_layout.title_lines.len()
