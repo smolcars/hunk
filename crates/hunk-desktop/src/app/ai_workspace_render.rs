@@ -3,10 +3,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use gpui::{
-    App, Bounds, Entity, Font, FontWeight, Pixels, Point, SharedString, TextRun, TextStyle, Window,
-    fill, point, px, relative, size,
+    App, Bounds, Entity, Font, FontWeight, Pixels, Point, SharedString, TextRun, TextStyle,
+    TransformationMatrix, Window, fill, point, px, relative, size,
 };
 use gpui_component::ActiveTheme as _;
+use gpui_component::{IconName, IconNamed};
 
 use crate::app::markdown_links::{MarkdownLinkRange, resolve_markdown_link_target};
 use crate::app::native_files_editor::paint::{
@@ -233,35 +234,27 @@ pub(crate) fn paint_ai_workspace_block(
     }
 
     if let Some(toggle_bounds) = render_layout.toggle_bounds {
-        let toggle_label = if block.block.expanded { "v" } else { ">" };
-        let toggle_runs = vec![single_color_text_run(
-            toggle_label.len(),
-            accent,
-            TextStyle {
-                color: accent,
-                font_family: ui_font_family.clone(),
-                font_size: px(12.0).into(),
-                font_weight: FontWeight::SEMIBOLD,
-                line_height: relative(1.0),
-                ..Default::default()
-            }
-            .font(),
-        )];
-        let toggle_shape = shape_editor_line(
-            window,
-            SharedString::from(toggle_label),
-            px(10.0),
-            &toggle_runs,
-        );
-        paint_editor_line(
-            window,
-            cx,
-            &toggle_shape,
-            point(
-                toggle_bounds.origin.x + toggle_bounds.size.width - px(14.0),
-                toggle_bounds.origin.y + px(7.0),
+        let toggle_icon_size = px(14.0);
+        let toggle_icon = if block.block.expanded {
+            IconName::ChevronDown
+        } else {
+            IconName::ChevronRight
+        };
+        let toggle_icon_path = SharedString::from(toggle_icon.path().to_string());
+        let toggle_icon_bounds = Bounds {
+            origin: point(
+                toggle_bounds.origin.x + toggle_bounds.size.width - px(18.0),
+                toggle_bounds.origin.y + px(5.0),
             ),
-            px(12.0),
+            size: size(toggle_icon_size, toggle_icon_size),
+        };
+        let _ = window.paint_svg(
+            toggle_icon_bounds,
+            toggle_icon_path,
+            None,
+            TransformationMatrix::default(),
+            accent,
+            cx,
         );
     }
 

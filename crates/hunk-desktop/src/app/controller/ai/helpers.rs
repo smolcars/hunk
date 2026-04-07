@@ -215,6 +215,40 @@ fn ai_visible_thread_sections(
         .collect()
 }
 
+pub(crate) const AI_AUTH_REQUIRED_MESSAGE: &str =
+    "Codex sign-in expired. Sign in to talk to the AI Gods.";
+
+pub(crate) fn ai_auth_required_message(
+    account: Option<&codex_app_server_protocol::Account>,
+    requires_openai_auth: bool,
+    pending_chatgpt_login_id: Option<&str>,
+) -> Option<String> {
+    if pending_chatgpt_login_id.is_some() {
+        return None;
+    }
+
+    (requires_openai_auth && account.is_none()).then(|| AI_AUTH_REQUIRED_MESSAGE.to_string())
+}
+
+pub(crate) fn ai_prominent_worker_status_error(message: &str) -> Option<String> {
+    let lower = message.to_ascii_lowercase();
+    if lower.starts_with("chatgpt login failed") {
+        return Some(message.to_string());
+    }
+
+    if lower.contains("unable to read account state")
+        && (lower.contains("401")
+            || lower.contains("unauthorized")
+            || lower.contains("token")
+            || lower.contains("sign in again")
+            || lower.contains("refresh"))
+    {
+        return Some(AI_AUTH_REQUIRED_MESSAGE.to_string());
+    }
+
+    None
+}
+
 fn ai_workspace_project_root_identity(path: &std::path::Path) -> Option<std::path::PathBuf> {
     hunk_git::worktree::primary_repo_root(path)
         .ok()
