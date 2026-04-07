@@ -20,7 +20,6 @@ struct AiTimelinePanelState {
     timeline_visible_turn_count: usize,
     timeline_hidden_turn_count: usize,
     timeline_visible_row_ids: Arc<[String]>,
-    timeline_follow_output: bool,
     timeline_loading: bool,
     show_select_thread_empty_state: bool,
     show_no_turns_empty_state: bool,
@@ -1246,7 +1245,7 @@ impl DiffViewer {
                                         .scrollbar_show(ScrollbarShow::Always),
                                     ),
                             )
-                            .when(!state.timeline_follow_output, |this| {
+                            .when(!self.ai_timeline_follow_output, |this| {
                                 this.child(
                                     div()
                                         .absolute()
@@ -1255,6 +1254,9 @@ impl DiffViewer {
                                         .left_0()
                                         .flex()
                                         .justify_center()
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
                                         .child({
                                             let view = view.clone();
                                             Button::new("ai-workspace-scroll-to-bottom")
@@ -1264,6 +1266,7 @@ impl DiffViewer {
                                                 .icon(Icon::new(IconName::ChevronDown).size(px(14.0)))
                                                 .tooltip("Scroll to the bottom")
                                                 .on_click(move |_, _, cx| {
+                                                    cx.stop_propagation();
                                                     view.update(cx, |this, cx| {
                                                         this.ai_scroll_timeline_to_bottom_action(cx);
                                                     });

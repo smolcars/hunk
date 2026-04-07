@@ -94,7 +94,6 @@ impl DiffViewer {
             timeline_visible_turn_count: ai_view_state.timeline_visible_turn_count,
             timeline_hidden_turn_count: ai_view_state.timeline_hidden_turn_count,
             timeline_visible_row_ids: ai_view_state.timeline_visible_row_ids.clone(),
-            timeline_follow_output: ai_view_state.timeline_follow_output,
             timeline_loading: ai_view_state.timeline_loading,
             show_select_thread_empty_state: ai_view_state.show_select_thread_empty_state,
             show_no_turns_empty_state: ai_view_state.show_no_turns_empty_state,

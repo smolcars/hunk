@@ -161,13 +161,17 @@ Confirmed remaining parity gaps:
 - user rows lost the old copy-message affordance
 - expanded command transcript rows lost the old copy-command-transcript affordance
 - markdown code fences lost the old copy-code-block affordance
-- assistant and user message copy affordances are still too ephemeral; they need to stay visibly present instead of effectively appearing only on hover
+- assistant and user message copy affordances still do not match the old hover-only reveal behavior
 - disclosure-style rows such as commands, diff summaries, and file edits lost the old row-wide hover highlight treatment
 - expanded command action buttons are positioned too high and can overlap the disclosure chevron hit area, which makes copy unreliable
 - command execution rows still miss the old `Run in terminal` action in the expanded transcript header
 - in-progress command execution rows still miss the old running/streaming status indicator treatment
 - pending steer rows still miss the old `Waiting to steer running turn...` indicator
 - queued user messages still miss the old `queued, waiting for current turn to finish.` status treatment
+- message copy buttons currently persist as always-visible overlay chrome; they should only appear when the user hovers the assistant/user message header
+- command action clusters can overflow the command card bounds when the status pill and action buttons render together
+- the AI scroll-to-bottom button still lags behind live scroll state because it is driven through cached timeline follow-output state
+- the AI scroll-to-bottom button does not fully consume pointer input, so clicks can leak through to the timeline row underneath
 
 Implementation plan for the reopened slice:
 
@@ -184,7 +188,7 @@ Implementation plan for the reopened slice:
 Implementation plan for the current follow-up:
 
 1. Restore stable action affordances in the overlay layer.
-   Message copy needs to remain visibly present, command transcript actions need a dedicated preview-header action lane, and the overlay positions need to stop colliding with disclosure toggles.
+   Message copy needs to return to hover-only reveal semantics, command transcript actions need a dedicated preview-header action lane, and the overlay positions need to stop colliding with disclosure toggles.
 2. Restore row hover feedback in the painted surface.
    The surface needs block-level hover tracking so disclosure and diff rows can reuse the old dark/light hover shading without bringing back per-row GPUI widgets.
 3. Restore command-row action parity.
@@ -192,6 +196,18 @@ Implementation plan for the current follow-up:
 4. Restore transient user-state parity.
    Pending steer and queued user messages need the old waiting/queued status indicators projected through the surface model so users can tell why a message has not executed yet.
 5. Re-run full workspace verification, then commit and push once the parity slice is green.
+
+Implementation plan for the latest interaction follow-up:
+
+1. Restore message-copy hover semantics without regressing command/code actions.
+   Message copy buttons should only materialize while the message header is hovered, while command/code action clusters stay visible where the old UI kept them visible.
+2. Fix overlay cluster bounds against the painted block geometry.
+   The action-cluster positioning math needs to account for the real rendered width, including status pills, so command actions stay inside the row bounds.
+3. Move scroll-to-bottom visibility off cached frame state.
+   The button should render from the live follow-output flag so it appears as soon as the surface leaves the bottom.
+4. Make the scroll-to-bottom control consume pointer input.
+   The overlay wrapper and button click path need to stop propagation so the timeline row underneath does not also expand or navigate.
+5. Re-run full workspace verification, then commit and push once the follow-up slice is green.
 
 ## Validation and Follow-up
 

@@ -69,6 +69,7 @@ impl DiffViewer {
         let surface = self.current_ai_workspace_surface_snapshot()?;
         let scroll_handle = self.ai_workspace_surface_scroll_handle.clone();
         let viewport_height_px = surface.viewport.total_surface_height_px;
+        let hovered_block_id = self.ai_hovered_workspace_block_id.clone();
         let workspace_root = self
             .ai_workspace_cwd()
             .or_else(|| self.selected_git_workspace_root())
@@ -109,6 +110,7 @@ impl DiffViewer {
                                 cx.entity(),
                                 &surface,
                                 viewport_width_px.max(1),
+                                hovered_block_id.as_deref(),
                                 AiWorkspaceOverlayColors {
                                     muted_foreground: cx.theme().muted_foreground,
                                     border: cx.theme().border,
@@ -129,11 +131,14 @@ fn ai_workspace_overlay_action_clusters(
     view: Entity<DiffViewer>,
     surface: &ai_workspace_session::AiWorkspaceSurfaceSnapshot,
     viewport_width_px: usize,
+    hovered_block_id: Option<&str>,
     colors: AiWorkspaceOverlayColors,
 ) -> Vec<AnyElement> {
     let mut actions = Vec::new();
 
     for block in &surface.viewport.visible_blocks {
+        let message_copy = block.block.copy_tooltip == Some("Copy message");
+        let block_hovered = hovered_block_id == Some(block.block.id.as_str());
         let mut block_buttons = Vec::new();
         if let Some(command) = block.block.run_in_terminal_command.clone() {
             block_buttons.push(AiWorkspaceOverlayButton {
@@ -145,7 +150,9 @@ fn ai_workspace_overlay_action_clusters(
                 },
             });
         }
-        if let Some(copy_text) = block.block.copy_text.clone() {
+        if let Some(copy_text) = block.block.copy_text.clone()
+            && (!message_copy || block_hovered)
+        {
             block_buttons.push(AiWorkspaceOverlayButton {
                 id: format!("ai-workspace-copy-{}", block.block.id),
                 tooltip: block.block.copy_tooltip.unwrap_or("Copy"),
@@ -168,6 +175,16 @@ fn ai_workspace_overlay_action_clusters(
                 viewport_width_px,
                 additional_top_px,
                 block_buttons.len(),
+                block
+                    .block
+                    .status_label
+                    .as_deref()
+                    .filter(|_| {
+                        matches!(
+                            block.block.action_area,
+                            ai_workspace_session::AiWorkspaceBlockActionArea::Preview
+                        )
+                    }),
                 matches!(
                     block.block.action_area,
                     ai_workspace_session::AiWorkspaceBlockActionArea::Header
@@ -224,6 +241,7 @@ fn ai_workspace_overlay_action_clusters(
                         * copy_region.line_range.start,
                 ),
                 1,
+                None,
                 false,
             );
             actions.push(ai_workspace_overlay_button_cluster(
@@ -359,12 +377,15 @@ fn ai_workspace_overlay_cluster_position(
     viewport_width_px: usize,
     additional_top_px: usize,
     button_count: usize,
+    status_label: Option<&str>,
     reserve_toggle_space: bool,
 ) -> (usize, usize) {
-    const BUTTON_WIDTH_PX: usize = 22;
-    const BUTTON_GAP_PX: usize = 4;
-    const CLUSTER_PADDING_PX: usize = 8;
-    const BUTTON_RIGHT_PADDING_PX: usize = 4;
+    const BUTTON_WIDTH_PX: usize = 28;
+    const BUTTON_GAP_PX: usize = 6;
+    const CLUSTER_PADDING_PX: usize = 10;
+    const BUTTON_RIGHT_PADDING_PX: usize = 10;
+    const STATUS_CHAR_WIDTH_PX: usize = 9;
+    const STATUS_PILL_MIN_WIDTH_PX: usize = 64;
 
     let lane_max_width = if block.block.role == ai_workspace_session::AiWorkspaceBlockRole::User {
         crate::app::ai_workspace_timeline_projection::AI_WORKSPACE_USER_CONTENT_LANE_MAX_WIDTH_PX
@@ -381,19 +402,28 @@ fn ai_workspace_overlay_cluster_position(
             .saturating_sub(block.text_layout.block_width_px),
         _ => lane_x.saturating_add(usize::from(block.block.nested) * 16),
     };
+    let block_right_px = block_x.saturating_add(block.text_layout.block_width_px);
     let cluster_width = CLUSTER_PADDING_PX
         .saturating_add(button_count * BUTTON_WIDTH_PX)
         .saturating_add(button_count.saturating_sub(1) * BUTTON_GAP_PX)
+        .saturating_add(status_label.map_or(0, |label| {
+            STATUS_PILL_MIN_WIDTH_PX.max(
+                label
+                    .chars()
+                    .count()
+                    .saturating_mul(STATUS_CHAR_WIDTH_PX)
+                    .saturating_add(32),
+            ) + BUTTON_GAP_PX
+        }))
         .saturating_add(CLUSTER_PADDING_PX);
     let toggle_reserve = if reserve_toggle_space && block.block.expandable {
-        28
+        36
     } else {
         0
     };
 
     (
-        block_x
-            .saturating_add(block.text_layout.block_width_px)
+        block_right_px
             .saturating_sub(cluster_width + BUTTON_RIGHT_PADDING_PX + toggle_reserve),
         block.top_px.saturating_add(4).saturating_add(additional_top_px),
     )

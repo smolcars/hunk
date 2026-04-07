@@ -476,7 +476,6 @@ impl DiffViewer {
             timeline_visible_turn_count,
             timeline_hidden_turn_count,
             timeline_visible_row_ids: timeline_visible_row_ids.into(),
-            timeline_follow_output: self.ai_timeline_follow_output,
             inline_review_selected_row_id,
             timeline_loading,
             show_select_thread_empty_state,

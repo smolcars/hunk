@@ -383,7 +383,6 @@ struct AiVisibleFrameState {
     timeline_visible_turn_count: usize,
     timeline_hidden_turn_count: usize,
     timeline_visible_row_ids: Arc<[String]>,
-    timeline_follow_output: bool,
     inline_review_selected_row_id: Option<String>,
     timeline_loading: bool,
     show_select_thread_empty_state: bool,
