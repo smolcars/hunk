@@ -279,6 +279,34 @@ fn ai_workspace_overlay_button_cluster(
     border_color: gpui::Hsla,
     background_color: gpui::Hsla,
 ) -> AnyElement {
+    let message_copy_only = spec.status_label.is_none()
+        && spec.buttons.len() == 1
+        && matches!(
+            spec.buttons.first().map(|button| &button.kind),
+            Some(AiWorkspaceOverlayButtonKind::Copy {
+                message_copy: true,
+                ..
+            })
+        );
+
+    if message_copy_only {
+        let button = spec
+            .buttons
+            .into_iter()
+            .next()
+            .expect("message copy overlay should include one button");
+        return div()
+            .absolute()
+            .left(px(spec.left_px as f32))
+            .top(px(spec.top_px as f32))
+            .child(ai_workspace_overlay_action_button(
+                view,
+                button,
+                muted_foreground,
+            ))
+            .into_any_element();
+    }
+
     div()
         .absolute()
         .left(px(spec.left_px as f32))
@@ -309,56 +337,52 @@ fn ai_workspace_overlay_button_cluster(
                     )
                 })
                 .children(spec.buttons.into_iter().map(|button| {
-                    let view = view.clone();
-                    let button_id = button.id;
-                    let tooltip = button.tooltip;
-                    let kind = button.kind;
-                    Button::new(button_id)
-                        .ghost()
-                        .compact()
-                        .rounded(px(7.0))
-                        .icon(match &kind {
-                            AiWorkspaceOverlayButtonKind::Copy { .. } => {
-                                Icon::new(IconName::Copy).size(px(12.0))
-                            }
-                            AiWorkspaceOverlayButtonKind::RunInTerminal { .. } => {
-                                Icon::new(IconName::SquareTerminal).size(px(13.0))
-                            }
-                        })
-                        .text_color(muted_foreground)
-                        .min_w(px(22.0))
-                        .h(px(20.0))
-                        .tooltip(tooltip)
-                        .on_click(move |_, window, cx| {
-                            view.update(cx, |this, cx| match &kind {
-                                AiWorkspaceOverlayButtonKind::Copy {
-                                    text,
-                                    success_message,
-                                    message_copy,
-                                } => {
-                                    if *message_copy {
-                                        this.ai_copy_message_action(text.clone(), window, cx);
-                                    } else {
-                                        this.ai_copy_text_action(
-                                            text.clone(),
-                                            success_message,
-                                            window,
-                                            cx,
-                                        );
-                                    }
-                                }
-                                AiWorkspaceOverlayButtonKind::RunInTerminal { command, cwd } => {
-                                    this.ai_run_command_in_terminal(
-                                        cwd.clone(),
-                                        command.clone(),
-                                        cx,
-                                    );
-                                }
-                            });
-                        })
+                    ai_workspace_overlay_action_button(view.clone(), button, muted_foreground)
                 })),
         )
         .into_any_element()
+}
+
+fn ai_workspace_overlay_action_button(
+    view: Entity<DiffViewer>,
+    button: AiWorkspaceOverlayButton,
+    muted_foreground: gpui::Hsla,
+) -> Button {
+    let button_id = button.id;
+    let tooltip = button.tooltip;
+    let kind = button.kind;
+    Button::new(button_id)
+        .ghost()
+        .compact()
+        .rounded(px(7.0))
+        .icon(match &kind {
+            AiWorkspaceOverlayButtonKind::Copy { .. } => Icon::new(IconName::Copy).size(px(12.0)),
+            AiWorkspaceOverlayButtonKind::RunInTerminal { .. } => {
+                Icon::new(IconName::SquareTerminal).size(px(13.0))
+            }
+        })
+        .text_color(muted_foreground)
+        .min_w(px(22.0))
+        .h(px(20.0))
+        .tooltip(tooltip)
+        .on_click(move |_, window, cx| {
+            view.update(cx, |this, cx| match &kind {
+                AiWorkspaceOverlayButtonKind::Copy {
+                    text,
+                    success_message,
+                    message_copy,
+                } => {
+                    if *message_copy {
+                        this.ai_copy_message_action(text.clone(), window, cx);
+                    } else {
+                        this.ai_copy_text_action(text.clone(), success_message, window, cx);
+                    }
+                }
+                AiWorkspaceOverlayButtonKind::RunInTerminal { command, cwd } => {
+                    this.ai_run_command_in_terminal(cwd.clone(), command.clone(), cx);
+                }
+            });
+        })
 }
 
 fn ai_workspace_preview_top_px(block: &ai_workspace_session::AiWorkspaceViewportBlock) -> usize {
