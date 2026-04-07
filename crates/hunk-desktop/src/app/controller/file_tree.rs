@@ -110,15 +110,50 @@ impl DiffViewer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.workspace_view_mode.supports_sidebar_tree() {
-            return;
-        }
-        self.toggle_sidebar_tree(cx);
+        self.toggle_active_sidebar(cx);
     }
 
-    pub(super) fn toggle_sidebar_tree(&mut self, cx: &mut Context<Self>) {
-        self.sidebar_collapsed = !self.sidebar_collapsed;
-        if !self.sidebar_collapsed && self.repo_tree.nodes.is_empty() && !self.repo_tree.loading {
+    fn sidebar_collapsed_for_mode(&self, mode: WorkspaceViewMode) -> Option<bool> {
+        mode.collapsible_sidebar_kind()
+            .map(|kind| self.sidebar_collapsed_for_kind(kind))
+    }
+
+    fn sidebar_collapsed_for_kind(&self, kind: WorkspaceSidebarKind) -> bool {
+        match kind {
+            WorkspaceSidebarKind::Files => self.files_sidebar_collapsed,
+            WorkspaceSidebarKind::Review => self.review_sidebar_collapsed,
+            WorkspaceSidebarKind::AiThreads => self.ai_thread_sidebar_collapsed,
+        }
+    }
+
+    fn set_sidebar_collapsed_for_kind(&mut self, kind: WorkspaceSidebarKind, collapsed: bool) {
+        match kind {
+            WorkspaceSidebarKind::Files => self.files_sidebar_collapsed = collapsed,
+            WorkspaceSidebarKind::Review => self.review_sidebar_collapsed = collapsed,
+            WorkspaceSidebarKind::AiThreads => self.ai_thread_sidebar_collapsed = collapsed,
+        }
+    }
+
+    pub(crate) fn active_sidebar_collapsed(&self) -> Option<bool> {
+        self.sidebar_collapsed_for_mode(self.workspace_view_mode)
+    }
+
+    pub(crate) fn active_sidebar_label(&self) -> Option<&'static str> {
+        self.workspace_view_mode
+            .collapsible_sidebar_kind()
+            .map(WorkspaceSidebarKind::label)
+    }
+
+    pub(super) fn toggle_active_sidebar(&mut self, cx: &mut Context<Self>) {
+        if let Some(kind) = self.workspace_view_mode.collapsible_sidebar_kind() {
+            self.toggle_sidebar_kind(kind, cx);
+        }
+    }
+
+    fn toggle_sidebar_kind(&mut self, kind: WorkspaceSidebarKind, cx: &mut Context<Self>) {
+        let collapsed = !self.sidebar_collapsed_for_kind(kind);
+        self.set_sidebar_collapsed_for_kind(kind, collapsed);
+        if kind.uses_repo_tree() && !collapsed && self.repo_tree.nodes.is_empty() && !self.repo_tree.loading {
             self.request_repo_tree_reload(cx);
         }
         cx.notify();
@@ -176,7 +211,7 @@ impl DiffViewer {
     pub(super) fn set_workspace_view_mode(&mut self, mode: WorkspaceViewMode, cx: &mut Context<Self>) {
         let previous_mode = self.workspace_view_mode;
         if previous_mode == mode {
-            if !self.sidebar_collapsed
+            if self.sidebar_collapsed_for_mode(mode) == Some(false)
                 && mode.supports_sidebar_tree()
                 && self.repo_tree.nodes.is_empty()
                 && !self.repo_tree.loading

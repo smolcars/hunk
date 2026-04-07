@@ -176,8 +176,8 @@ impl SettingsShortcutInputs {
             },
             SettingsShortcutRow {
                 id: "toggle-sidebar-tree",
-                label: "Toggle File Tree",
-                hint: "Collapses or expands the left file tree pane.",
+                label: "Toggle Sidebar",
+                hint: "Collapses or expands the left sidebar in Files, Review, and AI views.",
                 input_state: self.toggle_sidebar_tree.clone(),
             },
             SettingsShortcutRow {

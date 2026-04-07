@@ -4,8 +4,8 @@ mod workspace_view;
 use workspace_view::{
     SHORTCUT_CONTEXT_AI_WORKSPACE, SHORTCUT_CONTEXT_FILES_WORKSPACE,
     SHORTCUT_CONTEXT_GIT_WORKSPACE, SHORTCUT_CONTEXT_REVIEW_WORKSPACE,
-    SHORTCUT_CONTEXT_SELECTABLE_WORKSPACE, SHORTCUT_CONTEXT_TREE_WORKSPACE, WorkspaceSwitchAction,
-    WorkspaceViewMode,
+    SHORTCUT_CONTEXT_SELECTABLE_WORKSPACE, SHORTCUT_CONTEXT_TREE_WORKSPACE, WorkspaceSidebarKind,
+    WorkspaceSwitchAction, WorkspaceViewMode,
 };
 
 #[test]
@@ -52,6 +52,36 @@ fn only_review_mode_enables_diff_stream() {
     assert!(WorkspaceViewMode::Diff.supports_diff_stream());
     assert!(!WorkspaceViewMode::GitWorkspace.supports_sidebar_tree());
     assert!(!WorkspaceViewMode::GitWorkspace.supports_diff_stream());
+}
+
+#[test]
+fn collapsible_sidebar_kind_is_distinct_per_workspace() {
+    assert_eq!(
+        WorkspaceViewMode::Files.collapsible_sidebar_kind(),
+        Some(WorkspaceSidebarKind::Files)
+    );
+    assert_eq!(
+        WorkspaceViewMode::Diff.collapsible_sidebar_kind(),
+        Some(WorkspaceSidebarKind::Review)
+    );
+    assert_eq!(
+        WorkspaceViewMode::Ai.collapsible_sidebar_kind(),
+        Some(WorkspaceSidebarKind::AiThreads)
+    );
+    assert_eq!(
+        WorkspaceViewMode::GitWorkspace.collapsible_sidebar_kind(),
+        None
+    );
+}
+
+#[test]
+fn workspace_sidebar_kinds_expose_expected_behavior() {
+    assert_eq!(WorkspaceSidebarKind::Files.label(), "file tree");
+    assert_eq!(WorkspaceSidebarKind::Review.label(), "file tree");
+    assert_eq!(WorkspaceSidebarKind::AiThreads.label(), "threads");
+    assert!(WorkspaceSidebarKind::Files.uses_repo_tree());
+    assert!(WorkspaceSidebarKind::Review.uses_repo_tree());
+    assert!(!WorkspaceSidebarKind::AiThreads.uses_repo_tree());
 }
 
 #[test]

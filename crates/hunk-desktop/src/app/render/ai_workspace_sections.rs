@@ -159,7 +159,22 @@ impl DiffViewer {
             .key_context("AiWorkspace")
             .on_action(cx.listener(Self::ai_interrupt_selected_turn_action))
             .child(
-                div().flex_1().w_full().min_h_0().child(
+                div().flex_1().w_full().min_h_0().child(if self.ai_thread_sidebar_collapsed {
+                    v_flex()
+                        .size_full()
+                        .min_h_0()
+                        .child(self.render_ai_timeline_panel(
+                            view.clone(),
+                            sections.timeline,
+                            is_dark,
+                            cx,
+                        ))
+                        .child(sections.composer_panel)
+                        .when_some(sections.terminal_panel, |this, terminal_panel| {
+                            this.child(terminal_panel)
+                        })
+                        .into_any_element()
+                } else {
                     h_resizable("hunk-ai-workspace")
                         .child(
                             resizable_panel()
@@ -188,8 +203,9 @@ impl DiffViewer {
                                         this.child(terminal_panel)
                                     }),
                             ),
-                        ),
-                ),
+                        )
+                        .into_any_element()
+                }),
             )
             .into_any_element()
     }

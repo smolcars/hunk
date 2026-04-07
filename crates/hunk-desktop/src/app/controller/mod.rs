@@ -13,6 +13,7 @@ use crate::app::ai_thread_flow::{
     ai_commit_message_for_thread, try_ai_branch_name_for_prompt, try_ai_commit_message,
 };
 use crate::app::markdown_links::open_url_in_browser;
+use crate::app::workspace_view::WorkspaceSidebarKind;
 
 use super::data::{
     DiffSegmentQuality, DiffStream, DiffStreamRowKind, RepoTreeNodeKind, build_changed_files_tree,

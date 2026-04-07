@@ -44,7 +44,7 @@ fn validate_keyboard_shortcuts(shortcuts: &KeyboardShortcuts) -> Result<(), Stri
     validate_shortcut_list("Next File", &shortcuts.next_file)?;
     validate_shortcut_list("Previous File", &shortcuts.previous_file)?;
     validate_shortcut_list("View Review File", &shortcuts.view_current_review_file)?;
-    validate_shortcut_list("Toggle File Tree", &shortcuts.toggle_sidebar_tree)?;
+    validate_shortcut_list("Toggle Sidebar", &shortcuts.toggle_sidebar_tree)?;
     validate_shortcut_list("Switch to Files View", &shortcuts.switch_to_files_view)?;
     validate_shortcut_list("Switch to Review View", &shortcuts.switch_to_review_view)?;
     validate_shortcut_list("Switch to Git View", &shortcuts.switch_to_git_view)?;

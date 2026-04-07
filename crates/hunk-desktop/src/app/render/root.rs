@@ -2,12 +2,13 @@ impl DiffViewer {
     fn render_tree_workspace_screen(
         &mut self,
         resize_id: &'static str,
+        sidebar_collapsed: bool,
         surface: AnyElement,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         div()
             .size_full()
-            .child(if self.sidebar_collapsed {
+            .child(if sidebar_collapsed {
                 surface
             } else {
                 h_resizable(resize_id)
@@ -114,7 +115,12 @@ impl DiffViewer {
         }
 
         let surface = self.render_file_editor(window, cx);
-        self.render_tree_workspace_screen("hunk-file-workspace", surface, cx)
+        self.render_tree_workspace_screen(
+            "hunk-file-workspace",
+            self.files_sidebar_collapsed,
+            surface,
+            cx,
+        )
     }
 
     fn render_git_workspace_screen(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -289,14 +295,16 @@ impl DiffViewer {
                 h_flex()
                     .items_center()
                     .gap_1()
-                    .when(self.workspace_view_mode.supports_sidebar_tree(), |this| {
+                    .when(self.active_sidebar_collapsed().is_some(), |this| {
                         this.child({
                             let view = view.clone();
+                            let sidebar_collapsed = self.active_sidebar_collapsed().unwrap_or(false);
+                            let sidebar_label = self.active_sidebar_label().unwrap_or("sidebar");
                             let mut button = Button::new("footer-toggle-sidebar")
                                 .compact()
                                 .rounded(px(7.0))
                                 .icon(
-                                    Icon::new(if self.sidebar_collapsed {
+                                    Icon::new(if sidebar_collapsed {
                                         IconName::ChevronRight
                                     } else {
                                         IconName::ChevronLeft
@@ -305,18 +313,18 @@ impl DiffViewer {
                                 )
                                 .min_w(px(30.0))
                                 .h(px(28.0))
-                                .tooltip(if self.sidebar_collapsed {
-                                    "Show file tree (Cmd/Ctrl+B)"
+                                .tooltip(if sidebar_collapsed {
+                                    format!("Show {sidebar_label} (Cmd/Ctrl+B)")
                                 } else {
-                                    "Hide file tree (Cmd/Ctrl+B)"
+                                    format!("Hide {sidebar_label} (Cmd/Ctrl+B)")
                                 })
                                 .on_click(move |_, window, cx| {
                                     view.update(cx, |this, cx| {
-                                        this.toggle_sidebar_tree(cx);
+                                        this.toggle_active_sidebar(cx);
                                         this.focus_handle.focus(window, cx);
                                     });
                                 });
-                            if self.sidebar_collapsed {
+                            if sidebar_collapsed {
                                 button = button.outline();
                             } else {
                                 button = button.primary();

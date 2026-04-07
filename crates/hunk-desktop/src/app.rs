@@ -485,6 +485,13 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
             Some(SHORTCUT_CONTEXT_TREE_WORKSPACE),
         )
     }));
+    bindings.extend(shortcuts.toggle_sidebar_tree.iter().map(|shortcut| {
+        KeyBinding::new(
+            shortcut.as_str(),
+            ToggleSidebarTree,
+            Some(WorkspaceViewMode::Ai.shortcut_context()),
+        )
+    }));
     bindings.extend(
         shortcuts
             .switch_to_files_view
@@ -1598,7 +1605,9 @@ struct DiffViewer {
     ai_perf_metrics: RefCell<AiPerfMetrics>,
     repo_discovery_failed: bool,
     error_message: Option<String>,
-    sidebar_collapsed: bool,
+    files_sidebar_collapsed: bool,
+    review_sidebar_collapsed: bool,
+    ai_thread_sidebar_collapsed: bool,
     repo_tree: RepoTreeState,
     repo_tree_inline_edit: Option<RepoTreeInlineEditState>,
     repo_tree_context_menu: Option<RepoTreeContextMenuState>,
