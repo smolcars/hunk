@@ -161,6 +161,13 @@ Confirmed remaining parity gaps:
 - user rows lost the old copy-message affordance
 - expanded command transcript rows lost the old copy-command-transcript affordance
 - markdown code fences lost the old copy-code-block affordance
+- assistant and user message copy affordances are still too ephemeral; they need to stay visibly present instead of effectively appearing only on hover
+- disclosure-style rows such as commands, diff summaries, and file edits lost the old row-wide hover highlight treatment
+- expanded command action buttons are positioned too high and can overlap the disclosure chevron hit area, which makes copy unreliable
+- command execution rows still miss the old `Run in terminal` action in the expanded transcript header
+- in-progress command execution rows still miss the old running/streaming status indicator treatment
+- pending steer rows still miss the old `Waiting to steer running turn...` indicator
+- queued user messages still miss the old `queued, waiting for current turn to finish.` status treatment
 
 Implementation plan for the reopened slice:
 
@@ -173,6 +180,18 @@ Implementation plan for the reopened slice:
 4. Render the missing copy affordances on top of the painted surface without reintroducing the old list renderer.
    The surface remains paint-first for text/content, while a small overlay action layer handles the interactive copy buttons for visible blocks/code regions.
 5. Re-run full workspace verification, then commit and push only after the parity slice is green.
+
+Implementation plan for the current follow-up:
+
+1. Restore stable action affordances in the overlay layer.
+   Message copy needs to remain visibly present, command transcript actions need a dedicated preview-header action lane, and the overlay positions need to stop colliding with disclosure toggles.
+2. Restore row hover feedback in the painted surface.
+   The surface needs block-level hover tracking so disclosure and diff rows can reuse the old dark/light hover shading without bringing back per-row GPUI widgets.
+3. Restore command-row action parity.
+   Expanded command execution rows need the old transcript header treatment again: status indicator, `Run in terminal`, and transcript copy.
+4. Restore transient user-state parity.
+   Pending steer and queued user messages need the old waiting/queued status indicators projected through the surface model so users can tell why a message has not executed yet.
+5. Re-run full workspace verification, then commit and push once the parity slice is green.
 
 ## Validation and Follow-up
 

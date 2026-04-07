@@ -13,9 +13,9 @@ use std::sync::Arc;
 use ai_workspace_session::{
     AI_WORKSPACE_SURFACE_BLOCK_BOTTOM_PADDING_PX, AI_WORKSPACE_SURFACE_BLOCK_GAP_PX,
     AI_WORKSPACE_SURFACE_BLOCK_SIDE_PADDING_PX, AI_WORKSPACE_SURFACE_BLOCK_TOP_PADDING_PX,
-    AiWorkspaceBlock, AiWorkspaceBlockKind, AiWorkspaceBlockRole, AiWorkspacePreviewColorRole,
-    AiWorkspaceSelection, AiWorkspaceSelectionRegion, AiWorkspaceSession, AiWorkspaceSourceRow,
-    ai_workspace_text_layout_for_block,
+    AiWorkspaceBlock, AiWorkspaceBlockActionArea, AiWorkspaceBlockKind, AiWorkspaceBlockRole,
+    AiWorkspacePreviewColorRole, AiWorkspaceSelection, AiWorkspaceSelectionRegion,
+    AiWorkspaceSession, AiWorkspaceSourceRow, ai_workspace_text_layout_for_block,
 };
 
 fn block(id: &str, kind: AiWorkspaceBlockKind, preview: &str) -> AiWorkspaceBlock {
@@ -45,9 +45,14 @@ fn block(id: &str, kind: AiWorkspaceBlockKind, preview: &str) -> AiWorkspaceBloc
         ),
         title: id.to_string(),
         preview: preview.to_string(),
+        action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
         copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
         last_sequence: 1,
     }
 }
@@ -170,9 +175,14 @@ fn surface_snapshot_supports_all_block_kinds_and_roles() {
                 expanded: true,
                 title: "You".to_string(),
                 preview: "prompt".to_string(),
+                action_area: AiWorkspaceBlockActionArea::Header,
                 copy_text: None,
                 copy_tooltip: None,
                 copy_success_message: None,
+                run_in_terminal_command: None,
+                run_in_terminal_cwd: None,
+                status_label: None,
+                status_color_role: None,
                 last_sequence: 1,
             },
             block("row-group", AiWorkspaceBlockKind::Group, "group"),
@@ -261,9 +271,14 @@ fn narrower_widths_increase_wrapped_height() {
         expanded: true,
         title: "Assistant".to_string(),
         preview: "This is a longer assistant message preview that should wrap across multiple lines when the surface width gets narrower.".to_string(),
+        action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
         copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
         last_sequence: 1,
     };
 
@@ -292,9 +307,14 @@ fn message_blocks_are_no_longer_limited_to_six_preview_lines() {
         expanded: true,
         title: "Assistant".to_string(),
         preview,
+        action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
         copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
         last_sequence: 1,
     };
 
@@ -321,9 +341,14 @@ fn expanded_tool_blocks_take_more_height_than_collapsed_tool_blocks() {
         expanded: false,
         title: "Command".to_string(),
         preview: preview.clone(),
+        action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
         copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
         last_sequence: 1,
     };
     let expanded = AiWorkspaceBlock {
@@ -352,9 +377,14 @@ fn very_narrow_surface_widths_do_not_panic() {
         expanded: true,
         title: "Assistant".to_string(),
         preview: "narrow viewport".to_string(),
+        action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
         copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
         last_sequence: 1,
     };
     let mut session =
@@ -380,9 +410,14 @@ fn markdown_message_layout_preserves_heading_links_and_inline_styles() {
         expanded: true,
         title: "Assistant".to_string(),
         preview: "# Heading\nA **bold** [link](https://example.com) with `code`.".to_string(),
+        action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
         copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
         last_sequence: 1,
     };
 
@@ -429,9 +464,14 @@ fn diff_summary_layout_marks_filename_and_line_stats_with_color_roles() {
         expanded: false,
         title: "Edited workspace_surface.rs  +1 -12".to_string(),
         preview: "2 files changed, +3 -12".to_string(),
+        action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
         copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
         last_sequence: 1,
     };
 
@@ -475,9 +515,14 @@ fn plan_layout_marks_in_progress_steps_with_accent_and_completed_steps_as_muted(
         title: "Updated Plan".to_string(),
         preview: "[>] Implement copy buttons\n[x] Restore diff colors\n[ ] Re-run verification"
             .to_string(),
+        action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
         copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
         last_sequence: 1,
     };
 
@@ -513,9 +558,14 @@ fn markdown_code_blocks_expose_copy_regions() {
         expanded: true,
         title: "Assistant".to_string(),
         preview: "```rust\nfn main() {\n    println!(\"hi\");\n}\n```".to_string(),
+        action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
         copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
         last_sequence: 1,
     };
 
@@ -524,4 +574,70 @@ fn markdown_code_blocks_expose_copy_regions() {
     assert_eq!(layout.preview_copy_regions.len(), 1);
     assert_eq!(layout.preview_copy_regions[0].tooltip, "Copy code block");
     assert!(layout.preview_copy_regions[0].text.contains("fn main()"));
+}
+
+#[test]
+fn title_layout_marks_pending_and_streaming_status_text_with_accent() {
+    let pending_block = AiWorkspaceBlock {
+        id: "row-pending".to_string(),
+        source_row_id: "row-pending".to_string(),
+        role: AiWorkspaceBlockRole::User,
+        kind: AiWorkspaceBlockKind::Message,
+        nested: false,
+        mono_preview: false,
+        open_review_tab: false,
+        expandable: false,
+        expanded: true,
+        title: "You  Waiting to steer running turn...".to_string(),
+        preview: "prompt".to_string(),
+        action_area: AiWorkspaceBlockActionArea::Header,
+        copy_text: None,
+        copy_tooltip: None,
+        copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: Some("Waiting to steer running turn...".to_string()),
+        status_color_role: Some(AiWorkspacePreviewColorRole::Accent),
+        last_sequence: 1,
+    };
+    let streaming_block = AiWorkspaceBlock {
+        id: "row-streaming".to_string(),
+        source_row_id: "row-streaming".to_string(),
+        role: AiWorkspaceBlockRole::Tool,
+        kind: AiWorkspaceBlockKind::Tool,
+        nested: false,
+        mono_preview: true,
+        open_review_tab: false,
+        expandable: true,
+        expanded: true,
+        title: "Ran command  cargo test  streaming".to_string(),
+        preview: "$ cargo test".to_string(),
+        action_area: AiWorkspaceBlockActionArea::Preview,
+        copy_text: None,
+        copy_tooltip: None,
+        copy_success_message: None,
+        run_in_terminal_command: Some("cargo test".to_string()),
+        run_in_terminal_cwd: None,
+        status_label: Some("streaming".to_string()),
+        status_color_role: Some(AiWorkspacePreviewColorRole::Accent),
+        last_sequence: 1,
+    };
+
+    let pending_layout = ai_workspace_text_layout_for_block(&pending_block, 640);
+    let streaming_layout = ai_workspace_text_layout_for_block(&streaming_block, 640);
+
+    assert!(
+        pending_layout
+            .title_line_style_spans
+            .iter()
+            .flatten()
+            .any(|span| span.color_role == Some(AiWorkspacePreviewColorRole::Accent))
+    );
+    assert!(
+        streaming_layout
+            .title_line_style_spans
+            .iter()
+            .flatten()
+            .any(|span| span.color_role == Some(AiWorkspacePreviewColorRole::Accent))
+    );
 }

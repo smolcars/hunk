@@ -103,9 +103,14 @@
             expanded: true,
             title: "Assistant".to_string(),
             preview: "Hello from the workspace surface.".to_string(),
+            action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
             copy_text: None,
             copy_tooltip: None,
             copy_success_message: None,
+            run_in_terminal_command: None,
+            run_in_terminal_cwd: None,
+            status_label: None,
+            status_color_role: None,
             last_sequence: 1,
         };
 

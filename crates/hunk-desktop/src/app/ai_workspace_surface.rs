@@ -86,6 +86,7 @@ impl Element for AiWorkspaceSurfaceElement {
         let hitbox = layout.hitbox.clone();
         let snapshot = self.snapshot.clone();
         let view = self.view.clone();
+        let view_for_mouse_down = view.clone();
         let workspace_root = self.workspace_root.clone();
 
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
@@ -96,7 +97,9 @@ impl Element for AiWorkspaceSurfaceElement {
                 return;
             }
 
-            view.read(cx).record_ai_workspace_surface_hit_test();
+            view_for_mouse_down
+                .read(cx)
+                .record_ai_workspace_surface_hit_test();
             let Some(hit) = ai_workspace_hit_test(
                 snapshot.as_ref(),
                 event.position,
@@ -106,7 +109,7 @@ impl Element for AiWorkspaceSurfaceElement {
                 return;
             };
 
-            view.update(cx, |this, cx| {
+            view_for_mouse_down.update(cx, |this, cx| {
                 if let Some(toggle_row_id) = hit.toggle_row_id.clone()
                     && event.button == MouseButton::Left
                 {
@@ -151,13 +154,36 @@ impl Element for AiWorkspaceSurfaceElement {
         let view_for_mouse_move = self.view.clone();
         let workspace_root_for_mouse_move = self.workspace_root.clone();
         let hitbox_for_mouse_move = layout.hitbox.clone();
-        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _window, cx| {
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
             if phase != DispatchPhase::Bubble {
                 return;
             }
 
             view_for_mouse_move.update(cx, |this, _| {
                 this.ai_mark_pressed_markdown_link_dragged(event.position);
+            });
+
+            if !hitbox_for_mouse_move.is_hovered(window) {
+                view_for_mouse_move.update(cx, |this, cx| {
+                    if this.ai_hovered_workspace_block_id.take().is_some() {
+                        cx.notify();
+                    }
+                });
+                return;
+            }
+
+            let hovered_block_id = ai_workspace_hit_test(
+                snapshot_for_mouse_move.as_ref(),
+                event.position,
+                hitbox_for_mouse_move.bounds,
+                workspace_root_for_mouse_move.as_deref(),
+            )
+            .map(|hit| hit.selection.block_id);
+            view_for_mouse_move.update(cx, |this, cx| {
+                if this.ai_hovered_workspace_block_id != hovered_block_id {
+                    this.ai_hovered_workspace_block_id = hovered_block_id;
+                    cx.notify();
+                }
             });
 
             let dragging_selection = view_for_mouse_move
@@ -245,6 +271,8 @@ impl Element for AiWorkspaceSurfaceElement {
                     self.selection
                         .as_ref()
                         .is_some_and(|selection| selection.matches_block(block.block.id.as_str())),
+                    view.read(cx).ai_hovered_workspace_block_id.as_deref()
+                        == Some(block.block.id.as_str()),
                     self.view.clone(),
                     self.ui_font_family.clone(),
                     self.mono_font_family.clone(),

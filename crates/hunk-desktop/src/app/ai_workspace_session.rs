@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -34,6 +35,12 @@ pub(crate) enum AiWorkspaceBlockKind {
     Tool,
     Status,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AiWorkspaceBlockActionArea {
+    Header,
+    Preview,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AiWorkspaceBlock {
     pub(crate) id: String,
@@ -47,9 +54,14 @@ pub(crate) struct AiWorkspaceBlock {
     pub(crate) expanded: bool,
     pub(crate) title: String,
     pub(crate) preview: String,
+    pub(crate) action_area: AiWorkspaceBlockActionArea,
     pub(crate) copy_text: Option<String>,
     pub(crate) copy_tooltip: Option<&'static str>,
     pub(crate) copy_success_message: Option<&'static str>,
+    pub(crate) run_in_terminal_command: Option<String>,
+    pub(crate) run_in_terminal_cwd: Option<PathBuf>,
+    pub(crate) status_label: Option<String>,
+    pub(crate) status_color_role: Option<AiWorkspacePreviewColorRole>,
     pub(crate) last_sequence: u64,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -580,13 +592,32 @@ fn ai_workspace_title_style_spans(
     title_lines: &[String],
     text_width_px: usize,
 ) -> Vec<Vec<AiWorkspacePreviewStyleSpan>> {
-    if block.kind != AiWorkspaceBlockKind::DiffSummary {
-        return vec![Vec::new(); title_lines.len()];
+    if block.kind == AiWorkspaceBlockKind::DiffSummary {
+        return title_lines
+            .iter()
+            .map(|line| ai_workspace_diff_summary_line_style_spans(line, text_width_px))
+            .collect();
     }
 
     title_lines
         .iter()
-        .map(|line| ai_workspace_diff_summary_line_style_spans(line, text_width_px))
+        .map(|line| {
+            let mut spans = Vec::new();
+            if let Some(status) = block.status_label.as_deref()
+                && let Some(start) = line.rfind(status)
+            {
+                spans.push(AiWorkspacePreviewStyleSpan {
+                    range: start..start.saturating_add(status.len()),
+                    color_role: block.status_color_role,
+                    bold: true,
+                    italic: false,
+                    strikethrough: false,
+                    code: false,
+                    link: false,
+                });
+            }
+            spans
+        })
         .collect()
 }
 

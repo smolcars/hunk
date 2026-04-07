@@ -149,6 +149,7 @@ pub(crate) fn paint_ai_workspace_block(
     scroll_top_px: usize,
     block: &ai_workspace_session::AiWorkspaceViewportBlock,
     selected: bool,
+    hovered: bool,
     view: Entity<DiffViewer>,
     ui_font_family: SharedString,
     mono_font_family: SharedString,
@@ -157,7 +158,14 @@ pub(crate) fn paint_ai_workspace_block(
     let render_layout = ai_workspace_block_render_layout(bounds, scroll_top_px, block);
     let is_dark = cx.theme().mode.is_dark();
     let (background, border, accent, title_color, preview_color, link_color) =
-        ai_workspace_block_palette(block.block.kind, block.block.role, selected, is_dark, cx);
+        ai_workspace_block_palette(
+            block.block.kind,
+            block.block.role,
+            selected,
+            hovered,
+            is_dark,
+            cx,
+        );
 
     if background.a > 0.0 {
         window.paint_quad(fill(render_layout.block_bounds, background));
@@ -910,6 +918,7 @@ fn ai_workspace_block_palette(
     kind: ai_workspace_session::AiWorkspaceBlockKind,
     role: ai_workspace_session::AiWorkspaceBlockRole,
     selected: bool,
+    hovered: bool,
     is_dark: bool,
     cx: &App,
 ) -> (
@@ -937,20 +946,28 @@ fn ai_workspace_block_palette(
     let accent = disclosure_colors.chevron;
     let (background, border) = match kind {
         ai_workspace_session::AiWorkspaceBlockKind::Plan => (
-            crate::app::theme::hunk_blend(
-                cx.theme().background,
-                cx.theme().muted,
-                is_dark,
-                0.14,
-                0.18,
-            ),
+            if hovered {
+                crate::app::theme::hunk_disclosure_row(cx.theme(), is_dark).hover_background
+            } else {
+                crate::app::theme::hunk_blend(
+                    cx.theme().background,
+                    cx.theme().muted,
+                    is_dark,
+                    0.14,
+                    0.18,
+                )
+            },
             crate::app::theme::hunk_opacity(cx.theme().border, is_dark, 0.80, 0.70),
         ),
         ai_workspace_session::AiWorkspaceBlockKind::Tool
         | ai_workspace_session::AiWorkspaceBlockKind::Group
         | ai_workspace_session::AiWorkspaceBlockKind::DiffSummary
         | ai_workspace_session::AiWorkspaceBlockKind::Status => (
-            gpui::hsla(0.0, 0.0, 0.0, 0.0),
+            if hovered {
+                crate::app::theme::hunk_disclosure_row(cx.theme(), is_dark).hover_background
+            } else {
+                gpui::hsla(0.0, 0.0, 0.0, 0.0)
+            },
             if selected {
                 crate::app::theme::hunk_opacity(cx.theme().border, is_dark, 0.82, 0.70)
             } else {

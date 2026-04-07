@@ -1,6 +1,7 @@
 include!("ai/core.rs");
 include!("ai/workspace_runtime.rs");
 include!("ai/workspace_surface.rs");
+include!("ai/workspace_surface_helpers.rs");
 include!("ai/runtime.rs");
 include!("ai/catalog.rs");
 include!("ai/runtime_path.rs");

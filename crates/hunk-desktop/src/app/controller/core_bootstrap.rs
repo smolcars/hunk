@@ -482,6 +482,7 @@ impl DiffViewer {
             ai_workspace_session: None,
             ai_workspace_surface_scroll_handle: ScrollHandle::default(),
             ai_workspace_surface_last_scroll_offset: None,
+            ai_hovered_workspace_block_id: None,
             ai_workspace_selection: None,
             ai_timeline_visible_turn_limit_by_thread: BTreeMap::new(),
             ai_timeline_turn_ids_by_thread: BTreeMap::new(),
