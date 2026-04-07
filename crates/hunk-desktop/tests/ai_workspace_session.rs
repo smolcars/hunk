@@ -3,6 +3,36 @@ mod markdown_links_impl;
 
 mod app {
     pub(crate) use super::markdown_links_impl as markdown_links;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    pub(crate) struct AiTextSelectionSurfaceSpec {
+        pub(crate) surface_id: String,
+        pub(crate) row_id: String,
+        pub(crate) text: String,
+        pub(crate) separator_before: String,
+    }
+
+    impl AiTextSelectionSurfaceSpec {
+        pub(crate) fn new(surface_id: impl Into<String>, text: impl Into<String>) -> Self {
+            let surface_id = surface_id.into();
+            Self {
+                row_id: surface_id.clone(),
+                surface_id,
+                text: text.into(),
+                separator_before: String::new(),
+            }
+        }
+
+        pub(crate) fn with_row_id(mut self, row_id: impl Into<String>) -> Self {
+            self.row_id = row_id.into();
+            self
+        }
+
+        pub(crate) fn with_separator_before(mut self, separator_before: impl Into<String>) -> Self {
+            self.separator_before = separator_before.into();
+            self
+        }
+    }
 }
 
 #[path = "../src/app/ai_workspace_session.rs"]

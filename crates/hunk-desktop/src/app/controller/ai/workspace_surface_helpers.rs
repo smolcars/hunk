@@ -205,13 +205,15 @@ fn ai_workspace_selection_surfaces(
         surfaces.push(AiTextSelectionSurfaceSpec::new(
             format!("ai-workspace:{}:title", block.id),
             block.title.clone(),
-        ));
+        )
+        .with_row_id(block.source_row_id.clone()));
     }
     if !block.preview.is_empty() {
         let surface = AiTextSelectionSurfaceSpec::new(
             format!("ai-workspace:{}:preview", block.id),
             block.preview.clone(),
-        );
+        )
+        .with_row_id(block.source_row_id.clone());
         surfaces.push(if surfaces.is_empty() {
             surface
         } else {

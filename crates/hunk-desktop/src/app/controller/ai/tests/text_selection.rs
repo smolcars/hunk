@@ -75,6 +75,24 @@
     }
 
     #[test]
+    fn ai_text_selection_spans_multiple_rows_in_one_scope() {
+        let surfaces = vec![
+            AiTextSelectionSurfaceSpec::new("surface-a", "hello").with_row_id("row-a"),
+            AiTextSelectionSurfaceSpec::new("surface-b", "world")
+                .with_row_id("row-b")
+                .with_separator_before("\n\n"),
+        ];
+        let mut selection =
+            AiTextSelection::new("thread-1".to_string(), surfaces.as_slice(), "surface-a", 2);
+        selection.set_head_for_surface("surface-b", 3);
+
+        assert_eq!(selection.selected_text().as_deref(), Some("llo\n\nwor"));
+        assert!(selection.intersects_row_ids(&std::collections::BTreeSet::from([
+            "row-b".to_string(),
+        ])));
+    }
+
+    #[test]
     fn ai_text_selection_clamps_multibyte_indices_to_utf8_boundaries() {
         let mut selection = AiTextSelection::new(
             "row".to_string(),

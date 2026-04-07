@@ -151,7 +151,7 @@ impl DiffViewer {
         let Some(selection) = self.ai_text_selection.as_ref() else {
             return;
         };
-        if row_ids.contains(selection.row_id.as_str()) {
+        if selection.intersects_row_ids(row_ids) {
             self.ai_clear_text_selection(cx);
         }
     }

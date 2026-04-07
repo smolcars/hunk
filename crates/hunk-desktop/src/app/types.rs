@@ -767,22 +767,30 @@ struct AiTimelineGroup {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct AiTextSelectionSurfaceSpec {
+pub(crate) struct AiTextSelectionSurfaceSpec {
     surface_id: String,
+    row_id: String,
     text: String,
     separator_before: String,
 }
 
 impl AiTextSelectionSurfaceSpec {
-    fn new(surface_id: impl Into<String>, text: impl Into<String>) -> Self {
+    pub(crate) fn new(surface_id: impl Into<String>, text: impl Into<String>) -> Self {
+        let surface_id = surface_id.into();
         Self {
-            surface_id: surface_id.into(),
+            row_id: surface_id.clone(),
+            surface_id,
             text: text.into(),
             separator_before: String::new(),
         }
     }
 
-    fn with_separator_before(mut self, separator_before: impl Into<String>) -> Self {
+    pub(crate) fn with_row_id(mut self, row_id: impl Into<String>) -> Self {
+        self.row_id = row_id.into();
+        self
+    }
+
+    pub(crate) fn with_separator_before(mut self, separator_before: impl Into<String>) -> Self {
         self.separator_before = separator_before.into();
         self
     }
@@ -805,6 +813,7 @@ struct AiPressedMarkdownLink {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiTextSelection {
     row_id: String,
+    selected_row_ids: std::collections::BTreeSet<String>,
     surface_ranges: Vec<AiTextSelectionSurfaceRange>,
     full_text: String,
     anchor: usize,
@@ -821,6 +830,7 @@ impl AiTextSelection {
     ) -> Self {
         let mut full_text = String::new();
         let mut surface_ranges = Vec::with_capacity(surfaces.len());
+        let mut selected_row_ids = std::collections::BTreeSet::new();
         let mut anchor = None;
 
         for surface in surfaces {
@@ -828,6 +838,7 @@ impl AiTextSelection {
             let start = full_text.len();
             full_text.push_str(surface.text.as_str());
             let end = full_text.len();
+            selected_row_ids.insert(surface.row_id.clone());
             surface_ranges.push(AiTextSelectionSurfaceRange {
                 surface_id: surface.surface_id.clone(),
                 range: start..end,
@@ -840,6 +851,7 @@ impl AiTextSelection {
         let clamped_index = clamp_utf8_boundary(&full_text, anchor.unwrap_or(0));
         Self {
             row_id,
+            selected_row_ids,
             surface_ranges,
             full_text,
             anchor: clamped_index,
@@ -896,6 +908,12 @@ impl AiTextSelection {
         self.anchor = 0;
         self.head = self.full_text.len();
         self.dragging = false;
+    }
+
+    fn intersects_row_ids(&self, row_ids: &std::collections::BTreeSet<String>) -> bool {
+        self.selected_row_ids
+            .iter()
+            .any(|row_id| row_ids.contains(row_id.as_str()))
     }
 }
 

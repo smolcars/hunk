@@ -383,6 +383,57 @@ impl DiffViewer {
             should_follow_timeline_output(block_count, scroll_offset_y, max_scroll_offset_y);
     }
 
+    pub(super) fn ai_auto_scroll_workspace_text_selection_drag(
+        &mut self,
+        pointer_position: gpui::Point<gpui::Pixels>,
+        viewport_bounds: gpui::Bounds<gpui::Pixels>,
+    ) -> bool {
+        const EDGE_SCROLL_THRESHOLD_PX: f32 = 28.0;
+        const MIN_EDGE_SCROLL_STEP_PX: f32 = 14.0;
+        const MAX_EDGE_SCROLL_STEP_PX: f32 = 42.0;
+
+        let viewport_top = viewport_bounds.origin.y;
+        let viewport_bottom = viewport_bounds.origin.y + viewport_bounds.size.height;
+        let delta_px = if pointer_position.y < viewport_top + px(EDGE_SCROLL_THRESHOLD_PX) {
+            let intensity = ((viewport_top + px(EDGE_SCROLL_THRESHOLD_PX) - pointer_position.y)
+                .as_f32()
+                / EDGE_SCROLL_THRESHOLD_PX)
+                .clamp(0.0, 1.0);
+            -(MIN_EDGE_SCROLL_STEP_PX
+                + (MAX_EDGE_SCROLL_STEP_PX - MIN_EDGE_SCROLL_STEP_PX) * intensity)
+        } else if pointer_position.y > viewport_bottom - px(EDGE_SCROLL_THRESHOLD_PX) {
+            let intensity = ((pointer_position.y - (viewport_bottom - px(EDGE_SCROLL_THRESHOLD_PX)))
+                .as_f32()
+                / EDGE_SCROLL_THRESHOLD_PX)
+                .clamp(0.0, 1.0);
+            MIN_EDGE_SCROLL_STEP_PX
+                + (MAX_EDGE_SCROLL_STEP_PX - MIN_EDGE_SCROLL_STEP_PX) * intensity
+        } else {
+            0.0
+        };
+
+        if delta_px == 0.0 {
+            return false;
+        }
+
+        let current_scroll_top_px = self.current_ai_workspace_surface_scroll_top_px() as f32;
+        let max_scroll_top_px = self
+            .ai_workspace_surface_scroll_handle
+            .max_offset()
+            .y
+            .max(Pixels::ZERO)
+            .as_f32();
+        let next_scroll_top_px = (current_scroll_top_px + delta_px).clamp(0.0, max_scroll_top_px);
+        if (next_scroll_top_px - current_scroll_top_px).abs() < f32::EPSILON {
+            return false;
+        }
+
+        self.ai_workspace_surface_scroll_handle
+            .set_offset(point(px(0.), -px(next_scroll_top_px)));
+        self.refresh_ai_timeline_follow_output_from_surface_scroll();
+        true
+    }
+
     fn ai_reveal_workspace_block_if_needed(&mut self, block_id: &str) {
         let viewport_bounds = self.ai_workspace_surface_scroll_handle.bounds();
         let viewport_height_px = viewport_bounds

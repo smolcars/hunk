@@ -8,7 +8,9 @@ use gpui::{
     MouseMoveEvent, MouseUpEvent, Window,
 };
 
-use crate::app::ai_workspace_render::{ai_workspace_hit_test, paint_ai_workspace_block};
+use crate::app::ai_workspace_render::{
+    ai_workspace_drag_text_hit, ai_workspace_hit_test, paint_ai_workspace_block,
+};
 use crate::app::{AiPressedMarkdownLink, DiffViewer, ai_workspace_session};
 
 pub(crate) struct AiWorkspaceSurfaceElement {
@@ -138,7 +140,7 @@ impl Element for AiWorkspaceSurfaceElement {
                 this.ai_select_workspace_selection(hit.selection.clone(), cx);
                 if let Some(text_hit) = hit.text_hit.as_ref() {
                     this.ai_begin_text_selection(
-                        hit.selection.block_id.clone(),
+                        snapshot.selection_scope_id.clone(),
                         text_hit.selection_surfaces.clone(),
                         text_hit.surface_id.as_str(),
                         text_hit.index,
@@ -163,6 +165,35 @@ impl Element for AiWorkspaceSurfaceElement {
                 this.ai_mark_pressed_markdown_link_dragged(event.position);
             });
 
+            let dragging_selection = view_for_mouse_move
+                .read(cx)
+                .ai_text_selection
+                .as_ref()
+                .is_some_and(|selection| selection.dragging);
+            if dragging_selection {
+                view_for_mouse_move.update(cx, |this, _| {
+                    this.ai_auto_scroll_workspace_text_selection_drag(
+                        event.position,
+                        hitbox_for_mouse_move.bounds,
+                    );
+                });
+
+                if let Some(text_hit) = ai_workspace_drag_text_hit(
+                    snapshot_for_mouse_move.as_ref(),
+                    event.position,
+                    hitbox_for_mouse_move.bounds,
+                    workspace_root_for_mouse_move.as_deref(),
+                ) {
+                    view_for_mouse_move.update(cx, |this, cx| {
+                        this.ai_update_text_selection(
+                            text_hit.surface_id.as_str(),
+                            text_hit.index,
+                            cx,
+                        );
+                    });
+                }
+            }
+
             if !hitbox_for_mouse_move.is_hovered(window) {
                 view_for_mouse_move.update(cx, |this, cx| {
                     if this.ai_hovered_workspace_block_id.take().is_some() {
@@ -184,31 +215,6 @@ impl Element for AiWorkspaceSurfaceElement {
                     this.ai_hovered_workspace_block_id = hovered_block_id;
                     cx.notify();
                 }
-            });
-
-            let dragging_selection = view_for_mouse_move
-                .read(cx)
-                .ai_text_selection
-                .as_ref()
-                .is_some_and(|selection| selection.dragging);
-            if !dragging_selection {
-                return;
-            }
-
-            let Some(hit) = ai_workspace_hit_test(
-                snapshot_for_mouse_move.as_ref(),
-                event.position,
-                hitbox_for_mouse_move.bounds,
-                workspace_root_for_mouse_move.as_deref(),
-            ) else {
-                return;
-            };
-            let Some(text_hit) = hit.text_hit.as_ref() else {
-                return;
-            };
-
-            view_for_mouse_move.update(cx, |this, cx| {
-                this.ai_update_text_selection(text_hit.surface_id.as_str(), text_hit.index, cx);
             });
         });
 
