@@ -121,9 +121,64 @@ impl DiffViewer {
         });
     }
 
+    pub(super) fn record_ai_workspace_session_refresh_timing(&self, duration: Duration) {
+        self.update_ai_perf_window(|window| {
+            window.workspace_session_refresh.record(duration);
+        });
+    }
+
+    pub(super) fn record_ai_workspace_session_cache_hit(&self) {
+        self.update_ai_perf_window(|window| {
+            window.workspace_session_cache_hits =
+                window.workspace_session_cache_hits.saturating_add(1);
+        });
+    }
+
     pub(super) fn record_ai_workspace_surface_geometry_rebuild_timing(&self, duration: Duration) {
         self.update_ai_perf_window(|window| {
             window.workspace_surface_geometry_rebuild.record(duration);
+        });
+    }
+
+    pub(super) fn record_ai_workspace_surface_text_layout_stats(
+        &self,
+        duration: Duration,
+        build_count: u32,
+        cache_hits: u32,
+    ) {
+        self.update_ai_perf_window(|window| {
+            if build_count > 0 {
+                window.workspace_surface_text_layout_build.record(duration);
+                window.workspace_surface_text_layout_builds = window
+                    .workspace_surface_text_layout_builds
+                    .saturating_add(build_count as u64);
+            }
+            if cache_hits > 0 {
+                window.workspace_surface_text_layout_cache_hits = window
+                    .workspace_surface_text_layout_cache_hits
+                    .saturating_add(cache_hits as u64);
+            }
+        });
+    }
+
+    pub(super) fn record_ai_workspace_inline_diff_projection_stats(
+        &self,
+        duration: Duration,
+        build_count: u32,
+        cache_hits: u32,
+    ) {
+        self.update_ai_perf_window(|window| {
+            if build_count > 0 {
+                window.workspace_inline_diff_projection_build.record(duration);
+                window.workspace_inline_diff_projection_builds = window
+                    .workspace_inline_diff_projection_builds
+                    .saturating_add(build_count as u64);
+            }
+            if cache_hits > 0 {
+                window.workspace_inline_diff_projection_cache_hits = window
+                    .workspace_inline_diff_projection_cache_hits
+                    .saturating_add(cache_hits as u64);
+            }
         });
     }
 

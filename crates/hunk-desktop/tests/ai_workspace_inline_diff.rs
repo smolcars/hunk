@@ -211,3 +211,54 @@ fn presentation_policy_recommends_review_for_large_non_truncated_diffs() {
     assert!(policy.recommend_open_in_review);
     assert_eq!(policy.truncation_notice, None);
 }
+
+#[test]
+fn projection_uses_new_file_path_for_added_files() {
+    let diff = r#"diff --git a/dev/null b/src/new.rs
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/src/new.rs
+@@ -0,0 +1,1 @@
++fn new_file() {}
+"#;
+
+    let projection =
+        ai_workspace_project_inline_diff(diff, AiWorkspaceInlineDiffOptions::default());
+
+    assert_eq!(projection.files.len(), 1);
+    let file = &projection.files[0];
+    assert_eq!(file.display_path, "src/new.rs");
+    assert_eq!(file.added, 1);
+    assert_eq!(file.removed, 0);
+    assert!(
+        file.prelude_meta
+            .contains(&"new file mode 100644".to_string())
+    );
+}
+
+#[test]
+fn projection_uses_old_file_path_for_deleted_binary_files() {
+    let diff = r#"diff --git a/assets/logo.png b/dev/null
+deleted file mode 100644
+index abcdef0..0000000
+Binary files a/assets/logo.png and /dev/null differ"#;
+
+    let projection =
+        ai_workspace_project_inline_diff(diff, AiWorkspaceInlineDiffOptions::default());
+
+    assert_eq!(projection.files.len(), 1);
+    let file = &projection.files[0];
+    assert_eq!(file.display_path, "assets/logo.png");
+    assert_eq!(file.added, 0);
+    assert_eq!(file.removed, 0);
+    assert_eq!(
+        file.prelude_meta,
+        vec![
+            "deleted file mode 100644".to_string(),
+            "index abcdef0..0000000".to_string(),
+            "Binary files a/assets/logo.png and /dev/null differ".to_string(),
+        ]
+    );
+    assert!(file.hunks.is_empty());
+}

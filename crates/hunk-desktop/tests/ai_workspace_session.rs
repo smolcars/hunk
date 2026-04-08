@@ -106,7 +106,7 @@ fn source_rows(entries: &[(&str, u64)]) -> Arc<[AiWorkspaceSourceRow]> {
 fn diff_block(id: &str, diff_text: &str) -> AiWorkspaceBlock {
     AiWorkspaceBlock {
         inline_diff_source: Some(Arc::<str>::from(diff_text)),
-        open_review_tab: true,
+        open_review_tab: false,
         ..block(id, AiWorkspaceBlockKind::DiffSummary, "1 file changed")
     }
 }
@@ -147,6 +147,44 @@ fn selection_surfaces_follow_rendered_message_text() {
         "ai-workspace:row-1:preview"
     );
     assert_eq!(selection_surfaces[1].text, "bold and inline");
+}
+
+#[test]
+fn ai_workspace_selection_surfaces_follow_rendered_inline_diff_text() {
+    let diff_text = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,2 +1,2 @@
+-fn old() {}
++fn new() {}
+ ";
+    let mut diff_block = diff_block("row-diff", diff_text);
+    diff_block.expandable = true;
+    diff_block.expanded = true;
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-diff", 1)]),
+        vec![diff_block],
+    );
+
+    let selection_surfaces = session.selection_surfaces_for_width(640);
+
+    assert_eq!(selection_surfaces.len(), 2);
+    assert_eq!(
+        selection_surfaces[1].surface_id,
+        "ai-workspace:row-diff:preview"
+    );
+    assert!(selection_surfaces[1].text.contains("src/main.rs  +1  -1"));
+    assert!(selection_surfaces[1].text.contains("@@ -1,2 +1,2 @@"));
+    assert!(selection_surfaces[1].text.contains("- fn old() {}"));
+    assert!(selection_surfaces[1].text.contains("+ fn new() {}"));
+    assert!(
+        !selection_surfaces[1]
+            .text
+            .contains("diff --git a/src/main.rs b/src/main.rs"),
+        "selection surfaces should follow rendered preview text, not raw patch headers"
+    );
 }
 
 #[test]
@@ -217,6 +255,78 @@ fn inline_diff_cache_skips_non_diff_blocks() {
 }
 
 #[test]
+fn surface_snapshot_reuses_inline_diff_projection_and_text_layout_across_scrolls() {
+    let diff_text = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,2 +1,2 @@
+-fn old() {}
++fn new() {}
+ ";
+    let mut diff_block = diff_block("row-diff", diff_text);
+    diff_block.expandable = true;
+    diff_block.expanded = true;
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-diff", 1)]),
+        vec![diff_block],
+    );
+
+    let first = session.surface_snapshot_with_stats(0, 640, 800);
+    assert_eq!(first.inline_diff_projection_build_count, 1);
+    assert_eq!(first.text_layout_build_count, 1);
+
+    let second = session.surface_snapshot_with_stats(24, 640, 800);
+    assert_eq!(second.inline_diff_projection_build_count, 0);
+    assert_eq!(second.text_layout_build_count, 0);
+    assert!(second.inline_diff_projection_cache_hits > 0);
+    assert!(second.text_layout_cache_hits > 0);
+}
+
+#[test]
+fn session_update_source_reuses_diff_caches_for_unchanged_rows() {
+    let diff_text = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,2 +1,2 @@
+-fn old() {}
++fn new() {}
+ ";
+    let mut diff_block = diff_block("row-diff", diff_text);
+    diff_block.expandable = true;
+    diff_block.expanded = true;
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-diff", 1), ("row-message", 1)]),
+        vec![
+            diff_block.clone(),
+            block("row-message", AiWorkspaceBlockKind::Message, "before"),
+        ],
+    );
+
+    let first = session.surface_snapshot_with_stats(0, 640, 800);
+    assert_eq!(first.inline_diff_projection_build_count, 1);
+    assert_eq!(first.text_layout_build_count, 2);
+
+    session.update_source(
+        "thread-1",
+        source_rows(&[("row-diff", 1), ("row-message", 2)]),
+        vec![
+            diff_block,
+            block("row-message", AiWorkspaceBlockKind::Message, "after"),
+        ],
+    );
+
+    let second = session.surface_snapshot_with_stats(0, 640, 800);
+    assert_eq!(second.inline_diff_projection_build_count, 0);
+    assert_eq!(second.text_layout_build_count, 1);
+    assert!(second.inline_diff_projection_cache_hits > 0);
+    assert!(second.text_layout_cache_hits > 0);
+}
+
+#[test]
 fn expanded_diff_blocks_project_inline_diff_lines_into_snapshot() {
     let diff_text = "\
 diff --git a/src/main.rs b/src/main.rs
@@ -260,15 +370,13 @@ diff --git a/src/main.rs b/src/main.rs
         block
             .text_layout
             .preview_line_kinds
-            .iter()
-            .any(|kind| *kind == ai_workspace_session::AiWorkspacePreviewLineKind::DiffAdded)
+            .contains(&ai_workspace_session::AiWorkspacePreviewLineKind::DiffAdded)
     );
     assert!(
         block
             .text_layout
             .preview_line_kinds
-            .iter()
-            .any(|kind| *kind == ai_workspace_session::AiWorkspacePreviewLineKind::DiffRemoved)
+            .contains(&ai_workspace_session::AiWorkspacePreviewLineKind::DiffRemoved)
     );
 }
 
@@ -823,6 +931,52 @@ fn markdown_code_blocks_expose_copy_regions() {
     assert_eq!(layout.preview_copy_regions.len(), 1);
     assert_eq!(layout.preview_copy_regions[0].tooltip, "Copy code block");
     assert!(layout.preview_copy_regions[0].text.contains("fn main()"));
+}
+
+#[test]
+fn ai_workspace_inline_diff_hunks_expose_copy_regions() {
+    let diff_text = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,2 +1,2 @@
+-fn old() {}
++fn new() {}
+ ";
+    let mut block = diff_block("row-diff", diff_text);
+    block.expandable = true;
+    block.expanded = true;
+    let mut session =
+        AiWorkspaceSession::new("thread-1", source_rows(&[("row-diff", 1)]), vec![block]);
+    let snapshot = session.surface_snapshot_with_stats(0, 640, 800).snapshot;
+    let layout = &snapshot
+        .viewport
+        .visible_blocks
+        .first()
+        .expect("expanded diff block should be visible")
+        .text_layout;
+
+    assert_eq!(layout.preview_copy_regions.len(), 1);
+    assert_eq!(layout.preview_copy_regions[0].tooltip, "Copy hunk");
+    assert_eq!(
+        layout.preview_copy_regions[0].success_message,
+        "Copied hunk."
+    );
+    assert!(
+        layout.preview_copy_regions[0]
+            .text
+            .contains("@@ -1,2 +1,2 @@")
+    );
+    assert!(
+        layout.preview_copy_regions[0]
+            .text
+            .contains("- fn old() {}")
+    );
+    assert!(
+        layout.preview_copy_regions[0]
+            .text
+            .contains("+ fn new() {}")
+    );
 }
 
 #[test]

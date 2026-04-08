@@ -170,6 +170,8 @@ mod ai_workspace_render;
 mod ai_workspace_render_tests;
 mod ai_workspace_session;
 mod ai_workspace_surface;
+#[cfg(test)]
+mod ai_workspace_surface_render_tests;
 mod ai_workspace_timeline_projection;
 mod branch_activation;
 mod branch_picker;

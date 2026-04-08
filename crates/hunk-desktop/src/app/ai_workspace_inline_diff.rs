@@ -270,14 +270,14 @@ fn ai_workspace_inline_diff_display_path(
 ) -> String {
     if let Some(path) = new_path
         .map(normalize_ai_workspace_inline_diff_new_path)
-        .filter(|path| *path != "/dev/null")
+        .filter(|path| !ai_workspace_inline_diff_is_dev_null(path))
     {
         return path.to_string();
     }
 
     if let Some(path) = old_path
         .map(normalize_ai_workspace_inline_diff_old_path)
-        .filter(|path| *path != "/dev/null")
+        .filter(|path| !ai_workspace_inline_diff_is_dev_null(path))
     {
         return path.to_string();
     }
@@ -286,14 +286,14 @@ fn ai_workspace_inline_diff_display_path(
         if let Some(path) = line
             .strip_prefix("+++ ")
             .map(normalize_ai_workspace_inline_diff_new_path)
-            .filter(|path| *path != "/dev/null")
+            .filter(|path| !ai_workspace_inline_diff_is_dev_null(path))
         {
             return path.to_string();
         }
         if let Some(path) = line
             .strip_prefix("--- ")
             .map(normalize_ai_workspace_inline_diff_old_path)
-            .filter(|path| *path != "/dev/null")
+            .filter(|path| !ai_workspace_inline_diff_is_dev_null(path))
         {
             return path.to_string();
         }
@@ -308,6 +308,10 @@ fn normalize_ai_workspace_inline_diff_old_path(path: &str) -> &str {
 
 fn normalize_ai_workspace_inline_diff_new_path(path: &str) -> &str {
     path.strip_prefix("b/").unwrap_or(path)
+}
+
+fn ai_workspace_inline_diff_is_dev_null(path: &str) -> bool {
+    matches!(path, "/dev/null" | "dev/null")
 }
 
 fn filter_ai_workspace_inline_diff_meta_lines(lines: Vec<String>) -> Vec<String> {

@@ -20,6 +20,7 @@ impl DiffViewer {
             .as_ref()
             .is_some_and(|session| session.matches_source(thread_id, source_rows.as_slice()))
         {
+            self.record_ai_workspace_session_cache_hit();
             return;
         }
 
@@ -34,12 +35,21 @@ impl DiffViewer {
         {
             self.ai_workspace_selection = None;
         }
-        self.ai_workspace_session = Some(ai_workspace_session::AiWorkspaceSession::new(
-            thread_id.to_string(),
-            Arc::<[ai_workspace_session::AiWorkspaceSourceRow]>::from(source_rows),
-            blocks,
-        ));
-        self.record_ai_workspace_session_rebuild_timing(rebuild_started_at.elapsed());
+        let source_rows = Arc::<[ai_workspace_session::AiWorkspaceSourceRow]>::from(source_rows);
+        match self.ai_workspace_session.as_mut() {
+            Some(session) if session.belongs_to_thread(thread_id) => {
+                session.update_source(thread_id.to_string(), source_rows, blocks);
+                self.record_ai_workspace_session_refresh_timing(rebuild_started_at.elapsed());
+            }
+            _ => {
+                self.ai_workspace_session = Some(ai_workspace_session::AiWorkspaceSession::new(
+                    thread_id.to_string(),
+                    source_rows,
+                    blocks,
+                ));
+                self.record_ai_workspace_session_rebuild_timing(rebuild_started_at.elapsed());
+            }
+        }
     }
 
     fn ai_workspace_blocks_for_row(
@@ -335,7 +345,6 @@ impl DiffViewer {
             .is_some()
     }
 
-    #[allow(dead_code)]
     pub(super) fn ai_open_inline_review_for_row(&mut self, row_id: String, cx: &mut Context<Self>) {
         let Some(thread_id) = self.ai_selected_thread_id.clone() else {
             return;

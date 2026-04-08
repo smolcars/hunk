@@ -1,4 +1,5 @@
-enum AiWorkspaceOverlayButtonKind {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AiWorkspaceOverlayButtonKind {
     Copy {
         text: String,
         success_message: &'static str,
@@ -9,12 +10,17 @@ enum AiWorkspaceOverlayButtonKind {
         command: String,
         cwd: Option<std::path::PathBuf>,
     },
+    OpenReviewTab,
+    OpenSidePane {
+        row_id: String,
+    },
 }
 
-struct AiWorkspaceOverlayButton {
-    id: String,
-    tooltip: &'static str,
-    kind: AiWorkspaceOverlayButtonKind,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AiWorkspaceOverlayButton {
+    pub(crate) id: String,
+    pub(crate) tooltip: &'static str,
+    pub(crate) kind: AiWorkspaceOverlayButtonKind,
 }
 
 struct AiWorkspaceOverlayButtonCluster {
@@ -56,6 +62,49 @@ impl DiffViewer {
         };
         if let Some(duration) = snapshot_result.geometry_rebuild_duration {
             self.record_ai_workspace_surface_geometry_rebuild_timing(duration);
+        }
+        if let Some(duration) = snapshot_result.text_layout_build_duration {
+            self.record_ai_workspace_surface_text_layout_stats(
+                duration,
+                snapshot_result.text_layout_build_count,
+                snapshot_result.text_layout_cache_hits,
+            );
+        } else if snapshot_result.text_layout_cache_hits > 0 {
+            self.record_ai_workspace_surface_text_layout_stats(
+                std::time::Duration::ZERO,
+                0,
+                snapshot_result.text_layout_cache_hits,
+            );
+        }
+        if let Some(duration) = snapshot_result.inline_diff_projection_build_duration {
+            self.record_ai_workspace_inline_diff_projection_stats(
+                duration,
+                snapshot_result.inline_diff_projection_build_count,
+                snapshot_result.inline_diff_projection_cache_hits,
+            );
+        } else if snapshot_result.inline_diff_projection_cache_hits > 0 {
+            self.record_ai_workspace_inline_diff_projection_stats(
+                std::time::Duration::ZERO,
+                0,
+                snapshot_result.inline_diff_projection_cache_hits,
+            );
+        }
+        if snapshot_result.geometry_rebuild_duration.is_some()
+            || snapshot_result.text_layout_build_count > 0
+            || snapshot_result.inline_diff_projection_build_count > 0
+        {
+            tracing::debug!(
+                geometry_rebuild_us = snapshot_result
+                    .geometry_rebuild_duration
+                    .map(|duration| duration.as_micros())
+                    .unwrap_or(0),
+                text_layout_builds = snapshot_result.text_layout_build_count,
+                text_layout_cache_hits = snapshot_result.text_layout_cache_hits,
+                inline_diff_projection_builds = snapshot_result.inline_diff_projection_build_count,
+                inline_diff_projection_cache_hits = snapshot_result
+                    .inline_diff_projection_cache_hits,
+                "ai workspace surface snapshot stats"
+            );
         }
         Some(snapshot_result.snapshot)
     }
@@ -138,33 +187,8 @@ fn ai_workspace_overlay_action_clusters(
     let mut actions = Vec::new();
 
     for block in &surface.viewport.visible_blocks {
-        let message_copy = block.block.copy_tooltip == Some("Copy message");
         let block_hovered = hovered_block_id == Some(block.block.id.as_str());
-        let mut block_buttons = Vec::new();
-        if let Some(command) = block.block.run_in_terminal_command.clone() {
-            block_buttons.push(AiWorkspaceOverlayButton {
-                id: format!("ai-workspace-run-terminal-{}", block.block.id),
-                tooltip: "Run in terminal",
-                kind: AiWorkspaceOverlayButtonKind::RunInTerminal {
-                    command,
-                    cwd: block.block.run_in_terminal_cwd.clone(),
-                },
-            });
-        }
-        if let Some(copy_text) = block.block.copy_text.clone()
-            && (!message_copy || block_hovered)
-        {
-            block_buttons.push(AiWorkspaceOverlayButton {
-                id: format!("ai-workspace-copy-{}", block.block.id),
-                tooltip: block.block.copy_tooltip.unwrap_or("Copy"),
-                kind: AiWorkspaceOverlayButtonKind::Copy {
-                    text: copy_text,
-                    success_message: block.block.copy_success_message.unwrap_or("Copied."),
-                    message_copy: block.block.copy_tooltip == Some("Copy message"),
-                    chromeless: block.block.copy_tooltip == Some("Copy message"),
-                },
-            });
-        }
+        let block_buttons = ai_workspace_overlay_buttons_for_block(block, block_hovered);
         if !block_buttons.is_empty() {
             let additional_top_px = match block.block.action_area {
                 ai_workspace_session::AiWorkspaceBlockActionArea::Header => 0,
@@ -275,6 +299,59 @@ fn ai_workspace_overlay_action_clusters(
     actions
 }
 
+pub(crate) fn ai_workspace_overlay_buttons_for_block(
+    block: &ai_workspace_session::AiWorkspaceViewportBlock,
+    block_hovered: bool,
+) -> Vec<AiWorkspaceOverlayButton> {
+    let message_copy = block.block.copy_tooltip == Some("Copy message");
+    let mut buttons = Vec::new();
+
+    if block.block.kind == ai_workspace_session::AiWorkspaceBlockKind::DiffSummary
+        && block.block.inline_diff_source.is_some()
+    {
+        buttons.push(AiWorkspaceOverlayButton {
+            id: format!("ai-workspace-open-side-pane-{}", block.block.id),
+            tooltip: "Open in side pane",
+            kind: AiWorkspaceOverlayButtonKind::OpenSidePane {
+                row_id: block.block.source_row_id.clone(),
+            },
+        });
+        buttons.push(AiWorkspaceOverlayButton {
+            id: format!("ai-workspace-open-review-{}", block.block.id),
+            tooltip: "Open in Review",
+            kind: AiWorkspaceOverlayButtonKind::OpenReviewTab,
+        });
+    }
+
+    if let Some(command) = block.block.run_in_terminal_command.clone() {
+        buttons.push(AiWorkspaceOverlayButton {
+            id: format!("ai-workspace-run-terminal-{}", block.block.id),
+            tooltip: "Run in terminal",
+            kind: AiWorkspaceOverlayButtonKind::RunInTerminal {
+                command,
+                cwd: block.block.run_in_terminal_cwd.clone(),
+            },
+        });
+    }
+
+    if let Some(copy_text) = block.block.copy_text.clone()
+        && (!message_copy || block_hovered)
+    {
+        buttons.push(AiWorkspaceOverlayButton {
+            id: format!("ai-workspace-copy-{}", block.block.id),
+            tooltip: block.block.copy_tooltip.unwrap_or("Copy"),
+            kind: AiWorkspaceOverlayButtonKind::Copy {
+                text: copy_text,
+                success_message: block.block.copy_success_message.unwrap_or("Copied."),
+                message_copy,
+                chromeless: message_copy,
+            },
+        });
+    }
+
+    buttons
+}
+
 fn ai_workspace_overlay_button_cluster(
     view: Entity<DiffViewer>,
     spec: AiWorkspaceOverlayButtonCluster,
@@ -363,6 +440,12 @@ fn ai_workspace_overlay_action_button(
             AiWorkspaceOverlayButtonKind::RunInTerminal { .. } => {
                 Icon::new(IconName::SquareTerminal).size(px(13.0))
             }
+            AiWorkspaceOverlayButtonKind::OpenReviewTab => {
+                Icon::new(HunkIconName::FileDiff).size(px(13.0))
+            }
+            AiWorkspaceOverlayButtonKind::OpenSidePane { .. } => {
+                Icon::new(IconName::Eye).size(px(12.0))
+            }
         })
         .text_color(muted_foreground)
         .min_w(px(22.0))
@@ -384,6 +467,12 @@ fn ai_workspace_overlay_action_button(
                 }
                 AiWorkspaceOverlayButtonKind::RunInTerminal { command, cwd } => {
                     this.ai_run_command_in_terminal(cwd.clone(), command.clone(), cx);
+                }
+                AiWorkspaceOverlayButtonKind::OpenReviewTab => {
+                    this.ai_open_review_tab(cx);
+                }
+                AiWorkspaceOverlayButtonKind::OpenSidePane { row_id } => {
+                    this.ai_open_inline_review_for_row(row_id.clone(), cx);
                 }
             });
         })

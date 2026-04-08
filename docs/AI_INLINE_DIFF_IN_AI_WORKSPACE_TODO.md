@@ -96,13 +96,13 @@ Instead we will:
   - remove the current default jump-to-Review behavior from summary-block click
   - keep the behavior thread-local and stable across refreshes
 
-- [ ] Todo 8: Add explicit diff actions.
+- [x] Todo 8: Add explicit diff actions.
   Plan:
   - add `Open in Review` to jump to the full Review tab
   - add `Open in Side Pane` to select the existing right-side inline Review pane
   - ensure these actions do not conflict with expand/collapse hit zones
 
-- [ ] Todo 9: Add selection and copy behavior for inline diff content.
+- [x] Todo 9: Add selection and copy behavior for inline diff content.
   Plan:
   - support text selection across inline diff rows
   - support copying hunks or selected diff text
@@ -110,19 +110,50 @@ Instead we will:
 
 ### Phase 5: Performance and Validation
 
-- [ ] Todo 10: Add instrumentation and cache invalidation safeguards.
+- [x] Todo 10: Add instrumentation and cache invalidation safeguards.
   Plan:
   - record projection/build timings for inline diff payloads
   - ensure scrolling reuses cached projection and layout
   - ensure unrelated thread updates do not rebuild expanded diffs outside the affected rows
 
-- [ ] Todo 11: Add coverage and manual QA for representative diff shapes.
+- [x] Todo 11: Add coverage and manual QA for representative diff shapes.
   Plan:
   - multi-file patch
   - rename / delete / new file diff
   - large diff truncation
   - binary/meta-only diff
   - Windows perf check on long AI threads
+
+## Validation Notes
+
+- Inline diff cache reuse is now tracked through the existing AI perf window state with:
+  - `workspace_session_rebuild`
+  - `workspace_session_refresh`
+  - `workspace_session_cache_hits`
+  - `workspace_surface_text_layout_build`
+  - `workspace_surface_text_layout_builds`
+  - `workspace_surface_text_layout_cache_hits`
+  - `workspace_inline_diff_projection_build`
+  - `workspace_inline_diff_projection_builds`
+  - `workspace_inline_diff_projection_cache_hits`
+- When inline diff work is actually rebuilt, the AI surface now emits a debug log line:
+  - `ai workspace surface snapshot stats`
+  - fields include geometry rebuild time, text layout build count/cache hits, and inline diff projection build count/cache hits
+
+## Manual QA Checklist
+
+1. Open a thread with a multi-file agent diff and expand the inline diff in the AI timeline.
+2. Scroll within the same width bucket and confirm follow-up debug logs stop reporting inline diff projection builds after the first expansion.
+3. While the diff stays expanded, trigger unrelated thread activity such as a new assistant message or tool status update and confirm:
+   - the expanded diff remains visible
+   - the next debug log shows `workspace_session_refresh` behavior without new inline diff projection builds for the unchanged diff row
+4. Verify representative diff shapes:
+   - rename-only diff
+   - added file diff
+   - deleted file diff
+   - binary/meta-only diff
+   - large truncated diff recommending `Open in Review`
+5. On Windows, repeat the long-thread test and capture logs containing `ai workspace surface snapshot stats` so we can compare rebuild counts against the prior behavior.
 
 ## Current Order Of Work
 
@@ -133,4 +164,7 @@ Instead we will:
 5. Todo 5 is complete: expanded diff rows now render unified file, hunk, context, added, removed, and meta lines directly inside the AI painted surface.
 6. Todo 6 is complete: inline diff preview lines now carry diff-aware hit targets through the session layout cache, and the AI surface hit-test path can distinguish file headers and diff lines without regressing block-level hover or selection behavior.
 7. Todo 7 is complete: expandable diff summaries now toggle inline inside the AI thread on primary click instead of navigating away to the Review tab.
-8. Todo 8 is next: add explicit diff actions for `Open in Review` and `Open in Side Pane`.
+8. Todo 8 is complete: expandable diff rows now expose explicit `Open in Review` and `Open in side pane` actions in the AI surface overlay while keeping inline expand/collapse as the default primary click behavior.
+9. Todo 9 is complete: expanded inline diffs now participate in the rendered thread-wide selection surfaces, and each visible hunk exposes a `Copy hunk` action through the existing preview copy-region overlay path.
+10. Todo 10 is complete: the AI workspace session now retains inline diff projection and text-layout caches across same-thread timeline refreshes, and the AI surface records per-snapshot inline diff build/cache stats for debugging.
+11. Todo 11 is complete: representative diff-shape tests and a concrete Windows/manual-QA checklist now cover the inline diff path end to end.
