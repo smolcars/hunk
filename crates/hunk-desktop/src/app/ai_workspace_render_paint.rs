@@ -226,22 +226,10 @@ fn ai_workspace_color_for_role(
 
 fn ai_workspace_preview_line_background(
     preview_kind: ai_workspace_session::AiWorkspacePreviewLineKind,
-    theme: &gpui_component::Theme,
-    is_dark: bool,
+    _theme: &gpui_component::Theme,
+    _is_dark: bool,
 ) -> Option<gpui::Hsla> {
     match preview_kind {
-        ai_workspace_session::AiWorkspacePreviewLineKind::DiffFileHeader => Some(
-            crate::app::theme::hunk_opacity(theme.muted, is_dark, 0.16, 0.18),
-        ),
-        ai_workspace_session::AiWorkspacePreviewLineKind::DiffHunkHeader => Some(
-            crate::app::theme::hunk_opacity(theme.secondary, is_dark, 0.18, 0.26),
-        ),
-        ai_workspace_session::AiWorkspacePreviewLineKind::DiffAdded => Some(
-            crate::app::theme::hunk_blend(theme.background, theme.success, is_dark, 0.12, 0.05),
-        ),
-        ai_workspace_session::AiWorkspacePreviewLineKind::DiffRemoved => Some(
-            crate::app::theme::hunk_blend(theme.background, theme.danger, is_dark, 0.12, 0.05),
-        ),
         _ => None,
     }
 }

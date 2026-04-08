@@ -871,19 +871,11 @@ impl DiffViewer {
         self.ai_timeline_groups_by_id = groups_by_id;
         self.ai_timeline_group_parent_by_child_row_id = parent_by_child_row_id;
         let timeline_row_ids_by_thread = self.ai_timeline_row_ids_by_thread.clone();
-        let valid_diff_row_ids = self
-            .ai_timeline_rows_by_id
-            .iter()
-            .filter_map(|(row_id, row)| {
-                matches!(row.source, AiTimelineRowSource::TurnDiff { .. }).then_some(row_id.clone())
-            })
-            .collect::<BTreeSet<_>>();
         self.ai_inline_review_selected_row_id_by_thread
             .retain(|thread_id, row_id| {
                 timeline_row_ids_by_thread
                     .get(thread_id)
                     .is_some_and(|row_ids| row_ids.iter().any(|candidate| candidate == row_id))
-                    && valid_diff_row_ids.contains(row_id)
             });
         self.record_ai_timeline_index_rebuild_timing(rebuild_started_at.elapsed());
     }

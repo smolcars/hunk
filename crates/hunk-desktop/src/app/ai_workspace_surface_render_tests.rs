@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use super::ai_workspace_session::{
     AiWorkspaceBlock, AiWorkspaceBlockActionArea, AiWorkspaceBlockKind, AiWorkspaceBlockRole,
     AiWorkspaceBlockTextLayout, AiWorkspacePreviewColorRole, AiWorkspaceViewportBlock,
@@ -21,11 +19,12 @@ fn test_block(
         kind,
         nested: false,
         mono_preview: false,
-        open_review_tab: false,
+        open_side_diff_pane: false,
         expandable: false,
         expanded: true,
         title: title.to_string(),
         preview: preview.to_string(),
+        preferred_review_path: None,
         action_area: AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
@@ -34,7 +33,6 @@ fn test_block(
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: Some(AiWorkspacePreviewColorRole::Muted),
-        inline_diff_source: None,
         last_sequence: 1,
     }
 }
@@ -65,18 +63,8 @@ fn diff_blocks_expose_open_review_and_side_pane_actions() {
         "Edited src/main.rs",
         "1 file changed +2 -2",
     );
-    block.inline_diff_source = Some(Arc::<str>::from(
-        "\
-diff --git a/src/main.rs b/src/main.rs
---- a/src/main.rs
-+++ b/src/main.rs
-@@ -1 +1 @@
--fn old() {}
-+fn new() {}
-",
-    ));
-    block.expandable = true;
-    block.expanded = false;
+    block.open_side_diff_pane = true;
+    block.preferred_review_path = Some("src/main.rs".to_string());
     let (viewport_block, _) = viewport_block(block, 16, 800);
 
     let buttons = ai_workspace_overlay_buttons_for_block(&viewport_block, false);
@@ -87,11 +75,12 @@ diff --git a/src/main.rs b/src/main.rs
             AiWorkspaceOverlayButtonKind::OpenSidePane { ref row_id } if row_id == "row-diff"
         )
     }));
-    assert!(
-        buttons
-            .iter()
-            .any(|button| { matches!(button.kind, AiWorkspaceOverlayButtonKind::OpenReviewTab) })
-    );
+    assert!(buttons.iter().any(|button| {
+        matches!(
+            button.kind,
+            AiWorkspaceOverlayButtonKind::OpenReviewTab { ref row_id } if row_id == "row-diff"
+        )
+    }));
 }
 
 #[test]

@@ -280,41 +280,32 @@
     }
 
     #[test]
-    fn ai_workspace_diff_block_uses_inline_diff_source_for_expansion_state() {
+    fn ai_workspace_diff_block_opens_side_pane_and_keeps_preferred_path() {
         let summary = crate::app::ai_workspace_timeline_projection::AiWorkspaceDiffSummary {
-            files: vec![],
+            files: vec![crate::app::ai_workspace_timeline_projection::AiWorkspaceDiffSummaryFile {
+                path: "src/main.rs".to_string(),
+                added: 2,
+                removed: 1,
+            }],
             total_added: 2,
             total_removed: 1,
         };
-        let expanded_block = ai_workspace_diff_block(
+        let diff_block = ai_workspace_diff_block(
             "row-diff".to_string(),
             "row-diff".to_string(),
             7,
             &summary,
-            Some(std::sync::Arc::<str>::from(
-                "diff --git a/src/main.rs b/src/main.rs",
-            )),
-            true,
-            false,
-        );
-        let summary_only_block = ai_workspace_diff_block(
-            "row-summary".to_string(),
-            "row-summary".to_string(),
-            7,
-            &summary,
-            None,
-            false,
+            Some("src/main.rs".to_string()),
             false,
         );
 
-        assert!(expanded_block.expandable);
-        assert!(expanded_block.expanded);
-        assert!(expanded_block.inline_diff_source.is_some());
-        assert!(!expanded_block.open_review_tab);
-        assert!(!summary_only_block.expandable);
-        assert!(!summary_only_block.expanded);
-        assert!(summary_only_block.inline_diff_source.is_none());
-        assert!(!summary_only_block.open_review_tab);
+        assert!(diff_block.open_side_diff_pane);
+        assert!(!diff_block.expandable);
+        assert!(diff_block.expanded);
+        assert_eq!(
+            diff_block.preferred_review_path.as_deref(),
+            Some("src/main.rs")
+        );
     }
 
     #[test]

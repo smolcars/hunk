@@ -64,7 +64,7 @@ impl DiffViewer {
                 kind: ai_workspace_session::AiWorkspaceBlockKind::Message,
                 nested: false,
                 mono_preview: false,
-                open_review_tab: false,
+                open_side_diff_pane: false,
                 expandable: false,
                 expanded: true,
                 title: "You  Waiting to steer running turn...".to_string(),
@@ -72,6 +72,7 @@ impl DiffViewer {
                     pending.prompt.as_str(),
                     pending.local_images.as_slice(),
                 ),
+                preferred_review_path: None,
                 action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
                 copy_text: Some(ai_workspace_prompt_preview(
                     pending.prompt.as_str(),
@@ -83,7 +84,6 @@ impl DiffViewer {
                 run_in_terminal_cwd: None,
                 status_label: Some("Waiting to steer running turn...".to_string()),
                 status_color_role: Some(ai_workspace_session::AiWorkspacePreviewColorRole::Accent),
-                inline_diff_source: None,
                 last_sequence: ai_workspace_pending_steer_signature(&pending),
             }];
         }
@@ -99,7 +99,7 @@ impl DiffViewer {
                 kind: ai_workspace_session::AiWorkspaceBlockKind::Message,
                 nested: false,
                 mono_preview: false,
-                open_review_tab: false,
+                open_side_diff_pane: false,
                 expandable: false,
                 expanded: true,
                 title: match queued.status {
@@ -111,6 +111,7 @@ impl DiffViewer {
                     }
                 },
                 preview: preview.clone(),
+                preferred_review_path: None,
                 action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
                 copy_text: Some(preview),
                 copy_tooltip: Some("Copy message"),
@@ -126,7 +127,6 @@ impl DiffViewer {
                     }
                 }),
                 status_color_role: Some(ai_workspace_session::AiWorkspacePreviewColorRole::Accent),
-                inline_diff_source: None,
                 last_sequence: ai_workspace_queued_message_signature(&queued),
             }];
         }
@@ -149,21 +149,23 @@ impl DiffViewer {
                     .unwrap_or_default()
             }
             AiTimelineRowSource::TurnDiff { turn_key } => {
-                let expanded = self.ai_workspace_row_is_expanded(row.id.as_str());
                 self.ai_state_snapshot
                     .turn_diffs
                     .get(turn_key.as_str())
-                    .map(|diff| vec![ai_workspace_diff_block(
-                        row.id.clone(),
-                        row.id.clone(),
-                        row.last_sequence,
-                        &crate::app::ai_workspace_timeline_projection::ai_workspace_turn_diff_summary(
-                            diff,
-                        ),
-                        Some(Arc::<str>::from(diff.as_str())),
-                        expanded,
-                        false,
-                    )])
+                    .map(|diff| {
+                        let summary =
+                            crate::app::ai_workspace_timeline_projection::ai_workspace_turn_diff_summary(
+                                diff,
+                            );
+                        vec![ai_workspace_diff_block(
+                            row.id.clone(),
+                            row.id.clone(),
+                            row.last_sequence,
+                            &summary,
+                            summary.files.first().map(|file| file.path.clone()),
+                            false,
+                        )]
+                    })
                     .unwrap_or_default()
             }
             AiTimelineRowSource::TurnPlan { turn_key } => {
@@ -177,11 +179,12 @@ impl DiffViewer {
                     kind: ai_workspace_session::AiWorkspaceBlockKind::Plan,
                     nested: false,
                     mono_preview: false,
-                    open_review_tab: false,
+                    open_side_diff_pane: false,
                     expandable: false,
                     expanded: true,
                     title: "Updated Plan".to_string(),
                     preview: ai_workspace_plan_preview(plan),
+                    preferred_review_path: None,
                     action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
                     copy_text: None,
                     copy_tooltip: None,
@@ -190,7 +193,6 @@ impl DiffViewer {
                     run_in_terminal_cwd: None,
                     status_label: None,
                     status_color_role: None,
-                    inline_diff_source: None,
                     last_sequence: row.last_sequence,
                     }])
                     .unwrap_or_default()
@@ -345,22 +347,59 @@ impl DiffViewer {
             .is_some()
     }
 
+    fn ai_preferred_review_path_for_row(&self, row_id: &str) -> Option<String> {
+        let row = self.ai_timeline_row(row_id)?;
+        match &row.source {
+            AiTimelineRowSource::Item { item_key } => self
+                .ai_state_snapshot
+                .items
+                .get(item_key.as_str())
+                .and_then(crate::app::ai_workspace_timeline_projection::ai_workspace_file_change_summary)
+                .and_then(|summary| summary.files.first().map(|file| file.path.clone())),
+            AiTimelineRowSource::Group { group_id } => self
+                .ai_timeline_group(group_id.as_str())
+                .and_then(|group| ai_workspace_file_change_group_summary(self, group))
+                .and_then(|summary| summary.files.first().map(|file| file.path.clone())),
+            AiTimelineRowSource::TurnDiff { turn_key } => self
+                .ai_state_snapshot
+                .turn_diffs
+                .get(turn_key.as_str())
+                .map(|diff| {
+                    crate::app::ai_workspace_timeline_projection::ai_workspace_turn_diff_summary(
+                        diff,
+                    )
+                })
+                .and_then(|summary| summary.files.first().map(|file| file.path.clone())),
+            _ => None,
+        }
+    }
+
+    fn ai_focus_review_for_row(&mut self, row_id: &str, cx: &mut Context<Self>) {
+        self.ai_sync_review_compare_to_selected_thread(cx);
+        if let Some(path) = self.ai_preferred_review_path_for_row(row_id) {
+            self.set_review_selected_file(Some(path.clone()), None);
+            self.scroll_to_file_start(path.as_str());
+        }
+    }
+
     pub(super) fn ai_open_inline_review_for_row(&mut self, row_id: String, cx: &mut Context<Self>) {
         let Some(thread_id) = self.ai_selected_thread_id.clone() else {
             return;
         };
-        let Some(row) = self.ai_timeline_row(row_id.as_str()) else {
-            return;
-        };
-        if !matches!(row.source, AiTimelineRowSource::TurnDiff { .. }) {
+        if self.ai_timeline_row(row_id.as_str()).is_none() {
             return;
         }
 
         self.ai_inline_review_selected_row_id_by_thread
-            .insert(thread_id, row_id);
-        self.ai_sync_review_compare_to_selected_thread(cx);
+            .insert(thread_id, row_id.clone());
+        self.ai_focus_review_for_row(row_id.as_str(), cx);
         self.invalidate_ai_visible_frame_state_with_reason("timeline");
         cx.notify();
+    }
+
+    pub(super) fn ai_open_review_tab_for_row(&mut self, row_id: String, cx: &mut Context<Self>) {
+        self.ai_focus_review_for_row(row_id.as_str(), cx);
+        self.set_workspace_view_mode(WorkspaceViewMode::Diff, cx);
     }
 
     pub(super) fn ai_close_inline_review_action(&mut self, cx: &mut Context<Self>) {
@@ -613,7 +652,7 @@ impl DiffViewer {
                 kind: ai_workspace_session::AiWorkspaceBlockKind::Message,
                 nested,
                 mono_preview: false,
-                open_review_tab: false,
+                open_side_diff_pane: false,
                 expandable: false,
                 expanded: true,
                 title: if item.kind == "userMessage" {
@@ -622,6 +661,7 @@ impl DiffViewer {
                     "Assistant".to_string()
                 },
                 preview: preview.clone(),
+                preferred_review_path: None,
                 action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
                 copy_text: Some(preview),
                 copy_tooltip: Some("Copy message"),
@@ -630,20 +670,17 @@ impl DiffViewer {
                 run_in_terminal_cwd: None,
                 status_label: None,
                 status_color_role: None,
-                inline_diff_source: None,
                 last_sequence: row.last_sequence,
                 })
             }
             "fileChange" => crate::app::ai_workspace_timeline_projection::ai_workspace_file_change_summary(item)
                 .map(|summary| {
-                    let inline_diff_source = ai_workspace_inline_diff_source_for_file_change_item(item);
                     ai_workspace_diff_block(
                         row.id.clone(),
                         row.id.clone(),
                         row.last_sequence,
                         &summary,
-                        inline_diff_source,
-                        expanded,
+                        summary.files.first().map(|file| file.path.clone()),
                         nested,
                     )
                 }),
@@ -681,11 +718,12 @@ impl DiffViewer {
                     kind: ai_workspace_session::AiWorkspaceBlockKind::Tool,
                     nested,
                     mono_preview: true,
-                    open_review_tab: false,
+                    open_side_diff_pane: false,
                     expandable: has_details,
                     expanded,
                     title,
                     preview,
+                    preferred_review_path: None,
                     action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Preview,
                     copy_text,
                     copy_tooltip: expanded.then_some("Copy command transcript"),
@@ -705,7 +743,6 @@ impl DiffViewer {
                     status_color_role: Some(ai_workspace_command_status_color_role(
                         command_details.as_ref(),
                     )),
-                    inline_diff_source: None,
                     last_sequence: row.last_sequence,
                 })
             }
@@ -740,11 +777,12 @@ impl DiffViewer {
                     },
                     nested,
                     mono_preview: item.kind != "reasoning" && item.kind != "webSearch",
-                    open_review_tab: false,
+                    open_side_diff_pane: false,
                     expandable: has_details,
                     expanded,
                     title: ai_workspace_tool_header_line(item, item.content.trim()),
                     preview,
+                    preferred_review_path: None,
                     action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
                     copy_text: None,
                     copy_tooltip: None,
@@ -760,7 +798,6 @@ impl DiffViewer {
                         }),
                     status_color_role: (item.status != hunk_codex::state::ItemStatus::Completed)
                         .then_some(ai_workspace_session::AiWorkspacePreviewColorRole::Accent),
-                    inline_diff_source: None,
                     last_sequence: row.last_sequence,
                 })
             }
@@ -771,11 +808,12 @@ impl DiffViewer {
                 kind: ai_workspace_session::AiWorkspaceBlockKind::Status,
                 nested,
                 mono_preview: false,
-                open_review_tab: false,
+                open_side_diff_pane: false,
                 expandable: false,
                 expanded: true,
                 title: ai_workspace_tool_header_line(item, item.content.trim()),
                 preview: String::new(),
+                preferred_review_path: None,
                 action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
                 copy_text: None,
                 copy_tooltip: None,
@@ -784,7 +822,6 @@ impl DiffViewer {
                 run_in_terminal_cwd: None,
                 status_label: None,
                 status_color_role: None,
-                inline_diff_source: None,
                 last_sequence: row.last_sequence,
             }),
         }
@@ -799,16 +836,26 @@ impl DiffViewer {
             && let Some(summary) = ai_workspace_file_change_group_summary(self, group)
         {
             let expanded = self.ai_workspace_row_is_expanded(row.id.as_str());
-            let inline_diff_source = ai_workspace_file_change_group_inline_diff_source(self, group);
-            return vec![ai_workspace_diff_block(
+            let mut blocks = vec![ai_workspace_file_change_batch_group_block(
                 row.id.clone(),
                 row.id.clone(),
                 row.last_sequence,
                 &summary,
-                inline_diff_source,
                 expanded,
-                false,
             )];
+            if !expanded {
+                return blocks;
+            }
+
+            blocks.extend(group.child_row_ids.iter().filter_map(|child_row_id| {
+                let child_row = self.ai_timeline_row(child_row_id.as_str())?;
+                let AiTimelineRowSource::Item { item_key } = &child_row.source else {
+                    return None;
+                };
+                let item = self.ai_state_snapshot.items.get(item_key.as_str())?;
+                self.ai_workspace_block_for_item_row(child_row, item, true)
+            }));
+            return blocks;
         }
 
         let expanded = self.ai_workspace_row_is_expanded(row.id.as_str());
@@ -819,7 +866,7 @@ impl DiffViewer {
             kind: ai_workspace_session::AiWorkspaceBlockKind::Group,
             nested: false,
             mono_preview: false,
-            open_review_tab: false,
+            open_side_diff_pane: false,
             expandable: true,
             expanded,
             title: crate::app::ai_workspace_timeline_projection::ai_workspace_format_header_line(
@@ -828,6 +875,7 @@ impl DiffViewer {
                 None,
             ),
             preview: String::new(),
+            preferred_review_path: None,
             action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
             copy_text: None,
             copy_tooltip: None,
@@ -836,7 +884,6 @@ impl DiffViewer {
             run_in_terminal_cwd: None,
             status_label: None,
             status_color_role: None,
-            inline_diff_source: None,
             last_sequence: row.last_sequence,
         }];
 

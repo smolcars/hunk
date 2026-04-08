@@ -161,27 +161,6 @@ impl DiffViewer {
         });
     }
 
-    pub(super) fn record_ai_workspace_inline_diff_projection_stats(
-        &self,
-        duration: Duration,
-        build_count: u32,
-        cache_hits: u32,
-    ) {
-        self.update_ai_perf_window(|window| {
-            if build_count > 0 {
-                window.workspace_inline_diff_projection_build.record(duration);
-                window.workspace_inline_diff_projection_builds = window
-                    .workspace_inline_diff_projection_builds
-                    .saturating_add(build_count as u64);
-            }
-            if cache_hits > 0 {
-                window.workspace_inline_diff_projection_cache_hits = window
-                    .workspace_inline_diff_projection_cache_hits
-                    .saturating_add(cache_hits as u64);
-            }
-        });
-    }
-
     pub(super) fn record_ai_workspace_surface_paint_timing(
         &self,
         duration: Duration,

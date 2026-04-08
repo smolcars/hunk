@@ -64,8 +64,7 @@ fn ai_workspace_diff_block(
     source_row_id: String,
     last_sequence: u64,
     summary: &crate::app::ai_workspace_timeline_projection::AiWorkspaceDiffSummary,
-    inline_diff_source: Option<std::sync::Arc<str>>,
-    expanded: bool,
+    preferred_review_path: Option<String>,
     nested: bool,
 ) -> ai_workspace_session::AiWorkspaceBlock {
     let preview =
@@ -84,11 +83,12 @@ fn ai_workspace_diff_block(
         kind: ai_workspace_session::AiWorkspaceBlockKind::DiffSummary,
         nested,
         mono_preview: false,
-        open_review_tab: false,
-        expandable: inline_diff_source.is_some(),
-        expanded,
+        open_side_diff_pane: true,
+        expandable: false,
+        expanded: true,
         title,
         preview,
+        preferred_review_path,
         action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
         copy_text: None,
         copy_tooltip: None,
@@ -97,30 +97,57 @@ fn ai_workspace_diff_block(
         run_in_terminal_cwd: None,
         status_label: None,
         status_color_role: None,
-        inline_diff_source,
         last_sequence,
     }
 }
 
-fn ai_workspace_inline_diff_source_for_file_change_item(
-    item: &hunk_codex::state::ItemSummary,
-) -> Option<std::sync::Arc<str>> {
-    ai_workspace_inline_diff_source_from_text(item.content.as_str())
-}
+fn ai_workspace_file_change_batch_group_block(
+    block_id: String,
+    source_row_id: String,
+    last_sequence: u64,
+    summary: &crate::app::ai_workspace_timeline_projection::AiWorkspaceDiffSummary,
+    expanded: bool,
+) -> ai_workspace_session::AiWorkspaceBlock {
+    let total_files = summary.files.len();
+    let title = if total_files == 1 {
+        "Changed file".to_string()
+    } else {
+        format!("Changed files ({total_files})")
+    };
+    let preview = format!(
+        "{}  +{}  -{}",
+        if total_files == 1 {
+            "1 file changed".to_string()
+        } else {
+            format!("{total_files} files changed")
+        },
+        summary.total_added,
+        summary.total_removed,
+    );
 
-fn ai_workspace_inline_diff_source_from_text(diff: &str) -> Option<std::sync::Arc<str>> {
-    let diff = diff.trim();
-    (!diff.is_empty()).then(|| std::sync::Arc::<str>::from(diff))
-}
-
-fn ai_workspace_join_inline_diff_sources<'a>(
-    diffs: impl Iterator<Item = &'a str>,
-) -> Option<std::sync::Arc<str>> {
-    let collected = diffs
-        .map(str::trim)
-        .filter(|diff| !diff.is_empty())
-        .collect::<Vec<_>>();
-    (!collected.is_empty()).then(|| std::sync::Arc::<str>::from(collected.join("\n")))
+    ai_workspace_session::AiWorkspaceBlock {
+        id: block_id,
+        source_row_id,
+        role: ai_workspace_session::AiWorkspaceBlockRole::Tool,
+        kind: ai_workspace_session::AiWorkspaceBlockKind::Group,
+        nested: false,
+        mono_preview: false,
+        open_side_diff_pane: true,
+        expandable: true,
+        expanded,
+        title,
+        preview,
+        preferred_review_path: summary.files.first().map(|file| file.path.clone()),
+        action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
+        copy_text: None,
+        copy_tooltip: None,
+        copy_success_message: None,
+        run_in_terminal_command: None,
+        run_in_terminal_cwd: None,
+        status_label: None,
+        status_color_role: None,
+        last_sequence,
+    }
 }
 
 fn ai_workspace_file_change_group_summary(
@@ -154,24 +181,6 @@ fn ai_workspace_file_change_group_summary(
     }
 
     (!summary.files.is_empty()).then_some(summary)
-}
-
-fn ai_workspace_file_change_group_inline_diff_source(
-    this: &DiffViewer,
-    group: &AiTimelineGroup,
-) -> Option<std::sync::Arc<str>> {
-    let mut diffs = Vec::new();
-
-    for child_row_id in &group.child_row_ids {
-        let row = this.ai_timeline_row(child_row_id.as_str())?;
-        let AiTimelineRowSource::Item { item_key } = &row.source else {
-            continue;
-        };
-        let item = this.ai_state_snapshot.items.get(item_key.as_str())?;
-        diffs.push(item.content.as_str());
-    }
-
-    ai_workspace_join_inline_diff_sources(diffs.into_iter())
 }
 
 fn ai_workspace_full_preview_text(value: &str) -> String {
@@ -272,42 +281,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn file_change_inline_diff_source_uses_item_content() {
-        let item = hunk_codex::state::ItemSummary {
-            id: "item-1".to_string(),
-            thread_id: "thread-1".to_string(),
-            turn_id: "turn-1".to_string(),
-            kind: "fileChange".to_string(),
-            status: hunk_codex::state::ItemStatus::Completed,
-            content: "diff --git a/src/main.rs b/src/main.rs".to_string(),
-            display_metadata: None,
-            last_sequence: 1,
+    fn file_change_batch_group_prefers_first_review_path() {
+        let summary = crate::app::ai_workspace_timeline_projection::AiWorkspaceDiffSummary {
+            files: vec![
+                crate::app::ai_workspace_timeline_projection::AiWorkspaceDiffSummaryFile {
+                    path: "src/main.rs".to_string(),
+                    added: 3,
+                    removed: 1,
+                },
+                crate::app::ai_workspace_timeline_projection::AiWorkspaceDiffSummaryFile {
+                    path: "src/lib.rs".to_string(),
+                    added: 2,
+                    removed: 2,
+                },
+            ],
+            total_added: 5,
+            total_removed: 3,
         };
 
-        assert_eq!(
-            ai_workspace_inline_diff_source_for_file_change_item(&item).as_deref(),
-            Some("diff --git a/src/main.rs b/src/main.rs")
-        );
-    }
-
-    #[test]
-    fn joined_file_change_inline_diff_source_skips_empty_sections() {
-        let joined = ai_workspace_join_inline_diff_sources(
-            [
-                "",
-                "diff --git a/src/first.rs b/src/first.rs",
-                "  \n",
-                "diff --git a/src/second.rs b/src/second.rs",
-            ]
-            .into_iter(),
+        let block = ai_workspace_file_change_batch_group_block(
+            "row-group".to_string(),
+            "row-group".to_string(),
+            7,
+            &summary,
+            false,
         );
 
         assert_eq!(
-            joined.as_deref(),
-            Some(
-                "diff --git a/src/first.rs b/src/first.rs\ndiff --git a/src/second.rs b/src/second.rs"
-            )
+            block.preferred_review_path.as_deref(),
+            Some("src/main.rs")
         );
+        assert!(block.open_side_diff_pane);
     }
 }
 

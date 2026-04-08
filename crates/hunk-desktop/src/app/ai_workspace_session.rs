@@ -6,11 +6,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::app::AiTextSelectionSurfaceSpec;
-use crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffOptions;
-use crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffPresentationPolicy;
-use crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffProjection;
-use crate::app::ai_workspace_inline_diff::ai_workspace_inline_diff_presentation_policy;
-use crate::app::ai_workspace_inline_diff::ai_workspace_project_inline_diff;
 use crate::app::markdown_links::MarkdownLinkRange;
 use crate::app::markdown_links::markdown_inline_text_and_link_ranges;
 
@@ -56,11 +51,12 @@ pub(crate) struct AiWorkspaceBlock {
     pub(crate) kind: AiWorkspaceBlockKind,
     pub(crate) nested: bool,
     pub(crate) mono_preview: bool,
-    pub(crate) open_review_tab: bool,
+    pub(crate) open_side_diff_pane: bool,
     pub(crate) expandable: bool,
     pub(crate) expanded: bool,
     pub(crate) title: String,
     pub(crate) preview: String,
+    pub(crate) preferred_review_path: Option<String>,
     pub(crate) action_area: AiWorkspaceBlockActionArea,
     pub(crate) copy_text: Option<String>,
     pub(crate) copy_tooltip: Option<&'static str>,
@@ -69,7 +65,6 @@ pub(crate) struct AiWorkspaceBlock {
     pub(crate) run_in_terminal_cwd: Option<PathBuf>,
     pub(crate) status_label: Option<String>,
     pub(crate) status_color_role: Option<AiWorkspacePreviewColorRole>,
-    pub(crate) inline_diff_source: Option<Arc<str>>,
     pub(crate) last_sequence: u64,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,9 +136,6 @@ pub(crate) struct AiWorkspaceSurfaceSnapshotResult {
     pub(crate) text_layout_build_duration: Option<Duration>,
     pub(crate) text_layout_build_count: u32,
     pub(crate) text_layout_cache_hits: u32,
-    pub(crate) inline_diff_projection_build_duration: Option<Duration>,
-    pub(crate) inline_diff_projection_build_count: u32,
-    pub(crate) inline_diff_projection_cache_hits: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -152,9 +144,6 @@ struct AiWorkspaceBuildStats {
     text_layout_build_duration: Duration,
     text_layout_build_count: u32,
     text_layout_cache_hits: u32,
-    inline_diff_projection_build_duration: Duration,
-    inline_diff_projection_build_count: u32,
-    inline_diff_projection_cache_hits: u32,
 }
 
 impl AiWorkspaceBuildStats {
@@ -165,19 +154,6 @@ impl AiWorkspaceBuildStats {
 
     fn record_text_layout_cache_hit(&mut self) {
         self.text_layout_cache_hits = self.text_layout_cache_hits.saturating_add(1);
-    }
-
-    fn record_inline_diff_projection_build(&mut self, duration: Duration) {
-        self.inline_diff_projection_build_duration = self
-            .inline_diff_projection_build_duration
-            .saturating_add(duration);
-        self.inline_diff_projection_build_count =
-            self.inline_diff_projection_build_count.saturating_add(1);
-    }
-
-    fn record_inline_diff_projection_cache_hit(&mut self) {
-        self.inline_diff_projection_cache_hits =
-            self.inline_diff_projection_cache_hits.saturating_add(1);
     }
 
     fn into_snapshot_result(
@@ -191,18 +167,8 @@ impl AiWorkspaceBuildStats {
                 .then_some(self.text_layout_build_duration),
             text_layout_build_count: self.text_layout_build_count,
             text_layout_cache_hits: self.text_layout_cache_hits,
-            inline_diff_projection_build_duration: (self.inline_diff_projection_build_count > 0)
-                .then_some(self.inline_diff_projection_build_duration),
-            inline_diff_projection_build_count: self.inline_diff_projection_build_count,
-            inline_diff_projection_cache_hits: self.inline_diff_projection_cache_hits,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AiWorkspaceInlineDiffState {
-    pub(crate) projection: Arc<AiWorkspaceInlineDiffProjection>,
-    pub(crate) presentation_policy: AiWorkspaceInlineDiffPresentationPolicy,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -212,7 +178,6 @@ pub(crate) struct AiWorkspaceBlockTextLayout {
     pub(crate) title_line_style_spans: Vec<Vec<AiWorkspacePreviewStyleSpan>>,
     pub(crate) preview_lines: Vec<String>,
     pub(crate) preview_line_kinds: Vec<AiWorkspacePreviewLineKind>,
-    pub(crate) preview_line_hit_targets: Vec<Option<AiWorkspacePreviewHitTarget>>,
     pub(crate) preview_line_link_ranges: Vec<Vec<MarkdownLinkRange>>,
     pub(crate) preview_line_style_spans: Vec<Vec<AiWorkspacePreviewStyleSpan>>,
     pub(crate) preview_line_syntax_spans: Vec<Vec<AiWorkspacePreviewSyntaxSpan>>,
@@ -228,25 +193,11 @@ pub(crate) enum AiWorkspacePreviewLineKind {
     Quote,
     Code,
     Rule,
-    DiffFileHeader,
-    DiffHunkHeader,
-    DiffContext,
-    DiffAdded,
-    DiffRemoved,
-    DiffMeta,
 }
 
 impl AiWorkspacePreviewLineKind {
     pub(crate) fn is_monospace(self) -> bool {
-        matches!(
-            self,
-            Self::Code
-                | Self::DiffHunkHeader
-                | Self::DiffContext
-                | Self::DiffAdded
-                | Self::DiffRemoved
-                | Self::DiffMeta
-        )
+        matches!(self, Self::Code)
     }
 }
 
@@ -286,7 +237,6 @@ pub(crate) struct AiWorkspacePreviewSyntaxSpan {
 type AiWorkspacePreviewProjection = (
     Vec<String>,
     Vec<AiWorkspacePreviewLineKind>,
-    Vec<Option<AiWorkspacePreviewHitTarget>>,
     Vec<Vec<MarkdownLinkRange>>,
     Vec<Vec<AiWorkspacePreviewStyleSpan>>,
     Vec<Vec<AiWorkspacePreviewSyntaxSpan>>,
@@ -295,39 +245,10 @@ type AiWorkspacePreviewProjection = (
 type AiWorkspaceStructuredPreviewLine = (
     String,
     AiWorkspacePreviewLineKind,
-    Option<AiWorkspacePreviewHitTarget>,
     Vec<MarkdownLinkRange>,
     Vec<AiWorkspacePreviewStyleSpan>,
     Vec<AiWorkspacePreviewSyntaxSpan>,
 );
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AiWorkspacePreviewHitTarget {
-    InlineDiff(AiWorkspaceInlineDiffHitTarget),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AiWorkspaceInlineDiffHitTarget {
-    FileHeader {
-        file_index: usize,
-    },
-    HunkHeader {
-        file_index: usize,
-        hunk_index: usize,
-    },
-    Line {
-        file_index: usize,
-        hunk_index: usize,
-        line_index: usize,
-        kind: crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffLineKind,
-    },
-    Meta {
-        file_index: usize,
-        hunk_index: Option<usize>,
-        meta_index: usize,
-    },
-    TruncationNotice,
-}
 
 #[derive(Debug, Clone)]
 pub(crate) struct AiWorkspaceSession {
@@ -339,8 +260,6 @@ pub(crate) struct AiWorkspaceSession {
     selection_surfaces_by_width_bucket: BTreeMap<usize, Arc<[AiTextSelectionSurfaceSpec]>>,
     text_layouts_by_width_bucket:
         BTreeMap<usize, BTreeMap<(String, u64), AiWorkspaceBlockTextLayout>>,
-    inline_diffs_by_width_bucket:
-        BTreeMap<usize, BTreeMap<(String, u64), Arc<AiWorkspaceInlineDiffState>>>,
 }
 
 impl AiWorkspaceSession {
@@ -359,7 +278,6 @@ impl AiWorkspaceSession {
             geometry_by_width_bucket: BTreeMap::new(),
             selection_surfaces_by_width_bucket: BTreeMap::new(),
             text_layouts_by_width_bucket: BTreeMap::new(),
-            inline_diffs_by_width_bucket: BTreeMap::new(),
         }
     }
 
@@ -392,15 +310,6 @@ impl AiWorkspaceSession {
             .iter()
             .map(ai_workspace_block_layout_cache_key)
             .collect::<std::collections::BTreeSet<_>>();
-        let retained_inline_diff_keys = blocks
-            .iter()
-            .filter_map(|block| {
-                block
-                    .inline_diff_source
-                    .as_ref()
-                    .map(|_| (block.source_row_id.clone(), block.last_sequence))
-            })
-            .collect::<std::collections::BTreeSet<_>>();
 
         self.source_rows = source_rows;
         self.blocks = blocks;
@@ -409,10 +318,6 @@ impl AiWorkspaceSession {
         self.text_layouts_by_width_bucket.retain(|_, layouts| {
             layouts.retain(|key, _| retained_layout_keys.contains(key));
             !layouts.is_empty()
-        });
-        self.inline_diffs_by_width_bucket.retain(|_, inline_diffs| {
-            inline_diffs.retain(|key, _| retained_inline_diff_keys.contains(key));
-            !inline_diffs.is_empty()
         });
     }
 
@@ -475,56 +380,6 @@ impl AiWorkspaceSession {
         }
         let geometry = self.geometry_by_width_bucket.get(&width_bucket)?;
         geometry.blocks.get(block_index).cloned()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn inline_diff_for_block(
-        &mut self,
-        block_id: &str,
-        width_px: usize,
-    ) -> Option<Arc<AiWorkspaceInlineDiffState>> {
-        let mut stats = AiWorkspaceBuildStats::default();
-        self.inline_diff_for_block_with_stats(block_id, width_px, &mut stats)
-    }
-
-    fn inline_diff_for_block_with_stats(
-        &mut self,
-        block_id: &str,
-        width_px: usize,
-        stats: &mut AiWorkspaceBuildStats,
-    ) -> Option<Arc<AiWorkspaceInlineDiffState>> {
-        let block = self.block(block_id)?.clone();
-        let inline_diff_source = block.inline_diff_source.clone()?;
-        let width_bucket = ai_workspace_width_bucket(width_px);
-        let cache_key = (block.source_row_id.clone(), block.last_sequence);
-        if let Some(cached) = self
-            .inline_diffs_by_width_bucket
-            .get(&width_bucket)
-            .and_then(|entries| entries.get(&cache_key))
-        {
-            stats.record_inline_diff_projection_cache_hit();
-            return Some(cached.clone());
-        }
-
-        let options = AiWorkspaceInlineDiffOptions::default();
-        let build_started_at = Instant::now();
-        let projection = Arc::new(ai_workspace_project_inline_diff(
-            inline_diff_source.as_ref(),
-            options,
-        ));
-        let inline_diff_state = Arc::new(AiWorkspaceInlineDiffState {
-            presentation_policy: ai_workspace_inline_diff_presentation_policy(
-                projection.as_ref(),
-                options,
-            ),
-            projection,
-        });
-        self.inline_diffs_by_width_bucket
-            .entry(width_bucket)
-            .or_default()
-            .insert(cache_key, inline_diff_state.clone());
-        stats.record_inline_diff_projection_build(build_started_at.elapsed());
-        Some(inline_diff_state)
     }
 
     pub(crate) fn surface_snapshot_with_stats(
@@ -687,28 +542,12 @@ impl AiWorkspaceSession {
             .get(&width_bucket)
             .and_then(|layouts| layouts.get(&cache_key))
         {
-            if block.kind == AiWorkspaceBlockKind::DiffSummary
-                && block.expanded
-                && block.inline_diff_source.is_some()
-            {
-                stats.record_inline_diff_projection_cache_hit();
-            }
             stats.record_text_layout_cache_hit();
             return cached.clone();
         }
 
         let build_started_at = Instant::now();
-        let inline_diff_state = if block.kind == AiWorkspaceBlockKind::DiffSummary && block.expanded
-        {
-            self.inline_diff_for_block_with_stats(block.id.as_str(), surface_width_px, stats)
-        } else {
-            None
-        };
-        let layout = ai_workspace_text_layout_for_block_with_inline_diff(
-            block,
-            surface_width_px,
-            inline_diff_state.as_deref(),
-        );
+        let layout = ai_workspace_text_layout_for_block(block, surface_width_px);
         self.text_layouts_by_width_bucket
             .entry(width_bucket)
             .or_default()
@@ -723,20 +562,6 @@ pub(crate) fn ai_workspace_text_layout_for_block(
     block: &AiWorkspaceBlock,
     surface_width_px: usize,
 ) -> AiWorkspaceBlockTextLayout {
-    ai_workspace_text_layout_for_block_with_inline_diff(block, surface_width_px, None)
-}
-
-fn ai_workspace_block_layout_cache_key(block: &AiWorkspaceBlock) -> (String, u64) {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    block.hash(&mut hasher);
-    (block.id.clone(), hasher.finish())
-}
-
-fn ai_workspace_text_layout_for_block_with_inline_diff(
-    block: &AiWorkspaceBlock,
-    surface_width_px: usize,
-    inline_diff_state: Option<&AiWorkspaceInlineDiffState>,
-) -> AiWorkspaceBlockTextLayout {
     let block_width_px = ai_workspace_block_width_px(surface_width_px, block.kind, block.role);
     let text_width_px = ai_workspace_block_text_width_px(block_width_px);
     let title_lines = ai_workspace_wrap_text(
@@ -749,14 +574,11 @@ fn ai_workspace_text_layout_for_block_with_inline_diff(
     let (
         preview_lines,
         preview_line_kinds,
-        preview_line_hit_targets,
         preview_line_link_ranges,
         preview_line_style_spans,
         preview_line_syntax_spans,
         preview_copy_regions,
-    ) = if let Some(inline_diff_state) = inline_diff_state {
-        ai_workspace_inline_diff_preview_lines(block, inline_diff_state, text_width_px)
-    } else if block.kind == AiWorkspaceBlockKind::Message {
+    ) = if block.kind == AiWorkspaceBlockKind::Message {
         ai_workspace_message_preview_lines(block.preview.as_str(), text_width_px, block)
     } else {
         let preview_lines = ai_workspace_wrap_text(
@@ -857,7 +679,6 @@ fn ai_workspace_text_layout_for_block_with_inline_diff(
                 };
                 preview_lines.len()
             ],
-            vec![None; preview_lines.len()],
             Vec::new(),
             preview_line_style_spans,
             Vec::new(),
@@ -878,7 +699,6 @@ fn ai_workspace_text_layout_for_block_with_inline_diff(
         title_line_style_spans,
         preview_lines,
         preview_line_kinds,
-        preview_line_hit_targets,
         preview_line_link_ranges,
         preview_line_style_spans,
         preview_line_syntax_spans,
@@ -889,6 +709,12 @@ fn ai_workspace_text_layout_for_block_with_inline_diff(
             + preview_height_px
             + AI_WORKSPACE_BLOCK_CONTENT_BOTTOM_PADDING_PX,
     }
+}
+
+fn ai_workspace_block_layout_cache_key(block: &AiWorkspaceBlock) -> (String, u64) {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    block.hash(&mut hasher);
+    (block.id.clone(), hasher.finish())
 }
 
 fn ai_workspace_block_width_px(

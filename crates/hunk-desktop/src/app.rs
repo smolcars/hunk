@@ -163,8 +163,6 @@ mod ai_composer_completion;
 mod ai_paths;
 mod ai_thread_catalog_scheduler;
 mod ai_thread_flow;
-#[allow(dead_code)]
-mod ai_workspace_inline_diff;
 mod ai_workspace_render;
 #[cfg(test)]
 mod ai_workspace_render_tests;

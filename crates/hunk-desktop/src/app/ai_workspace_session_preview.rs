@@ -12,7 +12,6 @@ fn ai_workspace_message_preview_lines(
             Vec::new(),
             Vec::new(),
             Vec::new(),
-            Vec::new(),
         );
     }
 
@@ -26,10 +25,9 @@ fn ai_workspace_message_preview_lines(
         return (
             lines.clone(),
             vec![AiWorkspacePreviewLineKind::Normal; lines.len()],
-            vec![None; lines.len()],
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
+            vec![Vec::new(); lines.len()],
+            vec![Vec::new(); lines.len()],
+            vec![Vec::new(); lines.len()],
             Vec::new(),
         );
     }
@@ -41,7 +39,6 @@ fn ai_workspace_message_preview_lines(
             structured_lines.push((
                 String::new(),
                 AiWorkspacePreviewLineKind::Normal,
-                None,
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
@@ -55,7 +52,6 @@ fn ai_workspace_message_preview_lines(
                     &mut structured_lines,
                     text,
                     AiWorkspacePreviewLineKind::Heading,
-                    None,
                     link_ranges,
                     style_spans,
                     Vec::new(),
@@ -68,7 +64,6 @@ fn ai_workspace_message_preview_lines(
                     &mut structured_lines,
                     text,
                     AiWorkspacePreviewLineKind::Normal,
-                    None,
                     link_ranges,
                     style_spans,
                     Vec::new(),
@@ -81,7 +76,6 @@ fn ai_workspace_message_preview_lines(
                     &mut structured_lines,
                     format!("- {text}"),
                     AiWorkspacePreviewLineKind::Normal,
-                    None,
                     ai_workspace_offset_link_ranges(link_ranges, 2),
                     ai_workspace_offset_style_spans(style_spans, 2),
                     Vec::new(),
@@ -98,7 +92,6 @@ fn ai_workspace_message_preview_lines(
                     &mut structured_lines,
                     format!("{prefix}{text}"),
                     AiWorkspacePreviewLineKind::Normal,
-                    None,
                     ai_workspace_offset_link_ranges(link_ranges, prefix.len()),
                     ai_workspace_offset_style_spans(style_spans, prefix.len()),
                     Vec::new(),
@@ -111,7 +104,6 @@ fn ai_workspace_message_preview_lines(
                     &mut structured_lines,
                     format!("| {text}"),
                     AiWorkspacePreviewLineKind::Quote,
-                    None,
                     ai_workspace_offset_link_ranges(link_ranges, 2),
                     ai_workspace_offset_style_spans(style_spans, 2),
                     Vec::new(),
@@ -124,7 +116,6 @@ fn ai_workspace_message_preview_lines(
                         &mut structured_lines,
                         language,
                         AiWorkspacePreviewLineKind::Quote,
-                        None,
                         Vec::new(),
                         Vec::new(),
                         Vec::new(),
@@ -138,7 +129,6 @@ fn ai_workspace_message_preview_lines(
                     structured_lines.push((
                         text,
                         AiWorkspacePreviewLineKind::Code,
-                        None,
                         Vec::new(),
                         Vec::new(),
                         syntax_spans,
@@ -157,7 +147,6 @@ fn ai_workspace_message_preview_lines(
                 structured_lines.push((
                     "----".to_string(),
                     AiWorkspacePreviewLineKind::Rule,
-                    None,
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
@@ -170,305 +159,20 @@ fn ai_workspace_message_preview_lines(
         structured_lines,
         copy_regions,
         text_width_px,
-        max_lines,
-    )
-}
-
-fn ai_workspace_inline_diff_preview_lines(
-    block: &AiWorkspaceBlock,
-    inline_diff_state: &AiWorkspaceInlineDiffState,
-    text_width_px: usize,
-) -> AiWorkspacePreviewProjection {
-    let mut structured_lines = Vec::<AiWorkspaceStructuredPreviewLine>::new();
-    let mut copy_regions = Vec::<AiWorkspaceCopyRegion>::new();
-    let projection = inline_diff_state.projection.as_ref();
-
-    for (file_index, file) in projection.files.iter().enumerate() {
-        if file_index > 0 {
-            structured_lines.push((
-                String::new(),
-                AiWorkspacePreviewLineKind::Normal,
-                None,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            ));
-        }
-
-        let header_text = format!("{}  +{}  -{}", file.display_path, file.added, file.removed);
-        structured_lines.push((
-            header_text.clone(),
-            AiWorkspacePreviewLineKind::DiffFileHeader,
-            Some(AiWorkspacePreviewHitTarget::InlineDiff(
-                AiWorkspaceInlineDiffHitTarget::FileHeader { file_index },
-            )),
-            Vec::new(),
-            ai_workspace_inline_diff_file_header_style_spans(
-                header_text.as_str(),
-                file.display_path.as_str(),
-                text_width_px,
-            ),
-            Vec::new(),
-        ));
-
-        for (meta_index, meta) in file.prelude_meta.iter().enumerate() {
-            ai_workspace_push_inline_diff_structured_line(
-                &mut structured_lines,
-                meta.as_str(),
-                AiWorkspacePreviewLineKind::DiffMeta,
-                Some(AiWorkspacePreviewHitTarget::InlineDiff(
-                    AiWorkspaceInlineDiffHitTarget::Meta {
-                        file_index,
-                        hunk_index: None,
-                        meta_index,
-                    },
-                )),
-                Some(AiWorkspacePreviewColorRole::Muted),
-                false,
-                true,
-            );
-        }
-
-        for (hunk_index, hunk) in file.hunks.iter().enumerate() {
-            let copy_region_start = structured_lines.len();
-            let mut hunk_copy_lines = Vec::new();
-            ai_workspace_push_inline_diff_structured_line(
-                &mut structured_lines,
-                hunk.header.as_str(),
-                AiWorkspacePreviewLineKind::DiffHunkHeader,
-                Some(AiWorkspacePreviewHitTarget::InlineDiff(
-                    AiWorkspaceInlineDiffHitTarget::HunkHeader {
-                        file_index,
-                        hunk_index,
-                    },
-                )),
-                Some(AiWorkspacePreviewColorRole::Muted),
-                false,
-                false,
-            );
-            hunk_copy_lines.push(hunk.header.clone());
-            for (line_index, line) in hunk.lines.iter().enumerate() {
-                let (kind, color_role, prefix) = match line.kind {
-                    crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffLineKind::Context => (
-                        AiWorkspacePreviewLineKind::DiffContext,
-                        Some(AiWorkspacePreviewColorRole::Foreground),
-                        "  ",
-                    ),
-                    crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffLineKind::Added => (
-                        AiWorkspacePreviewLineKind::DiffAdded,
-                        Some(AiWorkspacePreviewColorRole::Added),
-                        "+ ",
-                    ),
-                    crate::app::ai_workspace_inline_diff::AiWorkspaceInlineDiffLineKind::Removed => (
-                        AiWorkspacePreviewLineKind::DiffRemoved,
-                        Some(AiWorkspacePreviewColorRole::Removed),
-                        "- ",
-                    ),
-                };
-                let line_text = format!("{prefix}{}", line.text.trim_end_matches('\r'));
-                ai_workspace_push_inline_diff_structured_line(
-                    &mut structured_lines,
-                    line_text.as_str(),
-                    kind,
-                    Some(AiWorkspacePreviewHitTarget::InlineDiff(
-                        AiWorkspaceInlineDiffHitTarget::Line {
-                            file_index,
-                            hunk_index,
-                            line_index,
-                            kind: line.kind,
-                        },
-                    )),
-                    color_role,
-                    false,
-                    false,
-                );
-                hunk_copy_lines.push(line_text);
-            }
-            if hunk.truncated_line_count > 0 {
-                let truncated_line_text =
-                    format!("... {} more lines omitted", hunk.truncated_line_count);
-                ai_workspace_push_inline_diff_structured_line(
-                    &mut structured_lines,
-                    truncated_line_text.as_str(),
-                    AiWorkspacePreviewLineKind::DiffMeta,
-                    Some(AiWorkspacePreviewHitTarget::InlineDiff(
-                        AiWorkspaceInlineDiffHitTarget::Meta {
-                            file_index,
-                            hunk_index: Some(hunk_index),
-                            meta_index: hunk.lines.len(),
-                        },
-                    )),
-                    Some(AiWorkspacePreviewColorRole::Muted),
-                    false,
-                    true,
-                );
-                hunk_copy_lines.push(truncated_line_text);
-            }
-            for (meta_index, meta) in hunk.trailing_meta.iter().enumerate() {
-                ai_workspace_push_inline_diff_structured_line(
-                    &mut structured_lines,
-                    meta.as_str(),
-                    AiWorkspacePreviewLineKind::DiffMeta,
-                    Some(AiWorkspacePreviewHitTarget::InlineDiff(
-                        AiWorkspaceInlineDiffHitTarget::Meta {
-                            file_index,
-                            hunk_index: Some(hunk_index),
-                            meta_index,
-                        },
-                    )),
-                    Some(AiWorkspacePreviewColorRole::Muted),
-                    false,
-                    true,
-                );
-                hunk_copy_lines.push(meta.clone());
-            }
-            if !hunk_copy_lines.is_empty() {
-                copy_regions.push(AiWorkspaceCopyRegion {
-                    line_range: copy_region_start..structured_lines.len(),
-                    text: hunk_copy_lines.join("\n"),
-                    tooltip: "Copy hunk",
-                    success_message: "Copied hunk.",
-                });
-            }
-        }
-
-        if file.truncated_hunk_count > 0 {
-            ai_workspace_push_inline_diff_structured_line(
-                &mut structured_lines,
-                format!("... {} more hunks omitted", file.truncated_hunk_count).as_str(),
-                AiWorkspacePreviewLineKind::DiffMeta,
-                Some(AiWorkspacePreviewHitTarget::InlineDiff(
-                    AiWorkspaceInlineDiffHitTarget::Meta {
-                        file_index,
-                        hunk_index: None,
-                        meta_index: file.hunks.len(),
-                    },
-                )),
-                Some(AiWorkspacePreviewColorRole::Muted),
-                false,
-                true,
-            );
-        }
-
-        for (meta_index, meta) in file.epilogue_meta.iter().enumerate() {
-            ai_workspace_push_inline_diff_structured_line(
-                &mut structured_lines,
-                meta.as_str(),
-                AiWorkspacePreviewLineKind::DiffMeta,
-                Some(AiWorkspacePreviewHitTarget::InlineDiff(
-                    AiWorkspaceInlineDiffHitTarget::Meta {
-                        file_index,
-                        hunk_index: None,
-                        meta_index,
-                    },
-                )),
-                Some(AiWorkspacePreviewColorRole::Muted),
-                false,
-                true,
-            );
-        }
-    }
-
-    if let Some(notice) = inline_diff_state.presentation_policy.truncation_notice.as_deref() {
-        if !structured_lines.is_empty() {
-            structured_lines.push((
-                String::new(),
-                AiWorkspacePreviewLineKind::Normal,
-                None,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            ));
-        }
-        ai_workspace_push_inline_diff_structured_line(
-            &mut structured_lines,
-            notice,
-            AiWorkspacePreviewLineKind::DiffMeta,
-            Some(AiWorkspacePreviewHitTarget::InlineDiff(
-                AiWorkspaceInlineDiffHitTarget::TruncationNotice,
-            )),
-            Some(AiWorkspacePreviewColorRole::Muted),
-            true,
-            true,
-        );
-    }
-
-    ai_workspace_wrap_structured_preview_lines(
-        structured_lines,
-        copy_regions,
-        text_width_px,
         ai_workspace_preview_line_limit(block),
     )
-}
-
-fn ai_workspace_inline_diff_file_header_style_spans(
-    line: &str,
-    display_path: &str,
-    text_width_px: usize,
-) -> Vec<AiWorkspacePreviewStyleSpan> {
-    let mut spans = Vec::new();
-    if !display_path.is_empty() && let Some(path_start) = line.find(display_path) {
-        spans.push(AiWorkspacePreviewStyleSpan {
-            range: path_start..path_start.saturating_add(display_path.len()),
-            color_role: Some(AiWorkspacePreviewColorRole::Accent),
-            bold: true,
-            italic: false,
-            strikethrough: false,
-            code: false,
-            link: false,
-        });
-    }
-    spans.extend(ai_workspace_diff_stat_style_spans(
-        ai_workspace_wrap_text(line, ai_workspace_chars_per_line(text_width_px, false, false), 1)
-            .first()
-            .map(String::as_str)
-            .unwrap_or(line),
-    ));
-    spans
-}
-
-fn ai_workspace_push_inline_diff_structured_line(
-    structured_lines: &mut Vec<AiWorkspaceStructuredPreviewLine>,
-    text: &str,
-    kind: AiWorkspacePreviewLineKind,
-    hit_target: Option<AiWorkspacePreviewHitTarget>,
-    color_role: Option<AiWorkspacePreviewColorRole>,
-    bold: bool,
-    italic: bool,
-) {
-    structured_lines.push((
-        text.to_string(),
-        kind,
-        hit_target,
-        Vec::new(),
-        if text.is_empty() {
-            Vec::new()
-        } else {
-            vec![AiWorkspacePreviewStyleSpan {
-                range: 0..text.len(),
-                color_role,
-                bold,
-                italic,
-                strikethrough: false,
-                code: false,
-                link: false,
-            }]
-        },
-        Vec::new(),
-    ));
 }
 
 fn ai_workspace_push_markdown_block_line(
     structured_lines: &mut Vec<AiWorkspaceStructuredPreviewLine>,
     text: String,
     kind: AiWorkspacePreviewLineKind,
-    hit_target: Option<AiWorkspacePreviewHitTarget>,
     link_ranges: Vec<MarkdownLinkRange>,
     style_spans: Vec<AiWorkspacePreviewStyleSpan>,
     syntax_spans: Vec<AiWorkspacePreviewSyntaxSpan>,
 ) {
     if !text.trim().is_empty() {
-        structured_lines.push((text, kind, hit_target, link_ranges, style_spans, syntax_spans));
+        structured_lines.push((text, kind, link_ranges, style_spans, syntax_spans));
     }
 }
 
@@ -486,13 +190,11 @@ fn ai_workspace_wrap_structured_preview_lines(
             Vec::new(),
             Vec::new(),
             Vec::new(),
-            Vec::new(),
         );
     }
 
     let mut wrapped_lines = Vec::new();
     let mut wrapped_kinds = Vec::new();
-    let mut wrapped_hit_targets = Vec::new();
     let mut wrapped_link_ranges = Vec::new();
     let mut wrapped_style_spans = Vec::new();
     let mut wrapped_syntax_spans = Vec::new();
@@ -501,7 +203,7 @@ fn ai_workspace_wrap_structured_preview_lines(
     let mut structured_line_to_wrapped_end = Vec::new();
 
     let total_structured_lines = structured_lines.len();
-    for (line_index, (line, kind, hit_target, link_ranges, style_spans, syntax_spans)) in
+    for (line_index, (line, kind, link_ranges, style_spans, syntax_spans)) in
         structured_lines.into_iter().enumerate()
     {
         let wrapped_start = wrapped_lines.len();
@@ -519,7 +221,6 @@ fn ai_workspace_wrap_structured_preview_lines(
         for (wrapped_index, wrapped_range) in wrapped.into_iter().enumerate() {
             wrapped_lines.push(line[wrapped_range.clone()].to_string());
             wrapped_kinds.push(kind);
-            wrapped_hit_targets.push(hit_target.clone());
             wrapped_link_ranges.push(ai_workspace_clip_link_ranges(
                 link_ranges.as_slice(),
                 wrapped_range.clone(),
@@ -546,7 +247,6 @@ fn ai_workspace_wrap_structured_preview_lines(
                 return (
                     wrapped_lines,
                     wrapped_kinds,
-                    wrapped_hit_targets,
                     wrapped_link_ranges,
                     wrapped_style_spans,
                     wrapped_syntax_spans,
@@ -567,7 +267,6 @@ fn ai_workspace_wrap_structured_preview_lines(
     (
         wrapped_lines,
         wrapped_kinds,
-        wrapped_hit_targets,
         wrapped_link_ranges,
         wrapped_style_spans,
         wrapped_syntax_spans,

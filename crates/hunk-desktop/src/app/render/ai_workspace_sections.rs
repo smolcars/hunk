@@ -1416,13 +1416,13 @@ impl DiffViewer {
                                     .text_sm()
                                     .font_semibold()
                                     .text_color(cx.theme().foreground)
-                                    .child("Review"),
+                                    .child("Diff"),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child("Selected AI diff"),
+                                    .child("Selected AI change"),
                             ),
                     )
                     .child({

@@ -149,11 +149,6 @@ impl Element for AiWorkspaceSurfaceElement {
                     cx.stop_propagation();
                     return;
                 }
-                if hit.open_review_tab && event.button == MouseButton::Left {
-                    this.ai_open_review_tab(cx);
-                    cx.stop_propagation();
-                    return;
-                }
 
                 let pressed_link = hit.text_hit.as_ref().and_then(|text_hit| {
                     text_hit
@@ -326,12 +321,17 @@ impl Element for AiWorkspaceSurfaceElement {
                 return;
             }
 
-            view_for_mouse_up.update(cx, |this, cx| {
+            let was_dragging_selection = view_for_mouse_up.update(cx, |this, cx| {
+                let was_dragging_selection = this
+                    .ai_text_selection
+                    .as_ref()
+                    .is_some_and(|selection| selection.dragging);
                 this.ai_clear_text_selection_drag_pointer();
                 this.ai_end_text_selection(cx);
                 if !hitbox_for_mouse_up.is_hovered(window) {
                     let _ = this.ai_take_pressed_markdown_link();
                 }
+                was_dragging_selection
             });
 
             if !hitbox_for_mouse_up.is_hovered(window) {
@@ -350,18 +350,60 @@ impl Element for AiWorkspaceSurfaceElement {
                 ) else {
                     return;
                 };
-                let Some(text_hit) = hit.text_hit.as_ref() else {
+                if hit.toggle_row_id.is_some() {
                     return;
-                };
-                if pressed_link.dragged || pressed_link.surface_id != text_hit.surface_id {
+                }
+                let text_hit = hit.text_hit.as_ref();
+                if pressed_link.dragged
+                    || text_hit.is_none()
+                    || pressed_link.surface_id != text_hit.expect("text hit checked").surface_id
+                {
                     return;
                 }
                 let activated = text_hit
+                    .expect("text hit checked")
                     .link_target
                     .as_ref()
                     .is_some_and(|target| target == &pressed_link.raw_target);
                 if activated {
                     this.activate_markdown_link(pressed_link.raw_target, Some(window), cx);
+                    return;
+                }
+                if !was_dragging_selection
+                    && let Some(row_id) = hit.open_side_diff_pane_row_id.clone()
+                {
+                    this.ai_open_inline_review_for_row(row_id, cx);
+                }
+            });
+
+            if was_dragging_selection {
+                return;
+            }
+
+            view_for_mouse_up.update(cx, |this, cx| {
+                if this.ai_pressed_markdown_link.is_some() {
+                    return;
+                }
+                let Some(hit) = ai_workspace_hit_test(
+                    snapshot_for_mouse_up.as_ref(),
+                    event.position,
+                    hitbox_for_mouse_up.bounds,
+                    workspace_root_for_mouse_up.as_deref(),
+                ) else {
+                    return;
+                };
+                if hit.toggle_row_id.is_some() {
+                    return;
+                }
+                if hit
+                    .text_hit
+                    .as_ref()
+                    .is_some_and(|text_hit| text_hit.link_target.is_some())
+                {
+                    return;
+                }
+                if let Some(row_id) = hit.open_side_diff_pane_row_id {
+                    this.ai_open_inline_review_for_row(row_id, cx);
                 }
             });
         });

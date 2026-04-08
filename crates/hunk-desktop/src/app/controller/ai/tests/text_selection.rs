@@ -161,11 +161,12 @@
             kind: ai_workspace_session::AiWorkspaceBlockKind::Message,
             nested: false,
             mono_preview: false,
-            open_review_tab: false,
+            open_side_diff_pane: false,
             expandable: false,
             expanded: true,
             title: "Assistant".to_string(),
             preview: "Hello from the workspace surface.".to_string(),
+            preferred_review_path: None,
             action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
             copy_text: None,
             copy_tooltip: None,
@@ -174,7 +175,6 @@
             run_in_terminal_cwd: None,
             status_label: None,
             status_color_role: None,
-            inline_diff_source: None,
             last_sequence: 1,
         };
 

@@ -57,10 +57,8 @@ pub(crate) struct AiWorkspaceTextHit {
 pub(crate) struct AiWorkspaceBlockHit {
     pub(crate) selection: ai_workspace_session::AiWorkspaceSelection,
     pub(crate) text_hit: Option<AiWorkspaceTextHit>,
-    #[allow(dead_code)]
-    pub(crate) preview_hit_target: Option<ai_workspace_session::AiWorkspacePreviewHitTarget>,
     pub(crate) toggle_row_id: Option<String>,
-    pub(crate) open_review_tab: bool,
+    pub(crate) open_side_diff_pane_row_id: Option<String>,
 }
 
 fn ai_workspace_primary_click_toggles_block(
@@ -71,15 +69,10 @@ fn ai_workspace_primary_click_toggles_block(
         return false;
     }
 
-    if block.block.kind != ai_workspace_session::AiWorkspaceBlockKind::DiffSummary {
-        return false;
-    }
-
-    if !block.block.expanded {
-        return true;
-    }
-
     matches!(
+        block.block.kind,
+        ai_workspace_session::AiWorkspaceBlockKind::Group
+    ) && matches!(
         selection.region,
         ai_workspace_session::AiWorkspaceSelectionRegion::Block
             | ai_workspace_session::AiWorkspaceSelectionRegion::Title
@@ -156,18 +149,6 @@ pub(crate) fn ai_workspace_hit_test(
         line_index,
         region,
     };
-    let preview_hit_target = matches!(
-        selection.region,
-        ai_workspace_session::AiWorkspaceSelectionRegion::Preview
-    )
-    .then(|| {
-        selection
-            .line_index
-            .and_then(|index| block.text_layout.preview_line_hit_targets.get(index))
-            .cloned()
-            .flatten()
-    })
-    .flatten();
     let toggle_row_id = render_layout
         .toggle_bounds
         .filter(|toggle_bounds| toggle_bounds.contains(&position))
@@ -188,9 +169,11 @@ pub(crate) fn ai_workspace_hit_test(
     Some(AiWorkspaceBlockHit {
         selection,
         text_hit,
-        preview_hit_target,
         toggle_row_id,
-        open_review_tab: block.block.open_review_tab,
+        open_side_diff_pane_row_id: block
+            .block
+            .open_side_diff_pane
+            .then(|| block.block.source_row_id.clone()),
     })
 }
 
@@ -413,20 +396,8 @@ pub(crate) fn paint_ai_workspace_block(
             || line.preview_kind == ai_workspace_session::AiWorkspacePreviewLineKind::Heading
         {
             (ui_font_family.clone(), FontWeight::SEMIBOLD, title_color)
-        } else if matches!(
-            line.preview_kind,
-            ai_workspace_session::AiWorkspacePreviewLineKind::Code
-                | ai_workspace_session::AiWorkspacePreviewLineKind::DiffHunkHeader
-                | ai_workspace_session::AiWorkspacePreviewLineKind::DiffContext
-                | ai_workspace_session::AiWorkspacePreviewLineKind::DiffAdded
-                | ai_workspace_session::AiWorkspacePreviewLineKind::DiffRemoved
-                | ai_workspace_session::AiWorkspacePreviewLineKind::DiffMeta
-        ) {
+        } else if line.preview_kind == ai_workspace_session::AiWorkspacePreviewLineKind::Code {
             (mono_font_family.clone(), FontWeight::NORMAL, preview_color)
-        } else if line.preview_kind
-            == ai_workspace_session::AiWorkspacePreviewLineKind::DiffFileHeader
-        {
-            (ui_font_family.clone(), FontWeight::SEMIBOLD, title_color)
         } else if line.preview_kind == ai_workspace_session::AiWorkspacePreviewLineKind::Quote {
             (
                 ui_font_family.clone(),
