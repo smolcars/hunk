@@ -636,13 +636,14 @@ impl DiffViewer {
             }
             "fileChange" => crate::app::ai_workspace_timeline_projection::ai_workspace_file_change_summary(item)
                 .map(|summary| {
+                    let inline_diff_source = ai_workspace_inline_diff_source_for_file_change_item(item);
                     ai_workspace_diff_block(
                         row.id.clone(),
                         row.id.clone(),
                         row.last_sequence,
                         &summary,
-                        None,
-                        false,
+                        inline_diff_source,
+                        expanded,
                         nested,
                     )
                 }),
@@ -797,13 +798,15 @@ impl DiffViewer {
         if group.kind == "file_change_batch"
             && let Some(summary) = ai_workspace_file_change_group_summary(self, group)
         {
+            let expanded = self.ai_workspace_row_is_expanded(row.id.as_str());
+            let inline_diff_source = ai_workspace_file_change_group_inline_diff_source(self, group);
             return vec![ai_workspace_diff_block(
                 row.id.clone(),
                 row.id.clone(),
                 row.last_sequence,
                 &summary,
-                None,
-                false,
+                inline_diff_source,
+                expanded,
                 false,
             )];
         }

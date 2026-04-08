@@ -140,6 +140,24 @@ Instead we will:
   - `ai workspace surface snapshot stats`
   - fields include geometry rebuild time, text layout build count/cache hits, and inline diff projection build count/cache hits
 
+## Current Behavior
+
+- Inline diff expansion is intended to be available from the visible AI timeline edit rows:
+  - grouped `Files edited` / file-change batch rows
+  - standalone `Edited ...` file-change rows
+  - dedicated `TurnDiff` rows when a turn emits one directly
+- These rows should expand into the unified diff preview inside the AI thread instead of forcing an immediate jump to Review.
+- Interaction model:
+  - clicking the row body or chevron expands/collapses the inline diff preview
+  - clicking the file path itself still opens the file view
+  - `Open in Review` remains the explicit escalation path to the full Review tab
+
+## Follow-Up Work
+
+- Add the side-pane `View Diff` experience inside the AI workspace so the inline thread preview and right-side diff view can coexist.
+- Decide whether grouped file-change rows should also expose an explicit `View Diff` label/button in addition to the current row-expansion behavior.
+- Keep the existing explicit `Open in Review` / `Open in side pane` actions once the right-side AI diff pane is implemented.
+
 ## Manual QA Checklist
 
 1. Open a thread with a multi-file agent diff and expand the inline diff in the AI timeline.

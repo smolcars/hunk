@@ -102,6 +102,27 @@ fn ai_workspace_diff_block(
     }
 }
 
+fn ai_workspace_inline_diff_source_for_file_change_item(
+    item: &hunk_codex::state::ItemSummary,
+) -> Option<std::sync::Arc<str>> {
+    ai_workspace_inline_diff_source_from_text(item.content.as_str())
+}
+
+fn ai_workspace_inline_diff_source_from_text(diff: &str) -> Option<std::sync::Arc<str>> {
+    let diff = diff.trim();
+    (!diff.is_empty()).then(|| std::sync::Arc::<str>::from(diff))
+}
+
+fn ai_workspace_join_inline_diff_sources<'a>(
+    diffs: impl Iterator<Item = &'a str>,
+) -> Option<std::sync::Arc<str>> {
+    let collected = diffs
+        .map(str::trim)
+        .filter(|diff| !diff.is_empty())
+        .collect::<Vec<_>>();
+    (!collected.is_empty()).then(|| std::sync::Arc::<str>::from(collected.join("\n")))
+}
+
 fn ai_workspace_file_change_group_summary(
     this: &DiffViewer,
     group: &AiTimelineGroup,
@@ -133,6 +154,24 @@ fn ai_workspace_file_change_group_summary(
     }
 
     (!summary.files.is_empty()).then_some(summary)
+}
+
+fn ai_workspace_file_change_group_inline_diff_source(
+    this: &DiffViewer,
+    group: &AiTimelineGroup,
+) -> Option<std::sync::Arc<str>> {
+    let mut diffs = Vec::new();
+
+    for child_row_id in &group.child_row_ids {
+        let row = this.ai_timeline_row(child_row_id.as_str())?;
+        let AiTimelineRowSource::Item { item_key } = &row.source else {
+            continue;
+        };
+        let item = this.ai_state_snapshot.items.get(item_key.as_str())?;
+        diffs.push(item.content.as_str());
+    }
+
+    ai_workspace_join_inline_diff_sources(diffs.into_iter())
 }
 
 fn ai_workspace_full_preview_text(value: &str) -> String {
@@ -226,6 +265,50 @@ fn ai_workspace_selection_surfaces(
     }
 
     Arc::<[AiTextSelectionSurfaceSpec]>::from(surfaces)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_change_inline_diff_source_uses_item_content() {
+        let item = hunk_codex::state::ItemSummary {
+            id: "item-1".to_string(),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            kind: "fileChange".to_string(),
+            status: hunk_codex::state::ItemStatus::Completed,
+            content: "diff --git a/src/main.rs b/src/main.rs".to_string(),
+            display_metadata: None,
+            last_sequence: 1,
+        };
+
+        assert_eq!(
+            ai_workspace_inline_diff_source_for_file_change_item(&item).as_deref(),
+            Some("diff --git a/src/main.rs b/src/main.rs")
+        );
+    }
+
+    #[test]
+    fn joined_file_change_inline_diff_source_skips_empty_sections() {
+        let joined = ai_workspace_join_inline_diff_sources(
+            [
+                "",
+                "diff --git a/src/first.rs b/src/first.rs",
+                "  \n",
+                "diff --git a/src/second.rs b/src/second.rs",
+            ]
+            .into_iter(),
+        );
+
+        assert_eq!(
+            joined.as_deref(),
+            Some(
+                "diff --git a/src/first.rs b/src/first.rs\ndiff --git a/src/second.rs b/src/second.rs"
+            )
+        );
+    }
 }
 
 fn ai_workspace_selection_index(
