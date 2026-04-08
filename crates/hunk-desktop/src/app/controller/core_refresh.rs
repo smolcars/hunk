@@ -404,6 +404,24 @@ impl DiffViewer {
         local_branches
     }
 
+    fn remote_branches_without_local_duplicates(
+        local_branches: &[LocalBranch],
+        remote_branches: &[LocalBranch],
+    ) -> Vec<LocalBranch> {
+        remote_branches
+            .iter()
+            .filter(|remote_branch| {
+                let Some((_, remote_branch_name)) = remote_branch.name.split_once('/') else {
+                    return true;
+                };
+                !local_branches
+                    .iter()
+                    .any(|local_branch| local_branch.name == remote_branch_name)
+            })
+            .cloned()
+            .collect()
+    }
+
     fn current_git_workspace_local_branches(&self) -> Vec<LocalBranch> {
         self.git_workspace
             .branches
@@ -413,17 +431,23 @@ impl DiffViewer {
             .collect()
     }
 
-    fn update_git_workspace_remote_branches(&mut self, remote_branches: Vec<LocalBranch>) {
+    fn update_git_workspace_remote_branches(
+        &mut self,
+        remote_branches: Vec<LocalBranch>,
+        cx: &mut Context<Self>,
+    ) {
         let local_branches = if self.selected_git_workspace_root() == self.repo_root {
             self.branches.clone()
         } else {
             self.current_git_workspace_local_branches()
         };
-        self.git_workspace.remote_branches = remote_branches;
+        self.git_workspace.remote_branches =
+            Self::remote_branches_without_local_duplicates(&local_branches, &remote_branches);
         self.git_workspace.branches = Self::merged_git_workspace_branches(
             local_branches,
             &self.git_workspace.remote_branches,
         );
+        self.sync_branch_picker_state(cx);
     }
 
     fn sync_git_workspace_with_primary_state(&mut self) {
@@ -440,6 +464,11 @@ impl DiffViewer {
         self.git_workspace.branch_has_upstream = self.branch_has_upstream;
         self.git_workspace.branch_ahead_count = self.branch_ahead_count;
         self.git_workspace.branch_behind_count = self.branch_behind_count;
+        self.git_workspace.remote_branches =
+            Self::remote_branches_without_local_duplicates(
+                &self.branches,
+                &self.git_workspace.remote_branches,
+            );
         self.git_workspace.branches = Self::merged_git_workspace_branches(
             self.branches.clone(),
             &self.git_workspace.remote_branches,
@@ -511,7 +540,8 @@ impl DiffViewer {
         self.git_workspace.branch_has_upstream = branch_has_upstream;
         self.git_workspace.branch_ahead_count = branch_ahead_count;
         self.git_workspace.branch_behind_count = branch_behind_count;
-        self.git_workspace.remote_branches = remote_branches;
+        self.git_workspace.remote_branches =
+            Self::remote_branches_without_local_duplicates(&branches, &remote_branches);
         self.git_workspace.branches = Self::merged_git_workspace_branches(
             branches,
             &self.git_workspace.remote_branches,
@@ -546,6 +576,7 @@ impl DiffViewer {
         {
             self.request_selected_diff_reload(cx);
         }
+        self.sync_branch_picker_state(cx);
     }
 
     pub(super) fn request_git_workspace_refresh(&mut self, refresh_recent_commits: bool, cx: &mut Context<Self>) {
@@ -666,7 +697,7 @@ impl DiffViewer {
                                 root.display()
                             );
                             this.last_git_workspace_fingerprint = Some(fingerprint);
-                            this.update_git_workspace_remote_branches(remote_branches);
+                            this.update_git_workspace_remote_branches(remote_branches, cx);
                             if refresh_recent_commits {
                                 this.request_recent_commits_refresh(true, cx);
                             }
