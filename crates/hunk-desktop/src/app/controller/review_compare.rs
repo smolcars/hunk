@@ -81,26 +81,25 @@ fn review_compare_selection_ids_for_workspace_root(
         .map(str::trim)
         .filter(|branch_name| !branch_name.is_empty());
 
-    let left_source_id = preferred_base_branch_name
-        .and_then(|branch_name| {
+    let left_source_id = if matches!(target.branch_name.as_str(), "detached" | "unborn") {
+        None
+    } else {
+        review_compare_branch_source_id(
+            sources,
+            target.branch_name.as_str(),
+            Some(right_source_id.as_str()),
+        )
+    }
+    .or_else(|| {
+        preferred_base_branch_name.and_then(|branch_name| {
             review_compare_branch_source_id(sources, branch_name, Some(right_source_id.as_str()))
         })
-        .or_else(|| {
-            default_base_branch_name.and_then(|branch_name| {
-                review_compare_branch_source_id(sources, branch_name, Some(right_source_id.as_str()))
-            })
+    })
+    .or_else(|| {
+        default_base_branch_name.and_then(|branch_name| {
+            review_compare_branch_source_id(sources, branch_name, Some(right_source_id.as_str()))
         })
-        .or_else(|| {
-            if matches!(target.branch_name.as_str(), "detached" | "unborn") {
-                None
-            } else {
-                review_compare_branch_source_id(
-                    sources,
-                    target.branch_name.as_str(),
-                    Some(right_source_id.as_str()),
-                )
-            }
-        })
+    })
         .or_else(|| {
             sources
                 .iter()
