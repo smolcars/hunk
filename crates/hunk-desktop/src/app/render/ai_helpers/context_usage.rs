@@ -87,27 +87,9 @@ fn ai_render_context_usage_chip(
     cx: &mut Context<DiffViewer>,
 ) -> Option<AnyElement> {
     let percent_used = ai_context_usage_percent_used(usage)?;
-    let usage_color = if percent_used >= 90 {
-        cx.theme().danger
-    } else if percent_used >= 75 {
-        cx.theme().warning
-    } else {
-        cx.theme().foreground
-    };
-    let chip_border = if percent_used >= 90 {
-        hunk_opacity(cx.theme().danger, is_dark, 0.44, 0.34)
-    } else if percent_used >= 75 {
-        hunk_opacity(cx.theme().warning, is_dark, 0.44, 0.34)
-    } else {
-        hunk_opacity(cx.theme().border, is_dark, 0.76, 0.62)
-    };
-    let chip_background = if percent_used >= 90 {
-        hunk_opacity(cx.theme().danger, is_dark, 0.10, 0.06)
-    } else if percent_used >= 75 {
-        hunk_opacity(cx.theme().warning, is_dark, 0.10, 0.06)
-    } else {
-        hunk_blend(cx.theme().background, cx.theme().muted, is_dark, 0.16, 0.20)
-    };
+    let usage_color = cx.theme().foreground;
+    let chip_border = hunk_opacity(cx.theme().border, is_dark, 0.76, 0.62);
+    let chip_background = hunk_blend(cx.theme().background, cx.theme().muted, is_dark, 0.16, 0.20);
     let tooltip_usage = usage.clone();
 
     Some(
