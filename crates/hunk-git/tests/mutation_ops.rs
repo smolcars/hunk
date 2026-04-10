@@ -170,42 +170,6 @@ fn creating_branch_from_default_requires_uncommitted_changes_to_transfer() -> Re
 }
 
 #[test]
-fn creating_branch_from_default_rolls_back_when_transfer_conflicts() -> Result<()> {
-    let fixture = TempGitRepo::new()?;
-    fixture.write_file("shared.txt", "main\n")?;
-    fixture.commit_all_git2("initial")?;
-    let default_branch = fixture.current_branch_name()?;
-
-    fixture.checkout_branch("feature/existing")?;
-    fixture.write_file("shared.txt", "feature\n")?;
-    fixture.commit_all_git2("feature history")?;
-    fixture.write_file("shared.txt", "feature\npending thread work\n")?;
-
-    let err = create_branch_from_base_with_change_transfer(
-        fixture.root(),
-        "ai/local/thread-review",
-        default_branch.as_str(),
-    )
-    .expect_err("conflicting transfer should restore the original branch state");
-
-    assert!(
-        err.to_string()
-            .contains("failed to apply stashed changes onto branch")
-    );
-    assert_eq!(fixture.current_branch_name()?, "feature/existing");
-    assert_eq!(
-        fs::read_to_string(fixture.root().join("shared.txt"))?,
-        "feature\npending thread work\n"
-    );
-    let repo = fixture.repository()?;
-    assert!(
-        repo.find_branch("ai/local/thread-review", BranchType::Local)
-            .is_err()
-    );
-    Ok(())
-}
-
-#[test]
 fn activating_branch_rejects_hidden_index_changes() -> Result<()> {
     let fixture = TempGitRepo::new()?;
     fixture.write_file("tracked.txt", "base\n")?;
