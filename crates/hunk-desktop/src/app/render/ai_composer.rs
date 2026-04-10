@@ -12,6 +12,7 @@ struct AiComposerPanelState {
     selected_thread_mode_for_picker: AiNewThreadStartMode,
     thread_mode_picker_editable: bool,
     session_controls_read_only: bool,
+    selected_thread_context_usage: Option<hunk_codex::state::ThreadTokenUsageSummary>,
     composer_send_waiting_on_connection: bool,
     composer_interrupt_available: bool,
     queued_message_count: usize,
@@ -103,7 +104,12 @@ impl DiffViewer {
         let composer_drop_bg = state.composer_drop_bg;
         let footer_group_gap = px(6.0);
         let footer_button_gap = px(2.0);
+        let footer_action_gap = px(8.0);
         let completion_colors = hunk_completion_menu(cx.theme(), is_dark);
+        let context_usage_chip = state
+            .selected_thread_context_usage
+            .as_ref()
+            .and_then(|usage| ai_render_context_usage_chip(usage, is_dark, cx));
         let attachment_chips = (!state.composer_attachment_paths.is_empty()).then(|| {
             h_flex()
                 .w_full()
@@ -248,7 +254,8 @@ impl DiffViewer {
                 h_flex()
                     .items_center()
                     .justify_end()
-                    .gap(footer_button_gap)
+                    .gap(footer_action_gap)
+                    .when_some(context_usage_chip, |this, chip| this.child(chip))
                     .child({
                         let view = view.clone();
                         if state.composer_interrupt_available {
@@ -825,8 +832,8 @@ impl DiffViewer {
                                 ),
                         ),
                 ),
-        )
-        .into_any_element()
+            )
+            .into_any_element()
     }
 }
 

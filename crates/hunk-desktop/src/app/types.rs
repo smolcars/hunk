@@ -414,6 +414,7 @@ struct AiVisibleFrameState {
     show_no_turns_empty_state: bool,
     composer_feedback: Option<AiComposerFeedbackState>,
     composer_attachment_paths: Arc<[PathBuf]>,
+    selected_thread_context_usage: Option<hunk_codex::state::ThreadTokenUsageSummary>,
     composer_send_waiting_on_connection: bool,
     composer_interrupt_available: bool,
     queued_message_count: usize,

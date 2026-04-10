@@ -47,9 +47,12 @@ use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
 use codex_app_server_protocol::ThreadStatus;
 use codex_app_server_protocol::ThreadStatusChangedNotification;
+use codex_app_server_protocol::ThreadTokenUsage;
+use codex_app_server_protocol::ThreadTokenUsageUpdatedNotification;
 use codex_app_server_protocol::ThreadUnarchiveResponse;
 use codex_app_server_protocol::ThreadUnsubscribeResponse;
 use codex_app_server_protocol::ThreadUnsubscribeStatus;
+use codex_app_server_protocol::TokenUsageBreakdown;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnError;
 use codex_app_server_protocol::TurnInterruptParams;
@@ -1042,6 +1045,56 @@ fn server_request_resolved_notification_is_recorded_for_known_thread() {
         .expect("server request should be tracked");
     assert_eq!(summary.decision, ServerRequestDecision::Unknown);
     assert_eq!(summary.item_id, None);
+}
+
+#[test]
+fn thread_token_usage_notification_is_recorded_for_known_thread() {
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+    let _ = service.state_mut().apply_stream_event(StreamEvent {
+        sequence: 1,
+        dedupe_key: None,
+        payload: ReducerEvent::ThreadStarted {
+            thread_id: "thread-known".to_string(),
+            cwd: WORKSPACE_CWD.to_string(),
+            title: None,
+            created_at: None,
+            updated_at: None,
+        },
+    });
+
+    service.apply_server_notification(ServerNotification::ThreadTokenUsageUpdated(
+        ThreadTokenUsageUpdatedNotification {
+            thread_id: "thread-known".to_string(),
+            turn_id: "turn-1".to_string(),
+            token_usage: ThreadTokenUsage {
+                total: TokenUsageBreakdown {
+                    total_tokens: 72_889,
+                    input_tokens: 48_200,
+                    cached_input_tokens: 14_400,
+                    output_tokens: 7_800,
+                    reasoning_output_tokens: 2_489,
+                },
+                last: TokenUsageBreakdown {
+                    total_tokens: 6_400,
+                    input_tokens: 4_500,
+                    cached_input_tokens: 900,
+                    output_tokens: 700,
+                    reasoning_output_tokens: 300,
+                },
+                model_context_window: Some(258_000),
+            },
+        },
+    ));
+
+    let summary = service
+        .state()
+        .thread_token_usage
+        .get("thread-known")
+        .expect("thread token usage should be tracked");
+    assert_eq!(summary.turn_id, "turn-1");
+    assert_eq!(summary.total.total_tokens, 72_889);
+    assert_eq!(summary.last.total_tokens, 6_400);
+    assert_eq!(summary.model_context_window, Some(258_000));
 }
 
 #[test]

@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
+use codex_app_server_protocol::TokenUsageBreakdown;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThreadLifecycleStatus {
     Active,
@@ -49,6 +51,36 @@ pub struct ThreadSummary {
     pub status: ThreadLifecycleStatus,
     pub created_at: i64,
     pub updated_at: i64,
+    pub last_sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TokenUsageBreakdownSummary {
+    pub total_tokens: i64,
+    pub input_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub output_tokens: i64,
+    pub reasoning_output_tokens: i64,
+}
+
+impl From<TokenUsageBreakdown> for TokenUsageBreakdownSummary {
+    fn from(value: TokenUsageBreakdown) -> Self {
+        Self {
+            total_tokens: value.total_tokens.max(0),
+            input_tokens: value.input_tokens.max(0),
+            cached_input_tokens: value.cached_input_tokens.max(0),
+            output_tokens: value.output_tokens.max(0),
+            reasoning_output_tokens: value.reasoning_output_tokens.max(0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ThreadTokenUsageSummary {
+    pub turn_id: String,
+    pub total: TokenUsageBreakdownSummary,
+    pub last: TokenUsageBreakdownSummary,
+    pub model_context_window: Option<i64>,
     pub last_sequence: u64,
 }
 
@@ -114,6 +146,13 @@ pub enum ReducerEvent {
         thread_id: String,
         title: Option<String>,
         updated_at: Option<i64>,
+    },
+    ThreadTokenUsageUpdated {
+        thread_id: String,
+        turn_id: String,
+        total: TokenUsageBreakdownSummary,
+        last: TokenUsageBreakdownSummary,
+        model_context_window: Option<i64>,
     },
     ThreadStatusChanged {
         thread_id: String,
@@ -208,6 +247,7 @@ pub trait ActiveThreadStore {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AiState {
     pub threads: BTreeMap<String, ThreadSummary>,
+    pub thread_token_usage: BTreeMap<String, ThreadTokenUsageSummary>,
     pub turns: BTreeMap<String, TurnSummary>,
     pub items: BTreeMap<String, ItemSummary>,
     pub turn_diffs: BTreeMap<String, String>,
@@ -327,6 +367,20 @@ impl AiState {
                 title,
                 updated_at,
             } => self.apply_thread_metadata(sequence, thread_id, title, updated_at),
+            ReducerEvent::ThreadTokenUsageUpdated {
+                thread_id,
+                turn_id,
+                total,
+                last,
+                model_context_window,
+            } => self.apply_thread_token_usage(
+                sequence,
+                thread_id,
+                turn_id,
+                total,
+                last,
+                model_context_window,
+            ),
             ReducerEvent::ThreadStatusChanged { thread_id, status } => {
                 self.apply_thread_status(sequence, thread_id, status)
             }
@@ -642,6 +696,43 @@ impl AiState {
             thread.updated_at = updated_at;
         }
         thread.last_sequence = sequence;
+        ApplyOutcome::Applied
+    }
+
+    fn apply_thread_token_usage(
+        &mut self,
+        sequence: u64,
+        thread_id: String,
+        turn_id: String,
+        total: TokenUsageBreakdownSummary,
+        last: TokenUsageBreakdownSummary,
+        model_context_window: Option<i64>,
+    ) -> ApplyOutcome {
+        self.ensure_thread_summary(thread_id.as_str());
+        let model_context_window = model_context_window.filter(|value| *value > 0);
+        match self.thread_token_usage.entry(thread_id) {
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                if sequence < entry.get().last_sequence {
+                    return ApplyOutcome::Stale;
+                }
+
+                let summary = entry.get_mut();
+                summary.turn_id = turn_id;
+                summary.total = total;
+                summary.last = last;
+                summary.model_context_window = model_context_window;
+                summary.last_sequence = sequence;
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(ThreadTokenUsageSummary {
+                    turn_id,
+                    total,
+                    last,
+                    model_context_window,
+                    last_sequence: sequence,
+                });
+            }
+        }
         ApplyOutcome::Applied
     }
 

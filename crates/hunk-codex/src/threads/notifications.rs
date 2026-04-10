@@ -172,6 +172,17 @@ impl ThreadService {
                     });
                 }
             }
+            ServerNotification::ThreadTokenUsageUpdated(notification) => {
+                if self.is_known_thread(&notification.thread_id) {
+                    self.apply_event(ReducerEvent::ThreadTokenUsageUpdated {
+                        thread_id: notification.thread_id,
+                        turn_id: notification.turn_id,
+                        total: notification.token_usage.total.into(),
+                        last: notification.token_usage.last.into(),
+                        model_context_window: notification.token_usage.model_context_window,
+                    });
+                }
+            }
             ServerNotification::TurnStarted(notification) => {
                 if self.is_known_thread(&notification.thread_id) {
                     self.apply_turn_snapshot(&notification.thread_id, &notification.turn);

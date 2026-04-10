@@ -129,6 +129,7 @@ impl DiffViewer {
             selected_thread_mode_for_picker,
             thread_mode_picker_editable,
             session_controls_read_only: ai_view_state.composer_interrupt_available,
+            selected_thread_context_usage: ai_view_state.selected_thread_context_usage.clone(),
             composer_send_waiting_on_connection: ai_view_state.composer_send_waiting_on_connection,
             composer_interrupt_available: ai_view_state.composer_interrupt_available,
             queued_message_count: ai_view_state.queued_message_count,

@@ -193,6 +193,78 @@ fn turn_plan_updates_replace_steps_and_preserve_creation_sequence() {
 }
 
 #[test]
+fn thread_token_usage_updates_track_latest_summary_and_ignore_stale_sequences() {
+    let mut state = AiState::default();
+
+    state.apply_stream_events(vec![
+        event(
+            1,
+            Some("thread-start:t1"),
+            ReducerEvent::ThreadStarted {
+                thread_id: "t1".to_string(),
+                cwd: "/repo".to_string(),
+                title: None,
+                created_at: Some(10),
+                updated_at: Some(10),
+            },
+        ),
+        event(
+            2,
+            Some("token-usage:t1:1"),
+            ReducerEvent::ThreadTokenUsageUpdated {
+                thread_id: "t1".to_string(),
+                turn_id: "turn-1".to_string(),
+                total: hunk_codex::state::TokenUsageBreakdownSummary {
+                    total_tokens: 72_889,
+                    input_tokens: 48_200,
+                    cached_input_tokens: 14_400,
+                    output_tokens: 7_800,
+                    reasoning_output_tokens: 2_489,
+                },
+                last: hunk_codex::state::TokenUsageBreakdownSummary {
+                    total_tokens: 6_400,
+                    input_tokens: 4_500,
+                    cached_input_tokens: 900,
+                    output_tokens: 700,
+                    reasoning_output_tokens: 300,
+                },
+                model_context_window: Some(258_000),
+            },
+        ),
+    ]);
+
+    let stale = state.apply_stream_event(event(
+        1,
+        Some("token-usage:t1:stale"),
+        ReducerEvent::ThreadTokenUsageUpdated {
+            thread_id: "t1".to_string(),
+            turn_id: "turn-0".to_string(),
+            total: hunk_codex::state::TokenUsageBreakdownSummary {
+                total_tokens: 9_999,
+                input_tokens: 0,
+                cached_input_tokens: 0,
+                output_tokens: 0,
+                reasoning_output_tokens: 0,
+            },
+            last: hunk_codex::state::TokenUsageBreakdownSummary::default(),
+            model_context_window: Some(128_000),
+        },
+    ));
+
+    assert_eq!(stale, ApplyOutcome::Stale);
+
+    let summary = state
+        .thread_token_usage
+        .get("t1")
+        .expect("thread token usage should exist");
+    assert_eq!(summary.turn_id, "turn-1");
+    assert_eq!(summary.total.total_tokens, 72_889);
+    assert_eq!(summary.last.total_tokens, 6_400);
+    assert_eq!(summary.model_context_window, Some(258_000));
+    assert_eq!(summary.last_sequence, 2);
+}
+
+#[test]
 fn out_of_order_and_duplicate_events_are_idempotent() {
     let mut state = AiState::default();
 

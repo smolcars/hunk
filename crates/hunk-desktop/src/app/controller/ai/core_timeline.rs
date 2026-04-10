@@ -276,6 +276,12 @@ impl DiffViewer {
                 selected_worktree_base_branch,
             )
         };
+        let selected_thread_context_usage = selected_thread_id.as_deref().and_then(|thread_id| {
+            self.ai_state_snapshot
+                .thread_token_usage
+                .get(thread_id)
+                .cloned()
+        });
         let timeline_rows_started_at = Instant::now();
         let (
             timeline_total_turn_count,
@@ -487,6 +493,7 @@ impl DiffViewer {
             show_no_turns_empty_state,
             composer_feedback,
             composer_attachment_paths,
+            selected_thread_context_usage,
             composer_send_waiting_on_connection,
             composer_interrupt_available,
             queued_message_count,
