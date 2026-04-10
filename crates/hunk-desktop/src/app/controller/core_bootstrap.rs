@@ -524,6 +524,7 @@ impl DiffViewer {
             ai_selected_collaboration_mode: AiCollaborationModeSelection::Default,
             ai_selected_service_tier: AiServiceTierSelection::Standard,
             ai_mad_max_mode: initial_ai_mad_max_mode,
+            ai_followup_prompt_state_by_thread: BTreeMap::new(),
             ai_event_epoch: 0,
             ai_event_task: Task::ready(()),
             ai_thread_catalog_refresh_epoch: 0,
@@ -850,6 +851,27 @@ impl DiffViewer {
                 if handled {
                     return;
                 }
+            }
+            if event.keystroke.key == "tab" && event.keystroke.modifiers.shift
+                && !event.keystroke.modifiers.control
+                && !event.keystroke.modifiers.alt && !event.keystroke.modifiers.platform
+            {
+                let handled = view.update(cx, |this, cx| {
+                    let composer_focus_handle =
+                        gpui::Focusable::focus_handle(this.ai_composer_input_state.read(cx), cx);
+                    if !composer_focus_handle.is_focused(window) {
+                        return false;
+                    }
+                    this.ai_cycle_composer_mode(window, cx);
+                    true
+                });
+                if handled { return; }
+            }
+            if let Some(action) = ai_followup_prompt_action_for_keystroke(&event.keystroke) {
+                let handled = view.update(cx, |this, cx| {
+                    this.ai_handle_followup_prompt_keystroke(action, window, cx)
+                });
+                if handled { return; }
             }
             let Some(shortcut) = ai_composer_shortcut_for_keystroke(&event.keystroke) else {
                 return;

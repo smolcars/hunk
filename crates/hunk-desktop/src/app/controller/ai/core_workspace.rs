@@ -531,6 +531,7 @@ impl DiffViewer {
             selected_collaboration_mode: self.ai_selected_collaboration_mode,
             selected_service_tier: self.ai_selected_service_tier,
             review_mode_thread_ids: self.ai_review_mode_thread_ids.clone(),
+            followup_prompt_state_by_thread: self.ai_followup_prompt_state_by_thread.clone(),
             mad_max_mode: self.ai_mad_max_mode,
             draft_workspace_root_override: self.ai_draft_workspace_root_override.clone(),
             terminal_open: self.ai_terminal_open,
@@ -600,6 +601,7 @@ impl DiffViewer {
         self.ai_selected_collaboration_mode = state.selected_collaboration_mode;
         self.ai_selected_service_tier = state.selected_service_tier;
         self.ai_review_mode_thread_ids = state.review_mode_thread_ids;
+        self.ai_followup_prompt_state_by_thread = state.followup_prompt_state_by_thread;
         self.ai_mad_max_mode = state.mad_max_mode;
         self.ai_draft_workspace_root_override = state.draft_workspace_root_override;
         self.ai_terminal_open = state.terminal_open;
@@ -625,6 +627,14 @@ impl DiffViewer {
             .retain(|thread_id, _| self.ai_state_snapshot.threads.contains_key(thread_id));
         self.ai_review_mode_thread_ids
             .retain(|thread_id| self.ai_state_snapshot.threads.contains_key(thread_id));
+        prune_ai_followup_prompt_state(
+            &mut self.ai_followup_prompt_state_by_thread,
+            &self.ai_state_snapshot,
+        );
+        sync_ai_review_mode_threads_after_snapshot(
+            &mut self.ai_review_mode_thread_ids,
+            &self.ai_state_snapshot,
+        );
         self.sync_ai_pending_user_input_answers();
         self.ai_expanded_timeline_row_ids
             .retain(|row_id| self.ai_timeline_rows_by_id.contains_key(row_id));
@@ -664,6 +674,7 @@ impl DiffViewer {
             .current_ai_thread_id()
             .as_ref()
             .is_some_and(|thread_id| self.ai_review_mode_thread_ids.contains(thread_id));
+        self.sync_current_ai_followup_prompt_state();
         self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
         self.restore_ai_queued_messages_to_drafts(restored_queued_messages);
         self.prune_ai_composer_drafts();
@@ -872,6 +883,20 @@ impl DiffViewer {
             state.selected_thread_id = Some(first_thread.id.clone());
         }
 
+        prune_ai_followup_prompt_state(
+            &mut state.followup_prompt_state_by_thread,
+            &state.state_snapshot,
+        );
+        sync_ai_review_mode_threads_after_snapshot(
+            &mut state.review_mode_thread_ids,
+            &state.state_snapshot,
+        );
+        sync_ai_followup_prompt_ui_state(
+            &mut state.followup_prompt_state_by_thread,
+            &state.state_snapshot,
+            state.selected_thread_id.as_deref(),
+            state.selected_collaboration_mode,
+        );
         state
             .thread_title_refresh_state_by_thread
             .retain(|thread_id, _| state.state_snapshot.threads.contains_key(thread_id));

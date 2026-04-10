@@ -752,6 +752,7 @@ impl DiffViewer {
         }
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
+        self.sync_current_ai_followup_prompt_state();
         self.invalidate_ai_visible_frame_state_with_reason("settings");
         cx.notify();
     }
@@ -765,8 +766,23 @@ impl DiffViewer {
             cx.notify();
             return;
         };
+        self.ai_selected_collaboration_mode = AiCollaborationModeSelection::Default;
+        if let Some(mask) = ai_collaboration_mode_mask(
+            &self.ai_collaboration_modes,
+            AiCollaborationModeSelection::Default,
+        ) {
+            if let Some(model) = mask.model.as_ref() {
+                self.ai_selected_model = Some(model.clone());
+            }
+            if let Some(reasoning_effort) = mask.reasoning_effort.unwrap_or(None) {
+                self.ai_selected_effort = Some(reasoning_effort_key(&reasoning_effort));
+            }
+        }
+        self.normalize_ai_selected_effort();
         self.ai_review_mode_thread_ids.insert(thread_id);
         self.ai_review_mode_active = true;
+        self.persist_current_ai_workspace_session();
+        self.sync_current_ai_followup_prompt_state();
         cx.notify();
     }
 
@@ -853,6 +869,7 @@ impl DiffViewer {
         }
         self.flush_ai_timeline_scroll_request();
         self.sync_ai_session_selection_from_state();
+        self.sync_current_ai_followup_prompt_state();
         self.send_ai_worker_command(AiWorkerCommand::SelectThread { thread_id }, cx);
         cx.notify();
     }

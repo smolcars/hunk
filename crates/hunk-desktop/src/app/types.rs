@@ -266,6 +266,31 @@ struct AiResolvedCurrentState {
     workspace_key: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiFollowupPromptKind {
+    Plan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum AiFollowupPromptAction {
+    #[default]
+    Primary,
+    Secondary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AiFollowupPrompt {
+    kind: AiFollowupPromptKind,
+    source_sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct AiThreadFollowupPromptState {
+    plan_acknowledged_sequence: u64,
+    prompt_source_sequence: u64,
+    selected_action: AiFollowupPromptAction,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum AiInlineReviewMode {
     #[default]
@@ -600,6 +625,7 @@ struct AiWorkspaceState {
     selected_collaboration_mode: AiCollaborationModeSelection,
     selected_service_tier: AiServiceTierSelection,
     review_mode_thread_ids: BTreeSet<String>,
+    followup_prompt_state_by_thread: BTreeMap<String, AiThreadFollowupPromptState>,
     mad_max_mode: bool,
     draft_workspace_root_override: Option<PathBuf>,
     terminal_open: bool,
@@ -651,6 +677,7 @@ impl Default for AiWorkspaceState {
             selected_collaboration_mode: AiCollaborationModeSelection::Default,
             selected_service_tier: AiServiceTierSelection::Standard,
             review_mode_thread_ids: BTreeSet::new(),
+            followup_prompt_state_by_thread: BTreeMap::new(),
             mad_max_mode: false,
             draft_workspace_root_override: None,
             terminal_open: false,

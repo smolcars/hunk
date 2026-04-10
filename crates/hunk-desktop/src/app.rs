@@ -1481,6 +1481,7 @@ struct DiffViewer {
     ai_selected_collaboration_mode: AiCollaborationModeSelection,
     ai_selected_service_tier: AiServiceTierSelection,
     ai_mad_max_mode: bool,
+    ai_followup_prompt_state_by_thread: BTreeMap<String, AiThreadFollowupPromptState>,
     ai_event_epoch: usize,
     ai_event_task: Task<()>,
     ai_thread_catalog_refresh_epoch: usize,

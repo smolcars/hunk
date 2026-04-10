@@ -17,6 +17,8 @@ struct AiComposerPanelState {
     composer_interrupt_available: bool,
     queued_message_count: usize,
     review_action_blocker: Option<String>,
+    followup_prompt: Option<AiFollowupPrompt>,
+    followup_prompt_action: AiFollowupPromptAction,
     composer_drop_border_color: Hsla,
     composer_drop_bg: Hsla,
 }
@@ -318,6 +320,17 @@ impl DiffViewer {
                     })
                     .when_some(usage_popover, |this, popover| {
                         this.child(popover)
+                    })
+                    .when_some(state.followup_prompt, |this, prompt| {
+                        this.child(
+                            render_ai_followup_prompt_card(
+                                view.clone(),
+                                prompt,
+                                state.followup_prompt_action,
+                                is_dark,
+                                cx,
+                            ),
+                        )
                     })
                     .child(
                         v_flex()

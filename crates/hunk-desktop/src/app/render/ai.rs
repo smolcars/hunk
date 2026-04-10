@@ -54,8 +54,11 @@ impl DiffViewer {
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
         let ai_view_state = ai_view_state.unwrap_or_else(|| self.visible_ai_frame_state());
+        self.sync_current_ai_followup_prompt_state();
         let show_global_loading_overlay = self.ai_bootstrap_loading;
         let selected_thread_id = ai_view_state.selected_thread_id.clone();
+        let composer_followup_prompt = self.current_ai_followup_prompt();
+        let composer_followup_action = self.current_ai_followup_prompt_action();
         let (selected_thread_mode_for_picker, thread_mode_picker_editable) =
             self.ai_thread_mode_picker_state(ai_view_state.selected_thread_start_mode);
         let composer_attachment_paths = ai_view_state.composer_attachment_paths.clone();
@@ -137,6 +140,8 @@ impl DiffViewer {
             composer_interrupt_available: ai_view_state.composer_interrupt_available,
             queued_message_count: ai_view_state.queued_message_count,
             review_action_blocker: ai_view_state.review_action_blocker.clone(),
+            followup_prompt: composer_followup_prompt,
+            followup_prompt_action: composer_followup_action,
             composer_drop_border_color,
             composer_drop_bg,
         };
