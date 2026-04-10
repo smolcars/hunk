@@ -337,5 +337,6 @@ mod ai_tests {
     include!("tests/selection_and_refresh.rs");
     include!("tests/runtime_path_and_session.rs");
     include!("tests/followup_prompts.rs");
+    include!("tests/workspace_surface_plan_items.rs");
     include!("tests/text_selection.rs");
 }

@@ -94,6 +94,23 @@ fn ai_historical_inline_review_loaded_state(
 }
 
 impl DiffViewer {
+    fn ai_workspace_message_block_config(
+        item_kind: &str,
+    ) -> Option<(ai_workspace_session::AiWorkspaceBlockRole, &'static str)> {
+        match item_kind {
+            "userMessage" => Some((ai_workspace_session::AiWorkspaceBlockRole::User, "You")),
+            "agentMessage" => Some((
+                ai_workspace_session::AiWorkspaceBlockRole::Assistant,
+                "Assistant",
+            )),
+            "plan" => Some((
+                ai_workspace_session::AiWorkspaceBlockRole::Assistant,
+                "Proposed Plan",
+            )),
+            _ => None,
+        }
+    }
+
     pub(super) fn ai_inline_review_mode_for_thread(&self, thread_id: &str) -> AiInlineReviewMode {
         self.ai_inline_review_mode_by_thread
             .get(thread_id)
@@ -923,33 +940,33 @@ impl DiffViewer {
         nested: bool,
     ) -> Option<ai_workspace_session::AiWorkspaceBlock> {
         let expanded = self.ai_workspace_row_is_expanded(row.id.as_str());
-        match item.kind.as_str() {
-            "userMessage" | "agentMessage" => {
+        match Self::ai_workspace_message_block_config(item.kind.as_str()) {
+            Some((role, title)) => {
                 let preview = ai_workspace_message_preview(item);
                 Some(ai_workspace_session::AiWorkspaceBlock {
                 id: row.id.clone(),
                 source_row_id: row.id.clone(),
-                role: if item.kind == "userMessage" {
-                    ai_workspace_session::AiWorkspaceBlockRole::User
-                } else {
-                    ai_workspace_session::AiWorkspaceBlockRole::Assistant
-                },
+                role,
                 kind: ai_workspace_session::AiWorkspaceBlockKind::Message,
                 nested,
                 mono_preview: false,
                 open_review_tab: false,
                 expandable: false,
                 expanded: true,
-                title: if item.kind == "userMessage" {
-                    "You".to_string()
-                } else {
-                    "Assistant".to_string()
-                },
+                title: title.to_string(),
                 preview: preview.clone(),
                 action_area: ai_workspace_session::AiWorkspaceBlockActionArea::Header,
                 copy_text: Some(preview),
-                copy_tooltip: Some("Copy message"),
-                copy_success_message: Some("Copied message."),
+                copy_tooltip: Some(if item.kind == "plan" {
+                    "Copy plan"
+                } else {
+                    "Copy message"
+                }),
+                copy_success_message: Some(if item.kind == "plan" {
+                    "Copied plan."
+                } else {
+                    "Copied message."
+                }),
                 run_in_terminal_command: None,
                 run_in_terminal_cwd: None,
                 status_label: None,
@@ -957,7 +974,7 @@ impl DiffViewer {
                 last_sequence: row.last_sequence,
                 })
             }
-            "fileChange" => crate::app::ai_workspace_timeline_projection::ai_workspace_file_change_summary(item)
+            None if item.kind == "fileChange" => crate::app::ai_workspace_timeline_projection::ai_workspace_file_change_summary(item)
                 .map(|summary| {
                     ai_workspace_diff_block(
                         row.id.clone(),
@@ -967,7 +984,7 @@ impl DiffViewer {
                         nested,
                     )
                 }),
-            "commandExecution" => {
+            None if item.kind == "commandExecution" => {
                 let raw_content_text = item.content.trim_end();
                 let command_details =
                     crate::app::ai_workspace_timeline_projection::ai_workspace_command_execution_display_details(item);
@@ -1028,8 +1045,16 @@ impl DiffViewer {
                     last_sequence: row.last_sequence,
                 })
             }
-            "reasoning" | "webSearch" | "dynamicToolCall" | "mcpToolCall"
-            | "collabAgentToolCall" => {
+            None
+                if matches!(
+                    item.kind.as_str(),
+                    "reasoning"
+                        | "webSearch"
+                        | "dynamicToolCall"
+                        | "mcpToolCall"
+                        | "collabAgentToolCall"
+                ) =>
+            {
                 let details_text = crate::app::ai_workspace_timeline_projection::ai_workspace_timeline_item_details_json(item)
                     .unwrap_or(item.content.as_str());
                 let details_text = details_text.trim();
@@ -1082,7 +1107,7 @@ impl DiffViewer {
                     last_sequence: row.last_sequence,
                 })
             }
-            _ => Some(ai_workspace_session::AiWorkspaceBlock {
+            None => Some(ai_workspace_session::AiWorkspaceBlock {
                 id: row.id.clone(),
                 source_row_id: row.id.clone(),
                 role: ai_workspace_session::AiWorkspaceBlockRole::System,

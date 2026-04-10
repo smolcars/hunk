@@ -49,6 +49,37 @@ fn insert_plan(
     );
 }
 
+fn insert_plan_item(
+    state: &mut AiState,
+    thread_id: &str,
+    turn_id: &str,
+    item_id: &str,
+    last_sequence: u64,
+) {
+    state.turns.insert(
+        hunk_codex::state::turn_storage_key(thread_id, turn_id),
+        hunk_codex::state::TurnSummary {
+            id: turn_id.to_string(),
+            thread_id: thread_id.to_string(),
+            status: hunk_codex::state::TurnStatus::Completed,
+            last_sequence,
+        },
+    );
+    state.items.insert(
+        hunk_codex::state::item_storage_key(thread_id, turn_id, item_id),
+        hunk_codex::state::ItemSummary {
+            id: item_id.to_string(),
+            thread_id: thread_id.to_string(),
+            turn_id: turn_id.to_string(),
+            kind: "plan".to_string(),
+            status: hunk_codex::state::ItemStatus::Completed,
+            content: "# Proposed Plan\n\n- Ship the popup".to_string(),
+            display_metadata: None,
+            last_sequence,
+        },
+    );
+}
+
 fn insert_review_exit_item(
     state: &mut AiState,
     thread_id: &str,
@@ -138,6 +169,25 @@ fn ai_followup_prompt_for_thread_returns_latest_plan_in_plan_mode() {
 }
 
 #[test]
+fn ai_followup_prompt_for_thread_uses_plan_items_when_turn_plan_updates_are_absent() {
+    let mut state = followup_state("thread-1");
+    insert_plan_item(&mut state, "thread-1", "turn-1", "plan-item", 9);
+
+    assert_eq!(
+        ai_followup_prompt_for_thread(
+            &state,
+            "thread-1",
+            AiCollaborationModeSelection::Plan,
+            AiThreadFollowupPromptState::default(),
+        ),
+        Some(AiFollowupPrompt {
+            kind: AiFollowupPromptKind::Plan,
+            source_sequence: 9,
+        })
+    );
+}
+
+#[test]
 fn ai_followup_prompt_for_thread_hides_plan_outside_plan_mode() {
     let mut state = followup_state("thread-1");
     insert_plan(&mut state, "thread-1", "turn-1", 9);
@@ -190,7 +240,6 @@ fn sync_ai_followup_prompt_ui_state_resets_selection_for_new_prompt() {
             plan_acknowledged_sequence: 0,
             prompt_source_sequence: 3,
             selected_action: AiFollowupPromptAction::Secondary,
-            ..AiThreadFollowupPromptState::default()
         },
     )]);
 

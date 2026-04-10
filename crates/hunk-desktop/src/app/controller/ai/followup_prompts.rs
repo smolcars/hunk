@@ -45,7 +45,7 @@ fn latest_ai_plan_for_thread(
     state: &hunk_codex::state::AiState,
     thread_id: &str,
 ) -> Option<AiFollowupPrompt> {
-    state
+    let turn_plan_prompt = state
         .turn_plans
         .values()
         .filter(|plan| plan.thread_id == thread_id)
@@ -53,13 +53,44 @@ fn latest_ai_plan_for_thread(
         .map(|plan| AiFollowupPrompt {
             kind: AiFollowupPromptKind::Plan,
             source_sequence: plan.last_sequence,
+        });
+    let plan_item_prompt = state
+        .items
+        .values()
+        .filter(|item| {
+            item.thread_id == thread_id
+                && item.kind == "plan"
+                && (!item.content.trim().is_empty()
+                    || item
+                        .display_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.summary.as_deref())
+                        .is_some_and(|summary| !summary.trim().is_empty()))
         })
+        .max_by_key(|item| item.last_sequence)
+        .map(|item| AiFollowupPrompt {
+            kind: AiFollowupPromptKind::Plan,
+            source_sequence: item.last_sequence,
+        });
+
+    match (turn_plan_prompt, plan_item_prompt) {
+        (Some(turn_plan), Some(plan_item)) => Some(if turn_plan.source_sequence
+            >= plan_item.source_sequence
+        {
+            turn_plan
+        } else {
+            plan_item
+        }),
+        (Some(turn_plan), None) => Some(turn_plan),
+        (None, Some(plan_item)) => Some(plan_item),
+        (None, None) => None,
+    }
 }
 
 fn latest_ai_review_for_thread(
     state: &hunk_codex::state::AiState,
     thread_id: &str,
-) -> Option<AiFollowupPrompt> {
+) -> Option<u64> {
     state
         .items
         .values()
