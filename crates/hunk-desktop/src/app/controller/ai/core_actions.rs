@@ -423,6 +423,58 @@ impl DiffViewer {
         cx.notify();
     }
 
+    pub(super) fn ai_composer_paste_action(
+        &mut self,
+        _: &gpui_component::input::Paste,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(clipboard) = cx.read_from_clipboard() else {
+            cx.propagate();
+            return;
+        };
+
+        let attachments = match crate::app::ai_composer_clipboard::ai_composer_clipboard_attachments(
+            &clipboard,
+            crate::app::ai_composer_clipboard::ai_composer_pasted_image_dir().as_path(),
+        ) {
+            Ok(Some(attachments)) => attachments,
+            Ok(None) => {
+                cx.propagate();
+                return;
+            }
+            Err(error) => {
+                cx.stop_propagation();
+                self.set_current_ai_composer_status(
+                    format!("Failed to attach pasted image: {error:#}"),
+                    cx,
+                );
+                cx.notify();
+                return;
+            }
+        };
+
+        if !self.current_ai_model_supports_image_inputs() {
+            cx.stop_propagation();
+            self.set_current_ai_composer_status(
+                "Selected model does not support image attachments. Remove attachments or switch models.",
+                cx,
+            );
+            cx.notify();
+            return;
+        }
+
+        cx.stop_propagation();
+        let added = self.ai_add_composer_local_images(attachments.paths);
+        if added > 0 {
+            self.invalidate_ai_visible_frame_state_with_reason("thread");
+        }
+        if let Some(message) = ai_attachment_status_message(attachments.item_count, added) {
+            self.set_current_ai_composer_status(message, cx);
+        }
+        cx.notify();
+    }
+
     pub(super) fn ai_open_attachment_picker_action(&mut self, cx: &mut Context<Self>) {
         let prompt = cx.prompt_for_paths(PathPromptOptions {
             files: true,

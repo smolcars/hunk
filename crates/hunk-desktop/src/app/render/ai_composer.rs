@@ -167,6 +167,7 @@ impl DiffViewer {
             .key_context("AiComposer AiWorkspace")
             .on_action(cx.listener(Self::ai_queue_prompt_action))
             .on_action(cx.listener(Self::ai_edit_last_queued_prompt_action))
+            .capture_action(cx.listener(Self::ai_composer_paste_action))
             .child(
                 Input::new(&self.ai_composer_input_state)
                     .appearance(false)
