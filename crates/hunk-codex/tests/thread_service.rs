@@ -2455,6 +2455,7 @@ fn thread(id: &str, cwd: &str, status: ThreadStatus, turns: Vec<Turn>) -> Thread
         source: SessionSource::AppServer,
         agent_nickname: None,
         agent_role: None,
+        forked_from_id: None,
         git_info: None,
         name: Some(format!("Thread {id}")),
         turns,
@@ -2467,6 +2468,9 @@ fn turn(id: &str, status: TurnStatus) -> Turn {
         items: Vec::new(),
         status,
         error: None,
+        started_at: None,
+        completed_at: None,
+        duration_ms: None,
     }
 }
 
@@ -2476,6 +2480,9 @@ fn turn_with_items(id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn
         items,
         status,
         error: None,
+        started_at: None,
+        completed_at: None,
+        duration_ms: None,
     }
 }
 

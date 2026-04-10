@@ -317,6 +317,7 @@ mod ai_tests {
             default_reasoning_effort,
             input_modalities: Vec::new(),
             supports_personality: false,
+            additional_speed_tiers: Vec::new(),
             is_default,
         }
     }
