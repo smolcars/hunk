@@ -4,7 +4,8 @@ mod ai_git_progress;
 
 use ai_git_progress::{
     AiGitProgressAction, AiGitProgressState, AiGitProgressStep, ai_commit_and_push_progress_steps,
-    ai_delete_worktree_progress_steps, ai_open_pr_progress_steps,
+    ai_create_branch_and_push_progress_steps, ai_delete_worktree_progress_steps,
+    ai_open_pr_progress_steps,
 };
 
 #[test]
@@ -35,6 +36,22 @@ fn open_pr_progress_steps_include_review_branch_generation_when_needed() {
             AiGitProgressStep::PushingBranch,
             AiGitProgressStep::PreparingReviewUrl,
             AiGitProgressStep::OpeningBrowser,
+        ]
+    );
+}
+
+#[test]
+fn create_branch_and_push_progress_steps_include_branch_creation() {
+    let steps = ai_create_branch_and_push_progress_steps();
+
+    assert_eq!(
+        steps,
+        vec![
+            AiGitProgressStep::GeneratingBranchName,
+            AiGitProgressStep::CreatingReviewBranch,
+            AiGitProgressStep::GeneratingCommitMessage,
+            AiGitProgressStep::CreatingCommit,
+            AiGitProgressStep::PushingBranch,
         ]
     );
 }

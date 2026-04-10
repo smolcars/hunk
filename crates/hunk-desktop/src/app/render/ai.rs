@@ -61,6 +61,8 @@ impl DiffViewer {
         let composer_attachment_paths = ai_view_state.composer_attachment_paths.clone();
         let composer_attachment_count = composer_attachment_paths.len();
         let ai_commit_and_push_loading = self.git_action_loading_named("Commit and Push");
+        let ai_create_branch_and_push_loading =
+            self.git_action_loading_named("Create Branch and Push");
         let ai_open_pr_loading = self.git_action_loading_named("Open PR");
         let ai_delete_worktree_loading = self.git_action_loading_named("Delete Worktree");
         let composer_drop_border_color = if ai_view_state.model_supports_image_inputs {
@@ -100,6 +102,7 @@ impl DiffViewer {
             ai_publish_blocker: ai_view_state.ai_publish_blocker.clone(),
             ai_publish_disabled: ai_view_state.ai_publish_disabled,
             ai_commit_and_push_loading,
+            ai_create_branch_and_push_loading,
             ai_open_pr_disabled: ai_view_state.ai_open_pr_disabled,
             ai_open_pr_loading,
             ai_managed_worktree_target: ai_view_state.ai_managed_worktree_target.clone(),

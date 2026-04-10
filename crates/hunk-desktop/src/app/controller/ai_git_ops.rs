@@ -617,6 +617,249 @@ impl DiffViewer {
         );
     }
 
+    pub(super) fn ai_create_branch_and_push_for_current_thread(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(reason) = self.ai_publish_blocker().filter(|reason| !reason.is_empty()) {
+            let message = format!("Create branch and push unavailable: {reason}");
+            self.git_status_message = Some(message.clone());
+            Self::push_warning_notification(message, Some(window), cx);
+            cx.notify();
+            return;
+        }
+
+        let context = match self.ai_current_thread_git_action_context("creating a branch") {
+            Ok(context) => context,
+            Err(reason) => {
+                let message = format!("Create branch and push unavailable: {reason}");
+                self.git_status_message = Some(message.clone());
+                Self::push_warning_notification(message, Some(window), cx);
+                cx.notify();
+                return;
+            }
+        };
+
+        if ai_create_branch_and_push_strategy(context.repo_root.as_path(), context.branch_name.as_str())
+            == AiCreateBranchAndPushStrategy::CreateBranchImmediately
+        {
+            self.ai_run_create_branch_and_push_action(context, cx);
+            return;
+        }
+
+        let branch_name = context.branch_name.clone();
+        let view = cx.entity();
+
+        gpui_component::WindowExt::open_alert_dialog(window, cx, move |alert, _, cx| {
+            alert
+                .width(px(520.0))
+                .title("Choose Push Target")
+                .description(format!(
+                    "You're already on branch '{}'. Create a fresh branch for this AI thread, or push the current branch instead?",
+                    branch_name
+                ))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .whitespace_normal()
+                        .child(
+                            "Opening a PR later will reuse whichever branch you choose here.",
+                        ),
+                )
+                .footer(
+                    DialogFooter::new()
+                        .child(
+                            DialogClose::new()
+                                .child(Button::new("ai-create-branch-and-push-cancel").label("Cancel").outline()),
+                        )
+                        .child(
+                            Button::new("ai-push-current-branch")
+                                .label(format!("Push {}", branch_name))
+                                .outline()
+                                .on_click({
+                                    let view = view.clone();
+                                    move |_, window, cx| {
+                                        window.close_dialog(cx);
+                                        view.update(cx, |this, cx| {
+                                            this.ai_commit_and_push_for_current_thread(cx);
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(
+                            DialogAction::new().child(
+                                Button::new("ai-create-and-push-new-branch")
+                                    .label("Create New Branch")
+                                    .primary(),
+                            ),
+                        ),
+                )
+                .on_ok({
+                    let view = view.clone();
+                    let context = context.clone();
+                    move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            this.ai_run_create_branch_and_push_action(context.clone(), cx);
+                        });
+                        true
+                    }
+                })
+        });
+    }
+
+    fn ai_run_create_branch_and_push_action(
+        &mut self,
+        context: AiThreadGitActionContext,
+        cx: &mut Context<Self>,
+    ) {
+        let fallback_commit_message = ai_commit_message_for_thread(
+            &self.ai_state_snapshot,
+            context.thread_id.as_str(),
+            context.branch_name.as_str(),
+        );
+        let fallback_new_branch_name = ai_branch_name_for_thread(
+            &self.ai_state_snapshot,
+            context.thread_id.as_str(),
+            context.branch_name.as_str(),
+            false,
+        );
+        let branch_generation_seed = ai_branch_generation_seed_for_thread(
+            &self.ai_state_snapshot,
+            context.thread_id.as_str(),
+            context.branch_name.as_str(),
+        );
+        let codex_executable = Self::resolve_codex_executable_path();
+        let repo_root = context.repo_root.clone();
+        let branch_name = context.branch_name.clone();
+        let epoch = self.begin_git_action("Create Branch and Push", cx);
+        self.begin_ai_git_progress(
+            epoch,
+            AiGitProgressAction::CreateBranchAndPush,
+            ai_create_branch_and_push_progress_steps(),
+            AiGitProgressStep::GeneratingBranchName,
+            Some(ai_branch_progress_detail("Current branch", branch_name.as_str())),
+            cx,
+        );
+        self.spawn_ai_git_action_with_progress(
+            epoch,
+            cx,
+            move |progress_tx| {
+                (|| -> anyhow::Result<(Option<String>, String)> {
+                    let requested_branch_name = try_ai_branch_name_for_prompt(
+                        codex_executable.as_path(),
+                        repo_root.as_path(),
+                        branch_generation_seed.as_str(),
+                        &[],
+                        false,
+                    )
+                    .unwrap_or_else(|| fallback_new_branch_name.clone());
+                    send_ai_git_progress(
+                        &progress_tx,
+                        AiGitProgressStep::CreatingReviewBranch,
+                        Some(ai_branch_progress_detail(
+                            "New branch",
+                            requested_branch_name.as_str(),
+                        )),
+                    );
+                    let new_branch_name = activate_new_ai_review_branch(
+                        repo_root.as_path(),
+                        requested_branch_name.as_str(),
+                    )?;
+
+                    send_ai_git_progress(
+                        &progress_tx,
+                        AiGitProgressStep::GeneratingCommitMessage,
+                        Some(ai_branch_progress_detail("New branch", new_branch_name.as_str())),
+                    );
+                    let commit_message = resolve_ai_commit_message_for_working_copy(
+                        AiCodexGenerationConfig {
+                            codex_executable: codex_executable.as_path(),
+                            repo_root: repo_root.as_path(),
+                        },
+                        repo_root.as_path(),
+                        new_branch_name.as_str(),
+                        &fallback_commit_message,
+                    );
+                    send_ai_git_progress(
+                        &progress_tx,
+                        AiGitProgressStep::CreatingCommit,
+                        Some(ai_commit_progress_detail(commit_message.subject.as_str())),
+                    );
+                    let commit_message_text = commit_message.as_git_message();
+                    let committed_subject = match commit_staged_with_details(
+                        repo_root.as_path(),
+                        commit_message_text.as_str(),
+                    ) {
+                        Ok(created) => Some(created.subject),
+                        Err(err) if err.to_string().contains("no changes to commit") => None,
+                        Err(err) => return Err(err),
+                    };
+
+                    send_ai_git_progress(
+                        &progress_tx,
+                        AiGitProgressStep::PushingBranch,
+                        Some(ai_branch_progress_detail("New branch", new_branch_name.as_str())),
+                    );
+                    push_current_branch_with_publish_fallback(
+                        repo_root.as_path(),
+                        new_branch_name.as_str(),
+                    )?;
+
+                    Ok((committed_subject, new_branch_name))
+                })()
+            },
+            move |this, result, execution_elapsed, total_elapsed, cx| {
+                if epoch != this.git_action_epoch {
+                    return;
+                }
+
+                this.finish_git_action();
+                match result {
+                    Ok((committed_subject, branch_name)) => {
+                        debug!(
+                            "git action complete: epoch={} action=Create Branch and Push exec_elapsed_ms={} total_elapsed_ms={} branch={}",
+                            epoch,
+                            execution_elapsed.as_millis(),
+                            total_elapsed.as_millis(),
+                            branch_name
+                        );
+                        let committed = committed_subject.is_some();
+                        if let Some(subject) = committed_subject {
+                            this.last_commit_subject = Some(subject);
+                        }
+                        this.request_snapshot_refresh_workflow_only(true, cx);
+                        this.request_recent_commits_refresh(true, cx);
+                        let message = if committed {
+                            format!("Created, committed, and pushed {}", branch_name)
+                        } else {
+                            format!("Created and pushed {}", branch_name)
+                        };
+                        this.git_status_message = Some(message.clone());
+                        Self::push_success_notification(message, cx);
+                    }
+                    Err(err) => {
+                        error!(
+                            "git action failed: epoch={} action=Create Branch and Push exec_elapsed_ms={} total_elapsed_ms={} err={err:#}",
+                            epoch,
+                            execution_elapsed.as_millis(),
+                            total_elapsed.as_millis()
+                        );
+                        let summary = err.to_string();
+                        this.git_status_message = Some(format!("Git error: {err:#}"));
+                        Self::push_error_notification(
+                            format!("Create Branch and Push failed: {summary}"),
+                            cx,
+                        );
+                    }
+                }
+
+                cx.notify();
+            },
+        );
+    }
+
     pub(super) fn ai_open_pr_for_current_thread(&mut self, cx: &mut Context<Self>) {
         if let Some(reason) = self.ai_open_pr_blocker().filter(|reason| !reason.is_empty()) {
             let message = format!("Open PR unavailable: {reason}");

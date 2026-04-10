@@ -29,6 +29,12 @@ enum AiOpenPrBranchStrategy {
     ReuseCurrentBranch,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiCreateBranchAndPushStrategy {
+    CreateBranchImmediately,
+    PromptForPushTarget,
+}
+
 fn ai_open_pr_branch_strategy(
     repo_root: &std::path::Path,
     branch_name: &str,
@@ -47,6 +53,28 @@ fn ai_open_pr_branch_strategy_for_branch(
         AiOpenPrBranchStrategy::CreateReviewBranch
     } else {
         AiOpenPrBranchStrategy::ReuseCurrentBranch
+    }
+}
+
+fn ai_create_branch_and_push_strategy(
+    repo_root: &std::path::Path,
+    branch_name: &str,
+) -> AiCreateBranchAndPushStrategy {
+    let default_branch_name = resolve_default_base_branch_name(repo_root).ok().flatten();
+    ai_create_branch_and_push_strategy_for_branch(branch_name, default_branch_name.as_deref())
+}
+
+fn ai_create_branch_and_push_strategy_for_branch(
+    branch_name: &str,
+    default_branch_name: Option<&str>,
+) -> AiCreateBranchAndPushStrategy {
+    match ai_open_pr_branch_strategy_for_branch(branch_name, default_branch_name) {
+        AiOpenPrBranchStrategy::CreateReviewBranch => {
+            AiCreateBranchAndPushStrategy::CreateBranchImmediately
+        }
+        AiOpenPrBranchStrategy::ReuseCurrentBranch => {
+            AiCreateBranchAndPushStrategy::PromptForPushTarget
+        }
     }
 }
 
@@ -252,6 +280,30 @@ mod ai_git_ops_tests {
         assert_eq!(
             ai_open_pr_branch_strategy_for_branch("feature/ai-thread", None),
             AiOpenPrBranchStrategy::ReuseCurrentBranch
+        );
+    }
+
+    #[test]
+    fn create_branch_and_push_strategy_creates_immediately_for_default_branch() {
+        assert_eq!(
+            ai_create_branch_and_push_strategy_for_branch("main", Some("main")),
+            AiCreateBranchAndPushStrategy::CreateBranchImmediately
+        );
+    }
+
+    #[test]
+    fn create_branch_and_push_strategy_prompts_for_non_default_branch() {
+        assert_eq!(
+            ai_create_branch_and_push_strategy_for_branch("feature/ai-thread", Some("main")),
+            AiCreateBranchAndPushStrategy::PromptForPushTarget
+        );
+    }
+
+    #[test]
+    fn create_branch_and_push_strategy_prompts_when_default_branch_is_unknown() {
+        assert_eq!(
+            ai_create_branch_and_push_strategy_for_branch("feature/ai-thread", None),
+            AiCreateBranchAndPushStrategy::PromptForPushTarget
         );
     }
 }

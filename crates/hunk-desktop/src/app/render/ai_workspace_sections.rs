@@ -26,6 +26,7 @@ struct AiTimelinePanelState {
     ai_publish_blocker: Option<String>,
     ai_publish_disabled: bool,
     ai_commit_and_push_loading: bool,
+    ai_create_branch_and_push_loading: bool,
     ai_open_pr_disabled: bool,
     ai_open_pr_loading: bool,
     ai_managed_worktree_target: Option<WorkspaceTargetSummary>,
@@ -1016,15 +1017,16 @@ impl DiffViewer {
                     .child({
                         let view = view.clone();
                         let push_label = format!("Commit and Push to {}", state.active_branch);
+                        let create_branch_label = "Create Branch and Push".to_string();
                         let publish_tooltip = state.ai_publish_blocker.clone().unwrap_or_else(|| {
                             match state.selected_thread_start_mode {
                                 Some(AiNewThreadStartMode::Local) => {
-                                    "Commit and push this branch directly, or open PR/MR for it. If the current branch is the default branch, Hunk creates a review branch first.".to_string()
+                                    "Commit and push the current branch, create a fresh branch and push it, or open PR/MR for the current work. If the current branch is the default branch, Hunk creates a new branch automatically.".to_string()
                                 }
                                 Some(AiNewThreadStartMode::Worktree) => {
-                                    "Commit and push this worktree branch directly, or open PR/MR for the current branch.".to_string()
+                                    "Commit and push this worktree branch, create a fresh branch and push it, or open PR/MR for the current work.".to_string()
                                 }
-                                None => "Commit and push this branch directly, or open PR/MR for it.".to_string(),
+                                None => "Commit and push this branch, create a fresh branch and push it, or open PR/MR for it.".to_string(),
                             }
                         });
                         Button::new("ai-publish-thread")
@@ -1032,7 +1034,11 @@ impl DiffViewer {
                             .outline()
                             .with_size(gpui_component::Size::Small)
                             .rounded(px(8.0))
-                            .loading(state.ai_commit_and_push_loading || state.ai_open_pr_loading)
+                            .loading(
+                                state.ai_commit_and_push_loading
+                                    || state.ai_create_branch_and_push_loading
+                                    || state.ai_open_pr_loading,
+                            )
                             .dropdown_caret(true)
                             .label("Publish")
                             .tooltip(publish_tooltip)
@@ -1044,6 +1050,18 @@ impl DiffViewer {
                                         move |_, _, cx| {
                                             view.update(cx, |this, cx| {
                                                 this.ai_commit_and_push_for_current_thread(cx);
+                                            });
+                                        }
+                                    }),
+                                )
+                                .item(
+                                    PopupMenuItem::new(create_branch_label.clone()).on_click({
+                                        let view = view.clone();
+                                        move |_, window, cx| {
+                                            view.update(cx, |this, cx| {
+                                                this.ai_create_branch_and_push_for_current_thread(
+                                                    window, cx,
+                                                );
                                             });
                                         }
                                     }),

@@ -1,12 +1,17 @@
 use anyhow::Context as _;
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
+use gpui_component::WindowExt as _;
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::dialog::{DialogAction, DialogClose, DialogFooter};
 use notify::Watcher;
 use std::cell::RefCell;
 use std::rc::Rc;
 use tracing::{debug, error, warn};
 
-use crate::app::ai_git_progress::ai_delete_worktree_progress_steps;
+use crate::app::ai_git_progress::{
+    ai_create_branch_and_push_progress_steps, ai_delete_worktree_progress_steps,
+};
 use crate::app::ai_thread_flow::{
     AiCodexGenerationConfig, AiCommitGenerationContext, AiCommitMessage,
     ai_branch_generation_seed_for_thread, ai_branch_name_for_prompt, ai_branch_name_for_thread,
