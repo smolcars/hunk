@@ -903,6 +903,7 @@ impl DiffViewer {
                     );
                     let new_branch_name = activate_new_ai_review_branch(
                         repo_root.as_path(),
+                        branch_name.as_str(),
                         requested_branch_name.as_str(),
                     )?;
 
@@ -1117,6 +1118,7 @@ impl DiffViewer {
                         );
                         activate_new_ai_review_branch(
                             repo_root.as_path(),
+                            branch_name.as_str(),
                             requested_branch_name.as_str(),
                         )?
                     } else {

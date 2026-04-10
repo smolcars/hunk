@@ -8,6 +8,10 @@ use crate::command_env::git_cli_command;
 use crate::git::expand_selected_paths_for_renames;
 use crate::git2_helpers::{load_statuses, open_git2_repo};
 
+mod branch_transfer;
+
+pub use branch_transfer::create_branch_from_base_with_change_transfer;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorktreeChange {
     AddOrUpdate,
@@ -99,18 +103,11 @@ pub fn activate_or_create_branch(
         branch_name.to_string()
     };
 
-    let target_ref = format!("refs/heads/{target_branch_name}");
-    repo.set_head(target_ref.as_str())
-        .with_context(|| format!("failed to activate branch '{target_branch_name}'"))?;
-
     if repo
         .find_branch(target_branch_name.as_str(), git2::BranchType::Local)
         .is_ok()
     {
-        let mut checkout = git2::build::CheckoutBuilder::new();
-        checkout.force();
-        repo.checkout_head(Some(&mut checkout))
-            .with_context(|| format!("failed to check out branch '{target_branch_name}'"))?;
+        checkout_local_branch(&repo, target_branch_name.as_str())?;
     }
 
     Ok(())
@@ -865,6 +862,18 @@ fn commit_subject(message: &str) -> String {
         .find(|line| !line.trim().is_empty())
         .map(|line| line.trim().to_string())
         .unwrap_or_default()
+}
+
+fn checkout_local_branch(repo: &git2::Repository, branch_name: &str) -> Result<()> {
+    let target_ref = format!("refs/heads/{branch_name}");
+    repo.set_head(target_ref.as_str())
+        .with_context(|| format!("failed to activate branch '{branch_name}'"))?;
+
+    let mut checkout = git2::build::CheckoutBuilder::new();
+    checkout.force();
+    repo.checkout_head(Some(&mut checkout))
+        .with_context(|| format!("failed to check out branch '{branch_name}'"))?;
+    Ok(())
 }
 
 fn current_head_tree(repo: &git2::Repository) -> Result<Option<git2::Tree<'_>>> {

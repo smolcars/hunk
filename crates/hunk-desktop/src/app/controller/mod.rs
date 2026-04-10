@@ -48,8 +48,8 @@ use hunk_git::history::{
 use hunk_git::mutation::{
     activate_or_create_branch as checkout_or_create_branch_with_change_transfer,
     commit_all_with_details as commit_staged_with_details, commit_index_with_details,
-    restore_working_copy_paths, stage_paths, staged_index_context_for_ai, unstage_paths,
-    working_copy_context_for_ai,
+    create_branch_from_base_with_change_transfer, restore_working_copy_paths, stage_paths,
+    staged_index_context_for_ai, unstage_paths, working_copy_context_for_ai,
 };
 use hunk_git::network::{
     fetch_remote_branches, pull_current_branch_with_rebase as pull_branch_with_rebase,

@@ -178,8 +178,18 @@ fn try_ai_commit_message_for_staged_index(
 
 fn activate_new_ai_review_branch(
     repo_root: &std::path::Path,
+    current_branch_name: &str,
     requested_branch_name: &str,
 ) -> anyhow::Result<String> {
+    let default_branch_name = resolve_default_base_branch_name(repo_root)
+        .context("failed to resolve the default branch for isolated AI branch creation")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "unable to resolve the default branch needed to isolate this AI thread; push the current branch instead"
+            )
+        })?;
+    let create_from_default_branch = default_branch_name.trim() != current_branch_name.trim();
+
     let mut attempt = 0usize;
     loop {
         attempt = attempt.saturating_add(1);
@@ -188,11 +198,20 @@ fn activate_new_ai_review_branch(
         } else {
             format!("{requested_branch_name}-{attempt}")
         };
-        match checkout_or_create_branch_with_change_transfer(
-            repo_root,
-            candidate_branch_name.as_str(),
-            true,
-        ) {
+        let activation_result = if create_from_default_branch {
+            create_branch_from_base_with_change_transfer(
+                repo_root,
+                candidate_branch_name.as_str(),
+                default_branch_name.as_str(),
+            )
+        } else {
+            checkout_or_create_branch_with_change_transfer(
+                repo_root,
+                candidate_branch_name.as_str(),
+                true,
+            )
+        };
+        match activation_result {
             Ok(()) => return Ok(candidate_branch_name),
             Err(err) => {
                 if err.to_string().contains("already exists") && attempt < 20 {

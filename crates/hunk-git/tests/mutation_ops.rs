@@ -6,8 +6,9 @@ use git2::{BranchType, IndexAddOption, Repository, Signature, build::CheckoutBui
 use hunk_git::git::{FileStatus, load_workflow_snapshot};
 use hunk_git::mutation::{
     activate_or_create_branch, commit_all, commit_all_with_details, commit_index_with_details,
-    commit_selected_paths, commit_selected_paths_with_details, restore_working_copy_paths,
-    stage_paths, staged_index_context_for_ai, unstage_paths, working_copy_context_for_ai,
+    commit_selected_paths, commit_selected_paths_with_details,
+    create_branch_from_base_with_change_transfer, restore_working_copy_paths, stage_paths,
+    staged_index_context_for_ai, unstage_paths, working_copy_context_for_ai,
 };
 use hunk_git::network::{fetch_remote_branches, push_current_branch};
 use tempfile::TempDir;
@@ -90,6 +91,116 @@ fn creating_new_branch_can_keep_dirty_changes_on_review_branch() -> Result<()> {
             .branches
             .iter()
             .any(|branch| branch.name == "ai/local/review-branch" && branch.is_current)
+    );
+    Ok(())
+}
+
+#[test]
+fn creating_branch_from_default_transfers_working_copy_without_feature_history() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("base.txt", "main\n")?;
+    let default_commit = fixture.commit_all_git2("initial")?;
+    let default_branch = fixture.current_branch_name()?;
+
+    fixture.checkout_branch("feature/existing")?;
+    fixture.write_file("feature-only.txt", "feature history\n")?;
+    let feature_commit = fixture.commit_all_git2("feature history")?;
+    fixture.write_file("ai-thread.txt", "pending thread work\n")?;
+
+    create_branch_from_base_with_change_transfer(
+        fixture.root(),
+        "ai/local/thread-review",
+        default_branch.as_str(),
+    )?;
+
+    let snapshot = load_workflow_snapshot(fixture.root())?;
+    assert_eq!(snapshot.branch_name, "ai/local/thread-review");
+    assert_eq!(
+        fixture.branch_target_oid("ai/local/thread-review")?,
+        default_commit
+    );
+    assert_ne!(
+        fixture.branch_target_oid("ai/local/thread-review")?,
+        feature_commit
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.root().join("ai-thread.txt"))?,
+        "pending thread work\n"
+    );
+    assert!(!fixture.root().join("feature-only.txt").exists());
+    assert!(
+        snapshot
+            .files
+            .iter()
+            .any(|file| file.path == "ai-thread.txt" && file.untracked)
+    );
+    Ok(())
+}
+
+#[test]
+fn creating_branch_from_default_requires_uncommitted_changes_to_transfer() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("base.txt", "main\n")?;
+    fixture.commit_all_git2("initial")?;
+    let default_branch = fixture.current_branch_name()?;
+
+    fixture.checkout_branch("feature/existing")?;
+    fixture.write_file("feature-only.txt", "feature history\n")?;
+    fixture.commit_all_git2("feature history")?;
+
+    let err = create_branch_from_base_with_change_transfer(
+        fixture.root(),
+        "ai/local/thread-review",
+        default_branch.as_str(),
+    )
+    .expect_err("clean feature branch should not create an isolated thread branch");
+
+    assert!(
+        err.to_string()
+            .contains("without uncommitted changes to transfer")
+    );
+    assert_eq!(fixture.current_branch_name()?, "feature/existing");
+    assert!(fixture.root().join("feature-only.txt").exists());
+    let repo = fixture.repository()?;
+    assert!(
+        repo.find_branch("ai/local/thread-review", BranchType::Local)
+            .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn creating_branch_from_default_rolls_back_when_transfer_conflicts() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("shared.txt", "main\n")?;
+    fixture.commit_all_git2("initial")?;
+    let default_branch = fixture.current_branch_name()?;
+
+    fixture.checkout_branch("feature/existing")?;
+    fixture.write_file("shared.txt", "feature\n")?;
+    fixture.commit_all_git2("feature history")?;
+    fixture.write_file("shared.txt", "feature\npending thread work\n")?;
+
+    let err = create_branch_from_base_with_change_transfer(
+        fixture.root(),
+        "ai/local/thread-review",
+        default_branch.as_str(),
+    )
+    .expect_err("conflicting transfer should restore the original branch state");
+
+    assert!(
+        err.to_string()
+            .contains("failed to apply stashed changes onto branch")
+    );
+    assert_eq!(fixture.current_branch_name()?, "feature/existing");
+    assert_eq!(
+        fs::read_to_string(fixture.root().join("shared.txt"))?,
+        "feature\npending thread work\n"
+    );
+    let repo = fixture.repository()?;
+    assert!(
+        repo.find_branch("ai/local/thread-review", BranchType::Local)
+            .is_err()
     );
     Ok(())
 }
@@ -766,6 +877,15 @@ impl TempGitRepo {
         };
         let commit = head.peel_to_commit()?;
         Ok(commit.summary().map(ToOwned::to_owned))
+    }
+
+    fn branch_target_oid(&self, branch_name: &str) -> Result<git2::Oid> {
+        let repo = self.repository()?;
+        Ok(repo
+            .find_branch(branch_name, BranchType::Local)?
+            .into_reference()
+            .target()
+            .expect("local branch should resolve to an oid"))
     }
 
     fn head_commits<'repo>(&self, repo: &'repo Repository) -> Result<Vec<git2::Commit<'repo>>> {
