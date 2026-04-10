@@ -760,6 +760,7 @@ impl AiWorkerRuntime {
                 TurnSteerParams {
                     thread_id: thread_id.clone(),
                     input: input.clone(),
+                    responsesapi_client_metadata: None,
                     expected_turn_id: in_progress_turn_id.clone(),
                 },
                 self.request_timeout,
@@ -789,6 +790,7 @@ impl AiWorkerRuntime {
                             TurnSteerParams {
                                 thread_id: thread_id.clone(),
                                 input: input.clone(),
+                                responsesapi_client_metadata: None,
                                 expected_turn_id: refreshed_turn_id.clone(),
                             },
                             self.request_timeout,

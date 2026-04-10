@@ -1245,6 +1245,7 @@ fn turn_steer_round_trip_returns_target_turn_id() {
                     text: "continue".to_string(),
                     text_elements: Vec::new(),
                 }],
+                responsesapi_client_metadata: None,
                 expected_turn_id: "turn-active".to_string(),
             },
             TIMEOUT,
