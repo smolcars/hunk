@@ -19,3 +19,9 @@ license = "GPL-3.0-or-later"
 [profile.ci]
 inherits = "dev"
 debug = 0
+
+[patch.crates-io]
+# Keep Rama on rustls' ring provider. The upstream alpha crate enables
+# aws-lc-rs by default, which pulls in aws-lc-sys and currently fails to
+# link on macOS arm64 in our environment.
+rama-tls-rustls = { path = "vendor/rama-tls-rustls" }
