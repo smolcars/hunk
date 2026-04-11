@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod ai_visible_threads_tests {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use hunk_codex::state::AiState;
     use hunk_codex::state::ThreadLifecycleStatus;
@@ -10,7 +13,38 @@ mod ai_visible_threads_tests {
     use super::ai_visible_thread_sections;
     use super::merged_ai_visible_threads;
     use super::state_snapshot_workspace_key;
-    use std::path::PathBuf;
+
+    fn ai_test_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn with_temp_hunk_home<T>(test_name: &str, f: impl FnOnce(PathBuf) -> T) -> T {
+        let _guard = ai_test_env_lock()
+            .lock()
+            .expect("ai test env lock should be available");
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let temp_home = std::env::temp_dir().join(format!("hunk-ai-visible-{test_name}-{unique}"));
+        let previous = std::env::var_os(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR);
+        unsafe { std::env::set_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR, &temp_home) };
+        let _ = std::fs::remove_dir_all(&temp_home);
+        std::fs::create_dir_all(&temp_home).expect("temp hunk home should be created");
+
+        let result = f(temp_home.clone());
+
+        match previous {
+            Some(value) => unsafe {
+                std::env::set_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR, value)
+            },
+            None => unsafe { std::env::remove_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR) },
+        }
+        let _ = std::fs::remove_dir_all(&temp_home);
+
+        result
+    }
 
     fn thread_summary(
         id: &str,
@@ -131,40 +165,45 @@ mod ai_visible_threads_tests {
 
     #[test]
     fn visible_thread_sections_follow_workspace_order_and_cap_per_project() {
-        let threads = vec![
-            thread_summary("repo-a-6", "/repo-a", 60, 60),
-            thread_summary("repo-a-5", "/repo-a", 50, 50),
-            thread_summary("repo-a-4", "/repo-a/worktrees/task-4", 40, 40),
-            thread_summary("repo-a-3", "/repo-a/worktrees/task-3", 30, 30),
-            thread_summary("repo-a-2", "/repo-a", 20, 20),
-            thread_summary("repo-a-1", "/repo-a", 10, 10),
-            thread_summary("repo-b-1", "/repo-b", 70, 70),
-        ];
+        with_temp_hunk_home("visible-thread-sections-order", |_| {
+            let threads = vec![
+                thread_summary("repo-a-6", "/repo-a", 60, 60),
+                thread_summary("repo-a-5", "/repo-a", 50, 50),
+                thread_summary("repo-a-4", "/repo-a/worktrees/task-4", 40, 40),
+                thread_summary("repo-a-3", "/repo-a/worktrees/task-3", 30, 30),
+                thread_summary("repo-a-2", "/repo-a", 20, 20),
+                thread_summary("repo-a-1", "/repo-a", 10, 10),
+                thread_summary("repo-b-1", "/repo-b", 70, 70),
+            ];
 
-        let sections = ai_visible_thread_sections(
-            threads,
-            &[PathBuf::from("/repo-a"), PathBuf::from("/repo-b")],
-            Some(std::path::Path::new("/repo-b")),
-            Some(std::path::Path::new("/repo-b")),
-            &BTreeSet::new(),
-        );
+            let sections = ai_visible_thread_sections(
+                threads,
+                &[PathBuf::from("/repo-a"), PathBuf::from("/repo-b")],
+                Some(std::path::Path::new("/repo-b")),
+                Some(std::path::Path::new("/repo-b")),
+                &BTreeSet::new(),
+            );
 
-        assert_eq!(sections.len(), 2);
-        assert_eq!(sections[0].project_root, PathBuf::from("/repo-a"));
-        assert_eq!(sections[0].total_thread_count, 6);
-        assert_eq!(sections[0].threads.len(), 5);
-        assert_eq!(sections[0].hidden_thread_count, 1);
-        let repo_a_thread_ids = sections[0]
-            .threads
-            .iter()
-            .map(|thread| thread.id.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            repo_a_thread_ids,
-            vec!["repo-a-6", "repo-a-5", "repo-a-4", "repo-a-3", "repo-a-2"]
-        );
+            assert_eq!(sections.len(), 3);
+            assert_eq!(sections[0].project_label, "Chats");
+            assert_eq!(sections[0].threads.len(), 0);
 
-        assert_eq!(sections[1].project_root, PathBuf::from("/repo-b"));
-        assert_eq!(sections[1].threads.len(), 1);
+            assert_eq!(sections[1].project_root, PathBuf::from("/repo-a"));
+            assert_eq!(sections[1].total_thread_count, 6);
+            assert_eq!(sections[1].threads.len(), 5);
+            assert_eq!(sections[1].hidden_thread_count, 1);
+            let repo_a_thread_ids = sections[1]
+                .threads
+                .iter()
+                .map(|thread| thread.id.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                repo_a_thread_ids,
+                vec!["repo-a-6", "repo-a-5", "repo-a-4", "repo-a-3", "repo-a-2"]
+            );
+
+            assert_eq!(sections[2].project_root, PathBuf::from("/repo-b"));
+            assert_eq!(sections[2].threads.len(), 1);
+        });
     }
 }
