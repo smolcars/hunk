@@ -56,6 +56,7 @@ use hunk_codex::host::HostConfig;
 use hunk_codex::host::SharedHostLease;
 use hunk_codex::state::AiState;
 use hunk_codex::state::ServerRequestDecision;
+use hunk_codex::state::TurnCollaborationMode;
 use hunk_codex::state::ThreadLifecycleStatus;
 use hunk_codex::state::TurnStatus as StateTurnStatus;
 use hunk_codex::threads::RolloutFallbackItem;
@@ -810,8 +811,15 @@ impl AiWorkerRuntime {
         };
         apply_turn_start_policy(self.mad_max_mode, &mut params);
         self.apply_turn_session_overrides(&mut params, &session_overrides);
-        self.service
-            .start_turn(&mut self.session, params, self.request_timeout)?;
+        let turn = self
+            .service
+            .start_turn(&mut self.session, params, self.request_timeout)?
+            .turn;
+        self.service.record_turn_collaboration_mode(
+            turn.thread_id.clone(),
+            turn.id,
+            turn_collaboration_mode(session_overrides.collaboration_mode),
+        );
         Ok(None)
     }
 
@@ -1040,6 +1048,15 @@ fn collaboration_mode_for_turn(
             developer_instructions,
         },
     })
+}
+
+fn turn_collaboration_mode(
+    collaboration_mode: AiCollaborationModeSelection,
+) -> TurnCollaborationMode {
+    match collaboration_mode {
+        AiCollaborationModeSelection::Default => TurnCollaborationMode::Default,
+        AiCollaborationModeSelection::Plan => TurnCollaborationMode::Plan,
+    }
 }
 
 fn prompt_user_input_items(

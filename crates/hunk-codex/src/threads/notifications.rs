@@ -28,6 +28,19 @@ impl ThreadService {
         }
     }
 
+    pub fn record_turn_collaboration_mode(
+        &mut self,
+        thread_id: String,
+        turn_id: String,
+        collaboration_mode: crate::state::TurnCollaborationMode,
+    ) {
+        self.apply_event(ReducerEvent::TurnCollaborationModeUpdated {
+            thread_id,
+            turn_id,
+            collaboration_mode,
+        });
+    }
+
     pub fn unarchive_thread(
         &mut self,
         session: &mut JsonRpcSession,

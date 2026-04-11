@@ -6,5 +6,5 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-libghostty-vt = { git = "https://github.com/niteshbalusu11/libghostty-rs", rev = "2cbb3a8787754610099c68822586cdcd625bc0ad" }
+libghostty-vt = { git = "https://github.com/niteshbalusu11/libghostty-rs", rev = "e6c709a34290d90451d0be08b26603c2354d8d55" }
 portable-pty = "0.9.0"

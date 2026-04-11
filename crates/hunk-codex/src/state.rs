@@ -88,8 +88,15 @@ pub struct ThreadTokenUsageSummary {
 pub struct TurnSummary {
     pub id: String,
     pub thread_id: String,
+    pub collaboration_mode: Option<TurnCollaborationMode>,
     pub status: TurnStatus,
     pub last_sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnCollaborationMode {
+    Default,
+    Plan,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,6 +178,11 @@ pub enum ReducerEvent {
     TurnCompleted {
         thread_id: String,
         turn_id: String,
+    },
+    TurnCollaborationModeUpdated {
+        thread_id: String,
+        turn_id: String,
+        collaboration_mode: TurnCollaborationMode,
     },
     ItemStarted {
         thread_id: String,
@@ -422,6 +434,25 @@ impl AiState {
                 turn.last_sequence = sequence;
                 let thread_id = turn.thread_id.clone();
                 self.mark_thread_idle_if_no_in_progress(thread_id.as_str(), sequence);
+                ApplyOutcome::Applied
+            }
+            ReducerEvent::TurnCollaborationModeUpdated {
+                thread_id,
+                turn_id,
+                collaboration_mode,
+            } => {
+                let turn = self.ensure_turn_summary(
+                    thread_id.as_str(),
+                    turn_id.as_str(),
+                    TurnStatus::InProgress,
+                );
+
+                if sequence < turn.last_sequence {
+                    return ApplyOutcome::Stale;
+                }
+
+                turn.collaboration_mode = Some(collaboration_mode);
+                turn.last_sequence = sequence;
                 ApplyOutcome::Applied
             }
             ReducerEvent::ItemStarted {
@@ -786,6 +817,7 @@ impl AiState {
         TurnSummary {
             id: turn_id.to_string(),
             thread_id: thread_id.to_string(),
+            collaboration_mode: None,
             status,
             last_sequence: 0,
         }
