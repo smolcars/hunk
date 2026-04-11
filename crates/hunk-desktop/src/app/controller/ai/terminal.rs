@@ -85,7 +85,8 @@ impl DiffViewer {
 
     pub(crate) fn active_workspace_terminal_kind(&self) -> Option<WorkspaceTerminalKind> {
         match self.workspace_view_mode {
-            WorkspaceViewMode::Ai => Some(WorkspaceTerminalKind::Ai),
+            WorkspaceViewMode::Ai => (self.current_ai_workspace_kind() != AiWorkspaceKind::Chats)
+                .then_some(WorkspaceTerminalKind::Ai),
             WorkspaceViewMode::Files
             | WorkspaceViewMode::Diff
             | WorkspaceViewMode::GitWorkspace => Some(WorkspaceTerminalKind::Files),
@@ -401,7 +402,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         match self.workspace_view_mode {
-            WorkspaceViewMode::Ai => self.toggle_ai_terminal_drawer(cx),
+            WorkspaceViewMode::Ai => self.ai_toggle_terminal_drawer_action(cx),
             WorkspaceViewMode::Files
             | WorkspaceViewMode::Diff
             | WorkspaceViewMode::GitWorkspace => {
@@ -411,6 +412,14 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_toggle_terminal_drawer_action(&mut self, cx: &mut Context<Self>) {
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            self.set_current_ai_composer_status(
+                "Terminal is unavailable in Chats.",
+                cx,
+            );
+            cx.notify();
+            return;
+        }
         self.toggle_ai_terminal_drawer(cx);
     }
 

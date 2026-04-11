@@ -1,5 +1,6 @@
 use std::env;
 use std::ffi::OsStr;
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 pub(super) fn resolve_codex_home_path() -> Option<PathBuf> {
@@ -11,6 +12,18 @@ pub(super) fn resolve_codex_home_path() -> Option<PathBuf> {
 
 pub(super) fn default_codex_home_path() -> Option<PathBuf> {
     user_home_dir().map(|home_dir| home_dir.join(".codex"))
+}
+
+pub(super) fn resolve_ai_chats_root_path() -> Option<PathBuf> {
+    hunk_domain::paths::hunk_home_dir()
+        .ok()
+        .map(|home_dir| home_dir.join("chats"))
+}
+
+pub(super) fn ensure_ai_chats_root_path() -> Option<PathBuf> {
+    let chats_root = resolve_ai_chats_root_path()?;
+    fs::create_dir_all(&chats_root).ok()?;
+    Some(chats_root)
 }
 
 fn user_home_dir() -> Option<PathBuf> {
@@ -58,8 +71,15 @@ fn home_relative_suffix(path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::expand_home_prefixed_path;
+    use super::resolve_ai_chats_root_path;
     use super::resolve_codex_home_path_from;
     use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn default_codex_home_uses_resolved_home_directory() {
@@ -103,5 +123,31 @@ mod tests {
         let resolved = expand_home_prefixed_path(PathBuf::from("~"), Some(home_dir.as_path()));
 
         assert_eq!(resolved, Some(home_dir));
+    }
+
+    #[test]
+    fn chats_root_uses_hunk_home_dir_override() {
+        let _guard = env_lock().lock().expect("env lock should be available");
+        let previous = std::env::var_os(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR);
+        unsafe {
+            std::env::set_var(
+                hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR,
+                PathBuf::from("/tmp").join("custom-hunk-home"),
+            );
+        }
+
+        let resolved = resolve_ai_chats_root_path();
+
+        match previous {
+            Some(value) => unsafe {
+                std::env::set_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR, value)
+            },
+            None => unsafe { std::env::remove_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR) },
+        }
+
+        assert_eq!(
+            resolved,
+            Some(PathBuf::from("/tmp").join("custom-hunk-home").join("chats")),
+        );
     }
 }

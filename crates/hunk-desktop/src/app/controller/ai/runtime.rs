@@ -509,6 +509,64 @@ impl DiffViewer {
         session_overrides: AiTurnSessionOverrides,
         cx: &mut Context<Self>,
     ) -> bool {
+        let Some(draft_workspace_root) = self.ai_draft_workspace_root() else {
+            self.set_current_ai_composer_status(
+                "Open a workspace before starting an AI thread.",
+                cx,
+            );
+            cx.notify();
+            return false;
+        };
+
+        if self.ai_workspace_kind_for_root(draft_workspace_root.as_path()) == AiWorkspaceKind::Chats
+        {
+            let Some(chats_root) = crate::app::ai_paths::ensure_ai_chats_root_path()
+                .or_else(crate::app::ai_paths::resolve_ai_chats_root_path)
+            else {
+                self.set_current_ai_composer_status(
+                    "Failed to prepare the Chats workspace.",
+                    cx,
+                );
+                cx.notify();
+                return false;
+            };
+            let workspace_key = chats_root.to_string_lossy().to_string();
+            let previous_workspace_key = self.ai_workspace_key();
+            self.ai_draft_workspace_root_override = Some(chats_root);
+            self.ai_draft_workspace_target_id = None;
+            self.ai_worktree_base_branch_name = None;
+            self.seed_ai_workspace_state_for(workspace_key.as_str());
+            self.ai_handle_workspace_change_to(
+                previous_workspace_key,
+                Some(workspace_key.clone()),
+                cx,
+            );
+            if let Some(pending) = self.ai_pending_thread_start.as_mut() {
+                pending.workspace_key = workspace_key;
+            }
+            if self.send_ai_worker_command(
+                AiWorkerCommand::StartThread {
+                    prompt,
+                    local_image_paths,
+                    selected_skills,
+                    skill_bindings,
+                    session_overrides,
+                },
+                cx,
+            ) {
+                self.clear_current_ai_composer_status();
+                self.ai_pending_new_thread_selection = true;
+                return true;
+            }
+
+            self.set_current_ai_composer_status(
+                "Chats workspace prepared, but failed to start thread.",
+                cx,
+            );
+            self.restore_ai_new_thread_draft_after_failure(cx);
+            return false;
+        }
+
         if self.git_controls_busy() {
             self.set_current_ai_composer_status(
                 "Wait for the active workspace action to finish.",
@@ -518,14 +576,7 @@ impl DiffViewer {
             return false;
         }
 
-        let Some(repo_root) = self.ai_draft_workspace_root() else {
-            self.set_current_ai_composer_status(
-                "Open a workspace before starting an AI thread.",
-                cx,
-            );
-            cx.notify();
-            return false;
-        };
+        let repo_root = draft_workspace_root;
 
         let start_mode = self.ai_new_thread_start_mode;
         let selected_base_branch_name = self
@@ -835,6 +886,10 @@ impl DiffViewer {
 
     fn sync_ai_session_selection_from_state(&mut self) {
         let resolved = { self.resolve_ai_current_state() };
+        let workspace_kind = resolved_ai_workspace_kind_for_root(
+            resolved.workspace_root.as_deref(),
+            self.ai_chats_root_path().as_deref(),
+        );
         let persisted = {
             resolved_ai_thread_session_state(
                 &self.state,
@@ -855,10 +910,14 @@ impl DiffViewer {
             self.ai_selected_collaboration_mode = persisted.collaboration_mode;
             self.ai_selected_effort = selected_effort;
             self.ai_selected_service_tier = persisted.service_tier.unwrap_or_default();
-            self.ai_review_mode_active = resolved
-                .current_thread_id
-                .as_ref()
-                .is_some_and(|thread_id| self.ai_review_mode_thread_ids.contains(thread_id));
+            self.ai_review_mode_active = if workspace_kind == AiWorkspaceKind::Chats {
+                false
+            } else {
+                resolved
+                    .current_thread_id
+                    .as_ref()
+                    .is_some_and(|thread_id| self.ai_review_mode_thread_ids.contains(thread_id))
+            };
         }
     }
 
@@ -917,12 +976,15 @@ impl DiffViewer {
     }
 
     fn persist_ai_session_for_target(&mut self, thread_id: Option<&str>, workspace: Option<&str>) {
-        let session = AiThreadSessionState {
+        let mut session = AiThreadSessionState {
             model: self.ai_selected_model.clone(),
             effort: self.ai_selected_effort.clone(),
             collaboration_mode: self.ai_selected_collaboration_mode,
             service_tier: normalized_ai_service_tier_selection(self.ai_selected_service_tier),
         };
+        if is_ai_chats_workspace_key(workspace) {
+            session.collaboration_mode = AiCollaborationModeSelection::Default;
+        }
 
         if let Some(thread_id) = thread_id {
             if let Some(session) = normalized_thread_session_state(session) {

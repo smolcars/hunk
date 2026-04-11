@@ -62,6 +62,7 @@ struct AiSessionControlsPanelView<'a> {
     selected_model: Option<&'a str>,
     selected_effort: Option<&'a str>,
     selected_thread_mode: AiNewThreadStartMode,
+    show_thread_mode_picker: bool,
     thread_mode_editable: bool,
     read_only: bool,
     mad_max_mode: bool,
@@ -71,6 +72,7 @@ fn render_ai_session_controls_panel_for_view(
     this: &DiffViewer,
     view: Entity<DiffViewer>,
     selected_thread_mode: AiNewThreadStartMode,
+    show_thread_mode_picker: bool,
     thread_mode_editable: bool,
     read_only: bool,
     cx: &mut Context<DiffViewer>,
@@ -81,6 +83,7 @@ fn render_ai_session_controls_panel_for_view(
             selected_model: this.ai_selected_model.as_deref(),
             selected_effort: this.ai_selected_effort.as_deref(),
             selected_thread_mode,
+            show_thread_mode_picker,
             thread_mode_editable,
             read_only,
             mad_max_mode: this.ai_mad_max_mode,
@@ -285,55 +288,57 @@ fn render_ai_session_controls_panel(
                     menu
                 })
         })
-        .child({
-            let view = view.clone();
-            let selected_mode = panel.selected_thread_mode;
-            Button::new("ai-session-thread-mode-dropdown")
-                .compact()
-                .ghost()
-                .rounded(px(999.0))
-                .with_size(gpui_component::Size::Small)
-                .px_1()
-                .dropdown_caret(true)
-                .label(thread_mode_label)
-                .disabled(panel.read_only || !panel.thread_mode_editable)
-                .tooltip(if panel.read_only {
-                    controls_locked_tooltip
-                } else {
-                    "Thread mode can only be changed before the first prompt is sent."
-                })
-                .dropdown_menu(move |menu, _, _| {
-                    menu.item(
-                        PopupMenuItem::new("Local")
-                            .checked(matches!(selected_mode, AiNewThreadStartMode::Local))
-                            .on_click({
-                                let view = view.clone();
-                                move |_, _, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.ai_select_new_thread_start_mode_action(
-                                            AiNewThreadStartMode::Local,
-                                            cx,
-                                        );
-                                    });
-                                }
-                            }),
-                    )
-                    .item(
-                        PopupMenuItem::new("Worktree")
-                            .checked(matches!(selected_mode, AiNewThreadStartMode::Worktree))
-                            .on_click({
-                                let view = view.clone();
-                                move |_, _, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.ai_select_new_thread_start_mode_action(
-                                            AiNewThreadStartMode::Worktree,
-                                            cx,
-                                        );
-                                    });
-                                }
-                            }),
-                    )
-                })
+        .when(panel.show_thread_mode_picker, |this| {
+            this.child({
+                let view = view.clone();
+                let selected_mode = panel.selected_thread_mode;
+                Button::new("ai-session-thread-mode-dropdown")
+                    .compact()
+                    .ghost()
+                    .rounded(px(999.0))
+                    .with_size(gpui_component::Size::Small)
+                    .px_1()
+                    .dropdown_caret(true)
+                    .label(thread_mode_label)
+                    .disabled(panel.read_only || !panel.thread_mode_editable)
+                    .tooltip(if panel.read_only {
+                        controls_locked_tooltip
+                    } else {
+                        "Thread mode can only be changed before the first prompt is sent."
+                    })
+                    .dropdown_menu(move |menu, _, _| {
+                        menu.item(
+                            PopupMenuItem::new("Local")
+                                .checked(matches!(selected_mode, AiNewThreadStartMode::Local))
+                                .on_click({
+                                    let view = view.clone();
+                                    move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_select_new_thread_start_mode_action(
+                                                AiNewThreadStartMode::Local,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new("Worktree")
+                                .checked(matches!(selected_mode, AiNewThreadStartMode::Worktree))
+                                .on_click({
+                                    let view = view.clone();
+                                    move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_select_new_thread_start_mode_action(
+                                                AiNewThreadStartMode::Worktree,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
+                        )
+                    })
+            })
         })
         .into_any_element()
 }

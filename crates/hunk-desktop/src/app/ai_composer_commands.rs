@@ -171,9 +171,14 @@ pub(crate) fn slash_command_menu_state(
     text: &str,
     cursor_offset: usize,
     task_in_progress: bool,
+    allow_mode_commands: bool,
 ) -> Option<AiComposerSlashCommandMenuState> {
     let active_token = active_slash_command_token(text, cursor_offset)?;
-    let items = matched_slash_commands(active_token.query.as_str(), task_in_progress);
+    let items = matched_slash_commands(
+        active_token.query.as_str(),
+        task_in_progress,
+        allow_mode_commands,
+    );
     if items.is_empty() {
         return None;
     }
@@ -226,11 +231,21 @@ pub(crate) fn slash_command_disabled_reason(
 fn matched_slash_commands(
     query: &str,
     task_in_progress: bool,
+    allow_mode_commands: bool,
 ) -> Vec<AiComposerSlashCommandMenuItem> {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return slash_command_items()
             .iter()
+            .filter(|item| {
+                allow_mode_commands
+                    || !matches!(
+                        item.kind,
+                        AiComposerSlashCommandKind::Code
+                            | AiComposerSlashCommandKind::Plan
+                            | AiComposerSlashCommandKind::Review
+                    )
+            })
             .copied()
             .map(|item| AiComposerSlashCommandMenuItem {
                 disabled_reason: slash_command_disabled_reason(item, task_in_progress),
@@ -242,6 +257,15 @@ fn matched_slash_commands(
     let normalized_query = trimmed.to_ascii_lowercase();
     let mut ranked = slash_command_items()
         .iter()
+        .filter(|item| {
+            allow_mode_commands
+                || !matches!(
+                    item.kind,
+                    AiComposerSlashCommandKind::Code
+                        | AiComposerSlashCommandKind::Plan
+                        | AiComposerSlashCommandKind::Review
+                )
+        })
         .filter_map(|item| {
             let label_key = item.label.to_ascii_lowercase();
             let name_key = item.name.to_ascii_lowercase();
@@ -326,13 +350,15 @@ mod tests {
 
     #[test]
     fn slash_command_menu_matches_on_name_and_description() {
-        let menu = slash_command_menu_state("/st", 3, false).expect("menu should exist");
+        let menu = slash_command_menu_state("/st", 3, false, true).expect("menu should exist");
         assert_eq!(menu.items[0].item.kind, AiComposerSlashCommandKind::Usage);
 
-        let menu = slash_command_menu_state("/disconnect", 11, false).expect("menu should exist");
+        let menu =
+            slash_command_menu_state("/disconnect", 11, false, true).expect("menu should exist");
         assert_eq!(menu.items[0].item.kind, AiComposerSlashCommandKind::Logout);
 
-        let menu = slash_command_menu_state("/fast-mode-o", 12, false).expect("menu should exist");
+        let menu =
+            slash_command_menu_state("/fast-mode-o", 12, false, true).expect("menu should exist");
         assert_eq!(
             menu.items[0].item.kind,
             AiComposerSlashCommandKind::FastModeOn
@@ -342,7 +368,7 @@ mod tests {
     #[test]
     fn slash_command_menu_keeps_fast_mode_toggle_variants_distinct() {
         let menu =
-            slash_command_menu_state("/fast-mode-off", 14, false).expect("menu should exist");
+            slash_command_menu_state("/fast-mode-off", 14, false, true).expect("menu should exist");
         assert_eq!(
             menu.items[0].item.kind,
             AiComposerSlashCommandKind::FastModeOff
@@ -351,7 +377,7 @@ mod tests {
 
     #[test]
     fn slash_command_menu_marks_idle_only_commands_disabled_during_active_turns() {
-        let menu = slash_command_menu_state("/fast", 5, true).expect("menu should exist");
+        let menu = slash_command_menu_state("/fast", 5, true, true).expect("menu should exist");
         assert_eq!(
             menu.items[0].disabled_reason,
             Some("Disabled while a task is in progress.")
@@ -363,6 +389,19 @@ mod tests {
             .copied()
             .expect("usage command should exist");
         assert_eq!(slash_command_disabled_reason(usage_item, true), None);
+    }
+
+    #[test]
+    fn plain_chat_filters_mode_switch_slash_commands() {
+        let menu = slash_command_menu_state("/", 1, false, false).expect("menu should exist");
+        assert!(menu.items.iter().all(|item| {
+            !matches!(
+                item.item.kind,
+                AiComposerSlashCommandKind::Code
+                    | AiComposerSlashCommandKind::Plan
+                    | AiComposerSlashCommandKind::Review
+            )
+        }));
     }
 
     #[test]

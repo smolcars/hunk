@@ -131,6 +131,7 @@ impl DiffViewer {
             sync_key.prompt.as_str(),
             sync_key.cursor,
             sync_key.session_settings_locked,
+            self.current_ai_workspace_kind() != AiWorkspaceKind::Chats,
         )
     }
 
@@ -549,18 +550,45 @@ impl DiffViewer {
 
         match command.item.kind {
             crate::app::ai_composer_commands::AiComposerSlashCommandKind::Code => {
+                if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+                    self.set_current_ai_composer_status(
+                        "Mode switching is unavailable in Chats.",
+                        cx,
+                    );
+                    self.sync_ai_composer_completion_menus(cx);
+                    cx.notify();
+                    return true;
+                }
                 self.ai_select_collaboration_mode_action(
                     hunk_domain::state::AiCollaborationModeSelection::Default,
                     cx,
                 );
             }
             crate::app::ai_composer_commands::AiComposerSlashCommandKind::Plan => {
+                if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+                    self.set_current_ai_composer_status(
+                        "Mode switching is unavailable in Chats.",
+                        cx,
+                    );
+                    self.sync_ai_composer_completion_menus(cx);
+                    cx.notify();
+                    return true;
+                }
                 self.ai_select_collaboration_mode_action(
                     hunk_domain::state::AiCollaborationModeSelection::Plan,
                     cx,
                 );
             }
             crate::app::ai_composer_commands::AiComposerSlashCommandKind::Review => {
+                if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+                    self.set_current_ai_composer_status(
+                        "Review mode is unavailable in Chats.",
+                        cx,
+                    );
+                    self.sync_ai_composer_completion_menus(cx);
+                    cx.notify();
+                    return true;
+                }
                 self.ai_select_review_mode_action(cx);
             }
             crate::app::ai_composer_commands::AiComposerSlashCommandKind::FastModeOn => {

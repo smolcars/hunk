@@ -7,9 +7,11 @@ struct AiComposerPanelState {
     model_supports_image_inputs: bool,
     review_mode_active: bool,
     usage_popover_open: bool,
+    show_mode_badge: bool,
     current_mode_label: String,
     fast_mode_enabled: bool,
     selected_thread_mode_for_picker: AiNewThreadStartMode,
+    show_thread_mode_picker: bool,
     thread_mode_picker_editable: bool,
     session_controls_read_only: bool,
     selected_thread_context_usage: Option<hunk_codex::state::ThreadTokenUsageSummary>,
@@ -232,17 +234,20 @@ impl DiffViewer {
                         self,
                         view.clone(),
                         state.selected_thread_mode_for_picker,
+                        state.show_thread_mode_picker,
                         state.thread_mode_picker_editable,
                         state.session_controls_read_only,
                         cx,
                     ))
-                    .child(ai_render_composer_status_chip(
-                        ai_composer_mode_badge_label(state.current_mode_label.as_str()).as_str(),
-                        ai_composer_mode_badge_icon(state.current_mode_label.as_str()),
-                        completion_colors.row_selected_border,
-                        completion_colors.accent_soft_background,
-                        cx.theme().foreground,
-                    ))
+                    .when(state.show_mode_badge, |this| {
+                        this.child(ai_render_composer_status_chip(
+                            ai_composer_mode_badge_label(state.current_mode_label.as_str()).as_str(),
+                            ai_composer_mode_badge_icon(state.current_mode_label.as_str()),
+                            completion_colors.row_selected_border,
+                            completion_colors.accent_soft_background,
+                            cx.theme().foreground,
+                        ))
+                    })
                     .when(state.fast_mode_enabled, |this| {
                         this.child(ai_render_composer_status_chip(
                             "Fast",

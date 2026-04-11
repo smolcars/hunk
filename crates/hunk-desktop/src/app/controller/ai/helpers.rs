@@ -64,18 +64,21 @@ fn merged_ai_visible_threads(
     repo_root: Option<&std::path::Path>,
 ) -> Vec<ThreadSummary> {
     let mut threads_by_id = std::collections::BTreeMap::<String, ThreadSummary>::new();
-    let mut project_root_resolver = AiWorkspaceProjectRootResolver::new(
-        ai_workspace_project_roots(workspace_project_paths, project_path, repo_root),
-    );
+    let workspace_project_roots =
+        ai_workspace_project_roots(workspace_project_paths, project_path, repo_root);
+    let chats_root = crate::app::ai_paths::resolve_ai_chats_root_path();
 
     for thread in state_snapshot
         .threads
         .values()
         .filter(|thread| {
             thread.status != ThreadLifecycleStatus::Archived
-                && project_root_resolver
-                    .resolve(std::path::Path::new(thread.cwd.as_str()))
-                    .is_some()
+                && ai_workspace_section_root_for_thread_root(
+                    std::path::Path::new(thread.cwd.as_str()),
+                    workspace_project_roots.as_slice(),
+                    chats_root.as_deref(),
+                )
+                .is_some()
         })
     {
         threads_by_id.insert(thread.id.clone(), thread.clone());
@@ -83,9 +86,12 @@ fn merged_ai_visible_threads(
 
     for (workspace_key, state) in workspace_states {
         if state_snapshot_workspace_key == Some(workspace_key.as_str())
-            || project_root_resolver
-                .resolve(std::path::Path::new(workspace_key.as_str()))
-                .is_none()
+            || ai_workspace_section_root_for_thread_root(
+                std::path::Path::new(workspace_key.as_str()),
+                workspace_project_roots.as_slice(),
+                chats_root.as_deref(),
+            )
+            .is_none()
         {
             continue;
         }
@@ -95,9 +101,12 @@ fn merged_ai_visible_threads(
             .values()
             .filter(|thread| {
                 thread.status != ThreadLifecycleStatus::Archived
-                    && project_root_resolver
-                        .resolve(std::path::Path::new(thread.cwd.as_str()))
-                        .is_some()
+                    && ai_workspace_section_root_for_thread_root(
+                        std::path::Path::new(thread.cwd.as_str()),
+                        workspace_project_roots.as_slice(),
+                        chats_root.as_deref(),
+                    )
+                    .is_some()
             })
         {
             let replace_existing = threads_by_id
@@ -162,6 +171,35 @@ fn ai_workspace_project_root_for_thread_root(
         .cloned()
 }
 
+fn ai_workspace_section_root_for_thread_root(
+    thread_workspace_root: &std::path::Path,
+    workspace_project_roots: &[std::path::PathBuf],
+    chats_root: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
+    if chats_root == Some(thread_workspace_root) {
+        return chats_root.map(std::path::Path::to_path_buf);
+    }
+
+    ai_workspace_project_root_for_thread_root(thread_workspace_root, workspace_project_roots)
+}
+
+fn resolved_ai_workspace_kind_for_root(
+    workspace_root: Option<&std::path::Path>,
+    chats_root: Option<&std::path::Path>,
+) -> AiWorkspaceKind {
+    if workspace_root.is_some() && workspace_root == chats_root {
+        AiWorkspaceKind::Chats
+    } else {
+        AiWorkspaceKind::Project
+    }
+}
+
+fn is_ai_chats_workspace_key(workspace_key: Option<&str>) -> bool {
+    let chats_key = crate::app::ai_paths::resolve_ai_chats_root_path()
+        .map(|path| path.to_string_lossy().to_string());
+    workspace_key.is_some_and(|workspace_key| chats_key.as_deref() == Some(workspace_key))
+}
+
 fn ai_visible_thread_sections(
     threads: Vec<ThreadSummary>,
     workspace_project_paths: &[std::path::PathBuf],
@@ -170,23 +208,51 @@ fn ai_visible_thread_sections(
     expanded_project_roots: &BTreeSet<String>,
 ) -> Vec<AiVisibleThreadProjectSection> {
     let project_roots = ai_workspace_project_roots(workspace_project_paths, project_path, repo_root);
-    let mut project_root_resolver = AiWorkspaceProjectRootResolver::new(project_roots.clone());
+    let chats_root = crate::app::ai_paths::resolve_ai_chats_root_path();
     let mut threads_by_project = std::collections::BTreeMap::<
         std::path::PathBuf,
         Vec<ThreadSummary>,
     >::new();
 
     for thread in threads {
-        if let Some(project_root) =
-            project_root_resolver.resolve(std::path::Path::new(thread.cwd.as_str()))
+        if let Some(project_root) = ai_workspace_section_root_for_thread_root(
+            std::path::Path::new(thread.cwd.as_str()),
+            project_roots.as_slice(),
+            chats_root.as_deref(),
+        )
         {
             threads_by_project.entry(project_root).or_default().push(thread);
         }
     }
 
-    project_roots
-        .into_iter()
-        .map(|project_root| {
+    let mut sections = Vec::new();
+
+    if let Some(chats_root) = chats_root {
+        let expanded = expanded_project_roots.contains(chats_root.to_string_lossy().as_ref());
+        let all_threads = threads_by_project.remove(&chats_root).unwrap_or_default();
+        let total_thread_count = all_threads.len();
+        let visible_threads = if expanded {
+            all_threads.clone()
+        } else {
+            all_threads
+                .iter()
+                .take(AI_THREAD_SIDEBAR_DEFAULT_VISIBLE_THREADS_PER_PROJECT)
+                .cloned()
+                .collect()
+        };
+
+        sections.push(AiVisibleThreadProjectSection {
+            workspace_kind: AiWorkspaceKind::Chats,
+            project_label: "Chats".to_string(),
+            hidden_thread_count: total_thread_count.saturating_sub(visible_threads.len()),
+            total_thread_count,
+            expanded,
+            project_root: chats_root,
+            threads: visible_threads,
+        });
+    }
+
+    sections.extend(project_roots.into_iter().map(|project_root| {
             let expanded = expanded_project_roots
                 .contains(project_root.to_string_lossy().as_ref());
             let all_threads = threads_by_project.remove(&project_root).unwrap_or_default();
@@ -202,6 +268,7 @@ fn ai_visible_thread_sections(
             };
 
             AiVisibleThreadProjectSection {
+                workspace_kind: AiWorkspaceKind::Project,
                 project_label: crate::app::project_picker::project_display_name(
                     project_root.as_path(),
                 ),
@@ -211,8 +278,9 @@ fn ai_visible_thread_sections(
                 project_root,
                 threads: visible_threads,
             }
-        })
-        .collect()
+        }));
+
+    sections
 }
 
 pub(crate) const AI_AUTH_REQUIRED_MESSAGE: &str =
@@ -253,36 +321,6 @@ fn ai_workspace_project_root_identity(path: &std::path::Path) -> Option<std::pat
     hunk_git::worktree::primary_repo_root(path)
         .ok()
         .or_else(|| Some(path.to_path_buf()))
-}
-
-struct AiWorkspaceProjectRootResolver {
-    workspace_project_roots: Vec<std::path::PathBuf>,
-    resolved_project_roots:
-        std::collections::BTreeMap<std::path::PathBuf, Option<std::path::PathBuf>>,
-}
-
-impl AiWorkspaceProjectRootResolver {
-    fn new(workspace_project_roots: Vec<std::path::PathBuf>) -> Self {
-        Self {
-            workspace_project_roots,
-            resolved_project_roots: BTreeMap::new(),
-        }
-    }
-
-    fn resolve(&mut self, workspace_root: &std::path::Path) -> Option<std::path::PathBuf> {
-        let workspace_root = workspace_root.to_path_buf();
-        if let Some(project_root) = self.resolved_project_roots.get(&workspace_root) {
-            return project_root.clone();
-        }
-
-        let resolved = ai_workspace_project_root_for_thread_root(
-            workspace_root.as_path(),
-            self.workspace_project_roots.as_slice(),
-        );
-        self.resolved_project_roots
-            .insert(workspace_root, resolved.clone());
-        resolved
-    }
 }
 
 fn workspace_mad_max_mode(state: &AppState, workspace_key: Option<&str>) -> bool {
@@ -385,6 +423,10 @@ fn ai_thread_start_mode_for_workspace(
     workspace_targets: &[hunk_git::worktree::WorkspaceTargetSummary],
     thread_cwd: &std::path::Path,
 ) -> Option<AiNewThreadStartMode> {
+    if crate::app::ai_paths::resolve_ai_chats_root_path().as_deref() == Some(thread_cwd) {
+        return None;
+    }
+
     if let Some(target) = workspace_targets
         .iter()
         .find(|target| target.root.as_path() == thread_cwd)
@@ -401,13 +443,21 @@ fn ai_thread_start_mode_for_workspace(
 
     hunk_git::worktree::primary_repo_root(thread_cwd)
         .ok()
-        .or_else(|| repo_root.map(std::path::Path::to_path_buf))
         .map(|primary_root| {
             if primary_root.as_path() == thread_cwd {
                 AiNewThreadStartMode::Local
             } else {
                 AiNewThreadStartMode::Worktree
             }
+        })
+        .or_else(|| {
+            repo_root.map(|repo_root| {
+                if repo_root == thread_cwd {
+                    AiNewThreadStartMode::Local
+                } else {
+                    AiNewThreadStartMode::Worktree
+                }
+            })
         })
 }
 
@@ -1039,14 +1089,20 @@ fn resolved_ai_thread_session_state(
     thread_id: Option<&str>,
     workspace_key: Option<&str>,
 ) -> AiThreadSessionState {
-    thread_id
+    let mut resolved = thread_id
         .and_then(|thread_id| state.ai_thread_session_overrides.get(thread_id).cloned())
         .or_else(|| {
             workspace_key.and_then(|workspace| {
                 state.ai_workspace_session_overrides.get(workspace).cloned()
             })
         })
-        .unwrap_or_else(AiThreadSessionState::preferred_defaults)
+        .unwrap_or_else(AiThreadSessionState::preferred_defaults);
+
+    if is_ai_chats_workspace_key(workspace_key) {
+        resolved.collaboration_mode = AiCollaborationModeSelection::Default;
+    }
+
+    resolved
 }
 
 fn resolved_ai_turn_session_overrides(

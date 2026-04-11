@@ -380,8 +380,33 @@ struct ParkedTerminalRuntimeHandle<R> {
 
 type AiHiddenTerminalRuntimeHandle = ParkedTerminalRuntimeHandle<AiTerminalRuntimeHandle>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiWorkspaceKind {
+    Project,
+    Chats,
+}
+
+impl AiWorkspaceKind {
+    const fn shows_repo_actions(self) -> bool {
+        matches!(self, Self::Project)
+    }
+
+    const fn shows_mode_badge(self) -> bool {
+        matches!(self, Self::Project)
+    }
+
+    const fn shows_thread_mode_picker(self) -> bool {
+        matches!(self, Self::Project)
+    }
+
+    const fn shows_terminal(self) -> bool {
+        matches!(self, Self::Project)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct AiVisibleThreadProjectSection {
+    workspace_kind: AiWorkspaceKind,
     project_root: PathBuf,
     project_label: String,
     threads: Vec<hunk_codex::state::ThreadSummary>,
@@ -393,6 +418,7 @@ struct AiVisibleThreadProjectSection {
 #[derive(Debug, Clone)]
 enum AiThreadSidebarRowKind {
     ProjectHeader {
+        workspace_kind: AiWorkspaceKind,
         project_root: PathBuf,
         project_label: String,
         total_thread_count: usize,
@@ -401,9 +427,11 @@ enum AiThreadSidebarRowKind {
         thread: hunk_codex::state::ThreadSummary,
     },
     EmptyProject {
+        workspace_kind: AiWorkspaceKind,
         project_root: PathBuf,
     },
     ProjectFooter {
+        workspace_kind: AiWorkspaceKind,
         project_root: PathBuf,
         hidden_thread_count: usize,
         expanded: bool,
@@ -417,6 +445,7 @@ struct AiThreadSidebarRow {
 
 #[derive(Debug, Clone)]
 struct AiVisibleFrameState {
+    workspace_kind: AiWorkspaceKind,
     project_count: usize,
     visible_thread_count: usize,
     threads_loading: bool,

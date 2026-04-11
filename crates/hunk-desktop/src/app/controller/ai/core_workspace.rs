@@ -36,6 +36,7 @@ impl DiffViewer {
             } else {
                 current_thread_workspace_root
                     .clone()
+                    .or_else(|| fallback_workspace_key.as_deref().map(std::path::PathBuf::from))
                     .or_else(|| self.ai_draft_workspace_root())
             };
         let workspace_key = workspace_root
@@ -99,7 +100,7 @@ impl DiffViewer {
             return Some(target.root.clone());
         }
 
-        self.primary_repo_root()
+        self.primary_repo_root().or_else(|| self.ai_chats_root_path())
     }
 
     fn resolve_ai_default_worktree_base_branch_name(&self) -> Option<String> {
@@ -187,6 +188,9 @@ impl DiffViewer {
         }
 
         let workspace_root = workspace_root?;
+        if self.ai_workspace_kind_for_root(workspace_root) == AiWorkspaceKind::Chats {
+            return None;
+        }
         let workspace_project_roots = ai_workspace_project_roots(
             self.state.workspace_project_paths.as_slice(),
             self.project_path.as_deref(),
@@ -200,6 +204,28 @@ impl DiffViewer {
 
     fn ai_workspace_key(&self) -> Option<String> {
         self.resolve_ai_current_state().workspace_key
+    }
+
+    pub(crate) fn ai_chats_root_path(&self) -> Option<std::path::PathBuf> {
+        crate::app::ai_paths::resolve_ai_chats_root_path()
+    }
+
+    pub(crate) fn ai_workspace_kind_for_root(
+        &self,
+        workspace_root: &std::path::Path,
+    ) -> AiWorkspaceKind {
+        resolved_ai_workspace_kind_for_root(
+            Some(workspace_root),
+            self.ai_chats_root_path().as_deref(),
+        )
+    }
+
+    pub(crate) fn current_ai_workspace_kind(&self) -> AiWorkspaceKind {
+        let resolved = self.resolve_ai_current_state();
+        resolved_ai_workspace_kind_for_root(
+            resolved.workspace_root.as_deref(),
+            self.ai_chats_root_path().as_deref(),
+        )
     }
 
     fn sync_ai_workspace_target_from_catalog(&mut self, _: &mut Context<Self>) {
@@ -249,10 +275,18 @@ impl DiffViewer {
             return "Primary Checkout".to_string();
         };
 
+        if self.ai_workspace_kind_for_root(workspace_root) == AiWorkspaceKind::Chats {
+            return "Chats".to_string();
+        }
+
         self.ai_workspace_label_for_root(workspace_root)
     }
 
     pub(crate) fn ai_workspace_label_for_root(&self, workspace_root: &std::path::Path) -> String {
+        if self.ai_workspace_kind_for_root(workspace_root) == AiWorkspaceKind::Chats {
+            return "Chats".to_string();
+        }
+
         workspace_target_summary_for_root(
             workspace_root,
             &self.workspace_targets,

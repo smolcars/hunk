@@ -275,10 +275,14 @@ struct AiWorkspaceThreadCatalogLoadResult {
 fn ai_known_workspace_keys(
     workspace_targets: &[hunk_git::worktree::WorkspaceTargetSummary],
 ) -> std::collections::BTreeSet<String> {
-    workspace_targets
+    let mut workspace_keys = workspace_targets
         .iter()
         .map(|target| target.root.to_string_lossy().to_string())
-        .collect()
+        .collect::<std::collections::BTreeSet<_>>();
+    if let Some(chats_root) = crate::app::ai_paths::resolve_ai_chats_root_path() {
+        workspace_keys.insert(chats_root.to_string_lossy().to_string());
+    }
+    workspace_keys
 }
 
 #[cfg(test)]
@@ -356,6 +360,16 @@ fn ai_workspace_catalog_inputs_from_target_sets(
         register_ai_workspace_root_for_catalog(
             &mut inputs,
             project_root.as_path(),
+            visible_workspace_key,
+        );
+    }
+
+    if let Some(chats_root) = crate::app::ai_paths::ensure_ai_chats_root_path()
+        .or_else(crate::app::ai_paths::resolve_ai_chats_root_path)
+    {
+        register_ai_workspace_root_for_catalog(
+            &mut inputs,
+            chats_root.as_path(),
             visible_workspace_key,
         );
     }

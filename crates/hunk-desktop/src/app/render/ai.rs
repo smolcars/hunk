@@ -32,7 +32,7 @@ impl DiffViewer {
         ai_view_state: Option<AiVisibleFrameState>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if self.repo_discovery_failed {
+        if self.repo_discovery_failed && self.current_ai_workspace_kind() != AiWorkspaceKind::Chats {
             return self.render_open_project_empty_state(cx);
         }
 
@@ -87,6 +87,7 @@ impl DiffViewer {
             selected_thread_id: selected_thread_id.clone(),
         };
         let timeline_state = AiTimelinePanelState {
+            workspace_kind: ai_view_state.workspace_kind,
             active_branch: ai_view_state.active_branch.clone(),
             workspace_label: ai_view_state.active_workspace_label.clone(),
             show_worktree_base_branch_picker: ai_view_state.show_worktree_base_branch_picker,
@@ -125,6 +126,7 @@ impl DiffViewer {
             model_supports_image_inputs: ai_view_state.model_supports_image_inputs,
             review_mode_active: self.ai_review_mode_active,
             usage_popover_open: self.ai_usage_popover_open,
+            show_mode_badge: ai_view_state.workspace_kind.shows_mode_badge(),
             current_mode_label: crate::app::ai_composer_commands::ai_composer_mode_label(
                 self.ai_review_mode_active,
                 self.ai_selected_collaboration_mode,
@@ -135,6 +137,7 @@ impl DiffViewer {
                 hunk_domain::state::AiServiceTierSelection::Fast
             ),
             selected_thread_mode_for_picker,
+            show_thread_mode_picker: ai_view_state.workspace_kind.shows_thread_mode_picker(),
             thread_mode_picker_editable,
             session_controls_read_only: ai_view_state.composer_interrupt_available,
             selected_thread_context_usage: ai_view_state.selected_thread_context_usage.clone(),
@@ -174,7 +177,7 @@ impl DiffViewer {
             self.render_ai_composer_panel(view.clone(), &composer_state, is_dark, cx);
         let terminal_panel = self
             .render_workspace_terminal_panel(view.clone(), &terminal_state, is_dark, cx)
-            .filter(|_| terminal_state.open);
+            .filter(|_| ai_view_state.workspace_kind.shows_terminal() && terminal_state.open);
         let workspace = self.render_ai_workspace_content(
             view,
             AiWorkspaceContentSections {

@@ -111,6 +111,7 @@ impl DiffViewer {
                                 &surface,
                                 viewport_width_px.max(1),
                                 hovered_block_id.as_deref(),
+                                self.current_ai_workspace_kind() != AiWorkspaceKind::Chats,
                                 AiWorkspaceOverlayColors {
                                     muted_foreground: cx.theme().muted_foreground,
                                     border: cx.theme().border,
@@ -132,6 +133,7 @@ fn ai_workspace_overlay_action_clusters(
     surface: &ai_workspace_session::AiWorkspaceSurfaceSnapshot,
     viewport_width_px: usize,
     hovered_block_id: Option<&str>,
+    show_run_in_terminal_actions: bool,
     colors: AiWorkspaceOverlayColors,
 ) -> Vec<AnyElement> {
     let mut actions = Vec::new();
@@ -140,7 +142,9 @@ fn ai_workspace_overlay_action_clusters(
         let message_copy = block.block.copy_tooltip == Some("Copy message");
         let block_hovered = hovered_block_id == Some(block.block.id.as_str());
         let mut block_buttons = Vec::new();
-        if let Some(command) = block.block.run_in_terminal_command.clone() {
+        if show_run_in_terminal_actions
+            && let Some(command) = block.block.run_in_terminal_command.clone()
+        {
             block_buttons.push(AiWorkspaceOverlayButton {
                 id: format!("ai-workspace-run-terminal-{}", block.block.id),
                 tooltip: "Run in terminal",

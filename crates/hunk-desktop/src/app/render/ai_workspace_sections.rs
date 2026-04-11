@@ -6,6 +6,7 @@ struct AiThreadSidebarState {
 }
 
 struct AiTimelinePanelState {
+    workspace_kind: AiWorkspaceKind,
     active_branch: String,
     workspace_label: String,
     show_worktree_base_branch_picker: bool,
@@ -379,12 +380,14 @@ impl DiffViewer {
         let render_started_at = Instant::now();
         let (element, row_kind) = match row.kind {
             AiThreadSidebarRowKind::ProjectHeader {
+                workspace_kind,
                 project_root,
                 project_label,
                 total_thread_count,
             } => (
                 self.render_ai_thread_project_header_row(
                     view,
+                    workspace_kind,
                     project_root,
                     project_label,
                     total_thread_count,
@@ -408,17 +411,22 @@ impl DiffViewer {
                     AiPerfSidebarRowKind::Thread,
                 )
             }
-            AiThreadSidebarRowKind::EmptyProject { project_root } => (
-                self.render_ai_thread_project_empty_row(project_root, is_dark, cx),
+            AiThreadSidebarRowKind::EmptyProject {
+                workspace_kind,
+                project_root,
+            } => (
+                self.render_ai_thread_project_empty_row(workspace_kind, project_root, is_dark, cx),
                 AiPerfSidebarRowKind::EmptyProject,
             ),
             AiThreadSidebarRowKind::ProjectFooter {
+                workspace_kind,
                 project_root,
                 hidden_thread_count,
                 expanded,
             } => (
                 self.render_ai_thread_project_footer_row(
                     view,
+                    workspace_kind,
                     project_root,
                     hidden_thread_count,
                     expanded,
@@ -435,6 +443,7 @@ impl DiffViewer {
     fn render_ai_thread_project_header_row(
         &self,
         view: Entity<Self>,
+        workspace_kind: AiWorkspaceKind,
         project_root: PathBuf,
         project_label: String,
         total_thread_count: usize,
@@ -450,9 +459,17 @@ impl DiffViewer {
         };
         let new_thread_label =
             if let Some(shortcut) = ai_new_thread_shortcut_label(AiNewThreadStartMode::Local) {
-                format!("New Thread  {shortcut}")
+                if workspace_kind == AiWorkspaceKind::Chats {
+                    format!("New Chat  {shortcut}")
+                } else {
+                    format!("New Thread  {shortcut}")
+                }
             } else {
-                "New Thread".to_string()
+                if workspace_kind == AiWorkspaceKind::Chats {
+                    "New Chat".to_string()
+                } else {
+                    "New Thread".to_string()
+                }
             };
         let new_worktree_label =
             if let Some(shortcut) = ai_new_thread_shortcut_label(AiNewThreadStartMode::Worktree) {
@@ -502,85 +519,108 @@ impl DiffViewer {
                 h_flex()
                     .items_center()
                     .gap_2()
-                    .child({
-                        let new_button_view = view.clone();
-                        let new_button_project_root = project_root.clone();
+                    .child(if workspace_kind == AiWorkspaceKind::Chats {
+                        let view = view.clone();
                         Button::new(format!("ai-thread-project-actions-{project_key}"))
                             .compact()
                             .outline()
                             .rounded(px(999.0))
                             .with_size(gpui_component::Size::Small)
-                            .px_1()
-                            .tooltip("New thread")
+                            .px_2()
+                            .icon(Icon::new(HunkIconName::NotebookPen).size(px(14.0)))
+                            .label(new_thread_label)
+                            .on_click(move |_, window, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.ai_start_chat_thread_draft(window, cx);
+                                });
+                            })
+                            .into_any_element()
+                    } else {
+                        let new_button_view = view.clone();
+                        let new_button_project_root = project_root.clone();
+                        h_flex()
+                            .items_center()
+                            .gap_2()
                             .child(
-                                h_flex()
-                                    .items_center()
-                                    .gap_1()
-                                    .child(Icon::new(HunkIconName::NotebookPen).size(px(14.0)))
-                                    .child(Icon::new(IconName::ChevronDown).size(px(12.0))),
+                                Button::new(format!("ai-thread-project-actions-{project_key}"))
+                                    .compact()
+                                    .outline()
+                                    .rounded(px(999.0))
+                                    .with_size(gpui_component::Size::Small)
+                                    .px_1()
+                                    .tooltip("New thread")
+                                    .child(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_1()
+                                            .child(Icon::new(HunkIconName::NotebookPen).size(px(14.0)))
+                                            .child(Icon::new(IconName::ChevronDown).size(px(12.0))),
+                                    )
+                                    .dropdown_menu(move |menu, _, _| {
+                                        menu.item(PopupMenuItem::new(new_thread_label.clone()).on_click({
+                                            let view = new_button_view.clone();
+                                            let project_root = new_button_project_root.clone();
+                                            move |_, window, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_start_thread_draft_for_project_root(
+                                                        project_root.clone(),
+                                                        AiNewThreadStartMode::Local,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }))
+                                        .item(
+                                            PopupMenuItem::new(new_worktree_label.clone()).on_click({
+                                                let view = new_button_view.clone();
+                                                let project_root = new_button_project_root.clone();
+                                                move |_, window, cx| {
+                                                    view.update(cx, |this, cx| {
+                                                        this.ai_start_thread_draft_for_project_root(
+                                                            project_root.clone(),
+                                                            AiNewThreadStartMode::Worktree,
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    });
+                                                }
+                                            }),
+                                        )
+                                    }),
                             )
-                            .dropdown_menu(move |menu, _, _| {
-                                menu.item(PopupMenuItem::new(new_thread_label.clone()).on_click({
-                                    let view = new_button_view.clone();
-                                    let project_root = new_button_project_root.clone();
-                                    move |_, window, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.ai_start_thread_draft_for_project_root(
-                                                project_root.clone(),
-                                                AiNewThreadStartMode::Local,
-                                                window,
-                                                cx,
-                                            );
-                                        });
-                                    }
-                                }))
-                                .item(
-                                    PopupMenuItem::new(new_worktree_label.clone()).on_click({
-                                        let view = new_button_view.clone();
-                                        let project_root = new_button_project_root.clone();
+                            .child(
+                                Button::new(format!("ai-thread-project-remove-{project_key}"))
+                                    .compact()
+                                    .danger()
+                                    .rounded(px(999.0))
+                                    .with_size(gpui_component::Size::Small)
+                                    .px_1()
+                                    .icon(Icon::new(IconName::Delete).size(px(14.0)))
+                                    .tooltip("Remove project")
+                                    .on_click({
+                                        let view = view.clone();
+                                        let project_root = project_root.clone();
                                         move |_, window, cx| {
                                             view.update(cx, |this, cx| {
-                                                this.ai_start_thread_draft_for_project_root(
+                                                this.confirm_remove_workspace_project_action(
                                                     project_root.clone(),
-                                                    AiNewThreadStartMode::Worktree,
                                                     window,
                                                     cx,
                                                 );
                                             });
                                         }
                                     }),
-                                )
-                            })
-                    })
-                    .child(
-                        Button::new(format!("ai-thread-project-remove-{project_key}"))
-                            .compact()
-                            .danger()
-                            .rounded(px(999.0))
-                            .with_size(gpui_component::Size::Small)
-                            .px_1()
-                            .icon(Icon::new(IconName::Delete).size(px(14.0)))
-                            .tooltip("Remove project")
-                            .on_click({
-                                let view = view.clone();
-                                let project_root = project_root.clone();
-                                move |_, window, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.confirm_remove_workspace_project_action(
-                                            project_root.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                }
-                            }),
-                    ),
+                            )
+                            .into_any_element()
+                    }),
             )
             .into_any_element()
     }
 
     fn render_ai_thread_project_empty_row(
         &self,
+        workspace_kind: AiWorkspaceKind,
         project_root: PathBuf,
         is_dark: bool,
         cx: &mut Context<Self>,
@@ -598,13 +638,18 @@ impl DiffViewer {
                 0.84,
                 0.94,
             ))
-            .child("No threads")
+            .child(if workspace_kind == AiWorkspaceKind::Chats {
+                "No chats"
+            } else {
+                "No threads"
+            })
             .into_any_element()
     }
 
     fn render_ai_thread_project_footer_row(
         &self,
         view: Entity<Self>,
+        _: AiWorkspaceKind,
         project_root: PathBuf,
         hidden_thread_count: usize,
         expanded: bool,
@@ -816,12 +861,280 @@ impl DiffViewer {
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let selected_thread_project_label = state
-            .selected_thread_id
-            .as_deref()
+        let show_repo_actions = state.workspace_kind.shows_repo_actions();
+        let selected_thread_project_label = show_repo_actions
+            .then_some(state.selected_thread_id.as_deref())
+            .flatten()
             .and_then(|thread_id| self.ai_visible_project_root_with_context(Some(thread_id), None))
             .as_deref()
             .map(crate::app::project_picker::project_display_name);
+
+        let workspace_actions = if show_repo_actions {
+            h_flex()
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_xs()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!("Target: {}", state.workspace_label)),
+                )
+                .when(state.show_worktree_base_branch_picker, |this| {
+                    this.child(
+                        h_flex()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_semibold()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Base Branch"),
+                            )
+                            .child(
+                                render_hunk_picker(
+                                    &self.ai_worktree_base_branch_picker_state,
+                                    HunkPickerConfig::new(
+                                        "ai-worktree-base-branch-picker",
+                                        state.selected_worktree_base_branch.clone(),
+                                    )
+                                    .with_size(gpui_component::Size::Small)
+                                    .rounded(px(8.0))
+                                    .width(px(220.0))
+                                    .background(hunk_opacity(
+                                        cx.theme().background,
+                                        is_dark,
+                                        0.82,
+                                        0.98,
+                                    ))
+                                    .border_color(cx.theme().border)
+                                    .disabled(self.git_controls_busy() || self.branches.is_empty())
+                                    .empty(
+                                        h_flex()
+                                            .h(px(72.0))
+                                            .justify_center()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("No branches available."),
+                                    ),
+                                    cx,
+                                ),
+                            ),
+                    )
+                })
+                .child(
+                    div()
+                        .text_xs()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!("Branch: {}", state.active_branch)),
+                )
+                .child({
+                    let view = view.clone();
+                    let diff_button_enabled = self.ai_can_open_inline_review_for_current_thread();
+                    let diff_button_active = self.ai_inline_review_is_open()
+                        && self.current_ai_inline_review_mode()
+                            == AiInlineReviewMode::WorkingTree;
+                    Button::new("ai-open-working-tree-diff")
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .rounded(px(8.0))
+                        .icon(Icon::new(HunkIconName::FileDiff).size(px(14.0)))
+                        .tooltip(if diff_button_enabled {
+                            if diff_button_active {
+                                "Close working tree diff (Cmd/Ctrl+D)"
+                            } else {
+                                "Open working tree diff (Cmd/Ctrl+D)"
+                            }
+                        } else {
+                            "No AI diff is available for the current thread yet"
+                        })
+                        .disabled(!diff_button_enabled)
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.ai_toggle_inline_review_for_current_thread_in_mode(
+                                    AiInlineReviewMode::WorkingTree,
+                                    cx,
+                                );
+                            });
+                        })
+                })
+                .child({
+                    let view_for_primary = view.clone();
+                    let view_for_menu = view.clone();
+                    let available_project_open_targets = self.available_project_open_targets.clone();
+                    let preferred_project_open_target = self.preferred_project_open_target();
+                    let primary_project_open_target = preferred_project_open_target
+                        .or_else(|| available_project_open_targets.first().copied());
+                    let project_open_tooltip = self.ai_project_open_tooltip();
+                    let project_open_disabled =
+                        self.ai_project_open_path().is_none() || primary_project_open_target.is_none();
+                    DropdownButton::new("ai-open-project-dropdown")
+                        .button(
+                            Button::new("ai-open-project")
+                                .compact()
+                                .outline()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .when_some(primary_project_open_target, |this, target| {
+                                    this.icon(ai_project_open_target_icon(target))
+                                })
+                                .label("Open")
+                                .tooltip(project_open_tooltip)
+                                .disabled(project_open_disabled)
+                                .on_click(move |_, _, cx| {
+                                    view_for_primary.update(cx, |this, cx| {
+                                        this.open_ai_workspace_in_preferred_project_target(cx);
+                                    });
+                                }),
+                        )
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .rounded(px(8.0))
+                        .disabled(project_open_disabled)
+                        .dropdown_menu(move |menu, _, _| {
+                            if available_project_open_targets.is_empty() {
+                                return menu.item(
+                                    PopupMenuItem::new("No supported editors or file managers found")
+                                        .disabled(true),
+                                );
+                            }
+
+                            available_project_open_targets.iter().copied().fold(
+                                menu,
+                                |menu, target| {
+                                    let view = view_for_menu.clone();
+                                    menu.item(
+                                        PopupMenuItem::new(target.display_label())
+                                            .icon(ai_project_open_target_icon(target))
+                                            .on_click(move |_, _, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.open_ai_workspace_in_project_target(
+                                                        target, cx,
+                                                    );
+                                                });
+                                            }),
+                                    )
+                                },
+                            )
+                        })
+                        .into_any_element()
+                })
+                .child({
+                    let view = view.clone();
+                    let push_label = format!("Commit and Push to {}", state.active_branch);
+                    let create_branch_label = "Create Branch and Push".to_string();
+                    let publish_tooltip =
+                        state.ai_publish_blocker.clone().unwrap_or_else(|| {
+                            match state.selected_thread_start_mode {
+                                Some(AiNewThreadStartMode::Local) => {
+                                    "Commit and push the current branch, create a fresh branch and push it, or open PR/MR for the current work. If the current branch is the default branch, Hunk creates a new branch automatically.".to_string()
+                                }
+                                Some(AiNewThreadStartMode::Worktree) => {
+                                    "Commit and push this worktree branch, create a fresh branch and push it, or open PR/MR for the current work.".to_string()
+                                }
+                                None => "Commit and push this branch, create a fresh branch and push it, or open PR/MR for it.".to_string(),
+                            }
+                        });
+                    Button::new("ai-publish-thread")
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .rounded(px(8.0))
+                        .loading(
+                            state.ai_commit_and_push_loading
+                                || state.ai_create_branch_and_push_loading
+                                || state.ai_open_pr_loading,
+                        )
+                        .dropdown_caret(true)
+                        .label("Publish")
+                        .tooltip(publish_tooltip)
+                        .disabled(state.ai_publish_disabled || state.ai_open_pr_disabled)
+                        .dropdown_menu(move |menu, _, _| {
+                            menu.item(PopupMenuItem::new(push_label.clone()).on_click({
+                                let view = view.clone();
+                                move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_commit_and_push_for_current_thread(cx);
+                                    });
+                                }
+                            }))
+                            .item(PopupMenuItem::new(create_branch_label.clone()).on_click({
+                                let view = view.clone();
+                                move |_, window, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_create_branch_and_push_for_current_thread(
+                                            window, cx,
+                                        );
+                                    });
+                                }
+                            }))
+                            .item(PopupMenuItem::separator())
+                            .item(PopupMenuItem::new("Open PR").on_click({
+                                let view = view.clone();
+                                move |_, window, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_open_pr_for_current_thread(window, cx);
+                                    });
+                                }
+                            }))
+                        })
+                        .into_any_element()
+                })
+                .when_some(state.ai_managed_worktree_target.clone(), |this, target| {
+                    let view = view.clone();
+                    let tooltip = state.ai_delete_worktree_blocker.clone().unwrap_or_else(|| {
+                        format!(
+                            "Delete managed worktree '{}' after the thread is done.",
+                            target.name
+                        )
+                    });
+                    this.child(
+                        Button::new("ai-delete-worktree")
+                            .compact()
+                            .danger()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .icon(Icon::new(IconName::Delete).size(px(14.0)))
+                            .label("Delete Worktree")
+                            .tooltip(tooltip)
+                            .loading(state.ai_delete_worktree_loading)
+                            .disabled(state.ai_delete_worktree_blocker.is_some())
+                            .on_click(move |_, window, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.ai_confirm_delete_current_worktree_action(window, cx);
+                                });
+                            }),
+                    )
+                })
+                .when(self.ai_mad_max_mode, |this| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().danger)
+                            .child("Full access enabled"),
+                    )
+                })
+                .into_any_element()
+        } else {
+            h_flex()
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_xs()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_color(cx.theme().muted_foreground)
+                        .child(state.workspace_label.clone()),
+                )
+                .into_any_element()
+        };
+
         h_flex()
             .w_full()
             .items_center()
@@ -848,271 +1161,7 @@ impl DiffViewer {
                         this.child(ai_render_thread_start_mode_chip(start_mode, is_dark, cx))
                     }),
             )
-            .child(
-                h_flex()
-                    .flex_1()
-                    .justify_end()
-                    .child(
-                        h_flex()
-                            .flex_none()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family(cx.theme().mono_font_family.clone())
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("Target: {}", state.workspace_label)),
-                            )
-                            .when(state.show_worktree_base_branch_picker, |this| {
-                                this.child(
-                                    h_flex()
-                                        .items_center()
-                                        .gap_1p5()
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .font_semibold()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child("Base Branch"),
-                                        )
-                                        .child(
-                                            render_hunk_picker(
-                                                &self.ai_worktree_base_branch_picker_state,
-                                                HunkPickerConfig::new(
-                                                    "ai-worktree-base-branch-picker",
-                                                    state.selected_worktree_base_branch.clone(),
-                                                )
-                                                .with_size(gpui_component::Size::Small)
-                                                .rounded(px(8.0))
-                                                .width(px(220.0))
-                                                .background(hunk_opacity(
-                                                    cx.theme().background,
-                                                    is_dark,
-                                                    0.82,
-                                                    0.98,
-                                                ))
-                                                .border_color(cx.theme().border)
-                                                .disabled(
-                                                    self.git_controls_busy()
-                                                        || self.branches.is_empty(),
-                                                )
-                                                .empty(
-                                                    h_flex()
-                                                        .h(px(72.0))
-                                                        .justify_center()
-                                                        .text_sm()
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .child("No branches available."),
-                                                ),
-                                                cx,
-                                            ),
-                                        ),
-                                )
-                            })
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family(cx.theme().mono_font_family.clone())
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("Branch: {}", state.active_branch)),
-                            )
-                            .child({
-                        let view = view.clone();
-                        let diff_button_enabled = self.ai_can_open_inline_review_for_current_thread();
-                        let diff_button_active =
-                            self.ai_inline_review_is_open()
-                                && self.current_ai_inline_review_mode()
-                                    == AiInlineReviewMode::WorkingTree;
-                        Button::new("ai-open-working-tree-diff")
-                            .compact()
-                            .outline()
-                            .with_size(gpui_component::Size::Small)
-                            .rounded(px(8.0))
-                            .icon(Icon::new(HunkIconName::FileDiff).size(px(14.0)))
-                            .tooltip(if diff_button_enabled {
-                                if diff_button_active {
-                                    "Close working tree diff (Cmd/Ctrl+D)"
-                                } else {
-                                    "Open working tree diff (Cmd/Ctrl+D)"
-                                }
-                            } else {
-                                "No AI diff is available for the current thread yet"
-                            })
-                            .disabled(!diff_button_enabled)
-                            .on_click(move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    this.ai_toggle_inline_review_for_current_thread_in_mode(
-                                        AiInlineReviewMode::WorkingTree,
-                                        cx,
-                                    );
-                                });
-                            })
-                    })
-                            .child({
-                        let view_for_primary = view.clone();
-                        let view_for_menu = view.clone();
-                        let available_project_open_targets =
-                            self.available_project_open_targets.clone();
-                        let preferred_project_open_target = self.preferred_project_open_target();
-                        let primary_project_open_target = preferred_project_open_target
-                            .or_else(|| available_project_open_targets.first().copied());
-                        let project_open_tooltip = self.ai_project_open_tooltip();
-                        let project_open_disabled = self.ai_project_open_path().is_none()
-                            || primary_project_open_target.is_none();
-                        DropdownButton::new("ai-open-project-dropdown")
-                            .button(
-                                Button::new("ai-open-project")
-                                    .compact()
-                                    .outline()
-                                    .with_size(gpui_component::Size::Small)
-                                    .rounded(px(8.0))
-                                    .when_some(primary_project_open_target, |this, target| {
-                                        this.icon(ai_project_open_target_icon(target))
-                                    })
-                                    .label("Open")
-                                    .tooltip(project_open_tooltip)
-                                    .disabled(project_open_disabled)
-                                    .on_click(move |_, _, cx| {
-                                        view_for_primary.update(cx, |this, cx| {
-                                            this.open_ai_workspace_in_preferred_project_target(cx);
-                                        });
-                                    }),
-                            )
-                            .compact()
-                            .outline()
-                            .with_size(gpui_component::Size::Small)
-                            .rounded(px(8.0))
-                            .disabled(project_open_disabled)
-                            .dropdown_menu(move |menu, _, _| {
-                                if available_project_open_targets.is_empty() {
-                                    return menu.item(
-                                        PopupMenuItem::new(
-                                            "No supported editors or file managers found",
-                                        )
-                                        .disabled(true),
-                                    );
-                                }
-
-                                available_project_open_targets.iter().copied().fold(
-                                    menu,
-                                    |menu, target| {
-                                        let view = view_for_menu.clone();
-                                        menu.item(
-                                            PopupMenuItem::new(target.display_label())
-                                                .icon(ai_project_open_target_icon(target))
-                                                .on_click(move |_, _, cx| {
-                                                    view.update(cx, |this, cx| {
-                                                        this.open_ai_workspace_in_project_target(
-                                                            target, cx,
-                                                        );
-                                                    });
-                                                }),
-                                        )
-                                    },
-                                )
-                            })
-                            .into_any_element()
-                    })
-                    .child({
-                        let view = view.clone();
-                        let push_label = format!("Commit and Push to {}", state.active_branch);
-                        let create_branch_label = "Create Branch and Push".to_string();
-                        let publish_tooltip = state.ai_publish_blocker.clone().unwrap_or_else(|| {
-                            match state.selected_thread_start_mode {
-                                Some(AiNewThreadStartMode::Local) => {
-                                    "Commit and push the current branch, create a fresh branch and push it, or open PR/MR for the current work. If the current branch is the default branch, Hunk creates a new branch automatically.".to_string()
-                                }
-                                Some(AiNewThreadStartMode::Worktree) => {
-                                    "Commit and push this worktree branch, create a fresh branch and push it, or open PR/MR for the current work.".to_string()
-                                }
-                                None => "Commit and push this branch, create a fresh branch and push it, or open PR/MR for it.".to_string(),
-                            }
-                        });
-                        Button::new("ai-publish-thread")
-                            .compact()
-                            .outline()
-                            .with_size(gpui_component::Size::Small)
-                            .rounded(px(8.0))
-                            .loading(
-                                state.ai_commit_and_push_loading
-                                    || state.ai_create_branch_and_push_loading
-                                    || state.ai_open_pr_loading,
-                            )
-                            .dropdown_caret(true)
-                            .label("Publish")
-                            .tooltip(publish_tooltip)
-                            .disabled(state.ai_publish_disabled || state.ai_open_pr_disabled)
-                            .dropdown_menu(move |menu, _, _| {
-                                menu.item(
-                                    PopupMenuItem::new(push_label.clone()).on_click({
-                                        let view = view.clone();
-                                        move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.ai_commit_and_push_for_current_thread(cx);
-                                            });
-                                        }
-                                    }),
-                                )
-                                .item(
-                                    PopupMenuItem::new(create_branch_label.clone()).on_click({
-                                        let view = view.clone();
-                                        move |_, window, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.ai_create_branch_and_push_for_current_thread(
-                                                    window, cx,
-                                                );
-                                            });
-                                        }
-                                    }),
-                                )
-                                .item(PopupMenuItem::separator())
-                                .item(
-                                    PopupMenuItem::new("Open PR").on_click({
-                                        let view = view.clone();
-                                        move |_, window, cx| {
-                                            view.update(cx, |this, cx| {
-                                                this.ai_open_pr_for_current_thread(window, cx);
-                                            });
-                                        }
-                                    }),
-                                )
-                            })
-                            .into_any_element()
-                    })
-                    .when_some(state.ai_managed_worktree_target.clone(), |this, target| {
-                        let view = view.clone();
-                        let tooltip = state.ai_delete_worktree_blocker.clone().unwrap_or_else(|| {
-                            format!("Delete managed worktree '{}' after the thread is done.", target.name)
-                        });
-                        this.child(
-                            Button::new("ai-delete-worktree")
-                                .compact()
-                                .danger()
-                                .with_size(gpui_component::Size::Small)
-                                .rounded(px(8.0))
-                                .icon(Icon::new(IconName::Delete).size(px(14.0)))
-                                .label("Delete Worktree")
-                                .tooltip(tooltip)
-                                .loading(state.ai_delete_worktree_loading)
-                                .disabled(state.ai_delete_worktree_blocker.is_some())
-                                .on_click(move |_, window, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.ai_confirm_delete_current_worktree_action(window, cx);
-                                    });
-                                }),
-                        )
-                    })
-                    .when(self.ai_mad_max_mode, |this| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().danger)
-                                .child("Full access enabled"),
-                        )
-                            }),
-                    ),
-            )
+            .child(h_flex().flex_1().justify_end().child(workspace_actions))
             .into_any_element()
     }
 

@@ -888,6 +888,7 @@
 
     #[test]
     fn thread_catalog_workspace_roots_skip_visible_primary_checkout() {
+        let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
         let workspace_targets = vec![
             workspace_target(
                 "primary",
@@ -921,12 +922,14 @@
             vec![
                 PathBuf::from("/repo/worktrees/task-1"),
                 PathBuf::from("/repo/worktrees/task-2"),
+                chats_root,
             ]
         );
     }
 
     #[test]
     fn thread_catalog_workspace_roots_still_skip_visible_worktree() {
+        let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
         let workspace_targets = vec![
             workspace_target(
                 "primary",
@@ -957,12 +960,14 @@
             vec![
                 PathBuf::from("/repo"),
                 PathBuf::from("/repo/worktrees/task-2"),
+                chats_root,
             ]
         );
     }
 
     #[test]
     fn workspace_catalog_inputs_include_all_projects_and_skip_visible_workspace_root() {
+        let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
         let repo_a_targets = vec![
             workspace_target(
                 "primary",
@@ -1001,6 +1006,7 @@
         assert_eq!(
             inputs.known_workspace_keys,
             BTreeSet::from([
+                chats_root.to_string_lossy().to_string(),
                 "/repo-a".to_string(),
                 "/repo-a/worktrees/task-a".to_string(),
                 "/repo-b".to_string(),
@@ -1013,12 +1019,14 @@
                 PathBuf::from("/repo-a"),
                 PathBuf::from("/repo-a/worktrees/task-a"),
                 PathBuf::from("/repo-b"),
+                chats_root,
             ]
         );
     }
 
     #[test]
     fn workspace_catalog_inputs_keep_fallback_project_roots_for_projects_without_targets() {
+        let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
         let repo_a_targets = vec![workspace_target(
             "primary",
             WorkspaceTargetKind::PrimaryCheckout,
@@ -1034,9 +1042,13 @@
 
         assert_eq!(
             inputs.known_workspace_keys,
-            BTreeSet::from(["/repo-a".to_string(), "/repo-b".to_string(),])
+            BTreeSet::from([
+                chats_root.to_string_lossy().to_string(),
+                "/repo-a".to_string(),
+                "/repo-b".to_string(),
+            ])
         );
-        assert_eq!(inputs.workspace_roots, vec![PathBuf::from("/repo-b")]);
+        assert_eq!(inputs.workspace_roots, vec![PathBuf::from("/repo-b"), chats_root]);
     }
 
     #[test]

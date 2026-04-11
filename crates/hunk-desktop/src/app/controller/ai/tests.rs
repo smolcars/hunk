@@ -27,6 +27,7 @@ mod ai_tests {
     use super::ai_timeline_row_supports_inline_review;
     use super::AI_AUTH_REQUIRED_MESSAGE;
     use super::ai_workspace_catalog_inputs_from_target_sets;
+    use super::ai_visible_thread_sections;
     use super::ai_composer_draft_key;
     use super::ai_composer_prompt_for_target;
     use super::ai_composer_retained_thread_ids;
@@ -101,6 +102,7 @@ mod ai_tests {
     use super::AiComposerModeTarget;
     use super::AiComposerShortcut;
     use crate::app::ai_composer_completion::merge_rebased_ai_composer_skill_bindings;
+    use crate::app::ai_paths::resolve_ai_chats_root_path;
     use crate::app::ai_runtime::AiConnectionState;
     use crate::app::ai_workspace_session;
     use crate::app::ai_workspace_surface::ai_workspace_selectable_text_context_menu_target;
@@ -130,6 +132,7 @@ mod ai_tests {
     use crate::app::AiThreadTitleRefreshState;
     use crate::app::AiTimelineRow;
     use crate::app::AiTimelineRowSource;
+    use crate::app::AiWorkspaceKind;
     use crate::app::AiWorkspaceState;
     use crate::app::DiffViewer;
     use crate::app::WorkspaceViewMode;

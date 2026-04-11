@@ -473,6 +473,9 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_cycle_composer_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            return;
+        }
         match ai_cycle_composer_mode_target(
             self.ai_review_mode_active,
             self.ai_selected_collaboration_mode,

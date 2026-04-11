@@ -576,6 +576,87 @@ fn resolved_ai_thread_session_state_uses_preferred_defaults_without_overrides() 
 }
 
 #[test]
+fn resolved_ai_thread_session_state_clamps_chats_to_default_mode() {
+    let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
+    let chats_key = chats_root.to_string_lossy().to_string();
+    let mut state = AppState::default();
+    state.ai_workspace_session_overrides.insert(
+        chats_key.clone(),
+        AiThreadSessionState {
+            model: Some("gpt-5.4".to_string()),
+            effort: Some("medium".to_string()),
+            collaboration_mode: AiCollaborationModeSelection::Plan,
+            service_tier: Some(AiServiceTierSelection::Fast),
+        },
+    );
+
+    assert_eq!(
+        resolved_ai_thread_session_state(&state, None, Some(chats_key.as_str())),
+        AiThreadSessionState {
+            model: Some("gpt-5.4".to_string()),
+            effort: Some("medium".to_string()),
+            collaboration_mode: AiCollaborationModeSelection::Default,
+            service_tier: Some(AiServiceTierSelection::Fast),
+        },
+    );
+}
+
+#[test]
+fn ai_thread_start_mode_for_workspace_does_not_treat_chats_as_repo_workspace() {
+    let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
+
+    assert_eq!(
+        ai_thread_start_mode_for_workspace(
+            Some(std::path::Path::new("/repo")),
+            &[],
+            chats_root.as_path(),
+        ),
+        None,
+    );
+}
+
+#[test]
+fn ai_visible_thread_sections_prepend_global_chats_section() {
+    let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
+    let sections = ai_visible_thread_sections(
+        vec![
+            ThreadSummary {
+                id: "chat-1".to_string(),
+                cwd: chats_root.to_string_lossy().to_string(),
+                title: Some("Chat".to_string()),
+                status: ThreadLifecycleStatus::Active,
+                created_at: 2,
+                updated_at: 2,
+                last_sequence: 2,
+            },
+            ThreadSummary {
+                id: "repo-1".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Repo Thread".to_string()),
+                status: ThreadLifecycleStatus::Active,
+                created_at: 1,
+                updated_at: 1,
+                last_sequence: 1,
+            },
+        ],
+        &[PathBuf::from("/repo")],
+        None,
+        None,
+        &BTreeSet::default(),
+    );
+
+    assert_eq!(sections.len(), 2);
+    assert_eq!(sections[0].workspace_kind, AiWorkspaceKind::Chats);
+    assert_eq!(sections[0].project_label, "Chats");
+    assert_eq!(sections[0].threads.len(), 1);
+    assert_eq!(sections[0].threads[0].id, "chat-1");
+    assert_eq!(sections[1].workspace_kind, AiWorkspaceKind::Project);
+    assert_eq!(sections[1].project_root, PathBuf::from("/repo"));
+    assert_eq!(sections[1].threads.len(), 1);
+    assert_eq!(sections[1].threads[0].id, "repo-1");
+}
+
+#[test]
 fn resolved_ai_turn_session_overrides_prefers_queued_thread_session() {
     let models = vec![
         ai_model(

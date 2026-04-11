@@ -173,6 +173,14 @@ impl DiffViewer {
         if self.workspace_view_mode != WorkspaceViewMode::Ai {
             return;
         }
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            self.set_current_ai_composer_status(
+                "Worktree threads are unavailable in Chats.",
+                cx,
+            );
+            cx.notify();
+            return;
+        }
         self.ai_start_thread_draft(AiNewThreadStartMode::Worktree, window, cx);
     }
 
@@ -183,6 +191,14 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         if self.workspace_view_mode != WorkspaceViewMode::Ai {
+            return;
+        }
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            self.set_current_ai_composer_status(
+                "Diff review is unavailable in Chats.",
+                cx,
+            );
+            cx.notify();
             return;
         }
         self.ai_toggle_inline_review_for_current_thread_in_mode(
@@ -196,6 +212,9 @@ impl DiffViewer {
         start_mode: AiNewThreadStartMode,
         cx: &mut Context<Self>,
     ) {
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            return;
+        }
         if !self.ai_new_thread_draft_active || self.ai_pending_new_thread_selection {
             return;
         }
@@ -219,6 +238,10 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            self.ai_start_chat_thread_draft(window, cx);
+            return;
+        }
         let Some(project_root) = self
             .ai_visible_project_root()
             .or_else(|| self.primary_repo_root())
@@ -277,6 +300,29 @@ impl DiffViewer {
         } else {
             self.ai_worktree_base_branch_name = None;
         }
+        self.sync_ai_worktree_base_branch_picker_state(cx);
+        self.sync_ai_workspace_target_from_catalog(cx);
+        self.ai_create_thread_action(window, cx);
+    }
+
+    pub(super) fn ai_start_chat_thread_draft(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(chats_root) = self.ai_chats_root_path() else {
+            self.set_current_ai_composer_status(
+                "Failed to resolve the Chats workspace.",
+                cx,
+            );
+            cx.notify();
+            return;
+        };
+
+        self.ai_new_thread_start_mode = AiNewThreadStartMode::Local;
+        self.ai_draft_workspace_root_override = Some(chats_root);
+        self.ai_draft_workspace_target_id = None;
+        self.ai_worktree_base_branch_name = None;
         self.sync_ai_worktree_base_branch_picker_state(cx);
         self.sync_ai_workspace_target_from_catalog(cx);
         self.ai_create_thread_action(window, cx);
@@ -581,6 +627,14 @@ impl DiffViewer {
     }
 
     fn start_current_ai_review(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            self.set_current_ai_composer_status(
+                "Review mode is unavailable in Chats.",
+                cx,
+            );
+            cx.notify();
+            return false;
+        }
         if let Some(reason) = self.ai_review_blocker() {
             self.set_current_ai_composer_status(reason, cx);
             cx.notify();
@@ -740,6 +794,18 @@ impl DiffViewer {
         selection: AiCollaborationModeSelection,
         cx: &mut Context<Self>,
     ) {
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            self.ai_selected_collaboration_mode = AiCollaborationModeSelection::Default;
+            self.ai_review_mode_active = false;
+            self.persist_current_ai_workspace_session();
+            self.set_current_ai_composer_status(
+                "Mode switching is unavailable in Chats.",
+                cx,
+            );
+            self.invalidate_ai_visible_frame_state_with_reason("settings");
+            cx.notify();
+            return;
+        }
         let current_thread_id = self.current_ai_thread_id();
         if let Some(thread_id) = current_thread_id.as_ref() {
             self.ai_review_mode_thread_ids.remove(thread_id.as_str());
@@ -762,6 +828,14 @@ impl DiffViewer {
     }
 
     pub(super) fn ai_select_review_mode_action(&mut self, cx: &mut Context<Self>) {
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            self.set_current_ai_composer_status(
+                "Review mode is unavailable in Chats.",
+                cx,
+            );
+            cx.notify();
+            return;
+        }
         let Some(thread_id) = self.current_ai_thread_id() else {
             self.set_current_ai_composer_status(
                 "Select a thread before switching to review mode.",
