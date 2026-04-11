@@ -279,8 +279,8 @@ fn ai_known_workspace_keys(
         .iter()
         .map(|target| target.root.to_string_lossy().to_string())
         .collect::<std::collections::BTreeSet<_>>();
-    if let Some(chats_root) = crate::app::ai_paths::resolve_ai_chats_root_path() {
-        workspace_keys.insert(chats_root.to_string_lossy().to_string());
+    for chats_workspace in crate::app::ai_paths::ai_chats_workspace_paths() {
+        workspace_keys.insert(chats_workspace.to_string_lossy().to_string());
     }
     workspace_keys
 }
@@ -364,9 +364,7 @@ fn ai_workspace_catalog_inputs_from_target_sets(
         );
     }
 
-    if let Some(chats_root) = crate::app::ai_paths::ensure_ai_chats_root_path()
-        .or_else(crate::app::ai_paths::resolve_ai_chats_root_path)
-    {
+    for chats_root in crate::app::ai_paths::ai_chats_workspace_paths() {
         register_ai_workspace_root_for_catalog(
             &mut inputs,
             chats_root.as_path(),

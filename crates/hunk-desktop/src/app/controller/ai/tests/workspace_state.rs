@@ -888,167 +888,192 @@
 
     #[test]
     fn thread_catalog_workspace_roots_skip_visible_primary_checkout() {
-        let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-        let workspace_targets = vec![
-            workspace_target(
-                "primary",
-                WorkspaceTargetKind::PrimaryCheckout,
-                "/repo",
-                "Primary Checkout",
-            ),
-            workspace_target(
-                "worktree:task-1",
-                WorkspaceTargetKind::LinkedWorktree,
-                "/repo/worktrees/task-1",
-                "task-1",
-            ),
-            workspace_target(
-                "worktree:task-1-duplicate",
-                WorkspaceTargetKind::LinkedWorktree,
-                "/repo/worktrees/task-1",
-                "task-1",
-            ),
-            workspace_target(
-                "worktree:task-2",
-                WorkspaceTargetKind::LinkedWorktree,
-                "/repo/worktrees/task-2",
-                "task-2",
-            ),
-        ];
+        with_temp_hunk_home("catalog-roots-primary", |temp_home| {
+            let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
+            let chat_a = chats_root.join("chat-a");
+            let chat_b = chats_root.join("chat-b");
+            std::fs::create_dir_all(&chat_a).expect("chat-a should exist");
+            std::fs::create_dir_all(&chat_b).expect("chat-b should exist");
 
-        let roots = ai_thread_catalog_workspace_roots(workspace_targets.as_slice(), Some("/repo"));
-        assert_eq!(
-            roots,
-            vec![
-                PathBuf::from("/repo/worktrees/task-1"),
-                PathBuf::from("/repo/worktrees/task-2"),
-                chats_root,
-            ]
-        );
+            let workspace_targets = vec![
+                workspace_target(
+                    "primary",
+                    WorkspaceTargetKind::PrimaryCheckout,
+                    "/repo",
+                    "Primary Checkout",
+                ),
+                workspace_target(
+                    "worktree:task-1",
+                    WorkspaceTargetKind::LinkedWorktree,
+                    "/repo/worktrees/task-1",
+                    "task-1",
+                ),
+                workspace_target(
+                    "worktree:task-1-duplicate",
+                    WorkspaceTargetKind::LinkedWorktree,
+                    "/repo/worktrees/task-1",
+                    "task-1",
+                ),
+                workspace_target(
+                    "worktree:task-2",
+                    WorkspaceTargetKind::LinkedWorktree,
+                    "/repo/worktrees/task-2",
+                    "task-2",
+                ),
+            ];
+
+            let roots =
+                ai_thread_catalog_workspace_roots(workspace_targets.as_slice(), Some("/repo"));
+            assert_eq!(
+                roots,
+                vec![
+                    PathBuf::from("/repo/worktrees/task-1"),
+                    PathBuf::from("/repo/worktrees/task-2"),
+                    chats_root,
+                    chat_a,
+                    chat_b,
+                ]
+            );
+            let _ = std::fs::remove_dir_all(temp_home);
+        });
     }
 
     #[test]
     fn thread_catalog_workspace_roots_still_skip_visible_worktree() {
-        let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-        let workspace_targets = vec![
-            workspace_target(
-                "primary",
-                WorkspaceTargetKind::PrimaryCheckout,
-                "/repo",
-                "Primary Checkout",
-            ),
-            workspace_target(
-                "worktree:task-1",
-                WorkspaceTargetKind::LinkedWorktree,
-                "/repo/worktrees/task-1",
-                "task-1",
-            ),
-            workspace_target(
-                "worktree:task-2",
-                WorkspaceTargetKind::LinkedWorktree,
-                "/repo/worktrees/task-2",
-                "task-2",
-            ),
-        ];
+        with_temp_hunk_home("catalog-roots-worktree", |_| {
+            let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
+            let chat_a = chats_root.join("chat-a");
+            std::fs::create_dir_all(&chat_a).expect("chat-a should exist");
+            let workspace_targets = vec![
+                workspace_target(
+                    "primary",
+                    WorkspaceTargetKind::PrimaryCheckout,
+                    "/repo",
+                    "Primary Checkout",
+                ),
+                workspace_target(
+                    "worktree:task-1",
+                    WorkspaceTargetKind::LinkedWorktree,
+                    "/repo/worktrees/task-1",
+                    "task-1",
+                ),
+                workspace_target(
+                    "worktree:task-2",
+                    WorkspaceTargetKind::LinkedWorktree,
+                    "/repo/worktrees/task-2",
+                    "task-2",
+                ),
+            ];
 
-        let roots = ai_thread_catalog_workspace_roots(
-            workspace_targets.as_slice(),
-            Some("/repo/worktrees/task-1"),
-        );
-        assert_eq!(
-            roots,
-            vec![
-                PathBuf::from("/repo"),
-                PathBuf::from("/repo/worktrees/task-2"),
-                chats_root,
-            ]
-        );
+            let roots = ai_thread_catalog_workspace_roots(
+                workspace_targets.as_slice(),
+                Some("/repo/worktrees/task-1"),
+            );
+            assert_eq!(
+                roots,
+                vec![PathBuf::from("/repo"), PathBuf::from("/repo/worktrees/task-2"), chats_root, chat_a]
+            );
+        });
     }
 
     #[test]
     fn workspace_catalog_inputs_include_all_projects_and_skip_visible_workspace_root() {
-        let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-        let repo_a_targets = vec![
-            workspace_target(
-                "primary",
-                WorkspaceTargetKind::PrimaryCheckout,
-                "/repo-a",
-                "Primary Checkout",
-            ),
-            workspace_target(
-                "worktree:task-a",
-                WorkspaceTargetKind::LinkedWorktree,
-                "/repo-a/worktrees/task-a",
-                "task-a",
-            ),
-        ];
-        let repo_b_targets = vec![
-            workspace_target(
-                "primary",
-                WorkspaceTargetKind::PrimaryCheckout,
-                "/repo-b",
-                "Primary Checkout",
-            ),
-            workspace_target(
-                "worktree:task-b",
-                WorkspaceTargetKind::LinkedWorktree,
-                "/repo-b/worktrees/task-b",
-                "task-b",
-            ),
-        ];
+        with_temp_hunk_home("catalog-inputs-projects", |_| {
+            let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
+            let chat_a = chats_root.join("chat-a");
+            std::fs::create_dir_all(&chat_a).expect("chat-a should exist");
+            let repo_a_targets = vec![
+                workspace_target(
+                    "primary",
+                    WorkspaceTargetKind::PrimaryCheckout,
+                    "/repo-a",
+                    "Primary Checkout",
+                ),
+                workspace_target(
+                    "worktree:task-a",
+                    WorkspaceTargetKind::LinkedWorktree,
+                    "/repo-a/worktrees/task-a",
+                    "task-a",
+                ),
+            ];
+            let repo_b_targets = vec![
+                workspace_target(
+                    "primary",
+                    WorkspaceTargetKind::PrimaryCheckout,
+                    "/repo-b",
+                    "Primary Checkout",
+                ),
+                workspace_target(
+                    "worktree:task-b",
+                    WorkspaceTargetKind::LinkedWorktree,
+                    "/repo-b/worktrees/task-b",
+                    "task-b",
+                ),
+            ];
 
-        let inputs = ai_workspace_catalog_inputs_from_target_sets(
-            &[repo_a_targets, repo_b_targets],
-            &[],
-            Some("/repo-b/worktrees/task-b"),
-        );
+            let inputs = ai_workspace_catalog_inputs_from_target_sets(
+                &[repo_a_targets, repo_b_targets],
+                &[],
+                Some("/repo-b/worktrees/task-b"),
+            );
 
-        assert_eq!(
-            inputs.known_workspace_keys,
-            BTreeSet::from([
-                chats_root.to_string_lossy().to_string(),
-                "/repo-a".to_string(),
-                "/repo-a/worktrees/task-a".to_string(),
-                "/repo-b".to_string(),
-                "/repo-b/worktrees/task-b".to_string(),
-            ])
-        );
-        assert_eq!(
-            inputs.workspace_roots,
-            vec![
-                PathBuf::from("/repo-a"),
-                PathBuf::from("/repo-a/worktrees/task-a"),
-                PathBuf::from("/repo-b"),
-                chats_root,
-            ]
-        );
+            assert_eq!(
+                inputs.known_workspace_keys,
+                BTreeSet::from([
+                    chats_root.to_string_lossy().to_string(),
+                    chat_a.to_string_lossy().to_string(),
+                    "/repo-a".to_string(),
+                    "/repo-a/worktrees/task-a".to_string(),
+                    "/repo-b".to_string(),
+                    "/repo-b/worktrees/task-b".to_string(),
+                ])
+            );
+            assert_eq!(
+                inputs.workspace_roots,
+                vec![
+                    PathBuf::from("/repo-a"),
+                    PathBuf::from("/repo-a/worktrees/task-a"),
+                    PathBuf::from("/repo-b"),
+                    chats_root,
+                    chat_a,
+                ]
+            );
+        });
     }
 
     #[test]
     fn workspace_catalog_inputs_keep_fallback_project_roots_for_projects_without_targets() {
-        let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-        let repo_a_targets = vec![workspace_target(
-            "primary",
-            WorkspaceTargetKind::PrimaryCheckout,
-            "/repo-a",
-            "Primary Checkout",
-        )];
+        with_temp_hunk_home("catalog-inputs-fallback", |_| {
+            let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
+            let chat_a = chats_root.join("chat-a");
+            std::fs::create_dir_all(&chat_a).expect("chat-a should exist");
+            let repo_a_targets = vec![workspace_target(
+                "primary",
+                WorkspaceTargetKind::PrimaryCheckout,
+                "/repo-a",
+                "Primary Checkout",
+            )];
 
-        let inputs = ai_workspace_catalog_inputs_from_target_sets(
-            &[repo_a_targets],
-            &[PathBuf::from("/repo-b")],
-            Some("/repo-a"),
-        );
+            let inputs = ai_workspace_catalog_inputs_from_target_sets(
+                &[repo_a_targets],
+                &[PathBuf::from("/repo-b")],
+                Some("/repo-a"),
+            );
 
-        assert_eq!(
-            inputs.known_workspace_keys,
-            BTreeSet::from([
-                chats_root.to_string_lossy().to_string(),
-                "/repo-a".to_string(),
-                "/repo-b".to_string(),
-            ])
-        );
-        assert_eq!(inputs.workspace_roots, vec![PathBuf::from("/repo-b"), chats_root]);
+            assert_eq!(
+                inputs.known_workspace_keys,
+                BTreeSet::from([
+                    chats_root.to_string_lossy().to_string(),
+                    chat_a.to_string_lossy().to_string(),
+                    "/repo-a".to_string(),
+                    "/repo-b".to_string(),
+                ])
+            );
+            assert_eq!(
+                inputs.workspace_roots,
+                vec![PathBuf::from("/repo-b"), chats_root, chat_a]
+            );
+        });
     }
 
     #[test]

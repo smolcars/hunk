@@ -464,12 +464,10 @@ impl DiffViewer {
                 } else {
                     format!("New Thread  {shortcut}")
                 }
+            } else if workspace_kind == AiWorkspaceKind::Chats {
+                "New Chat".to_string()
             } else {
-                if workspace_kind == AiWorkspaceKind::Chats {
-                    "New Chat".to_string()
-                } else {
-                    "New Thread".to_string()
-                }
+                "New Thread".to_string()
             };
         let new_worktree_label =
             if let Some(shortcut) = ai_new_thread_shortcut_label(AiNewThreadStartMode::Worktree) {
@@ -526,9 +524,9 @@ impl DiffViewer {
                             .outline()
                             .rounded(px(999.0))
                             .with_size(gpui_component::Size::Small)
-                            .px_2()
+                            .px_1()
                             .icon(Icon::new(HunkIconName::NotebookPen).size(px(14.0)))
-                            .label(new_thread_label)
+                            .tooltip(new_thread_label.clone())
                             .on_click(move |_, window, cx| {
                                 view.update(cx, |this, cx| {
                                     this.ai_start_chat_thread_draft(window, cx);

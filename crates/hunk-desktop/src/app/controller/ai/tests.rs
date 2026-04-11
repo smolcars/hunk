@@ -160,6 +160,7 @@ mod ai_tests {
     #[cfg(target_os = "windows")]
     use std::ffi::OsString;
     use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
     use std::sync::mpsc;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -335,6 +336,38 @@ mod ai_tests {
             additional_speed_tiers: Vec::new(),
             is_default,
         }
+    }
+
+    fn ai_test_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn with_temp_hunk_home<T>(test_name: &str, f: impl FnOnce(PathBuf) -> T) -> T {
+        let _guard = ai_test_env_lock()
+            .lock()
+            .expect("ai test env lock should be available");
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let temp_home = std::env::temp_dir().join(format!("hunk-ai-test-{test_name}-{unique}"));
+        let previous = std::env::var_os(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR);
+        unsafe { std::env::set_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR, &temp_home) };
+        let _ = std::fs::remove_dir_all(&temp_home);
+        std::fs::create_dir_all(&temp_home).expect("temp hunk home should be created");
+
+        let result = f(temp_home.clone());
+
+        match previous {
+            Some(value) => unsafe {
+                std::env::set_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR, value)
+            },
+            None => unsafe { std::env::remove_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR) },
+        }
+        let _ = std::fs::remove_dir_all(&temp_home);
+
+        result
     }
 
     include!("tests/workspace_state.rs");

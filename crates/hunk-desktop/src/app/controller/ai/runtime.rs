@@ -520,8 +520,8 @@ impl DiffViewer {
 
         if self.ai_workspace_kind_for_root(draft_workspace_root.as_path()) == AiWorkspaceKind::Chats
         {
-            let Some(chats_root) = crate::app::ai_paths::ensure_ai_chats_root_path()
-                .or_else(crate::app::ai_paths::resolve_ai_chats_root_path)
+            let Some(chat_workspace_root) =
+                crate::app::ai_paths::allocate_ai_chat_thread_workspace_path()
             else {
                 self.set_current_ai_composer_status(
                     "Failed to prepare the Chats workspace.",
@@ -530,9 +530,9 @@ impl DiffViewer {
                 cx.notify();
                 return false;
             };
-            let workspace_key = chats_root.to_string_lossy().to_string();
+            let workspace_key = chat_workspace_root.to_string_lossy().to_string();
             let previous_workspace_key = self.ai_workspace_key();
-            self.ai_draft_workspace_root_override = Some(chats_root);
+            self.ai_draft_workspace_root_override = Some(chat_workspace_root);
             self.ai_draft_workspace_target_id = None;
             self.ai_worktree_base_branch_name = None;
             self.seed_ai_workspace_state_for(workspace_key.as_str());

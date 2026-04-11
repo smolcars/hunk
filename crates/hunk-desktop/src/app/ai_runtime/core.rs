@@ -78,6 +78,7 @@ const NOTIFICATION_DRAIN_TIMEOUT: Duration = Duration::from_millis(2);
 const MAX_NOTIFICATIONS_PER_POLL: usize = 256;
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const HOST_BOOTSTRAP_MAX_ATTEMPTS: usize = 12;
+const AI_CHATS_DEVELOPER_INSTRUCTIONS: &str = "This working directory is isolated scratch space for the current Chats thread only. Do not inspect sibling chat directories or treat files here as shared durable context unless the user explicitly asks you to.";
 const TRANSIENT_ROLLOUT_LOAD_MAX_RETRIES: usize = 3;
 const TRANSIENT_ROLLOUT_LOAD_RETRY_DELAY: Duration = Duration::from_millis(75);
 const LOOPBACK_PORT_RANGE_START: u16 = 49_152;
@@ -1008,13 +1009,19 @@ impl AiWorkerRuntime {
             settings: Settings {
                 model,
                 reasoning_effort: effort,
-                developer_instructions: None,
+                developer_instructions: self
+                    .is_chats_workspace()
+                    .then(|| AI_CHATS_DEVELOPER_INSTRUCTIONS.to_string()),
             },
         };
         params.collaboration_mode = Some(collaboration_mode);
         // Collaboration mode takes precedence over model/effort in the server.
         params.model = None;
         params.effort = None;
+    }
+
+    fn is_chats_workspace(&self) -> bool {
+        crate::app::ai_paths::is_ai_chats_workspace_path(self.service.cwd())
     }
 
     fn default_model_id(&self) -> Option<String> {

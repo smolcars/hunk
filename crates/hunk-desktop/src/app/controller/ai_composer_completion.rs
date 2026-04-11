@@ -68,6 +68,15 @@ fn ai_select_previous_completion_item(
 }
 
 impl DiffViewer {
+    fn clear_ai_composer_file_completion_reload_state(&mut self, cx: &mut Context<Self>) {
+        self.ai_composer_file_completion_provider.clear();
+        self.ai_composer_file_completion_reload_task = Task::ready(());
+        self.ai_composer_file_completion_menu = None;
+        self.ai_composer_file_completion_dismissed_token = None;
+        self.ai_composer_file_completion_selected_ix = 0;
+        cx.notify();
+    }
+
     fn current_ai_composer_completion_context(
         &self,
         cx: &Context<Self>,
@@ -726,14 +735,14 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         let Some(workspace_root) = workspace_root else {
-            self.ai_composer_file_completion_provider.clear();
-            self.ai_composer_file_completion_reload_task = Task::ready(());
-            self.ai_composer_file_completion_menu = None;
-            self.ai_composer_file_completion_dismissed_token = None;
-            self.ai_composer_file_completion_selected_ix = 0;
-            cx.notify();
+            self.clear_ai_composer_file_completion_reload_state(cx);
             return;
         };
+
+        if self.ai_workspace_kind_for_root(workspace_root.as_path()) == AiWorkspaceKind::Chats {
+            self.clear_ai_composer_file_completion_reload_state(cx);
+            return;
+        }
 
         let provider = self.ai_composer_file_completion_provider.clone();
         let generation = provider.begin_reload(Some(workspace_root.clone()));

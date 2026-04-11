@@ -176,7 +176,7 @@ fn ai_workspace_section_root_for_thread_root(
     workspace_project_roots: &[std::path::PathBuf],
     chats_root: Option<&std::path::Path>,
 ) -> Option<std::path::PathBuf> {
-    if chats_root == Some(thread_workspace_root) {
+    if crate::app::ai_paths::is_ai_chats_workspace_path(thread_workspace_root) {
         return chats_root.map(std::path::Path::to_path_buf);
     }
 
@@ -185,9 +185,9 @@ fn ai_workspace_section_root_for_thread_root(
 
 fn resolved_ai_workspace_kind_for_root(
     workspace_root: Option<&std::path::Path>,
-    chats_root: Option<&std::path::Path>,
+    _: Option<&std::path::Path>,
 ) -> AiWorkspaceKind {
-    if workspace_root.is_some() && workspace_root == chats_root {
+    if workspace_root.is_some_and(crate::app::ai_paths::is_ai_chats_workspace_path) {
         AiWorkspaceKind::Chats
     } else {
         AiWorkspaceKind::Project
@@ -195,9 +195,9 @@ fn resolved_ai_workspace_kind_for_root(
 }
 
 fn is_ai_chats_workspace_key(workspace_key: Option<&str>) -> bool {
-    let chats_key = crate::app::ai_paths::resolve_ai_chats_root_path()
-        .map(|path| path.to_string_lossy().to_string());
-    workspace_key.is_some_and(|workspace_key| chats_key.as_deref() == Some(workspace_key))
+    workspace_key
+        .map(std::path::Path::new)
+        .is_some_and(crate::app::ai_paths::is_ai_chats_workspace_path)
 }
 
 fn ai_visible_thread_sections(
@@ -423,7 +423,7 @@ fn ai_thread_start_mode_for_workspace(
     workspace_targets: &[hunk_git::worktree::WorkspaceTargetSummary],
     thread_cwd: &std::path::Path,
 ) -> Option<AiNewThreadStartMode> {
-    if crate::app::ai_paths::resolve_ai_chats_root_path().as_deref() == Some(thread_cwd) {
+    if crate::app::ai_paths::is_ai_chats_workspace_path(thread_cwd) {
         return None;
     }
 
