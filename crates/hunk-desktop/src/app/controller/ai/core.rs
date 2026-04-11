@@ -12,6 +12,8 @@ use hunk_domain::state::AppState;
 
 include!("bookmarks.rs");
 
+include!("followup_prompts.rs");
+
 include!("core_actions.rs");
 
 include!("core_timeline.rs");

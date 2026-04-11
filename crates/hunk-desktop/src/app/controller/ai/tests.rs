@@ -13,6 +13,10 @@ mod ai_tests {
     use super::ai_auth_required_message;
     use super::ai_branch_name_for_thread;
     use super::ai_completion_reload_workspace_root;
+    use super::ai_cycle_composer_mode_target;
+    use super::ai_followup_prompt_for_thread;
+    use super::ai_followup_prompt_action_for_keystroke;
+    use super::ai_visible_followup_prompt_for_selected_thread;
     use super::ai_historical_turn_diff_key_for_row;
     use super::ai_historical_inline_review_loaded_state;
     use super::ai_inline_review_toggle_target_mode;
@@ -37,6 +41,7 @@ mod ai_tests {
     use super::background_branch_name_for_new_thread;
     use super::bundled_codex_executable_candidates;
     use super::cached_workspace_branch_name_for_root;
+    use super::composer_status_message_for_visible_target;
     use super::codex_runtime_binary_name;
     use super::codex_runtime_platform_dir;
     use super::current_visible_thread_fallback_workspace_key;
@@ -79,6 +84,8 @@ mod ai_tests {
     use super::should_scroll_timeline_to_bottom_on_selection_change;
     use super::should_sync_selected_thread_from_active_thread;
     use super::sorted_threads;
+    use super::sync_ai_followup_prompt_ui_state;
+    use super::sync_ai_review_mode_threads_after_snapshot;
     use super::take_last_editable_ai_queued_message_for_thread;
     use super::take_restorable_ai_pending_steers;
     use super::thread_latest_timeline_sequence;
@@ -91,6 +98,7 @@ mod ai_tests {
     use super::workspace_branch_name_for_root;
     use super::workspace_include_hidden_models;
     use super::workspace_mad_max_mode;
+    use super::AiComposerModeTarget;
     use super::AiComposerShortcut;
     use crate::app::ai_composer_completion::merge_rebased_ai_composer_skill_bindings;
     use crate::app::ai_runtime::AiConnectionState;
@@ -106,6 +114,9 @@ mod ai_tests {
     use crate::app::AiComposerDraft;
     use crate::app::AiComposerDraftKey;
     use crate::app::AiComposerSkillBinding;
+    use crate::app::AiFollowupPrompt;
+    use crate::app::AiFollowupPromptAction;
+    use crate::app::AiFollowupPromptKind;
     use crate::app::AiInlineReviewMode;
     use crate::app::AiNewThreadStartMode;
     use crate::app::AiPendingSteer;
@@ -115,6 +126,7 @@ mod ai_tests {
     use crate::app::AiQueuedUserMessageStatus;
     use crate::app::AiTextSelection;
     use crate::app::AiTextSelectionSurfaceSpec;
+    use crate::app::AiThreadFollowupPromptState;
     use crate::app::AiThreadTitleRefreshState;
     use crate::app::AiTimelineRow;
     use crate::app::AiTimelineRowSource;
@@ -327,5 +339,8 @@ mod ai_tests {
     include!("tests/timeline.rs");
     include!("tests/selection_and_refresh.rs");
     include!("tests/runtime_path_and_session.rs");
+    include!("tests/followup_prompts.rs");
+    include!("tests/composer_status_scope.rs");
+    include!("tests/workspace_surface_plan_items.rs");
     include!("tests/text_selection.rs");
 }

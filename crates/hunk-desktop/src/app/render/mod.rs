@@ -54,6 +54,7 @@ include!("file_editor_surface.rs");
 include!("file_quick_open.rs");
 include!("ai_loading.rs");
 include!("ai.rs");
+include!("ai_followup_prompt.rs");
 include!("ai_composer.rs");
 include!("ai_workspace_surface.rs");
 include!("ai_workspace_sections.rs");

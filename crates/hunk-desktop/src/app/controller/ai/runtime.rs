@@ -132,8 +132,16 @@ impl DiffViewer {
                 .retain(|thread_id, _| self.ai_state_snapshot.threads.contains_key(thread_id));
             self.ai_timeline_visible_turn_limit_by_thread
                 .retain(|thread_id, _| self.ai_state_snapshot.threads.contains_key(thread_id));
+            prune_ai_followup_prompt_state(
+                &mut self.ai_followup_prompt_state_by_thread,
+                &self.ai_state_snapshot,
+            );
             self.prune_ai_composer_statuses();
         }
+        sync_ai_review_mode_threads_after_snapshot(
+            &mut self.ai_review_mode_thread_ids,
+            &self.ai_state_snapshot,
+        );
         self.invalidate_ai_visible_frame_state_with_reason("runtime");
 
         if let Some(thread_id) = pending_new_thread_selection_ready_thread_id(
@@ -253,6 +261,8 @@ impl DiffViewer {
         }
         self.maybe_refresh_selected_thread_metadata(cx);
         self.sync_ai_session_selection_from_state();
+        let current_thread_id = self.current_ai_thread_id();
+        self.sync_ai_followup_prompt_state_for_selected_thread(current_thread_id.as_deref());
         self.sync_ai_composer_completion_menus(cx);
     }
 
@@ -347,7 +357,7 @@ fn ai_snapshot_removed_retainable_terminal_threads(
         .threads
         .values()
         .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
-        .any(|thread| !next_retainable.contains(thread.cwd.as_str()))
+        .any(|thread| !next_retainable.contains(thread.id.as_str()))
 }
 
 include!("runtime_composer.rs");
@@ -895,6 +905,7 @@ impl DiffViewer {
             selected_collaboration_mode: current_state.selected_collaboration_mode,
             selected_service_tier: current_state.selected_service_tier,
             review_mode_thread_ids: std::collections::BTreeSet::new(),
+            followup_prompt_state_by_thread: std::collections::BTreeMap::new(),
             mad_max_mode: current_state.mad_max_mode,
             draft_workspace_root_override: current_state.draft_workspace_root_override.clone(),
             terminal_open: current_state.terminal_open,
