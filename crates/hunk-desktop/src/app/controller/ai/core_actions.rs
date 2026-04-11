@@ -681,9 +681,10 @@ impl DiffViewer {
 
     pub(super) fn ai_set_mad_max_mode(&mut self, enabled: bool, cx: &mut Context<Self>) {
         let Some(workspace_key) = self.ai_workspace_key() else {
-            self.ai_status_message =
-                Some("Open a workspace before changing the approval policy.".to_string());
-            cx.notify();
+            self.set_current_ai_composer_status(
+                "Open a workspace before changing the approval policy.",
+                cx,
+            );
             return;
         };
 
@@ -691,12 +692,14 @@ impl DiffViewer {
         self.persist_state();
         self.ai_mad_max_mode = enabled;
         self.send_ai_worker_command_if_running(AiWorkerCommand::SetMadMaxMode { enabled }, cx);
-        self.ai_status_message = Some(if enabled {
-            "Approval policy set to Full access.".to_string()
-        } else {
-            "Approval policy set to Ask for approvals.".to_string()
-        });
-        cx.notify();
+        self.set_current_ai_composer_status(
+            if enabled {
+                "Approval policy set to Full access."
+            } else {
+                "Approval policy set to Ask for approvals."
+            },
+            cx,
+        );
     }
 
     pub(super) fn ai_select_model_action(
@@ -737,7 +740,8 @@ impl DiffViewer {
         selection: AiCollaborationModeSelection,
         cx: &mut Context<Self>,
     ) {
-        if let Some(thread_id) = self.current_ai_thread_id() {
+        let current_thread_id = self.current_ai_thread_id();
+        if let Some(thread_id) = current_thread_id.as_ref() {
             self.ai_review_mode_thread_ids.remove(thread_id.as_str());
         }
         self.ai_review_mode_active = false;
@@ -752,7 +756,7 @@ impl DiffViewer {
         }
         self.normalize_ai_selected_effort();
         self.persist_current_ai_workspace_session();
-        self.sync_current_ai_followup_prompt_state();
+        self.sync_ai_followup_prompt_state_for_selected_thread(current_thread_id.as_deref());
         self.invalidate_ai_visible_frame_state_with_reason("settings");
         cx.notify();
     }
@@ -782,7 +786,8 @@ impl DiffViewer {
         self.ai_review_mode_thread_ids.insert(thread_id);
         self.ai_review_mode_active = true;
         self.persist_current_ai_workspace_session();
-        self.sync_current_ai_followup_prompt_state();
+        let current_thread_id = self.current_ai_thread_id();
+        self.sync_ai_followup_prompt_state_for_selected_thread(current_thread_id.as_deref());
         cx.notify();
     }
 
@@ -869,7 +874,7 @@ impl DiffViewer {
         }
         self.flush_ai_timeline_scroll_request();
         self.sync_ai_session_selection_from_state();
-        self.sync_current_ai_followup_prompt_state();
+        self.sync_ai_followup_prompt_state_for_selected_thread(Some(thread_id.as_str()));
         self.send_ai_worker_command(AiWorkerCommand::SelectThread { thread_id }, cx);
         cx.notify();
     }

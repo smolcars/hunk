@@ -30,6 +30,79 @@ fn ai_followup_prompt_secondary_label(kind: AiFollowupPromptKind) -> &'static st
     }
 }
 
+fn render_ai_followup_prompt_action(
+    view: Entity<DiffViewer>,
+    id: (&'static str, u64),
+    label: &'static str,
+    selected: bool,
+    colors: HunkCompletionMenuColors,
+    on_click: impl Fn(&mut DiffViewer, &mut Window, &mut Context<DiffViewer>) + 'static,
+) -> AnyElement {
+    let background = if selected {
+        colors.row_selected
+    } else {
+        colors.panel.background
+    };
+    let border = if selected {
+        colors.row_selected_border
+    } else {
+        colors.panel.border
+    };
+    let text = if selected {
+        colors.primary_text
+    } else {
+        colors.secondary_text
+    };
+    let hover_background = if selected {
+        colors.row_selected
+    } else {
+        colors.row_hover
+    };
+    let hover_border = if selected {
+        colors.row_selected_border
+    } else {
+        colors.row_selected_border.opacity(0.78)
+    };
+
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(28.0))
+        .px_2p5()
+        .rounded(px(999.0))
+        .border_1()
+        .border_color(border)
+        .bg(background)
+        .text_sm()
+        .font_semibold()
+        .text_color(text)
+        .cursor_pointer()
+        .hover(move |style| {
+            style
+                .bg(hover_background)
+                .border_color(hover_border)
+                .cursor_pointer()
+        })
+        .active(move |style| {
+            style
+                .bg(colors.row_selected)
+                .border_color(colors.row_selected_border)
+        })
+        .child(
+            h_flex()
+                .h_full()
+                .items_center()
+                .justify_center()
+                .child(label),
+        )
+        .on_click(move |_, window, cx| {
+            view.update(cx, |this, cx| {
+                on_click(this, window, cx);
+            });
+        })
+        .into_any_element()
+}
+
 fn render_ai_followup_prompt_card(
     view: Entity<DiffViewer>,
     prompt: AiFollowupPrompt,
@@ -80,36 +153,26 @@ fn render_ai_followup_prompt_card(
                 .w_full()
                 .gap_2()
                 .flex_wrap()
-                .child({
-                    let view = view.clone();
-                    Button::new(("ai-followup-prompt-primary", prompt.source_sequence))
-                        .primary()
-                        .compact()
-                        .rounded(px(999.0))
-                        .with_size(gpui_component::Size::Small)
-                        .selected(primary_selected)
-                        .label(ai_followup_prompt_primary_label(prompt.kind))
-                        .on_click(move |_, window, cx| {
-                            view.update(cx, |this, cx| {
-                                this.accept_current_ai_followup_prompt(window, cx);
-                            });
-                        })
-                })
-                .child({
-                    let view = view.clone();
-                    Button::new(("ai-followup-prompt-secondary", prompt.source_sequence))
-                        .ghost()
-                        .compact()
-                        .rounded(px(999.0))
-                        .with_size(gpui_component::Size::Small)
-                        .selected(secondary_selected)
-                        .label(ai_followup_prompt_secondary_label(prompt.kind))
-                        .on_click(move |_, window, cx| {
-                            view.update(cx, |this, cx| {
-                                this.prepare_custom_followup_for_current_prompt(window, cx);
-                            });
-                        })
-                }),
+                .child(render_ai_followup_prompt_action(
+                    view.clone(),
+                    ("ai-followup-prompt-primary", prompt.source_sequence),
+                    ai_followup_prompt_primary_label(prompt.kind),
+                    primary_selected,
+                    colors,
+                    |this, window, cx| {
+                        this.accept_current_ai_followup_prompt(window, cx);
+                    },
+                ))
+                .child(render_ai_followup_prompt_action(
+                    view.clone(),
+                    ("ai-followup-prompt-secondary", prompt.source_sequence),
+                    ai_followup_prompt_secondary_label(prompt.kind),
+                    secondary_selected,
+                    colors,
+                    |this, window, cx| {
+                        this.prepare_custom_followup_for_current_prompt(window, cx);
+                    },
+                )),
         )
         .child(
             div()

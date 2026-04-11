@@ -15,7 +15,7 @@ impl DiffViewer {
         &self,
         current_thread_id: Option<&str>,
     ) -> Option<AiComposerFeedbackState> {
-        if let Some(status) = self.current_ai_composer_status_message()
+        if let Some(status) = self.current_ai_composer_status_message_for_thread(current_thread_id)
             && let Some(tone) = ai_composer_status_tone(status)
         {
             return Some(AiComposerFeedbackState::Status {

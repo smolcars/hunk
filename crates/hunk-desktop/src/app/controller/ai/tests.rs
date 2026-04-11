@@ -16,6 +16,7 @@ mod ai_tests {
     use super::ai_cycle_composer_mode_target;
     use super::ai_followup_prompt_for_thread;
     use super::ai_followup_prompt_action_for_keystroke;
+    use super::ai_visible_followup_prompt_for_selected_thread;
     use super::ai_historical_turn_diff_key_for_row;
     use super::ai_historical_inline_review_loaded_state;
     use super::ai_inline_review_toggle_target_mode;
@@ -40,6 +41,7 @@ mod ai_tests {
     use super::background_branch_name_for_new_thread;
     use super::bundled_codex_executable_candidates;
     use super::cached_workspace_branch_name_for_root;
+    use super::composer_status_message_for_visible_target;
     use super::codex_runtime_binary_name;
     use super::codex_runtime_platform_dir;
     use super::current_visible_thread_fallback_workspace_key;
@@ -337,6 +339,7 @@ mod ai_tests {
     include!("tests/selection_and_refresh.rs");
     include!("tests/runtime_path_and_session.rs");
     include!("tests/followup_prompts.rs");
+    include!("tests/composer_status_scope.rs");
     include!("tests/workspace_surface_plan_items.rs");
     include!("tests/text_selection.rs");
 }

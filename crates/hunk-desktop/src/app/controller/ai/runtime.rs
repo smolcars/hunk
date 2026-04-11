@@ -261,7 +261,8 @@ impl DiffViewer {
         }
         self.maybe_refresh_selected_thread_metadata(cx);
         self.sync_ai_session_selection_from_state();
-        self.sync_current_ai_followup_prompt_state();
+        let current_thread_id = self.current_ai_thread_id();
+        self.sync_ai_followup_prompt_state_for_selected_thread(current_thread_id.as_deref());
         self.sync_ai_composer_completion_menus(cx);
     }
 
@@ -356,7 +357,7 @@ fn ai_snapshot_removed_retainable_terminal_threads(
         .threads
         .values()
         .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
-        .any(|thread| !next_retainable.contains(thread.cwd.as_str()))
+        .any(|thread| !next_retainable.contains(thread.id.as_str()))
 }
 
 include!("runtime_composer.rs");

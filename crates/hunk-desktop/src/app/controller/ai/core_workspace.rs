@@ -674,7 +674,8 @@ impl DiffViewer {
             .current_ai_thread_id()
             .as_ref()
             .is_some_and(|thread_id| self.ai_review_mode_thread_ids.contains(thread_id));
-        self.sync_current_ai_followup_prompt_state();
+        let current_thread_id = self.current_ai_thread_id();
+        self.sync_ai_followup_prompt_state_for_selected_thread(current_thread_id.as_deref());
         self.restore_ai_pending_steers_to_drafts(restored_pending_steers);
         self.restore_ai_queued_messages_to_drafts(restored_queued_messages);
         self.prune_ai_composer_drafts();

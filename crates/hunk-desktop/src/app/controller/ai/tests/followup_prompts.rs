@@ -188,6 +188,25 @@ fn ai_followup_prompt_for_thread_uses_plan_items_when_turn_plan_updates_are_abse
 }
 
 #[test]
+fn visible_followup_prompt_is_scoped_to_the_selected_thread() {
+    let mut state = followup_state("thread-1");
+    state
+        .threads
+        .insert("thread-2".to_string(), followup_thread("thread-2"));
+    insert_plan_item(&mut state, "thread-1", "turn-1", "plan-item", 9);
+
+    assert_eq!(
+        ai_visible_followup_prompt_for_selected_thread(
+            &state,
+            Some("thread-2"),
+            AiCollaborationModeSelection::Plan,
+            &BTreeMap::new(),
+        ),
+        None
+    );
+}
+
+#[test]
 fn ai_followup_prompt_for_thread_hides_plan_outside_plan_mode() {
     let mut state = followup_state("thread-1");
     insert_plan(&mut state, "thread-1", "turn-1", 9);

@@ -54,11 +54,13 @@ impl DiffViewer {
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
         let ai_view_state = ai_view_state.unwrap_or_else(|| self.visible_ai_frame_state());
-        self.sync_current_ai_followup_prompt_state();
-        let show_global_loading_overlay = self.ai_bootstrap_loading;
         let selected_thread_id = ai_view_state.selected_thread_id.clone();
-        let composer_followup_prompt = self.current_ai_followup_prompt();
-        let composer_followup_action = self.current_ai_followup_prompt_action();
+        self.sync_ai_followup_prompt_state_for_selected_thread(selected_thread_id.as_deref());
+        let show_global_loading_overlay = self.ai_bootstrap_loading;
+        let composer_followup_prompt =
+            self.current_ai_followup_prompt_for_selected_thread(selected_thread_id.as_deref());
+        let composer_followup_action = self
+            .current_ai_followup_prompt_action_for_selected_thread(selected_thread_id.as_deref());
         let (selected_thread_mode_for_picker, thread_mode_picker_editable) =
             self.ai_thread_mode_picker_state(ai_view_state.selected_thread_start_mode);
         let composer_attachment_paths = ai_view_state.composer_attachment_paths.clone();

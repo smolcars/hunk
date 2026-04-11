@@ -134,6 +134,27 @@ pub(super) fn ai_followup_prompt_for_thread(
         .filter(|prompt| prompt.source_sequence > prompt_state.plan_acknowledged_sequence)
 }
 
+fn ai_visible_followup_prompt_for_selected_thread(
+    snapshot: &hunk_codex::state::AiState,
+    selected_thread_id: Option<&str>,
+    collaboration_mode: AiCollaborationModeSelection,
+    prompt_states: &BTreeMap<String, AiThreadFollowupPromptState>,
+) -> Option<AiFollowupPrompt> {
+    let thread_id = selected_thread_id?;
+    let prompt_state = prompt_states.get(thread_id).copied().unwrap_or_default();
+    ai_followup_prompt_for_thread(snapshot, thread_id, collaboration_mode, prompt_state)
+}
+
+fn ai_visible_followup_prompt_action_for_selected_thread(
+    prompt_states: &BTreeMap<String, AiThreadFollowupPromptState>,
+    selected_thread_id: Option<&str>,
+) -> AiFollowupPromptAction {
+    selected_thread_id
+        .and_then(|thread_id| prompt_states.get(thread_id))
+        .map(|state| state.selected_action)
+        .unwrap_or(AiFollowupPromptAction::Primary)
+}
+
 pub(super) fn prune_ai_followup_prompt_state(
     prompt_states: &mut BTreeMap<String, AiThreadFollowupPromptState>,
     snapshot: &hunk_codex::state::AiState,
@@ -184,37 +205,36 @@ pub(super) fn sync_ai_followup_prompt_ui_state(
 }
 
 impl DiffViewer {
-    pub(super) fn current_ai_followup_prompt(&self) -> Option<AiFollowupPrompt> {
-        let thread_id = self.current_ai_thread_id()?;
-        let prompt_state = self
-            .ai_followup_prompt_state_by_thread
-            .get(thread_id.as_str())
-            .copied()
-            .unwrap_or_default();
-        ai_followup_prompt_for_thread(
+    pub(super) fn current_ai_followup_prompt_for_selected_thread(
+        &self,
+        selected_thread_id: Option<&str>,
+    ) -> Option<AiFollowupPrompt> {
+        ai_visible_followup_prompt_for_selected_thread(
             &self.ai_state_snapshot,
-            thread_id.as_str(),
+            selected_thread_id,
             self.ai_selected_collaboration_mode,
-            prompt_state,
+            &self.ai_followup_prompt_state_by_thread,
         )
     }
 
-    pub(super) fn current_ai_followup_prompt_action(&self) -> AiFollowupPromptAction {
-        let Some(thread_id) = self.current_ai_thread_id() else {
-            return AiFollowupPromptAction::Primary;
-        };
-        self.ai_followup_prompt_state_by_thread
-            .get(thread_id.as_str())
-            .map(|state| state.selected_action)
-            .unwrap_or(AiFollowupPromptAction::Primary)
+    pub(super) fn current_ai_followup_prompt_action_for_selected_thread(
+        &self,
+        selected_thread_id: Option<&str>,
+    ) -> AiFollowupPromptAction {
+        ai_visible_followup_prompt_action_for_selected_thread(
+            &self.ai_followup_prompt_state_by_thread,
+            selected_thread_id,
+        )
     }
 
-    pub(super) fn sync_current_ai_followup_prompt_state(&mut self) {
-        let current_thread_id = self.current_ai_thread_id();
+    pub(super) fn sync_ai_followup_prompt_state_for_selected_thread(
+        &mut self,
+        selected_thread_id: Option<&str>,
+    ) {
         sync_ai_followup_prompt_ui_state(
             &mut self.ai_followup_prompt_state_by_thread,
             &self.ai_state_snapshot,
-            current_thread_id.as_deref(),
+            selected_thread_id,
             self.ai_selected_collaboration_mode,
         );
     }
@@ -251,7 +271,9 @@ impl DiffViewer {
         let Some(thread_id) = self.current_ai_thread_id() else {
             return false;
         };
-        let Some(prompt) = self.current_ai_followup_prompt() else {
+        let Some(prompt) =
+            self.current_ai_followup_prompt_for_selected_thread(Some(thread_id.as_str()))
+        else {
             return false;
         };
         let prompt_state = seed_ai_followup_prompt_state_for_thread(
@@ -343,7 +365,10 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(prompt) = self.current_ai_followup_prompt() else {
+        let current_thread_id = self.current_ai_thread_id();
+        let Some(prompt) =
+            self.current_ai_followup_prompt_for_selected_thread(current_thread_id.as_deref())
+        else {
             return false;
         };
 
@@ -364,7 +389,7 @@ impl DiffViewer {
         self.ai_timeline_follow_output = true;
         self.ai_scroll_timeline_to_bottom = true;
         self.flush_ai_timeline_scroll_request();
-        self.sync_current_ai_followup_prompt_state();
+        self.sync_ai_followup_prompt_state_for_selected_thread(current_thread_id.as_deref());
         self.invalidate_ai_visible_frame_state_with_reason("thread");
         cx.notify();
         sent
@@ -375,11 +400,14 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(prompt) = self.current_ai_followup_prompt() else {
+        let current_thread_id = self.current_ai_thread_id();
+        let Some(prompt) =
+            self.current_ai_followup_prompt_for_selected_thread(current_thread_id.as_deref())
+        else {
             return false;
         };
         self.acknowledge_current_ai_followup_prompt_kind(prompt.kind);
-        self.sync_current_ai_followup_prompt_state();
+        self.sync_ai_followup_prompt_state_for_selected_thread(current_thread_id.as_deref());
         self.invalidate_ai_visible_frame_state_with_reason("thread");
         self.focus_ai_composer_input(window, cx);
         cx.notify();
@@ -398,7 +426,12 @@ impl DiffViewer {
 
         let composer_focus_handle =
             gpui::Focusable::focus_handle(self.ai_composer_input_state.read(cx), cx);
-        if !composer_focus_handle.is_focused(window) || self.current_ai_followup_prompt().is_none() {
+        let current_thread_id = self.current_ai_thread_id();
+        if !composer_focus_handle.is_focused(window)
+            || self
+                .current_ai_followup_prompt_for_selected_thread(current_thread_id.as_deref())
+                .is_none()
+        {
             return false;
         }
 
@@ -425,7 +458,9 @@ impl DiffViewer {
                 true
             }
             AiFollowupPromptKeystrokeAction::Accept => {
-                match self.current_ai_followup_prompt_action() {
+                match self.current_ai_followup_prompt_action_for_selected_thread(
+                    current_thread_id.as_deref(),
+                ) {
                     AiFollowupPromptAction::Primary => {
                         self.accept_current_ai_followup_prompt(window, cx)
                     }
@@ -452,7 +487,8 @@ impl DiffViewer {
                 self.ai_select_review_mode_action(cx);
             }
         }
-        self.sync_current_ai_followup_prompt_state();
+        let current_thread_id = self.current_ai_thread_id();
+        self.sync_ai_followup_prompt_state_for_selected_thread(current_thread_id.as_deref());
         self.invalidate_ai_visible_frame_state_with_reason("thread");
         self.focus_ai_composer_input(window, cx);
         cx.notify();

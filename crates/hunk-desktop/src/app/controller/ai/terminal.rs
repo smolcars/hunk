@@ -208,12 +208,15 @@ impl DiffViewer {
     }
 
     fn ai_terminal_owner_key_for_thread(&self, thread_id: &str) -> Option<String> {
-        self.ai_thread_workspace_root(thread_id)
-            .map(|root| root.to_string_lossy().to_string())
+        Some(thread_id.to_string())
     }
 
     fn ai_current_terminal_owner_key(&self) -> Option<String> {
-        self.ai_workspace_key()
+        let current_thread_id = self.current_ai_thread_id();
+        ai_terminal_owner_key_for_selection(
+            current_thread_id.as_deref(),
+            self.ai_workspace_key().as_deref(),
+        )
     }
 
     fn ai_restore_visible_terminal_state_for_thread(&mut self, thread_id: Option<&str>) {
@@ -1505,14 +1508,24 @@ fn ai_extend_retainable_terminal_thread_ids(
             .threads
             .values()
             .filter(|thread| thread.status != ThreadLifecycleStatus::Archived)
-            .map(|thread| thread.cwd.clone()),
+            .map(|thread| thread.id.clone()),
     );
+}
+
+fn ai_terminal_owner_key_for_selection(
+    selected_thread_id: Option<&str>,
+    workspace_key: Option<&str>,
+) -> Option<String> {
+    selected_thread_id
+        .map(ToOwned::to_owned)
+        .or_else(|| workspace_key.map(ToOwned::to_owned))
 }
 
 #[cfg(test)]
 mod terminal_output_tests {
     use super::{
         ai_retainable_terminal_thread_ids, ai_terminal_command_for_shell,
+        ai_terminal_owner_key_for_selection,
         sanitize_ai_terminal_output, strip_ansi_sequences, AiTerminalShellFamily,
     };
     use crate::app::AiWorkspaceState;
@@ -1586,9 +1599,21 @@ mod terminal_output_tests {
             workspace_states.values().map(|state| &state.state_snapshot),
         );
 
-        assert!(retained.contains("/repo"));
-        assert!(retained.contains("/repo/worktree"));
+        assert!(retained.contains("thread-visible"));
+        assert!(retained.contains("thread-background"));
         assert!(!retained.contains("thread-archived"));
+    }
+
+    #[test]
+    fn terminal_owner_key_prefers_selected_thread_over_workspace_key() {
+        assert_eq!(
+            ai_terminal_owner_key_for_selection(Some("thread-visible"), Some("/repo")),
+            Some("thread-visible".to_string())
+        );
+        assert_eq!(
+            ai_terminal_owner_key_for_selection(None, Some("/repo")),
+            Some("/repo".to_string())
+        );
     }
 
     #[test]

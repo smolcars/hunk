@@ -44,20 +44,17 @@ impl DiffViewer {
             .unwrap_or_default()
     }
 
-    fn composer_status_message_for_target(
+    fn current_ai_composer_status_message_for_thread(
         &self,
-        target_key: Option<&AiComposerDraftKey>,
+        current_thread_id: Option<&str>,
     ) -> Option<&str> {
-        target_key.and_then(|key| {
-            self.ai_composer_status_by_draft
-                .get(key)
-                .map(String::as_str)
-        })
-    }
-
-    pub(crate) fn current_ai_composer_status_message(&self) -> Option<&str> {
-        self.composer_status_message_for_target(self.current_ai_composer_draft_key().as_ref())
-            .or(self.ai_status_message.as_deref())
+        let workspace_key = self.ai_workspace_key();
+        let target_key = ai_composer_draft_key(current_thread_id, workspace_key.as_deref());
+        composer_status_message_for_visible_target(
+            &self.ai_composer_status_by_draft,
+            target_key.as_ref(),
+            self.ai_status_message.as_deref(),
+        )
     }
 
     fn next_ai_composer_status_generation(&mut self, key: &AiComposerStatusKey) -> usize {
@@ -277,6 +274,16 @@ impl DiffViewer {
         self.ai_composer_activity_elapsed_second = next;
         true
     }
+}
+
+fn composer_status_message_for_visible_target<'a>(
+    statuses_by_draft: &'a BTreeMap<AiComposerDraftKey, String>,
+    target_key: Option<&AiComposerDraftKey>,
+    workspace_status: Option<&'a str>,
+) -> Option<&'a str> {
+    target_key
+        .and_then(|key| statuses_by_draft.get(key).map(String::as_str))
+        .or_else(|| target_key.is_none().then_some(workspace_status).flatten())
 }
 
 fn ai_composer_retained_thread_ids(
