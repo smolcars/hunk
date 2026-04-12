@@ -157,10 +157,13 @@ const AI_TIMELINE_TURN_PAGE_SIZE: usize = 80;
 const AI_THREAD_TITLE_REFRESH_MAX_ATTEMPTS: u8 = 20;
 const AI_THREAD_TITLE_REFRESH_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 const AI_COMPOSER_STATUS_AUTO_DISMISS_DELAY: Duration = Duration::from_secs(5);
+#[cfg(target_os = "macos")]
 const DESKTOP_NOTIFICATION_SETTINGS_STATUS_DENIED: &str =
     "macOS notifications are disabled for Hunk in System Settings > Notifications.";
+#[cfg(target_os = "macos")]
 const DESKTOP_NOTIFICATION_SETTINGS_STATUS_PENDING: &str =
     "macOS will ask for notification permission when you open the AI workspace.";
+#[cfg(target_os = "macos")]
 const DESKTOP_NOTIFICATION_SETTINGS_STATUS_UNAVAILABLE: &str = "macOS notifications require launching the packaged Hunk.app. Direct target binaries do not register with Notification Center.";
 
 mod ai_attachment_images;
@@ -1497,8 +1500,11 @@ struct DiffViewer {
     ai_workspace_states: BTreeMap<String, AiWorkspaceState>,
     ai_desktop_notification_state_by_workspace:
         BTreeMap<String, desktop_notifications::AiDesktopNotificationState>,
+    #[cfg(target_os = "macos")]
     desktop_notification_permission_task: Task<()>,
+    #[cfg(target_os = "macos")]
     macos_notification_permission_state: desktop_notifications::MacOsNotificationPermissionState,
+    #[cfg(target_os = "macos")]
     macos_notification_permission_request_in_flight: bool,
     ai_hidden_runtimes: BTreeMap<String, AiHiddenRuntimeHandle>,
     ai_runtime_starting_workspace_key: Option<String>,

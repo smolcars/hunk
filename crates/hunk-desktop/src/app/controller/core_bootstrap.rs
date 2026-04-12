@@ -532,9 +532,12 @@ impl DiffViewer {
             ai_attachment_picker_task: Task::ready(()),
             ai_workspace_states: BTreeMap::new(),
             ai_desktop_notification_state_by_workspace: BTreeMap::new(),
+            #[cfg(target_os = "macos")]
             desktop_notification_permission_task: Task::ready(()),
+            #[cfg(target_os = "macos")]
             macos_notification_permission_state:
                 crate::app::desktop_notifications::MacOsNotificationPermissionState::Unknown,
+            #[cfg(target_os = "macos")]
             macos_notification_permission_request_in_flight: false,
             ai_hidden_runtimes: BTreeMap::new(),
             ai_runtime_starting_workspace_key: None,

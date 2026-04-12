@@ -1,19 +1,25 @@
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(any(target_os = "macos", test))]
 use std::path::Path;
 
 use anyhow::Result;
 
 #[cfg(target_os = "windows")]
 pub(crate) const DESKTOP_NOTIFICATION_APP_ID: &str = "com.niteshbalusu.hunk";
+#[cfg(target_os = "macos")]
 const MACOS_NOTIFICATION_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+#[cfg(target_os = "macos")]
 const MACOS_NOTIFICATION_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum MacOsNotificationPermissionState {
     #[default]
     Unknown,
+    #[cfg(target_os = "macos")]
     Unavailable,
+    #[cfg(target_os = "macos")]
     NotDetermined,
+    #[cfg(target_os = "macos")]
     Denied,
     Authorized,
 }
@@ -229,6 +235,7 @@ fn thread_label(
         .unwrap_or_else(|| next.workspace_label.clone())
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn is_macos_app_bundle_executable_path(path: &Path) -> bool {
     path.components()
         .any(|component| component.as_os_str() == std::ffi::OsStr::new("Contents"))
@@ -275,11 +282,6 @@ pub(crate) fn request_macos_notification_permission() -> Result<MacOsNotificatio
         return Ok(MacOsNotificationPermissionState::Unavailable);
     }
     platform::request_macos_notification_permission()
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn request_macos_notification_permission() -> Result<MacOsNotificationPermissionState> {
-    Ok(MacOsNotificationPermissionState::Authorized)
 }
 
 #[cfg(target_os = "macos")]

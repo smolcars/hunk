@@ -1081,9 +1081,7 @@ a background periodic check as a fallback if file events are missed. Reduced Mot
                                             .outline()
                                             .rounded(px(8.0))
                                             .label("Send Test Notification")
-                                            .disabled(
-                                                self.macos_notification_permission_request_in_flight,
-                                            )
+                                            .disabled(self.desktop_notification_test_button_disabled())
                                             .on_click(move |_, _, cx| {
                                                 view.update(cx, |this, cx| {
                                                     this.send_test_ai_desktop_notification(cx);

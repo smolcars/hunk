@@ -52,54 +52,49 @@ impl DiffViewer {
         }
     }
 
+    #[cfg(target_os = "macos")]
     pub(super) fn request_macos_notification_permission_for_ai(
         &mut self,
         cx: &mut Context<Self>,
     ) {
-        #[cfg(not(target_os = "macos"))]
-        let _ = cx;
-
-        #[cfg(target_os = "macos")]
+        if !self.ai_desktop_notifications_enabled()
+            || self.workspace_view_mode != WorkspaceViewMode::Ai
+            || self.macos_notification_permission_request_in_flight
         {
-            if !self.ai_desktop_notifications_enabled()
-                || self.workspace_view_mode != WorkspaceViewMode::Ai
-                || self.macos_notification_permission_request_in_flight
-            {
-                return;
-            }
-            if !matches!(
-                self.macos_notification_permission_state,
-                crate::app::desktop_notifications::MacOsNotificationPermissionState::NotDetermined
-                    | crate::app::desktop_notifications::MacOsNotificationPermissionState::Unknown
-            ) {
-                return;
-            }
-
-            self.macos_notification_permission_request_in_flight = true;
-            self.desktop_notification_permission_task = cx.spawn(async move |this, cx| {
-                let status = cx
-                    .background_executor()
-                    .spawn(async move {
-                        crate::app::desktop_notifications::request_macos_notification_permission()
-                    })
-                    .await;
-                let Some(this) = this.upgrade() else {
-                    return;
-                };
-                this.update(cx, |this, cx| {
-                    this.macos_notification_permission_request_in_flight = false;
-                    match status {
-                        Ok(status) => {
-                            this.macos_notification_permission_state = status;
-                            cx.notify();
-                        }
-                        Err(err) => {
-                            error!("failed to request macOS notification permission: {err:#}");
-                        }
-                    }
-                });
-            });
+            return;
         }
+        if !matches!(
+            self.macos_notification_permission_state,
+            crate::app::desktop_notifications::MacOsNotificationPermissionState::NotDetermined
+                | crate::app::desktop_notifications::MacOsNotificationPermissionState::Unknown
+        ) {
+            return;
+        }
+
+        self.macos_notification_permission_request_in_flight = true;
+        self.desktop_notification_permission_task = cx.spawn(async move |this, cx| {
+            let status = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::app::desktop_notifications::request_macos_notification_permission()
+                })
+                .await;
+            let Some(this) = this.upgrade() else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                this.macos_notification_permission_request_in_flight = false;
+                match status {
+                    Ok(status) => {
+                        this.macos_notification_permission_state = status;
+                        cx.notify();
+                    }
+                    Err(err) => {
+                        error!("failed to request macOS notification permission: {err:#}");
+                    }
+                }
+            });
+        });
     }
 
     pub(super) fn maybe_prepare_ai_desktop_notifications(&mut self, cx: &mut Context<Self>) {
@@ -147,6 +142,7 @@ impl DiffViewer {
                 return;
             };
             this.update(cx, |this, cx| {
+                #[cfg(target_os = "macos")]
                 if let Some(permission_state) = outcome.permission_state {
                     this.macos_notification_permission_state = permission_state;
                 }
@@ -349,12 +345,25 @@ impl DiffViewer {
         }
     }
 
+    #[cfg(target_os = "macos")]
     fn ai_desktop_notifications_enabled(&self) -> bool {
         self.config.desktop_notifications.enabled
             && (self.config.desktop_notifications.ai.agent_finished
                 || self.config.desktop_notifications.ai.plan_ready
                 || self.config.desktop_notifications.ai.user_input_required
                 || self.config.desktop_notifications.ai.approval_required)
+    }
+
+    pub(super) fn desktop_notification_test_button_disabled(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.macos_notification_permission_request_in_flight
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
     }
 
     fn ai_desktop_notification_kind_enabled(
@@ -407,6 +416,7 @@ fn run_desktop_notification_test(
     };
 
     let mut permission_state = permission_state;
+    #[cfg(target_os = "macos")]
     if matches!(
         permission_state,
         crate::app::desktop_notifications::MacOsNotificationPermissionState::NotDetermined
@@ -432,6 +442,7 @@ fn run_desktop_notification_test(
         macos_notification_permission_state_label(permission_state)
     ));
 
+    #[cfg(target_os = "macos")]
     if matches!(
         permission_state,
         crate::app::desktop_notifications::MacOsNotificationPermissionState::Unavailable
@@ -448,6 +459,7 @@ fn run_desktop_notification_test(
         };
     }
 
+    #[cfg(target_os = "macos")]
     if matches!(
         permission_state,
         crate::app::desktop_notifications::MacOsNotificationPermissionState::Denied
@@ -515,12 +527,15 @@ fn macos_notification_permission_state_label(
 ) -> &'static str {
     match state {
         crate::app::desktop_notifications::MacOsNotificationPermissionState::Unknown => "unknown",
+        #[cfg(target_os = "macos")]
         crate::app::desktop_notifications::MacOsNotificationPermissionState::Unavailable => {
             "unavailable"
         }
+        #[cfg(target_os = "macos")]
         crate::app::desktop_notifications::MacOsNotificationPermissionState::NotDetermined => {
             "not determined"
         }
+        #[cfg(target_os = "macos")]
         crate::app::desktop_notifications::MacOsNotificationPermissionState::Denied => "denied",
         crate::app::desktop_notifications::MacOsNotificationPermissionState::Authorized => {
             "authorized"
