@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DesktopNotificationTestLevel {
     Success,
+    #[cfg(target_os = "macos")]
     Warning,
     Error,
 }
@@ -152,6 +153,7 @@ impl DiffViewer {
                         DesktopNotificationTestLevel::Success => {
                             crate::app::notifications::success(outcome.message.clone())
                         }
+                        #[cfg(target_os = "macos")]
                         DesktopNotificationTestLevel::Warning => {
                             crate::app::notifications::warning(outcome.message.clone())
                         }
@@ -415,27 +417,30 @@ fn run_desktop_notification_test(
         }
     };
 
-    let mut permission_state = permission_state;
     #[cfg(target_os = "macos")]
-    if matches!(
-        permission_state,
-        crate::app::desktop_notifications::MacOsNotificationPermissionState::NotDetermined
-    ) {
-        match crate::app::desktop_notifications::request_macos_notification_permission() {
-            Ok(state) => permission_state = state,
-            Err(err) => {
-                lines.insert(0, "Desktop notification test failed.".to_string());
-                lines.push(format!(
-                    "Error: failed to request notification permission: {err:#}"
-                ));
-                return DesktopNotificationTestOutcome {
-                    level: DesktopNotificationTestLevel::Error,
-                    message: lines.join("\n"),
-                    permission_state: Some(permission_state),
-                };
+    let permission_state = {
+        let mut permission_state = permission_state;
+        if matches!(
+            permission_state,
+            crate::app::desktop_notifications::MacOsNotificationPermissionState::NotDetermined
+        ) {
+            match crate::app::desktop_notifications::request_macos_notification_permission() {
+                Ok(state) => permission_state = state,
+                Err(err) => {
+                    lines.insert(0, "Desktop notification test failed.".to_string());
+                    lines.push(format!(
+                        "Error: failed to request notification permission: {err:#}"
+                    ));
+                    return DesktopNotificationTestOutcome {
+                        level: DesktopNotificationTestLevel::Error,
+                        message: lines.join("\n"),
+                        permission_state: Some(permission_state),
+                    };
+                }
             }
         }
-    }
+        permission_state
+    };
 
     lines.push(format!(
         "Permission: {}",
