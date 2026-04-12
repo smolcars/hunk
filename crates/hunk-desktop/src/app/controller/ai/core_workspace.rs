@@ -996,11 +996,14 @@ impl DiffViewer {
         let mut restored_pending_steers = Vec::new();
         let mut restored_queued_messages = Vec::new();
         let mut reconcile_queued_after_snapshot = false;
+        let mut emit_desktop_notification = false;
+        let mut clear_desktop_notification_state = false;
         self.update_background_ai_workspace_state(workspace_key, |state| match event {
             AiWorkerEventPayload::Snapshot(snapshot) => {
                 restored_pending_steers =
                     Self::apply_ai_snapshot_to_workspace_state(state, *snapshot);
                 reconcile_queued_after_snapshot = true;
+                emit_desktop_notification = true;
             }
             AiWorkerEventPayload::BootstrapCompleted => {
                 state.bootstrap_loading = false;
@@ -1033,8 +1036,15 @@ impl DiffViewer {
                 restored_queued_messages = take_all_ai_queued_messages(&mut state.queued_messages);
                 state.interrupt_restore_queued_thread_ids.clear();
                 Self::apply_background_ai_workspace_fatal(state, message);
+                clear_desktop_notification_state = true;
             }
         });
+        if clear_desktop_notification_state {
+            self.clear_ai_desktop_notification_state(Some(workspace_key));
+        }
+        if emit_desktop_notification {
+            self.maybe_emit_background_ai_desktop_notification(workspace_key, cx);
+        }
         if reconcile_queued_after_snapshot {
             self.ai_prune_terminal_threads("updating background AI workspace snapshot", cx);
         }

@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [package.metadata.packager]
 product-name = "Hunk"
+identifier = "com.niteshbalusu.hunk"
 publisher = "Nitesh Balusu"
 description = "Very fast git diff viewer and codex orchestrator."
 long-description = "A super fast, simple Git diff viewer and codex orchestrator built with GPUI."
@@ -45,6 +46,7 @@ gpui-component = { git = "https://github.com/niteshbalusu11/gpui-component", rev
 ] }
 gpui-component-assets = { git = "https://github.com/niteshbalusu11/gpui-component", rev = "4640591715ae6732b6b2075f040672eeabdb5c87" }
 notify = "8.2.0"
+notify-rust = "4.14.0"
 toml = "0.9"
 serde_json = "1.0"
 lsp-types = { version = "0.97.0", features = ["proposed"] }
@@ -78,3 +80,8 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_Console",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", features = ["NSError", "NSString"] }
+objc2-user-notifications = "0.3.2"

@@ -275,6 +275,7 @@ impl DiffViewer {
             reduce_motion: self.config.reduce_motion,
             show_fps_counter: self.config.show_fps_counter,
             auto_update_enabled: self.config.auto_update_enabled,
+            desktop_notifications: self.config.desktop_notifications.clone(),
             terminal,
             shortcuts,
             error_message: None,
@@ -379,6 +380,55 @@ impl DiffViewer {
         cx.notify();
     }
 
+    pub(super) fn set_settings_desktop_notifications_enabled(
+        &mut self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(settings) = self.settings_draft.as_mut() else {
+            return;
+        };
+        if settings.desktop_notifications.enabled == enabled {
+            return;
+        }
+        settings.desktop_notifications.enabled = enabled;
+        settings.error_message = None;
+        cx.notify();
+    }
+
+    pub(super) fn set_settings_desktop_notifications_only_when_unfocused(
+        &mut self,
+        only_when_unfocused: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(settings) = self.settings_draft.as_mut() else {
+            return;
+        };
+        if settings.desktop_notifications.only_when_unfocused == only_when_unfocused {
+            return;
+        }
+        settings.desktop_notifications.only_when_unfocused = only_when_unfocused;
+        settings.error_message = None;
+        cx.notify();
+    }
+
+    pub(super) fn set_settings_ai_desktop_notification(
+        &mut self,
+        update: impl FnOnce(&mut AiDesktopNotificationsConfig),
+        cx: &mut Context<Self>,
+    ) {
+        let Some(settings) = self.settings_draft.as_mut() else {
+            return;
+        };
+        let previous = settings.desktop_notifications.ai.clone();
+        update(&mut settings.desktop_notifications.ai);
+        if settings.desktop_notifications.ai == previous {
+            return;
+        }
+        settings.error_message = None;
+        cx.notify();
+    }
+
     pub(super) fn set_settings_terminal_shell_choice(
         &mut self,
         shell_choice: SettingsTerminalShellChoice,
@@ -433,6 +483,7 @@ impl DiffViewer {
             reduce_motion,
             show_fps_counter,
             auto_update_enabled,
+            desktop_notifications,
             terminal,
             keyboard_shortcuts,
         ) = {
@@ -536,6 +587,7 @@ impl DiffViewer {
                 settings.reduce_motion,
                 settings.show_fps_counter,
                 settings.auto_update_enabled,
+                settings.desktop_notifications.clone(),
                 terminal,
                 keyboard_shortcuts,
             )
@@ -551,6 +603,7 @@ impl DiffViewer {
         self.config.reduce_motion = reduce_motion;
         self.config.show_fps_counter = show_fps_counter;
         self.config.auto_update_enabled = auto_update_enabled;
+        self.config.desktop_notifications = desktop_notifications;
         self.config.terminal = terminal;
         self.config.keyboard_shortcuts = keyboard_shortcuts;
         self.apply_theme_preference(window, cx);
@@ -560,6 +613,7 @@ impl DiffViewer {
         if auto_update_enabled {
             self.maybe_schedule_startup_update_check(cx);
         }
+        self.maybe_prepare_ai_desktop_notifications(cx);
 
         let saved_path = self
             .config_store

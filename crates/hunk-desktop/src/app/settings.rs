@@ -275,6 +275,7 @@ struct SettingsDraft {
     reduce_motion: bool,
     show_fps_counter: bool,
     auto_update_enabled: bool,
+    desktop_notifications: DesktopNotificationsConfig,
     terminal: SettingsTerminalState,
     shortcuts: SettingsShortcutInputs,
     error_message: Option<String>,

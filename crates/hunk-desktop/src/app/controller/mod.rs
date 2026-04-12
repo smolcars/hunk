@@ -81,6 +81,7 @@ include!("comments_match.rs");
 include!("selection.rs");
 include!("context_menu.rs");
 include!("scroll.rs");
+include!("desktop_notifications.rs");
 include!("ai_perf.rs");
 include!("fps.rs");
 include!("about.rs");
