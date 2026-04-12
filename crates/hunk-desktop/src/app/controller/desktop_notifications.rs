@@ -14,6 +14,9 @@ struct DesktopNotificationTestOutcome {
 
 impl DiffViewer {
     pub(super) fn refresh_macos_notification_permission_status(&mut self, cx: &mut Context<Self>) {
+        #[cfg(not(target_os = "macos"))]
+        let _ = cx;
+
         #[cfg(target_os = "macos")]
         {
             self.desktop_notification_permission_task = cx.spawn(async move |this, cx| {
@@ -53,6 +56,9 @@ impl DiffViewer {
         &mut self,
         cx: &mut Context<Self>,
     ) {
+        #[cfg(not(target_os = "macos"))]
+        let _ = cx;
+
         #[cfg(target_os = "macos")]
         {
             if !self.ai_desktop_notifications_enabled()
@@ -97,6 +103,9 @@ impl DiffViewer {
     }
 
     pub(super) fn maybe_prepare_ai_desktop_notifications(&mut self, cx: &mut Context<Self>) {
+        #[cfg(not(target_os = "macos"))]
+        let _ = cx;
+
         #[cfg(target_os = "macos")]
         {
             if matches!(
