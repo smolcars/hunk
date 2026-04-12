@@ -234,6 +234,24 @@ fn is_macos_app_bundle_executable_path(path: &Path) -> bool {
         .any(|component| component.as_os_str() == std::ffi::OsStr::new("Contents"))
 }
 
+pub(crate) fn current_executable_display_path() -> Option<String> {
+    std::env::current_exe()
+        .ok()
+        .map(|path| path.display().to_string())
+}
+
+pub(crate) const fn desktop_notification_backend_name() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "macOS UNUserNotificationCenter"
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        "notify-rust"
+    }
+}
+
 pub(crate) fn show_desktop_notification(request: &DesktopNotificationRequest) -> Result<()> {
     platform::show_desktop_notification(request)
 }
@@ -311,7 +329,12 @@ mod platform {
             let result = if error.is_null() {
                 Ok(())
             } else {
-                Err(anyhow!("macOS notification authorization request failed"))
+                let error = unsafe { error.as_ref() }
+                    .map(format_nserror)
+                    .unwrap_or_else(|| "unknown NSError".to_string());
+                Err(anyhow!(
+                    "macOS notification authorization request failed: {error}"
+                ))
             };
             let _ = tx.send(result);
         });
@@ -350,7 +373,12 @@ mod platform {
             let result = if error.is_null() {
                 Ok(())
             } else {
-                Err(anyhow!("macOS failed to enqueue desktop notification"))
+                let error = unsafe { error.as_ref() }
+                    .map(format_nserror)
+                    .unwrap_or_else(|| "unknown NSError".to_string());
+                Err(anyhow!(
+                    "macOS failed to enqueue desktop notification: {error}"
+                ))
             };
             let _ = tx.send(result);
         });
@@ -375,6 +403,21 @@ mod platform {
             return MacOsNotificationPermissionState::NotDetermined;
         }
         MacOsNotificationPermissionState::Unknown
+    }
+
+    fn format_nserror(error: &NSError) -> String {
+        let mut parts = vec![
+            format!("domain={}", error.domain()),
+            format!("code={}", error.code()),
+            format!("description={}", error.localizedDescription()),
+        ];
+        if let Some(reason) = error.localizedFailureReason() {
+            parts.push(format!("reason={reason}"));
+        }
+        if let Some(suggestion) = error.localizedRecoverySuggestion() {
+            parts.push(format!("suggestion={suggestion}"));
+        }
+        parts.join(", ")
     }
 }
 
