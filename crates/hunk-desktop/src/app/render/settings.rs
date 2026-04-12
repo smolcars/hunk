@@ -1059,32 +1059,38 @@ a background periodic check as a fallback if file events are missed. Reduced Mot
                             }),
                     )
                     .child(
-                        h_flex()
+                        v_flex()
                             .w_full()
-                            .items_center()
-                            .justify_between()
-                            .gap_3()
+                            .gap_2()
                             .child(
                                 div()
+                                    .w_full()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(
-                                        "Sends a real OS notification and reports the current backend status in an in-app toast.",
+                                        "Sends a real OS notification through the current platform backend and reports the result in an in-app toast.",
                                     ),
                             )
-                            .child({
-                                let view = view.clone();
-                                Button::new("settings-ai-notifications-test")
-                                    .outline()
-                                    .rounded(px(8.0))
-                                    .label("Send Test Notification")
-                                    .disabled(self.macos_notification_permission_request_in_flight)
-                                    .on_click(move |_, _, cx| {
-                                        view.update(cx, |this, cx| {
-                                            this.send_test_ai_desktop_notification(cx);
-                                        });
-                                    })
-                            }),
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .justify_end()
+                                    .child({
+                                        let view = view.clone();
+                                        Button::new("settings-ai-notifications-test")
+                                            .outline()
+                                            .rounded(px(8.0))
+                                            .label("Send Test Notification")
+                                            .disabled(
+                                                self.macos_notification_permission_request_in_flight,
+                                            )
+                                            .on_click(move |_, _, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.send_test_ai_desktop_notification(cx);
+                                                });
+                                            })
+                                    }),
+                            ),
                     )
                     .children(desktop_notification_status_note.map(|note| {
                         div()
