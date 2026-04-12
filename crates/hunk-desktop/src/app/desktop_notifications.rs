@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
+#[cfg(target_os = "windows")]
 pub(crate) const DESKTOP_NOTIFICATION_APP_ID: &str = "com.niteshbalusu.hunk";
 const MACOS_NOTIFICATION_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const MACOS_NOTIFICATION_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -425,7 +426,9 @@ mod platform {
     use anyhow::Result;
     use notify_rust::Notification;
 
-    use super::{DESKTOP_NOTIFICATION_APP_ID, DesktopNotificationRequest};
+    #[cfg(target_os = "windows")]
+    use super::DESKTOP_NOTIFICATION_APP_ID;
+    use super::DesktopNotificationRequest;
 
     pub(super) fn show_desktop_notification(request: &DesktopNotificationRequest) -> Result<()> {
         let mut notification = Notification::new();
