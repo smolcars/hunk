@@ -16,6 +16,7 @@ struct DesktopNotificationTestOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiDesktopNotificationDelivery {
     Completed,
+    #[cfg(target_os = "macos")]
     DeferredForPermission,
 }
 
@@ -279,14 +280,23 @@ impl DiffViewer {
         event: crate::app::desktop_notifications::AiDesktopNotificationEvent,
         cx: &mut Context<Self>,
     ) {
-        if matches!(
-            self.maybe_deliver_ai_desktop_notification(event.clone(), cx),
-            AiDesktopNotificationDelivery::DeferredForPermission
-        ) {
-            self.ai_pending_desktop_notification_events_by_workspace
-                .entry(workspace_key.to_string())
-                .or_default()
-                .push_back(event);
+        #[cfg(target_os = "macos")]
+        {
+            if matches!(
+                self.maybe_deliver_ai_desktop_notification(event.clone(), cx),
+                AiDesktopNotificationDelivery::DeferredForPermission
+            ) {
+                self.ai_pending_desktop_notification_events_by_workspace
+                    .entry(workspace_key.to_string())
+                    .or_default()
+                    .push_back(event);
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = workspace_key;
+            let _ = self.maybe_deliver_ai_desktop_notification(event, cx);
         }
     }
 
@@ -335,47 +345,42 @@ impl DiffViewer {
         AiDesktopNotificationDelivery::Completed
     }
 
+    #[cfg(target_os = "macos")]
     fn flush_pending_ai_desktop_notifications(&mut self, cx: &mut Context<Self>) {
-        #[cfg(not(target_os = "macos"))]
-        let _ = cx;
+        if !matches!(
+            self.macos_notification_permission_state,
+            crate::app::desktop_notifications::MacOsNotificationPermissionState::Authorized
+        ) {
+            return;
+        }
 
-        #[cfg(target_os = "macos")]
-        {
-            if !matches!(
-                self.macos_notification_permission_state,
-                crate::app::desktop_notifications::MacOsNotificationPermissionState::Authorized
-            ) {
-                return;
+        let workspace_keys: Vec<String> = self
+            .ai_pending_desktop_notification_events_by_workspace
+            .keys()
+            .cloned()
+            .collect();
+
+        for workspace_key in workspace_keys {
+            let Some(mut pending_events) = self
+                .ai_pending_desktop_notification_events_by_workspace
+                .remove(workspace_key.as_str())
+            else {
+                continue;
+            };
+
+            let mut still_pending = std::collections::VecDeque::new();
+            while let Some(event) = pending_events.pop_front() {
+                if matches!(
+                    self.maybe_deliver_ai_desktop_notification(event.clone(), cx),
+                    AiDesktopNotificationDelivery::DeferredForPermission
+                ) {
+                    still_pending.push_back(event);
+                }
             }
 
-            let workspace_keys: Vec<String> = self
-                .ai_pending_desktop_notification_events_by_workspace
-                .keys()
-                .cloned()
-                .collect();
-
-            for workspace_key in workspace_keys {
-                let Some(mut pending_events) = self
-                    .ai_pending_desktop_notification_events_by_workspace
-                    .remove(workspace_key.as_str())
-                else {
-                    continue;
-                };
-
-                let mut still_pending = std::collections::VecDeque::new();
-                while let Some(event) = pending_events.pop_front() {
-                    if matches!(
-                        self.maybe_deliver_ai_desktop_notification(event.clone(), cx),
-                        AiDesktopNotificationDelivery::DeferredForPermission
-                    ) {
-                        still_pending.push_back(event);
-                    }
-                }
-
-                if !still_pending.is_empty() {
-                    self.ai_pending_desktop_notification_events_by_workspace
-                        .insert(workspace_key, still_pending);
-                }
+            if !still_pending.is_empty() {
+                self.ai_pending_desktop_notification_events_by_workspace
+                    .insert(workspace_key, still_pending);
             }
         }
     }
