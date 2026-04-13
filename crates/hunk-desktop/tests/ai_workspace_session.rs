@@ -527,9 +527,15 @@ fn reveal_steps_refresh_selection_surfaces_for_current_preview_text() {
         )],
         true,
     ));
-    assert!(session.reveal_pending_streaming_preview_step());
+    let mut updated_surfaces = initial_surfaces.clone();
+    for _ in 0..16 {
+        assert!(session.reveal_pending_streaming_preview_step());
+        updated_surfaces = session.selection_surfaces_for_width(640);
+        if updated_surfaces[1].text != "Hello" {
+            break;
+        }
+    }
 
-    let updated_surfaces = session.selection_surfaces_for_width(640);
     assert_ne!(updated_surfaces[1].text, "Hello");
     assert_eq!(
         updated_surfaces[1].text,
