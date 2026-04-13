@@ -439,6 +439,8 @@ mod platform {
 mod platform {
     use anyhow::Result;
     use notify_rust::Notification;
+    #[cfg(target_os = "linux")]
+    use notify_rust::NotificationHandle;
 
     #[cfg(target_os = "windows")]
     use super::DESKTOP_NOTIFICATION_APP_ID;
@@ -452,8 +454,26 @@ mod platform {
             .appname("Hunk");
         #[cfg(target_os = "windows")]
         notification.app_id(DESKTOP_NOTIFICATION_APP_ID);
+        #[cfg(target_os = "linux")]
+        {
+            // GNOME can immediately clear app-associated notifications when the sender's D-Bus
+            // connection disappears. Keep the notify-rust handle alive until the notification
+            // closes so the bus connection survives long enough for the banner to stay visible.
+            let handle = notification.show()?;
+            keep_linux_notification_handle_alive_until_closed(handle);
+        }
+        #[cfg(not(target_os = "linux"))]
         notification.show()?;
         Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn keep_linux_notification_handle_alive_until_closed(handle: NotificationHandle) {
+        let _ = std::thread::Builder::new()
+            .name("hunk-linux-notification".to_string())
+            .spawn(move || {
+                handle.on_close(|_| {});
+            });
     }
 }
 
