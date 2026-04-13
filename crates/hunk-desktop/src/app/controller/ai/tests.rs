@@ -371,5 +371,6 @@ mod ai_tests {
     include!("tests/followup_prompts.rs");
     include!("tests/composer_status_scope.rs");
     include!("tests/workspace_surface_plan_items.rs");
+    include!("tests/workspace_streaming.rs");
     include!("tests/text_selection.rs");
 }

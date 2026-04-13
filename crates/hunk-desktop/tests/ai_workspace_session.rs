@@ -99,12 +99,19 @@ fn source_rows(entries: &[(&str, u64)]) -> Arc<[AiWorkspaceSourceRow]> {
     )
 }
 
+fn single_blocks(blocks: Vec<AiWorkspaceBlock>) -> Vec<Vec<AiWorkspaceBlock>> {
+    blocks.into_iter().map(|block| vec![block]).collect()
+}
+
 #[test]
 fn session_matches_source_thread_and_row_ids() {
     let mut session = AiWorkspaceSession::new(
         "thread-1",
         source_rows(&[("row-1", 1), ("row-2", 2)]),
-        vec![block("row-1", AiWorkspaceBlockKind::Message, "preview")],
+        vec![
+            vec![block("row-1", AiWorkspaceBlockKind::Message, "preview")],
+            Vec::new(),
+        ],
     );
 
     assert_eq!(session.selection_scope_id(), "ai-workspace-thread:thread-1");
@@ -120,11 +127,11 @@ fn selection_surfaces_follow_rendered_message_text() {
     let mut session = AiWorkspaceSession::new(
         "thread-1",
         source_rows(&[("row-1", 1)]),
-        vec![block(
+        single_blocks(vec![block(
             "row-1",
             AiWorkspaceBlockKind::Message,
             "**bold** and `inline`",
-        )],
+        )]),
     );
 
     let selection_surfaces = session.selection_surfaces_for_width(640);
@@ -142,11 +149,11 @@ fn surface_snapshot_projects_visible_blocks_and_total_height() {
     let mut session = AiWorkspaceSession::new(
         "thread-1",
         source_rows(&[("row-1", 1), ("row-2", 2), ("row-3", 3)]),
-        vec![
+        single_blocks(vec![
             block("row-1", AiWorkspaceBlockKind::Message, "first preview"),
             block("row-2", AiWorkspaceBlockKind::DiffSummary, "diff preview"),
             block("row-3", AiWorkspaceBlockKind::Status, ""),
-        ],
+        ]),
     );
 
     let snapshot = session.surface_snapshot_with_stats(0, 220, 640).snapshot;
@@ -191,11 +198,11 @@ fn surface_snapshot_limits_visible_blocks_to_requested_range() {
     let mut session = AiWorkspaceSession::new(
         "thread-1",
         source_rows(&[("row-1", 1), ("row-2", 2), ("row-3", 3)]),
-        vec![
+        single_blocks(vec![
             block("row-1", AiWorkspaceBlockKind::Message, "first preview"),
             block("row-2", AiWorkspaceBlockKind::Message, "second preview"),
             block("row-3", AiWorkspaceBlockKind::Message, "third preview"),
-        ],
+        ]),
     );
 
     let snapshot = session.surface_snapshot_with_stats(96, 90, 640).snapshot;
@@ -220,7 +227,7 @@ fn surface_snapshot_supports_all_block_kinds_and_roles() {
             ("row-tool", 4),
             ("row-status", 5),
         ]),
-        vec![
+        single_blocks(vec![
             AiWorkspaceBlock {
                 id: "row-user".to_string(),
                 source_row_id: "row-user".to_string(),
@@ -247,7 +254,7 @@ fn surface_snapshot_supports_all_block_kinds_and_roles() {
             block("row-plan", AiWorkspaceBlockKind::Plan, "plan"),
             block("row-tool", AiWorkspaceBlockKind::Tool, "tool"),
             block("row-status", AiWorkspaceBlockKind::Status, "status"),
-        ],
+        ]),
     );
 
     let snapshot = session.surface_snapshot_with_stats(0, 640, 800).snapshot;
@@ -275,10 +282,10 @@ fn selection_matches_block_and_helpers_remain_addressable() {
     let mut session = AiWorkspaceSession::new(
         "thread-1",
         source_rows(&[("row-1", 1), ("row-2", 2)]),
-        vec![
+        single_blocks(vec![
             block("row-1", AiWorkspaceBlockKind::Message, "first preview"),
             block("row-2", AiWorkspaceBlockKind::DiffSummary, "diff preview"),
-        ],
+        ]),
     );
     let selection = AiWorkspaceSelection {
         block_id: "row-2".to_string(),
@@ -445,13 +452,141 @@ fn very_narrow_surface_widths_do_not_panic() {
         status_color_role: None,
         last_sequence: 1,
     };
-    let mut session =
-        AiWorkspaceSession::new("thread-1", source_rows(&[("row-narrow", 1)]), vec![block]);
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-narrow", 1)]),
+        single_blocks(vec![block]),
+    );
 
     let snapshot = session.surface_snapshot_with_stats(0, 200, 1).snapshot;
 
     assert_eq!(snapshot.viewport.visible_blocks.len(), 1);
     assert!(snapshot.viewport.total_surface_height_px > 0);
+}
+
+#[test]
+fn replace_source_row_smooths_preview_until_target_text_is_visible() {
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-1", 1)]),
+        single_blocks(vec![block("row-1", AiWorkspaceBlockKind::Message, "Hello")]),
+    );
+
+    assert!(session.replace_source_row(
+        AiWorkspaceSourceRow {
+            row_id: "row-1".to_string(),
+            last_sequence: 2,
+        },
+        vec![block(
+            "row-1",
+            AiWorkspaceBlockKind::Message,
+            "Hello world!"
+        )],
+        true,
+    ));
+    assert_eq!(
+        session.block("row-1").map(|block| block.preview.as_str()),
+        Some("Hello")
+    );
+    assert!(session.has_pending_streaming_preview());
+
+    for _ in 0..16 {
+        if !session.has_pending_streaming_preview() {
+            break;
+        }
+        assert!(session.reveal_pending_streaming_preview_step());
+    }
+
+    assert_eq!(
+        session.block("row-1").map(|block| block.preview.as_str()),
+        Some("Hello world!")
+    );
+    assert!(!session.has_pending_streaming_preview());
+}
+
+#[test]
+fn reveal_steps_refresh_selection_surfaces_for_current_preview_text() {
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-1", 1)]),
+        single_blocks(vec![block("row-1", AiWorkspaceBlockKind::Message, "Hello")]),
+    );
+
+    let initial_surfaces = session.selection_surfaces_for_width(640);
+    assert_eq!(initial_surfaces[1].text, "Hello");
+
+    assert!(session.replace_source_row(
+        AiWorkspaceSourceRow {
+            row_id: "row-1".to_string(),
+            last_sequence: 2,
+        },
+        vec![block(
+            "row-1",
+            AiWorkspaceBlockKind::Message,
+            "Hello world!"
+        )],
+        true,
+    ));
+    let mut updated_surfaces = initial_surfaces.clone();
+    for _ in 0..16 {
+        assert!(session.reveal_pending_streaming_preview_step());
+        updated_surfaces = session.selection_surfaces_for_width(640);
+        if updated_surfaces[1].text != "Hello" {
+            break;
+        }
+    }
+
+    assert_ne!(updated_surfaces[1].text, "Hello");
+    assert_eq!(
+        updated_surfaces[1].text,
+        session
+            .block("row-1")
+            .expect("row-1 block should exist")
+            .preview
+    );
+}
+
+#[test]
+fn reveal_steps_update_cached_geometry_when_wrapping_changes() {
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-1", 1)]),
+        single_blocks(vec![block("row-1", AiWorkspaceBlockKind::Message, "short")]),
+    );
+
+    let initial_height = session
+        .surface_snapshot_with_stats(0, 240, 320)
+        .snapshot
+        .viewport
+        .total_surface_height_px;
+
+    assert!(session.replace_source_row(
+        AiWorkspaceSourceRow {
+            row_id: "row-1".to_string(),
+            last_sequence: 2,
+        },
+        vec![block(
+            "row-1",
+            AiWorkspaceBlockKind::Message,
+            "This is a much longer assistant preview that should wrap across multiple lines.",
+        )],
+        true,
+    ));
+
+    for _ in 0..24 {
+        if !session.has_pending_streaming_preview() {
+            break;
+        }
+        session.reveal_pending_streaming_preview_step();
+    }
+
+    let updated_height = session
+        .surface_snapshot_with_stats(0, 240, 320)
+        .snapshot
+        .viewport
+        .total_surface_height_px;
+
+    assert!(updated_height > initial_height);
 }
 
 #[test]
