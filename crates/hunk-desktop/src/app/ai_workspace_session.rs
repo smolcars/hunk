@@ -211,6 +211,8 @@ pub(crate) struct AiWorkspaceSession {
     thread_id: String,
     source_rows: Arc<[AiWorkspaceSourceRow]>,
     blocks: Vec<AiWorkspaceBlock>,
+    source_row_block_ranges: BTreeMap<String, Range<usize>>,
+    streaming_previews_by_block_id: BTreeMap<String, AiWorkspaceStreamingPreview>,
     selection_scope_id: String,
     geometry_by_width_bucket: BTreeMap<usize, AiWorkspaceDisplayGeometry>,
     selection_surfaces_by_width_bucket: BTreeMap<usize, Arc<[AiTextSelectionSurfaceSpec]>>,
@@ -220,14 +222,24 @@ impl AiWorkspaceSession {
     pub(crate) fn new(
         thread_id: impl Into<String>,
         source_rows: Arc<[AiWorkspaceSourceRow]>,
-        blocks: Vec<AiWorkspaceBlock>,
+        blocks_by_source_row: Vec<Vec<AiWorkspaceBlock>>,
     ) -> Self {
         let thread_id = thread_id.into();
         let selection_scope_id = format!("ai-workspace-thread:{thread_id}");
+        let mut blocks = Vec::new();
+        let mut source_row_block_ranges = BTreeMap::new();
+        for (source_row, row_blocks) in source_rows.iter().zip(blocks_by_source_row) {
+            let start = blocks.len();
+            blocks.extend(row_blocks);
+            source_row_block_ranges.insert(source_row.row_id.clone(), start..blocks.len());
+        }
+        debug_assert_eq!(source_rows.len(), source_row_block_ranges.len());
         Self {
             thread_id,
             source_rows,
             blocks,
+            source_row_block_ranges,
+            streaming_previews_by_block_id: BTreeMap::new(),
             selection_scope_id,
             geometry_by_width_bucket: BTreeMap::new(),
             selection_surfaces_by_width_bucket: BTreeMap::new(),
@@ -970,4 +982,5 @@ fn ai_workspace_wrap_structured_preview_lines(
     )
 }
 
+include!("ai_workspace_session_streaming.rs");
 include!("ai_workspace_session_projection.rs");

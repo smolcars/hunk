@@ -1454,6 +1454,8 @@ struct DiffViewer {
     ai_thread_sidebar_list_state: ListState,
     ai_thread_sidebar_row_count: usize,
     ai_workspace_session: Option<ai_workspace_session::AiWorkspaceSession>,
+    ai_workspace_streaming_reveal_task: Task<()>,
+    ai_workspace_streaming_reveal_active: bool,
     ai_workspace_surface_scroll_handle: ScrollHandle,
     ai_workspace_surface_last_scroll_offset: Option<Point<Pixels>>,
     ai_inline_review_surface: AiInlineReviewSurfaceState,

@@ -7,6 +7,7 @@ struct AiPreparedThreadWorkspace {
 }
 
 include!("runtime_events.rs");
+include!("runtime_streaming.rs");
 
 impl DiffViewer {
     fn should_ignore_transient_visible_ai_snapshot(
@@ -61,6 +62,27 @@ impl DiffViewer {
             .as_deref()
             .map(|thread_id| thread_latest_timeline_sequence(&self.ai_state_snapshot, thread_id))
             .unwrap_or(0);
+        if self.should_ignore_transient_visible_ai_snapshot(
+            &snapshot.state,
+            snapshot.active_thread_id.as_deref(),
+        ) {
+            debug!(
+                selected_thread_id = previous_selected_thread.as_deref().unwrap_or("<none>"),
+                current_threads = self.ai_state_snapshot.threads.len(),
+                next_threads = snapshot.state.threads.len(),
+                next_active_thread_id = snapshot.active_thread_id.as_deref().unwrap_or("<none>"),
+                "ignoring transient visible AI snapshot that would evict the current thread"
+            );
+            return;
+        }
+        let Some(snapshot) = self.try_apply_incremental_ai_streaming_snapshot(
+            snapshot,
+            previous_selected_thread.as_deref(),
+            previous_selected_thread_sequence,
+            cx,
+        ) else {
+            return;
+        };
         let AiSnapshot {
             state,
             active_thread_id,
@@ -78,16 +100,6 @@ impl DiffViewer {
             include_hidden_models,
             mad_max_mode,
         } = snapshot;
-        if self.should_ignore_transient_visible_ai_snapshot(&state, active_thread_id.as_deref()) {
-            debug!(
-                selected_thread_id = previous_selected_thread.as_deref().unwrap_or("<none>"),
-                current_threads = self.ai_state_snapshot.threads.len(),
-                next_threads = state.threads.len(),
-                next_active_thread_id = active_thread_id.as_deref().unwrap_or("<none>"),
-                "ignoring transient visible AI snapshot that would evict the current thread"
-            );
-            return;
-        }
         let changed_row_ids = previous_selected_thread
             .as_deref()
             .map(|thread_id| {

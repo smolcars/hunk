@@ -487,6 +487,8 @@ impl DiffViewer {
             ai_thread_sidebar_list_state: ListState::new(0, ListAlignment::Top, px(40.0)),
             ai_thread_sidebar_row_count: 0,
             ai_workspace_session: None,
+            ai_workspace_streaming_reveal_task: Task::ready(()),
+            ai_workspace_streaming_reveal_active: false,
             ai_workspace_surface_scroll_handle: ScrollHandle::default(),
             ai_workspace_surface_last_scroll_offset: None,
             ai_inline_review_surface: AiInlineReviewSurfaceState::new(),

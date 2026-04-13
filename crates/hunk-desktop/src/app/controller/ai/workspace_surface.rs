@@ -281,21 +281,26 @@ impl DiffViewer {
             return;
         }
 
-        let blocks = visible_row_ids
+        let blocks_by_source_row = visible_row_ids
             .iter()
-            .flat_map(|row_id| self.ai_workspace_blocks_for_row(row_id.as_str()))
+            .map(|row_id| self.ai_workspace_blocks_for_row(row_id.as_str()))
             .collect::<Vec<_>>();
         if self
             .ai_workspace_selection
             .as_ref()
-            .is_some_and(|selection| !blocks.iter().any(|block| block.id == selection.block_id))
+            .is_some_and(|selection| {
+                !blocks_by_source_row
+                    .iter()
+                    .flatten()
+                    .any(|block| block.id == selection.block_id)
+            })
         {
             self.ai_workspace_selection = None;
         }
         self.ai_workspace_session = Some(ai_workspace_session::AiWorkspaceSession::new(
             thread_id.to_string(),
             Arc::<[ai_workspace_session::AiWorkspaceSourceRow]>::from(source_rows),
-            blocks,
+            blocks_by_source_row,
         ));
         self.record_ai_workspace_session_rebuild_timing(rebuild_started_at.elapsed());
     }
@@ -401,7 +406,7 @@ impl DiffViewer {
                     .map(|diff| vec![ai_workspace_diff_block(
                         row.id.clone(),
                         row.id.clone(),
-                        row.last_sequence,
+                        self.ai_workspace_turn_diff_last_sequence(turn_key.as_str(), row),
                         &crate::app::ai_workspace_timeline_projection::ai_workspace_turn_diff_summary(
                             diff,
                         ),
@@ -433,7 +438,7 @@ impl DiffViewer {
                     run_in_terminal_cwd: None,
                     status_label: None,
                     status_color_role: None,
-                    last_sequence: row.last_sequence,
+                    last_sequence: plan.last_sequence,
                     }])
                     .unwrap_or_default()
             }
@@ -535,24 +540,9 @@ impl DiffViewer {
         row_id: &str,
     ) -> Option<ai_workspace_session::AiWorkspaceSourceRow> {
         if let Some(row) = self.ai_timeline_row(row_id) {
-            let last_sequence = match &row.source {
-                AiTimelineRowSource::Group { group_id } => self
-                    .ai_timeline_group(group_id.as_str())
-                    .map(|group| self.ai_workspace_group_source_signature(row, group))
-                    .unwrap_or_else(|| {
-                        ai_workspace_row_signature(
-                            row.last_sequence,
-                            self.ai_workspace_row_is_expanded(row.id.as_str()),
-                        )
-                    }),
-                _ => ai_workspace_row_signature(
-                    row.last_sequence,
-                    self.ai_workspace_row_is_expanded(row.id.as_str()),
-                ),
-            };
             return Some(ai_workspace_session::AiWorkspaceSourceRow {
                 row_id: row.id.clone(),
-                last_sequence,
+                last_sequence: self.ai_workspace_source_signature_for_row(row),
             });
         }
         if let Some(pending) = self.ai_pending_steer_for_row_id(row_id) {
@@ -971,7 +961,7 @@ impl DiffViewer {
                 run_in_terminal_cwd: None,
                 status_label: None,
                 status_color_role: None,
-                last_sequence: row.last_sequence,
+                last_sequence: item.last_sequence,
                 })
             }
             None if item.kind == "fileChange" => crate::app::ai_workspace_timeline_projection::ai_workspace_file_change_summary(item)
@@ -979,7 +969,7 @@ impl DiffViewer {
                     ai_workspace_diff_block(
                         row.id.clone(),
                         row.id.clone(),
-                        row.last_sequence,
+                        item.last_sequence,
                         &summary,
                         nested,
                     )
@@ -1042,7 +1032,7 @@ impl DiffViewer {
                     status_color_role: Some(ai_workspace_command_status_color_role(
                         command_details.as_ref(),
                     )),
-                    last_sequence: row.last_sequence,
+                    last_sequence: item.last_sequence,
                 })
             }
             None
@@ -1104,7 +1094,7 @@ impl DiffViewer {
                         }),
                     status_color_role: (item.status != hunk_codex::state::ItemStatus::Completed)
                         .then_some(ai_workspace_session::AiWorkspacePreviewColorRole::Accent),
-                    last_sequence: row.last_sequence,
+                    last_sequence: item.last_sequence,
                 })
             }
             None => Some(ai_workspace_session::AiWorkspaceBlock {
@@ -1127,7 +1117,7 @@ impl DiffViewer {
                 run_in_terminal_cwd: None,
                 status_label: None,
                 status_color_role: None,
-                last_sequence: row.last_sequence,
+                last_sequence: item.last_sequence,
             }),
         }
     }
@@ -1143,13 +1133,14 @@ impl DiffViewer {
             return vec![ai_workspace_diff_block(
                 row.id.clone(),
                 row.id.clone(),
-                row.last_sequence,
+                self.ai_workspace_source_signature_for_row(row),
                 &summary,
                 false,
             )];
         }
 
         let expanded = self.ai_workspace_row_is_expanded(row.id.as_str());
+        let (group_title, group_summary) = self.ai_workspace_group_title_and_summary(group);
         let mut blocks = vec![ai_workspace_session::AiWorkspaceBlock {
             id: row.id.clone(),
             source_row_id: row.id.clone(),
@@ -1161,8 +1152,8 @@ impl DiffViewer {
             expandable: true,
             expanded,
             title: crate::app::ai_workspace_timeline_projection::ai_workspace_format_header_line(
-                group.title.as_str(),
-                group.summary.as_deref(),
+                group_title.as_str(),
+                group_summary.as_deref(),
                 None,
             ),
             preview: String::new(),
@@ -1174,7 +1165,7 @@ impl DiffViewer {
             run_in_terminal_cwd: None,
             status_label: None,
             status_color_role: None,
-            last_sequence: row.last_sequence,
+            last_sequence: self.ai_workspace_source_signature_for_row(row),
         }];
 
         if !expanded {
@@ -1200,7 +1191,7 @@ impl DiffViewer {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         std::hash::Hash::hash(
             &ai_workspace_row_signature(
-                row.last_sequence,
+                self.ai_workspace_row_content_last_sequence(row),
                 self.ai_workspace_row_is_expanded(row.id.as_str()),
             ),
             &mut hasher,
@@ -1211,7 +1202,7 @@ impl DiffViewer {
                 if let Some(child_row) = self.ai_timeline_row(child_row_id.as_str()) {
                     std::hash::Hash::hash(
                         &ai_workspace_row_signature(
-                            child_row.last_sequence,
+                            self.ai_workspace_row_content_last_sequence(child_row),
                             self.ai_workspace_row_is_expanded(child_row.id.as_str()),
                         ),
                         &mut hasher,
@@ -1221,5 +1212,77 @@ impl DiffViewer {
         }
 
         std::hash::Hasher::finish(&hasher)
+    }
+
+    fn ai_workspace_group_title_and_summary(
+        &self,
+        group: &AiTimelineGroup,
+    ) -> (String, Option<String>) {
+        let mut summary = None::<AiTimelineGroupSummary>;
+        for child_row_id in &group.child_row_ids {
+            let Some(child_row) = self.ai_timeline_row(child_row_id.as_str()) else {
+                continue;
+            };
+            let Some(next_summary) =
+                ai_timeline_group_summary_for_row(&self.ai_state_snapshot, child_row)
+            else {
+                continue;
+            };
+            if let Some(current_summary) = summary.as_mut() {
+                current_summary.merge(next_summary);
+            } else {
+                summary = Some(next_summary);
+            }
+        }
+
+        summary
+            .as_ref()
+            .map(|summary| ai_timeline_group_title_and_summary(summary, group.child_row_ids.len()))
+            .unwrap_or_else(|| (group.title.clone(), group.summary.clone()))
+    }
+
+    fn ai_workspace_source_signature_for_row(&self, row: &AiTimelineRow) -> u64 {
+        match &row.source {
+            AiTimelineRowSource::Group { group_id } => self
+                .ai_timeline_group(group_id.as_str())
+                .map(|group| self.ai_workspace_group_source_signature(row, group))
+                .unwrap_or_else(|| {
+                    ai_workspace_row_signature(
+                        self.ai_workspace_row_content_last_sequence(row),
+                        self.ai_workspace_row_is_expanded(row.id.as_str()),
+                    )
+                }),
+            _ => ai_workspace_row_signature(
+                self.ai_workspace_row_content_last_sequence(row),
+                self.ai_workspace_row_is_expanded(row.id.as_str()),
+            ),
+        }
+    }
+
+    fn ai_workspace_row_content_last_sequence(&self, row: &AiTimelineRow) -> u64 {
+        match &row.source {
+            AiTimelineRowSource::Item { item_key } => self
+                .ai_state_snapshot
+                .items
+                .get(item_key.as_str())
+                .map(|item| item.last_sequence)
+                .unwrap_or(row.last_sequence),
+            AiTimelineRowSource::TurnDiff { turn_key } => {
+                self.ai_workspace_turn_diff_last_sequence(turn_key.as_str(), row)
+            }
+            AiTimelineRowSource::TurnPlan { turn_key } => self
+                .ai_state_snapshot
+                .turn_plans
+                .get(turn_key.as_str())
+                .map(|plan| plan.last_sequence)
+                .unwrap_or(row.last_sequence),
+            AiTimelineRowSource::Group { .. } => row.last_sequence,
+        }
+    }
+
+    fn ai_workspace_turn_diff_last_sequence(&self, turn_key: &str, row: &AiTimelineRow) -> u64 {
+        self.ai_state_snapshot
+            .turn_diff_sequence(turn_key)
+            .unwrap_or(row.last_sequence)
     }
 }
