@@ -206,6 +206,7 @@ impl DiffViewer {
         self.focus_handle.focus(window, cx);
         self.set_workspace_view_mode(WorkspaceSwitchAction::Ai.target_mode(), cx);
         self.focus_ai_composer_input(window, cx);
+        self.maybe_prepare_ai_desktop_notifications(cx);
     }
 
     pub(super) fn set_workspace_view_mode(&mut self, mode: WorkspaceViewMode, cx: &mut Context<Self>) {
@@ -280,6 +281,7 @@ impl DiffViewer {
         } else if mode == WorkspaceViewMode::Ai {
             self.refresh_ai_repo_thread_catalog(cx);
             self.ensure_ai_runtime_started(cx);
+            self.maybe_prepare_ai_desktop_notifications(cx);
         }
 
         if self.editor_search_visible {

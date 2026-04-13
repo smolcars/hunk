@@ -15,6 +15,14 @@ pub const fn default_terminal_hydrate_app_environment_on_launch() -> bool {
     !cfg!(target_os = "windows")
 }
 
+pub const fn default_desktop_notifications_enabled() -> bool {
+    true
+}
+
+pub const fn default_desktop_notifications_only_when_unfocused() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemePreference {
@@ -65,6 +73,50 @@ impl Default for TerminalConfig {
             shell: TerminalShell::System,
             inherit_login_environment: true,
             hydrate_app_environment_on_launch: default_terminal_hydrate_app_environment_on_launch(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AiDesktopNotificationsConfig {
+    #[serde(default = "default_desktop_notifications_enabled")]
+    pub agent_finished: bool,
+    #[serde(default = "default_desktop_notifications_enabled")]
+    pub plan_ready: bool,
+    #[serde(default = "default_desktop_notifications_enabled")]
+    pub user_input_required: bool,
+    #[serde(default = "default_desktop_notifications_enabled")]
+    pub approval_required: bool,
+}
+
+impl Default for AiDesktopNotificationsConfig {
+    fn default() -> Self {
+        Self {
+            agent_finished: true,
+            plan_ready: true,
+            user_input_required: true,
+            approval_required: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DesktopNotificationsConfig {
+    #[serde(default = "default_desktop_notifications_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_desktop_notifications_only_when_unfocused")]
+    pub only_when_unfocused: bool,
+    pub ai: AiDesktopNotificationsConfig,
+}
+
+impl Default for DesktopNotificationsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_desktop_notifications_enabled(),
+            only_when_unfocused: default_desktop_notifications_only_when_unfocused(),
+            ai: AiDesktopNotificationsConfig::default(),
         }
     }
 }
@@ -172,6 +224,7 @@ pub struct AppConfig {
     pub reduce_motion: bool,
     pub show_fps_counter: bool,
     pub auto_update_enabled: bool,
+    pub desktop_notifications: DesktopNotificationsConfig,
     pub terminal: TerminalConfig,
     pub keyboard_shortcuts: KeyboardShortcuts,
     pub review_provider_mappings: Vec<ReviewProviderMapping>,
@@ -187,6 +240,7 @@ impl Default for AppConfig {
             reduce_motion: false,
             show_fps_counter: true,
             auto_update_enabled: true,
+            desktop_notifications: DesktopNotificationsConfig::default(),
             terminal: TerminalConfig::default(),
             keyboard_shortcuts: KeyboardShortcuts::default(),
             review_provider_mappings: Vec::new(),

@@ -531,6 +531,15 @@ impl DiffViewer {
             ai_thread_catalog_task: Task::ready(()),
             ai_attachment_picker_task: Task::ready(()),
             ai_workspace_states: BTreeMap::new(),
+            ai_desktop_notification_state_by_workspace: BTreeMap::new(),
+            ai_pending_desktop_notification_events_by_workspace: BTreeMap::new(),
+            #[cfg(target_os = "macos")]
+            desktop_notification_permission_task: Task::ready(()),
+            #[cfg(target_os = "macos")]
+            macos_notification_permission_state:
+                crate::app::desktop_notifications::MacOsNotificationPermissionState::Unknown,
+            #[cfg(target_os = "macos")]
+            macos_notification_permission_request_in_flight: false,
             ai_hidden_runtimes: BTreeMap::new(),
             ai_runtime_starting_workspace_key: None,
             ai_worker_thread: None,
@@ -973,6 +982,10 @@ impl DiffViewer {
         view.refresh_comments_cache_from_store();
         view.maybe_schedule_startup_update_check(cx);
         view.restart_periodic_update_checks(cx);
+        view.refresh_macos_notification_permission_status(cx);
+        if view.workspace_view_mode == WorkspaceViewMode::Ai {
+            view.maybe_prepare_ai_desktop_notifications(cx);
+        }
         view
     }
 

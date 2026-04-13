@@ -10,6 +10,7 @@ PACKAGER_OUT_DIR="$TARGET_DIR/packager/macos"
 APP_PATH="$PACKAGER_OUT_DIR/Hunk.app"
 APP_EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/hunk_desktop"
 APP_FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
+APP_BUNDLE_IDENTIFIER="com.niteshbalusu.hunk"
 DMG_PATH="$DIST_DIR/Hunk-$VERSION_LABEL-macos-arm64.dmg"
 DMG_STAGE_DIR="$TARGET_DIR/dmg-stage"
 MACOS_SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
@@ -176,6 +177,23 @@ sign_macos_app_bundle() {
   codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
 }
 
+adhoc_sign_macos_app_bundle() {
+  local sign_target
+
+  while IFS= read -r sign_target; do
+    [[ -n "$sign_target" ]] || continue
+    if [[ "$sign_target" == "$APP_EXECUTABLE_PATH" ]]; then
+      continue
+    fi
+    codesign --force --timestamp=none --sign - "$sign_target"
+  done < <(
+    find "$APP_PATH/Contents" -type f \( -name '*.dylib' -o -perm -111 \) | sort
+  )
+
+  codesign --force --timestamp=none --sign - --identifier "$APP_BUNDLE_IDENTIFIER" "$APP_EXECUTABLE_PATH"
+  codesign --force --timestamp=none --sign - --identifier "$APP_BUNDLE_IDENTIFIER" "$APP_PATH"
+}
+
 staple_macos_artifact_with_retry() {
   local artifact_path="$1"
   local max_attempts=6
@@ -298,8 +316,12 @@ validate_macos_binary_dependencies "$APP_EXECUTABLE_PATH"
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   echo "Signing macOS app bundle with Developer ID..." >&2
   sign_macos_app_bundle
-  codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+else
+  echo "Ad-hoc signing macOS app bundle for local identity-sensitive features..." >&2
+  adhoc_sign_macos_app_bundle
 fi
+
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 rm -rf "$DMG_STAGE_DIR" "$DMG_PATH"
 mkdir -p "$DMG_STAGE_DIR" "$DIST_DIR"

@@ -125,9 +125,10 @@ impl DiffViewer {
     ) {
         let restored_pending_steer_drafts = self.restore_all_visible_ai_pending_steers_to_drafts();
         let restored_queued_message_drafts = self.restore_all_visible_ai_queued_messages_to_drafts();
-        self.ai_command_tx = None;
         let visible_workspace_key = self.ai_worker_workspace_key.clone();
+        self.ai_command_tx = None;
         self.clear_ai_runtime_start_in_flight_for_workspace(visible_workspace_key.as_deref());
+        self.clear_ai_desktop_notification_state(visible_workspace_key.as_deref());
         self.ai_worker_workspace_key = None;
         self.join_ai_worker_thread(join_reason);
         self.ai_thread_title_refresh_state_by_thread.clear();

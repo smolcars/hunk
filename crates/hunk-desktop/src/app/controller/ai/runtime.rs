@@ -264,6 +264,7 @@ impl DiffViewer {
         let current_thread_id = self.current_ai_thread_id();
         self.sync_ai_followup_prompt_state_for_selected_thread(current_thread_id.as_deref());
         self.sync_ai_composer_completion_menus(cx);
+        self.maybe_emit_visible_ai_desktop_notification(cx);
     }
 
     fn maybe_refresh_selected_thread_metadata(&mut self, cx: &mut Context<Self>) {
