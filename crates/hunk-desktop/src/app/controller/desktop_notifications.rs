@@ -13,6 +13,12 @@ struct DesktopNotificationTestOutcome {
     permission_state: Option<crate::app::desktop_notifications::MacOsNotificationPermissionState>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiDesktopNotificationDelivery {
+    Completed,
+    DeferredForPermission,
+}
+
 impl DiffViewer {
     pub(super) fn refresh_macos_notification_permission_status(&mut self, cx: &mut Context<Self>) {
         #[cfg(not(target_os = "macos"))]
@@ -41,6 +47,7 @@ impl DiffViewer {
                             {
                                 this.request_macos_notification_permission_for_ai(cx);
                             } else {
+                                this.flush_pending_ai_desktop_notifications(cx);
                                 cx.notify();
                             }
                         }
@@ -88,6 +95,7 @@ impl DiffViewer {
                 match status {
                     Ok(status) => {
                         this.macos_notification_permission_state = status;
+                        this.flush_pending_ai_desktop_notifications(cx);
                         cx.notify();
                     }
                     Err(err) => {
@@ -146,6 +154,7 @@ impl DiffViewer {
                 #[cfg(target_os = "macos")]
                 if let Some(permission_state) = outcome.permission_state {
                     this.macos_notification_permission_state = permission_state;
+                    this.flush_pending_ai_desktop_notifications(cx);
                 }
 
                 let _ = this.window_handle.update(cx, |_, window, cx| {
@@ -201,6 +210,8 @@ impl DiffViewer {
         if let Some(workspace_key) = workspace_key {
             self.ai_desktop_notification_state_by_workspace
                 .remove(workspace_key);
+            self.ai_pending_desktop_notification_events_by_workspace
+                .remove(workspace_key);
         }
     }
 
@@ -250,15 +261,32 @@ impl DiffViewer {
             .ai_desktop_notification_state_by_workspace
             .get(workspace_key.as_str())
             .cloned();
-        let (next_state, event) =
+        let (next_state, events) =
             crate::app::desktop_notifications::next_ai_desktop_notification_state(
                 previous.as_ref(),
                 snapshot,
             );
         self.ai_desktop_notification_state_by_workspace
-            .insert(workspace_key, next_state);
-        if let Some(event) = event {
-            self.maybe_deliver_ai_desktop_notification(event, cx);
+            .insert(workspace_key.clone(), next_state);
+        for event in events {
+            self.handle_ai_desktop_notification_event(workspace_key.as_str(), event, cx);
+        }
+    }
+
+    fn handle_ai_desktop_notification_event(
+        &mut self,
+        workspace_key: &str,
+        event: crate::app::desktop_notifications::AiDesktopNotificationEvent,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(
+            self.maybe_deliver_ai_desktop_notification(event.clone(), cx),
+            AiDesktopNotificationDelivery::DeferredForPermission
+        ) {
+            self.ai_pending_desktop_notification_events_by_workspace
+                .entry(workspace_key.to_string())
+                .or_default()
+                .push_back(event);
         }
     }
 
@@ -266,21 +294,29 @@ impl DiffViewer {
         &mut self,
         event: crate::app::desktop_notifications::AiDesktopNotificationEvent,
         cx: &mut Context<Self>,
-    ) {
+    ) -> AiDesktopNotificationDelivery {
         if !self.ai_desktop_notification_kind_enabled(event.kind()) {
-            return;
+            return AiDesktopNotificationDelivery::Completed;
         }
         if self.config.desktop_notifications.only_when_unfocused
             && self.window_handle.update(cx, |_, window, _| window.is_window_active()).unwrap_or(false)
         {
-            return;
+            return AiDesktopNotificationDelivery::Completed;
+        }
+        #[cfg(target_os = "macos")]
+        if matches!(
+            self.macos_notification_permission_state,
+            crate::app::desktop_notifications::MacOsNotificationPermissionState::Unknown
+                | crate::app::desktop_notifications::MacOsNotificationPermissionState::NotDetermined
+        ) {
+            return AiDesktopNotificationDelivery::DeferredForPermission;
         }
         #[cfg(target_os = "macos")]
         if !matches!(
             self.macos_notification_permission_state,
             crate::app::desktop_notifications::MacOsNotificationPermissionState::Authorized
         ) {
-            return;
+            return AiDesktopNotificationDelivery::Completed;
         }
 
         let request = event.request();
@@ -296,6 +332,52 @@ impl DiffViewer {
             }
         })
         .detach();
+        AiDesktopNotificationDelivery::Completed
+    }
+
+    fn flush_pending_ai_desktop_notifications(&mut self, cx: &mut Context<Self>) {
+        #[cfg(not(target_os = "macos"))]
+        let _ = cx;
+
+        #[cfg(target_os = "macos")]
+        {
+            if !matches!(
+                self.macos_notification_permission_state,
+                crate::app::desktop_notifications::MacOsNotificationPermissionState::Authorized
+            ) {
+                return;
+            }
+
+            let workspace_keys: Vec<String> = self
+                .ai_pending_desktop_notification_events_by_workspace
+                .keys()
+                .cloned()
+                .collect();
+
+            for workspace_key in workspace_keys {
+                let Some(mut pending_events) = self
+                    .ai_pending_desktop_notification_events_by_workspace
+                    .remove(workspace_key.as_str())
+                else {
+                    continue;
+                };
+
+                let mut still_pending = std::collections::VecDeque::new();
+                while let Some(event) = pending_events.pop_front() {
+                    if matches!(
+                        self.maybe_deliver_ai_desktop_notification(event.clone(), cx),
+                        AiDesktopNotificationDelivery::DeferredForPermission
+                    ) {
+                        still_pending.push_back(event);
+                    }
+                }
+
+                if !still_pending.is_empty() {
+                    self.ai_pending_desktop_notification_events_by_workspace
+                        .insert(workspace_key, still_pending);
+                }
+            }
+        }
     }
 
     fn ai_desktop_notification_snapshot(

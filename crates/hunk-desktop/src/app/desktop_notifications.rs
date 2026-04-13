@@ -150,10 +150,7 @@ impl AiDesktopNotificationEvent {
 pub(crate) fn next_ai_desktop_notification_state(
     previous: Option<&AiDesktopNotificationState>,
     snapshot: AiDesktopNotificationSnapshot,
-) -> (
-    AiDesktopNotificationState,
-    Option<AiDesktopNotificationEvent>,
-) {
+) -> (AiDesktopNotificationState, Vec<AiDesktopNotificationEvent>) {
     let next_state = AiDesktopNotificationState {
         initialized: true,
         approval_request_thread_by_id: snapshot.approval_request_thread_by_id.clone(),
@@ -165,62 +162,77 @@ pub(crate) fn next_ai_desktop_notification_state(
     };
 
     let Some(previous) = previous.filter(|previous| previous.initialized) else {
-        return (next_state, None);
+        return (next_state, Vec::new());
     };
 
-    let event = if let Some((request_id, thread_id)) = next_state
-        .approval_request_thread_by_id
-        .iter()
-        .find(|(request_id, _)| {
-            !previous
-                .approval_request_thread_by_id
-                .contains_key(*request_id)
-        }) {
-        Some(AiDesktopNotificationEvent::ApprovalRequired {
-            request_id: request_id.clone(),
-            thread_id: thread_id.clone(),
-            label: thread_label(thread_id, previous, &next_state),
-        })
-    } else if let Some((request_id, thread_id)) = next_state
-        .user_input_thread_by_id
-        .iter()
-        .find(|(request_id, _)| !previous.user_input_thread_by_id.contains_key(*request_id))
-    {
-        Some(AiDesktopNotificationEvent::UserInputRequired {
-            request_id: request_id.clone(),
-            thread_id: thread_id.clone(),
-            label: thread_label(thread_id, previous, &next_state),
-        })
-    } else if let Some((thread_id, source_sequence)) = next_state
-        .plan_prompt_sequence_by_thread
-        .iter()
-        .find(|(thread_id, source_sequence)| {
-            previous
-                .plan_prompt_sequence_by_thread
-                .get(*thread_id)
-                .copied()
-                .unwrap_or(0)
-                != **source_sequence
-        })
-    {
-        Some(AiDesktopNotificationEvent::PlanReady {
-            thread_id: thread_id.clone(),
-            source_sequence: *source_sequence,
-            label: thread_label(thread_id, previous, &next_state),
-        })
-    } else {
+    let mut events = Vec::new();
+
+    events.extend(
+        next_state
+            .approval_request_thread_by_id
+            .iter()
+            .filter(|(request_id, _)| {
+                !previous
+                    .approval_request_thread_by_id
+                    .contains_key(*request_id)
+            })
+            .map(
+                |(request_id, thread_id)| AiDesktopNotificationEvent::ApprovalRequired {
+                    request_id: request_id.clone(),
+                    thread_id: thread_id.clone(),
+                    label: thread_label(thread_id, previous, &next_state),
+                },
+            ),
+    );
+
+    events.extend(
+        next_state
+            .user_input_thread_by_id
+            .iter()
+            .filter(|(request_id, _)| !previous.user_input_thread_by_id.contains_key(*request_id))
+            .map(
+                |(request_id, thread_id)| AiDesktopNotificationEvent::UserInputRequired {
+                    request_id: request_id.clone(),
+                    thread_id: thread_id.clone(),
+                    label: thread_label(thread_id, previous, &next_state),
+                },
+            ),
+    );
+
+    events.extend(
+        next_state
+            .plan_prompt_sequence_by_thread
+            .iter()
+            .filter(|(thread_id, source_sequence)| {
+                previous
+                    .plan_prompt_sequence_by_thread
+                    .get(*thread_id)
+                    .copied()
+                    .unwrap_or(0)
+                    != **source_sequence
+            })
+            .map(
+                |(thread_id, source_sequence)| AiDesktopNotificationEvent::PlanReady {
+                    thread_id: thread_id.clone(),
+                    source_sequence: *source_sequence,
+                    label: thread_label(thread_id, previous, &next_state),
+                },
+            ),
+    );
+
+    events.extend(
         previous
             .in_progress_turns
             .iter()
-            .find(|turn_key| !next_state.in_progress_turns.contains(*turn_key))
+            .filter(|turn_key| !next_state.in_progress_turns.contains(*turn_key))
             .map(|turn_key| AiDesktopNotificationEvent::AgentFinished {
                 thread_id: turn_key.thread_id.clone(),
                 turn_id: turn_key.turn_id.clone(),
                 label: thread_label(turn_key.thread_id.as_str(), previous, &next_state),
-            })
-    };
+            }),
+    );
 
-    (next_state, event)
+    (next_state, events)
 }
 
 fn thread_label(
@@ -467,9 +479,9 @@ mod tests {
 
     #[test]
     fn first_snapshot_seeds_state_without_notifying() {
-        let (state, event) = next_ai_desktop_notification_state(None, snapshot());
+        let (state, events) = next_ai_desktop_notification_state(None, snapshot());
         assert!(state.initialized);
-        assert!(event.is_none());
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -481,18 +493,18 @@ mod tests {
         next.thread_label_by_id
             .insert("thread-1".to_string(), "Fix auth".to_string());
 
-        let (state, event) = next_ai_desktop_notification_state(Some(&state), next.clone());
+        let (state, events) = next_ai_desktop_notification_state(Some(&state), next.clone());
         assert_eq!(
-            event,
-            Some(AiDesktopNotificationEvent::ApprovalRequired {
+            events,
+            vec![AiDesktopNotificationEvent::ApprovalRequired {
                 request_id: "approval-1".to_string(),
                 thread_id: "thread-1".to_string(),
                 label: "Fix auth".to_string(),
-            })
+            }]
         );
 
-        let (_, event) = next_ai_desktop_notification_state(Some(&state), next);
-        assert!(event.is_none());
+        let (_, events) = next_ai_desktop_notification_state(Some(&state), next);
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -504,18 +516,18 @@ mod tests {
         next.thread_label_by_id
             .insert("thread-1".to_string(), "Fix auth".to_string());
 
-        let (state, event) = next_ai_desktop_notification_state(Some(&state), next.clone());
+        let (state, events) = next_ai_desktop_notification_state(Some(&state), next.clone());
         assert_eq!(
-            event,
-            Some(AiDesktopNotificationEvent::UserInputRequired {
+            events,
+            vec![AiDesktopNotificationEvent::UserInputRequired {
                 request_id: "input-1".to_string(),
                 thread_id: "thread-1".to_string(),
                 label: "Fix auth".to_string(),
-            })
+            }]
         );
 
-        let (_, event) = next_ai_desktop_notification_state(Some(&state), next);
-        assert!(event.is_none());
+        let (_, events) = next_ai_desktop_notification_state(Some(&state), next);
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -527,31 +539,31 @@ mod tests {
         next.thread_label_by_id
             .insert("thread-1".to_string(), "Fix auth".to_string());
 
-        let (state, event) = next_ai_desktop_notification_state(Some(&state), next.clone());
+        let (state, events) = next_ai_desktop_notification_state(Some(&state), next.clone());
         assert_eq!(
-            event,
-            Some(AiDesktopNotificationEvent::PlanReady {
+            events,
+            vec![AiDesktopNotificationEvent::PlanReady {
                 thread_id: "thread-1".to_string(),
                 source_sequence: 7,
                 label: "Fix auth".to_string(),
-            })
+            }]
         );
 
-        let (_, event) = next_ai_desktop_notification_state(Some(&state), next.clone());
-        assert!(event.is_none());
+        let (_, events) = next_ai_desktop_notification_state(Some(&state), next.clone());
+        assert!(events.is_empty());
 
         let mut newer = next;
         newer
             .plan_prompt_sequence_by_thread
             .insert("thread-1".to_string(), 8);
-        let (_, event) = next_ai_desktop_notification_state(Some(&state), newer);
+        let (_, events) = next_ai_desktop_notification_state(Some(&state), newer);
         assert_eq!(
-            event,
-            Some(AiDesktopNotificationEvent::PlanReady {
+            events,
+            vec![AiDesktopNotificationEvent::PlanReady {
                 thread_id: "thread-1".to_string(),
                 source_sequence: 8,
                 label: "Fix auth".to_string(),
-            })
+            }]
         );
     }
 
@@ -567,21 +579,21 @@ mod tests {
             .thread_label_by_id
             .insert("thread-1".to_string(), "Fix auth".to_string());
 
-        let (state, event) = next_ai_desktop_notification_state(Some(&state), working);
-        assert!(event.is_none());
+        let (state, events) = next_ai_desktop_notification_state(Some(&state), working);
+        assert!(events.is_empty());
 
         let mut finished = snapshot();
         finished
             .thread_label_by_id
             .insert("thread-1".to_string(), "Fix auth".to_string());
-        let (_, event) = next_ai_desktop_notification_state(Some(&state), finished);
+        let (_, events) = next_ai_desktop_notification_state(Some(&state), finished);
         assert_eq!(
-            event,
-            Some(AiDesktopNotificationEvent::AgentFinished {
+            events,
+            vec![AiDesktopNotificationEvent::AgentFinished {
                 thread_id: "thread-1".to_string(),
                 turn_id: "turn-1".to_string(),
                 label: "Fix auth".to_string(),
-            })
+            }]
         );
     }
 
@@ -604,11 +616,67 @@ mod tests {
         next.thread_label_by_id
             .insert("thread-1".to_string(), "Fix auth".to_string());
 
-        let (_, event) = next_ai_desktop_notification_state(Some(&initial), next);
+        let (_, events) = next_ai_desktop_notification_state(Some(&initial), next);
         assert!(matches!(
-            event,
+            events.first(),
             Some(AiDesktopNotificationEvent::ApprovalRequired { .. })
         ));
+    }
+
+    #[test]
+    fn multiple_notifications_from_one_snapshot_are_all_returned_in_priority_order() {
+        let initial = AiDesktopNotificationState {
+            initialized: true,
+            in_progress_turns: BTreeSet::from([AiInProgressTurnKey {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+            }]),
+            thread_label_by_id: BTreeMap::from([
+                ("thread-1".to_string(), "Fix auth".to_string()),
+                ("thread-2".to_string(), "Review tests".to_string()),
+            ]),
+            workspace_label: "Primary Checkout".to_string(),
+            ..AiDesktopNotificationState::default()
+        };
+
+        let mut next = snapshot();
+        next.approval_request_thread_by_id
+            .insert("approval-1".to_string(), "thread-1".to_string());
+        next.approval_request_thread_by_id
+            .insert("approval-2".to_string(), "thread-2".to_string());
+        next.plan_prompt_sequence_by_thread
+            .insert("thread-2".to_string(), 7);
+        next.thread_label_by_id
+            .insert("thread-1".to_string(), "Fix auth".to_string());
+        next.thread_label_by_id
+            .insert("thread-2".to_string(), "Review tests".to_string());
+
+        let (_, events) = next_ai_desktop_notification_state(Some(&initial), next);
+        assert_eq!(
+            events,
+            vec![
+                AiDesktopNotificationEvent::ApprovalRequired {
+                    request_id: "approval-1".to_string(),
+                    thread_id: "thread-1".to_string(),
+                    label: "Fix auth".to_string(),
+                },
+                AiDesktopNotificationEvent::ApprovalRequired {
+                    request_id: "approval-2".to_string(),
+                    thread_id: "thread-2".to_string(),
+                    label: "Review tests".to_string(),
+                },
+                AiDesktopNotificationEvent::PlanReady {
+                    thread_id: "thread-2".to_string(),
+                    source_sequence: 7,
+                    label: "Review tests".to_string(),
+                },
+                AiDesktopNotificationEvent::AgentFinished {
+                    thread_id: "thread-1".to_string(),
+                    turn_id: "turn-1".to_string(),
+                    label: "Fix auth".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]

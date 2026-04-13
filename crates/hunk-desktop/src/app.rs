@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -1500,6 +1500,8 @@ struct DiffViewer {
     ai_workspace_states: BTreeMap<String, AiWorkspaceState>,
     ai_desktop_notification_state_by_workspace:
         BTreeMap<String, desktop_notifications::AiDesktopNotificationState>,
+    ai_pending_desktop_notification_events_by_workspace:
+        BTreeMap<String, VecDeque<desktop_notifications::AiDesktopNotificationEvent>>,
     #[cfg(target_os = "macos")]
     desktop_notification_permission_task: Task<()>,
     #[cfg(target_os = "macos")]
