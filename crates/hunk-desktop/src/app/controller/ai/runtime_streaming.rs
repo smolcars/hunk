@@ -44,6 +44,31 @@ impl DiffViewer {
         }) else {
             return Some(snapshot);
         };
+        let threads_changed = ai_snapshot_threads_changed(&self.ai_state_snapshot, &snapshot.state);
+
+        let AiSnapshot { state, .. } = snapshot;
+        self.ai_state_snapshot = state;
+        self.rebuild_ai_timeline_indexes();
+        if threads_changed {
+            self.rebuild_ai_thread_sidebar_state();
+        }
+
+        let next_visible_row_ids = self.ai_timeline_visible_rows_for_thread(selected_thread_id).3;
+        if next_visible_row_ids != visible_row_ids {
+            self.invalidate_ai_visible_frame_state_with_reason("runtime");
+            if self.ai_timeline_follow_output
+                && should_scroll_timeline_to_bottom_on_new_activity(
+                    thread_latest_timeline_sequence(&self.ai_state_snapshot, selected_thread_id),
+                    previous_selected_thread_sequence,
+                    self.ai_timeline_follow_output,
+                )
+            {
+                self.ai_scroll_timeline_to_bottom = true;
+            }
+            self.flush_ai_timeline_scroll_request();
+            cx.notify();
+            return None;
+        }
 
         let changed_container_row_ids = change_set
             .changed_item_keys
@@ -54,10 +79,7 @@ impl DiffViewer {
             })
             .collect::<std::collections::BTreeSet<_>>();
 
-        let AiSnapshot { state, .. } = snapshot;
-        self.ai_state_snapshot = state;
-
-        let visible_row_id_set = visible_row_ids
+        let visible_row_id_set = next_visible_row_ids
             .iter()
             .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>();

@@ -505,6 +505,42 @@ fn replace_source_row_smooths_preview_until_target_text_is_visible() {
 }
 
 #[test]
+fn reveal_steps_refresh_selection_surfaces_for_current_preview_text() {
+    let mut session = AiWorkspaceSession::new(
+        "thread-1",
+        source_rows(&[("row-1", 1)]),
+        single_blocks(vec![block("row-1", AiWorkspaceBlockKind::Message, "Hello")]),
+    );
+
+    let initial_surfaces = session.selection_surfaces_for_width(640);
+    assert_eq!(initial_surfaces[1].text, "Hello");
+
+    assert!(session.replace_source_row(
+        AiWorkspaceSourceRow {
+            row_id: "row-1".to_string(),
+            last_sequence: 2,
+        },
+        vec![block(
+            "row-1",
+            AiWorkspaceBlockKind::Message,
+            "Hello world!"
+        )],
+        true,
+    ));
+    assert!(session.reveal_pending_streaming_preview_step());
+
+    let updated_surfaces = session.selection_surfaces_for_width(640);
+    assert_ne!(updated_surfaces[1].text, "Hello");
+    assert_eq!(
+        updated_surfaces[1].text,
+        session
+            .block("row-1")
+            .expect("row-1 block should exist")
+            .preview
+    );
+}
+
+#[test]
 fn reveal_steps_update_cached_geometry_when_wrapping_changes() {
     let mut session = AiWorkspaceSession::new(
         "thread-1",

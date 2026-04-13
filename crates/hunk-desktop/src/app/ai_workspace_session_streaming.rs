@@ -95,8 +95,6 @@ impl AiWorkspaceSession {
             .cloned()
             .collect::<Vec<_>>();
         let mut changed_block_indexes = Vec::new();
-        let mut selection_surfaces_changed = false;
-
         for block_id in pending_block_ids {
             let Some(block_index) = self.block_index(block_id.as_str()) else {
                 self.streaming_previews_by_block_id.remove(block_id.as_str());
@@ -128,7 +126,6 @@ impl AiWorkspaceSession {
             if copy_tracks_preview {
                 next_block.copy_text = Some(next_block.preview.clone());
             }
-            selection_surfaces_changed |= reveal_completed;
             self.blocks[block_index] = next_block;
             changed_block_indexes.push(block_index);
 
@@ -142,9 +139,7 @@ impl AiWorkspaceSession {
         }
 
         self.update_geometry_for_block_changes(changed_block_indexes.as_slice());
-        if selection_surfaces_changed {
-            self.selection_surfaces_by_width_bucket.clear();
-        }
+        self.selection_surfaces_by_width_bucket.clear();
         true
     }
 
