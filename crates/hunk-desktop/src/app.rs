@@ -1604,7 +1604,7 @@ struct DiffViewer {
     branch_input_state: Entity<InputState>,
     branch_input_has_text: bool,
     commit_input_state: Entity<InputState>,
-    github_tokens_by_host: BTreeMap<String, String>,
+    forge_tokens_by_credential_id: BTreeMap<String, String>,
     review_summary_by_branch_key: BTreeMap<String, OpenReviewSummary>,
     review_summary_miss_by_branch_key: BTreeSet<String>,
     review_summary_lookup_in_flight: BTreeSet<String>,

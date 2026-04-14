@@ -46,6 +46,48 @@ pub struct ReviewProviderMapping {
     pub provider: ReviewProviderKind,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ForgeCredentialConfig {
+    pub id: String,
+    pub provider: ReviewProviderKind,
+    pub host: String,
+    pub account_label: String,
+    pub is_default_for_host: bool,
+}
+
+impl Default for ForgeCredentialConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            provider: ReviewProviderKind::GitHub,
+            host: String::new(),
+            account_label: String::new(),
+            is_default_for_host: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ForgeRepoCredentialBindingConfig {
+    pub provider: ReviewProviderKind,
+    pub host: String,
+    pub repo_path: String,
+    pub credential_id: String,
+}
+
+impl Default for ForgeRepoCredentialBindingConfig {
+    fn default() -> Self {
+        Self {
+            provider: ReviewProviderKind::GitHub,
+            host: String::new(),
+            repo_path: String::new(),
+            credential_id: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalShell {
@@ -228,6 +270,8 @@ pub struct AppConfig {
     pub terminal: TerminalConfig,
     pub keyboard_shortcuts: KeyboardShortcuts,
     pub review_provider_mappings: Vec<ReviewProviderMapping>,
+    pub forge_credentials: Vec<ForgeCredentialConfig>,
+    pub forge_repo_credential_bindings: Vec<ForgeRepoCredentialBindingConfig>,
     #[serde(default = "default_auto_refresh_interval_ms")]
     pub auto_refresh_interval_ms: u64,
     pub last_update_check_at: Option<i64>,
@@ -244,6 +288,8 @@ impl Default for AppConfig {
             terminal: TerminalConfig::default(),
             keyboard_shortcuts: KeyboardShortcuts::default(),
             review_provider_mappings: Vec::new(),
+            forge_credentials: Vec::new(),
+            forge_repo_credential_bindings: Vec::new(),
             auto_refresh_interval_ms: default_auto_refresh_interval_ms(),
             last_update_check_at: None,
         };

@@ -122,13 +122,79 @@ Responsibilities:
 ### v1
 
 - Use personal access tokens.
-- Store tokens in the OS credential store, not in Hunk config.
-- Keep only non-secret host/provider preferences in config if needed.
+- Keep tokens out of Hunk config.
+- Store only non-secret credential metadata and repo bindings in config.
+- Store the actual token material in the OS credential store.
+- Keep environment variables as a bootstrap or developer fallback, not the steady-state product path.
 
 ### Later
 
 - Add optional OAuth or device-flow login where it is operationally reasonable.
 - GitHub App or OAuth decisions can wait until after the PR-first slice proves the UX and crate shape.
+
+## Auth Model
+
+Credential lookup should be keyed by:
+
+- provider
+- host
+- repo path
+
+Do not treat auth as a single global GitHub token or a single global GitLab token.
+
+### Stored Metadata
+
+Keep this non-secret metadata in config:
+
+- credential id
+- provider
+- host
+- account label
+- whether the credential is the default for that provider and host
+- exact repo-to-credential bindings
+
+Keep this secret material out of config:
+
+- PATs
+- refresh tokens
+- OAuth access tokens
+
+### Resolution Rules
+
+For any forge action, resolve credentials in this order:
+
+1. Exact repo binding for `provider + host + repo path`
+2. Host default credential for `provider + host`
+3. Single configured credential for `provider + host`
+4. If multiple credentials exist and none resolve cleanly, prompt the user
+
+This allows Hunk to support:
+
+- `github.com` and `gitlab.com` side by side
+- self-hosted GitHub Enterprise and GitLab hosts
+- multiple accounts on the same host
+- multiple open projects with different forge credentials
+
+### Implementation Phases
+
+Phase A:
+
+- add provider-neutral credential metadata and repo binding models
+- resolve credentials by `provider + host + repo`
+- stop treating forge auth as a host-only GitHub token cache
+- keep secrets temporary and in-memory while the model settles
+
+Phase B:
+
+- replace in-memory secrets with OS credential store access
+- key stored secrets by credential id
+- keep repo bindings and defaults unchanged
+
+Phase C:
+
+- add account chooser UX when resolution is ambiguous
+- add token import from `gh` or `glab` as an optional convenience
+- add OAuth or device-flow where it is operationally reasonable
 
 ## Provider Model
 
@@ -171,7 +237,10 @@ Suggested minimum fields:
 - [ ] Define provider-neutral models for open review lookup and create-review requests.
 - [ ] Add a small remote-to-forge resolver.
 - [ ] Move remote host and repo parsing that is forge-relevant into a reusable API surface.
+- [ ] Add provider-neutral forge credential metadata and repo binding models.
+- [ ] Add credential resolution rules for `provider + host + repo path`.
 - [ ] Add secure token storage abstraction for GitHub and GitLab hosts.
+- [ ] Move actual secret storage behind a credential-id keyed interface.
 - [ ] Add GitHub client first via `octocrab`.
 - [ ] Implement `find_open_review_for_branch`.
 - [ ] Implement `create_review`.
@@ -259,6 +328,8 @@ Suggested minimum fields:
   - manual PAT entry only,
   - PAT entry plus import from existing `gh` auth,
   - or browser/device OAuth immediately
+- [ ] Whether repo bindings should remain exact-path matches in v1 or also support namespace-level defaults later
+- [ ] Whether the first account chooser should live in the PR dialog or in a separate forge settings surface
 - [ ] Whether the first PR create flow should expose:
   - draft,
   - reviewers,

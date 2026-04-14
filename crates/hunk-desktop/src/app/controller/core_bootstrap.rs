@@ -636,7 +636,7 @@ impl DiffViewer {
             branch_input_state,
             branch_input_has_text: false,
             commit_input_state,
-            github_tokens_by_host: BTreeMap::new(),
+            forge_tokens_by_credential_id: BTreeMap::new(),
             review_summary_by_branch_key: BTreeMap::new(),
             review_summary_miss_by_branch_key: BTreeSet::new(),
             review_summary_lookup_in_flight: BTreeSet::new(),

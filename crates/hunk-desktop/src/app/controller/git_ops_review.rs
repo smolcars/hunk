@@ -43,6 +43,46 @@ struct GitHubReviewOperationResult {
 
 const GITHUB_TOKEN_ENV_KEYS: &[&str] = &["HUNK_GITHUB_TOKEN", "GITHUB_TOKEN"];
 
+fn next_forge_credential_id(
+    provider: hunk_forge::ForgeProvider,
+    host: &str,
+    seed: &str,
+) -> String {
+    let provider_label = match provider {
+        hunk_forge::ForgeProvider::GitHub => "github",
+        hunk_forge::ForgeProvider::GitLab => "gitlab",
+    };
+    let host_fragment = host
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    let seed_fragment = seed
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    format!("{provider_label}-{host_fragment}-{seed_fragment}-{nonce}")
+}
+
 impl DiffViewer {
     fn review_summary_cache_key(repo_root: &std::path::Path, branch_name: &str) -> String {
         format!("{}::{}", repo_root.display(), branch_name.trim())
@@ -101,25 +141,156 @@ impl DiffViewer {
             .cloned()
     }
 
-    fn github_token_for_host(&self, host: &str) -> Option<String> {
-        self.github_tokens_by_host
-            .get(host)
-            .cloned()
-            .or_else(|| {
-                GITHUB_TOKEN_ENV_KEYS
-                    .iter()
-                    .find_map(|key| std::env::var(key).ok().filter(|value| !value.trim().is_empty()))
+    fn forge_credentials(&self) -> Vec<ForgeCredentialMetadata> {
+        self.config
+            .forge_credentials
+            .iter()
+            .map(|credential| ForgeCredentialMetadata {
+                id: credential.id.clone(),
+                provider: credential.provider.into(),
+                host: credential.host.clone(),
+                account_label: credential.account_label.clone(),
+                is_default_for_host: credential.is_default_for_host,
             })
+            .collect()
     }
 
-    fn remember_github_token(&mut self, host: &str, token: &str) {
-        let host = host.trim();
-        let token = token.trim();
-        if host.is_empty() || token.is_empty() {
-            return;
+    fn forge_repo_credential_bindings(&self) -> Vec<ForgeRepoCredentialBinding> {
+        self.config
+            .forge_repo_credential_bindings
+            .iter()
+            .map(|binding| ForgeRepoCredentialBinding {
+                provider: binding.provider.into(),
+                host: binding.host.clone(),
+                repo_path: binding.repo_path.clone(),
+                credential_id: binding.credential_id.clone(),
+            })
+            .collect()
+    }
+
+    fn resolved_github_credential_for_repo(
+        &self,
+        repo: &ForgeRepoRef,
+    ) -> Option<hunk_forge::ResolvedForgeCredential> {
+        resolve_credential_for_repo(
+            repo,
+            self.forge_credentials().as_slice(),
+            self.forge_repo_credential_bindings().as_slice(),
+        )
+    }
+
+    fn configured_github_credential_count_for_host(&self, host: &str) -> usize {
+        self.config
+            .forge_credentials
+            .iter()
+            .filter(|credential| {
+                credential.provider == hunk_domain::config::ReviewProviderKind::GitHub
+                    && credential.host == host
+            })
+            .count()
+    }
+
+    fn has_configured_github_credentials_for_host(&self, host: &str) -> bool {
+        self.configured_github_credential_count_for_host(host) > 0
+    }
+
+    fn forge_token_for_credential(&self, credential_id: &str) -> Option<String> {
+        self.forge_tokens_by_credential_id.get(credential_id).cloned()
+    }
+
+    fn github_token_for_repo(&self, repo: &ForgeRepoRef) -> Option<String> {
+        if let Some(resolved) = self.resolved_github_credential_for_repo(repo) {
+            return self.forge_token_for_credential(resolved.credential_id.as_str());
         }
-        self.github_tokens_by_host
-            .insert(host.to_string(), token.to_string());
+        if self.has_configured_github_credentials_for_host(repo.host.as_str()) {
+            return None;
+        }
+        GITHUB_TOKEN_ENV_KEYS
+            .iter()
+            .find_map(|key| std::env::var(key).ok().filter(|value| !value.trim().is_empty()))
+    }
+
+    fn create_default_github_credential(&mut self, repo: &ForgeRepoRef) -> String {
+        let credential_id = next_forge_credential_id(
+            hunk_forge::ForgeProvider::GitHub,
+            repo.host.as_str(),
+            "default",
+        );
+        self.config
+            .forge_credentials
+            .push(hunk_domain::config::ForgeCredentialConfig {
+                id: credential_id.clone(),
+                provider: hunk_domain::config::ReviewProviderKind::GitHub,
+                host: repo.host.clone(),
+                account_label: "default".to_string(),
+                is_default_for_host: true,
+            });
+        self.persist_config();
+        credential_id
+    }
+
+    fn create_repo_bound_github_credential(&mut self, repo: &ForgeRepoRef) -> String {
+        let credential_id = next_forge_credential_id(
+            hunk_forge::ForgeProvider::GitHub,
+            repo.host.as_str(),
+            repo.path.as_str(),
+        );
+        self.config
+            .forge_credentials
+            .push(hunk_domain::config::ForgeCredentialConfig {
+                id: credential_id.clone(),
+                provider: hunk_domain::config::ReviewProviderKind::GitHub,
+                host: repo.host.clone(),
+                account_label: repo.path.clone(),
+                is_default_for_host: false,
+            });
+        self.config.forge_repo_credential_bindings.retain(|binding| {
+            !(binding.provider == hunk_domain::config::ReviewProviderKind::GitHub
+                && binding.host == repo.host
+                && binding.repo_path == repo.path)
+        });
+        self.config
+            .forge_repo_credential_bindings
+            .push(hunk_domain::config::ForgeRepoCredentialBindingConfig {
+                provider: hunk_domain::config::ReviewProviderKind::GitHub,
+                host: repo.host.clone(),
+                repo_path: repo.path.clone(),
+                credential_id: credential_id.clone(),
+            });
+        self.persist_config();
+        credential_id
+    }
+
+    fn remember_github_token_for_repo(&mut self, repo: &ForgeRepoRef, token: &str) -> Option<String> {
+        let token = token.trim();
+        if token.is_empty() {
+            return None;
+        }
+
+        let resolved = self.resolved_github_credential_for_repo(repo);
+        let configured_credential_count = self.configured_github_credential_count_for_host(repo.host.as_str());
+        let credential_id = match resolved {
+            Some(resolved) if resolved.resolution == ForgeCredentialResolution::RepoBinding => {
+                resolved.credential_id
+            }
+            Some(resolved) => {
+                let existing_token = self.forge_token_for_credential(resolved.credential_id.as_str());
+                if configured_credential_count == 1
+                    || existing_token.is_none()
+                    || existing_token.as_deref() == Some(token)
+                {
+                    resolved.credential_id
+                } else {
+                    self.create_repo_bound_github_credential(repo)
+                }
+            }
+            None if configured_credential_count == 0 => self.create_default_github_credential(repo),
+            None => self.create_repo_bound_github_credential(repo),
+        };
+
+        self.forge_tokens_by_credential_id
+            .insert(credential_id.clone(), token.to_string());
+        Some(credential_id)
     }
 
     fn preferred_review_base_branch(
@@ -219,10 +390,10 @@ impl DiffViewer {
         if review_remote.provider != hunk_git::config::ReviewProviderKind::GitHub {
             return;
         }
-        let Some(token) = self.github_token_for_host(review_remote.host.as_str()) else {
+        let Ok(repo) = ForgeRepoRef::try_from(&review_remote) else {
             return;
         };
-        let Ok(repo) = ForgeRepoRef::try_from(&review_remote) else {
+        let Some(token) = self.github_token_for_repo(&repo) else {
             return;
         };
 
@@ -274,7 +445,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let token = if values.token.trim().is_empty() {
-            self.github_token_for_host(context.review_remote.host.as_str())
+            self.github_token_for_repo(&context.repo)
                 .ok_or_else(|| "GitHub token is required.".to_string())?
         } else {
             values.token.trim().to_string()
@@ -290,8 +461,7 @@ impl DiffViewer {
         if target_branch == context.source_branch {
             return Err("Base branch must differ from the source branch.".to_string());
         }
-
-        self.remember_github_token(context.review_remote.host.as_str(), token.as_str());
+        self.remember_github_token_for_repo(&context.repo, token.as_str());
         self.run_github_review_lookup_or_create(
             GitHubReviewDialogContext {
                 target_branch: target_branch.to_string(),
@@ -416,9 +586,9 @@ impl DiffViewer {
         context: GitHubReviewDialogContext,
         cx: &mut Context<Self>,
     ) {
-        let cached_token = self.github_token_for_host(context.review_remote.host.as_str());
+        let cached_token = self.github_token_for_repo(&context.repo);
         let token_placeholder = if cached_token.is_some() {
-            "GitHub token (leave blank to reuse cached token)"
+            "GitHub token (leave blank to reuse selected credential)"
         } else {
             "GitHub token"
         };

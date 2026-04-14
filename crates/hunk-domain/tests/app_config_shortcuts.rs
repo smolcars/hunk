@@ -1,5 +1,6 @@
 use hunk_domain::config::{
-    AppConfig, KeyboardShortcuts, ReviewProviderKind, TerminalShell, ThemePreference,
+    AppConfig, ForgeCredentialConfig, ForgeRepoCredentialBindingConfig, KeyboardShortcuts,
+    ReviewProviderKind, TerminalShell, ThemePreference,
     default_terminal_hydrate_app_environment_on_launch,
 };
 
@@ -87,6 +88,14 @@ fn app_config_defaults_include_existing_keyboard_shortcuts() {
         "review provider mappings should default to empty"
     );
     assert!(
+        config.forge_credentials.is_empty(),
+        "forge credentials should default to empty"
+    );
+    assert!(
+        config.forge_repo_credential_bindings.is_empty(),
+        "forge repo credential bindings should default to empty"
+    );
+    assert!(
         !config.reduce_motion,
         "reduced motion should default to disabled"
     );
@@ -156,6 +165,45 @@ last_update_check_at = 12345
 
     assert!(!config.auto_update_enabled);
     assert_eq!(config.last_update_check_at, Some(12345));
+}
+
+#[test]
+fn app_config_parses_forge_auth_metadata() {
+    let raw = r#"
+[[forge_credentials]]
+id = "github-com-default"
+provider = "github"
+host = "github.com"
+account_label = "personal"
+is_default_for_host = true
+
+[[forge_repo_credential_bindings]]
+provider = "github"
+host = "github.com"
+repo_path = "smolcars/hunk"
+credential_id = "github-com-default"
+"#;
+    let config: AppConfig = toml::from_str(raw).expect("forge auth metadata should parse");
+
+    assert_eq!(
+        config.forge_credentials,
+        vec![ForgeCredentialConfig {
+            id: "github-com-default".to_string(),
+            provider: ReviewProviderKind::GitHub,
+            host: "github.com".to_string(),
+            account_label: "personal".to_string(),
+            is_default_for_host: true,
+        }]
+    );
+    assert_eq!(
+        config.forge_repo_credential_bindings,
+        vec![ForgeRepoCredentialBindingConfig {
+            provider: ReviewProviderKind::GitHub,
+            host: "github.com".to_string(),
+            repo_path: "smolcars/hunk".to_string(),
+            credential_id: "github-com-default".to_string(),
+        }]
+    );
 }
 
 #[test]
