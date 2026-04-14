@@ -4842,6 +4842,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hunk-forge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hunk-git",
+ "reqwest",
+ "serde",
+]
+
+[[package]]
 name = "hunk-git"
 version = "0.1.0"
 dependencies = [
