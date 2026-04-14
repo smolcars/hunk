@@ -576,6 +576,13 @@ impl DiffViewer {
         {
             self.request_selected_diff_reload(cx);
         }
+        let review_branch_name = self.git_workspace.branch_name.clone();
+        self.clear_review_summary_miss_for_branch(root.as_path(), review_branch_name.as_str());
+        self.maybe_queue_review_summary_lookup(
+            root,
+            review_branch_name,
+            cx,
+        );
         self.sync_branch_picker_state(cx);
     }
 

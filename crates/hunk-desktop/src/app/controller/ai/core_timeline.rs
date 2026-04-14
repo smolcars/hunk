@@ -231,6 +231,16 @@ impl DiffViewer {
                 self.ai_active_workspace_label_with_root(resolved.workspace_root.as_deref());
             (active_branch, active_workspace_label)
         };
+        let current_review_summary = if workspace_kind.shows_repo_actions() {
+            resolved.workspace_root.as_ref().and_then(|workspace_root| {
+                self.review_summary_for_workspace_branch(
+                    workspace_root.as_path(),
+                    active_branch.as_str(),
+                )
+            })
+        } else {
+            None
+        };
         let (pending_approvals, pending_user_inputs) = {
             (
                 self.ai_visible_pending_approvals(),
@@ -536,6 +546,7 @@ impl DiffViewer {
             ai_publish_blocker,
             ai_publish_disabled,
             ai_open_pr_disabled,
+            current_review_summary,
             ai_managed_worktree_target,
             ai_delete_worktree_blocker,
             terminal_cwd_label,

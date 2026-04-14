@@ -30,6 +30,7 @@ struct AiTimelinePanelState {
     ai_create_branch_and_push_loading: bool,
     ai_open_pr_disabled: bool,
     ai_open_pr_loading: bool,
+    current_review_summary: Option<OpenReviewSummary>,
     ai_managed_worktree_target: Option<WorkspaceTargetSummary>,
     ai_delete_worktree_blocker: Option<String>,
     ai_delete_worktree_loading: bool,
@@ -147,6 +148,116 @@ fn render_ai_header_metric_chip(
 }
 
 impl DiffViewer {
+    fn render_ai_current_review_card(
+        &self,
+        view: Entity<Self>,
+        review: &OpenReviewSummary,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let review_kind = match review.provider {
+            hunk_forge::ForgeProvider::GitHub => "Open PR",
+            hunk_forge::ForgeProvider::GitLab => "Open MR",
+        };
+        let review_url_label = review
+            .url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .to_string();
+        let accent = if review.draft {
+            cx.theme().warning
+        } else {
+            match review.state {
+                hunk_forge::ForgeReviewState::Open => cx.theme().accent,
+                hunk_forge::ForgeReviewState::Closed => cx.theme().muted_foreground,
+                hunk_forge::ForgeReviewState::Merged => cx.theme().success,
+            }
+        };
+        let review = review.clone();
+
+        div()
+            .w_full()
+            .rounded(px(12.0))
+            .border_1()
+            .border_color(hunk_opacity(accent, is_dark, 0.34, 0.22))
+            .bg(hunk_opacity(accent, is_dark, 0.10, 0.06))
+            .p_2p5()
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_start()
+                    .justify_between()
+                    .gap_3()
+                    .flex_wrap()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w(px(220.0))
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_semibold()
+                                    .text_color(accent)
+                                    .child(format!("{review_kind} #{}", review.number)),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .whitespace_normal()
+                                    .child(review.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family(cx.theme().mono_font_family.clone())
+                                    .text_color(cx.theme().muted_foreground)
+                                    .whitespace_normal()
+                                    .child(review_url_label),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1p5()
+                            .flex_wrap()
+                            .child({
+                                let view = view.clone();
+                                let review = review.clone();
+                                Button::new("ai-open-current-review")
+                                    .compact()
+                                    .primary()
+                                    .with_size(gpui_component::Size::Small)
+                                    .rounded(px(8.0))
+                                    .label("Open")
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.open_review_summary_in_browser(&review, cx);
+                                        });
+                                    })
+                            })
+                            .child({
+                                let view = view.clone();
+                                let review = review.clone();
+                                Button::new("ai-copy-current-review-url")
+                                    .compact()
+                                    .outline()
+                                    .with_size(gpui_component::Size::Small)
+                                    .rounded(px(8.0))
+                                    .label("Copy Link")
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.copy_review_summary_url(&review, cx);
+                                        });
+                                    })
+                            }),
+                    ),
+            )
+            .into_any_element()
+    }
+
     fn render_ai_workspace_content(
         &mut self,
         view: Entity<Self>,
@@ -725,6 +836,14 @@ impl DiffViewer {
                         .p_3()
                         .bg(cx.theme().background)
                         .child(self.render_ai_timeline_toolbar(view.clone(), state, is_dark, cx))
+                        .when_some(state.current_review_summary.clone(), |this, review| {
+                            this.child(self.render_ai_current_review_card(
+                                view.clone(),
+                                &review,
+                                is_dark,
+                                cx,
+                            ))
+                        })
                         .when_some(state.ai_error_message.clone(), |this, error| {
                             this.child(self.render_ai_timeline_error_banner(
                                 view.clone(),

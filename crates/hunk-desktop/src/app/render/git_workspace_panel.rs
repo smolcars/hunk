@@ -1,6 +1,126 @@
 const GIT_WORKSPACE_RAIL_WIDTH: f32 = 396.0;
 
 impl DiffViewer {
+    fn render_git_review_summary_card(
+        &self,
+        view: Entity<Self>,
+        review: &OpenReviewSummary,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_dark = cx.theme().mode.is_dark();
+        let colors = hunk_git_workspace(cx.theme(), is_dark);
+        let review_kind = match review.provider {
+            hunk_forge::ForgeProvider::GitHub => "Pull Request",
+            hunk_forge::ForgeProvider::GitLab => "Merge Request",
+        };
+        let review_state_label = if review.draft {
+            "Draft"
+        } else {
+            match review.state {
+                hunk_forge::ForgeReviewState::Open => "Open",
+                hunk_forge::ForgeReviewState::Closed => "Closed",
+                hunk_forge::ForgeReviewState::Merged => "Merged",
+            }
+        };
+        let review_state_tone = if review.draft {
+            HunkAccentTone::Warning
+        } else {
+            match review.state {
+                hunk_forge::ForgeReviewState::Open => HunkAccentTone::Accent,
+                hunk_forge::ForgeReviewState::Closed => HunkAccentTone::Neutral,
+                hunk_forge::ForgeReviewState::Merged => HunkAccentTone::Success,
+            }
+        };
+        let review_url_label = review
+            .url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .to_string();
+        let review = review.clone();
+
+        v_flex()
+            .w_full()
+            .gap_1p5()
+            .p_2()
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(colors.muted_card.border)
+            .bg(colors.muted_card.background)
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_semibold()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{review_kind} #{}", review.number)),
+                    )
+                    .child(self.render_git_metric_pill(
+                        review_state_label,
+                        review_state_tone,
+                        cx,
+                    )),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .font_semibold()
+                    .text_color(cx.theme().foreground)
+                    .whitespace_normal()
+                    .child(review.title.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_color(cx.theme().muted_foreground)
+                    .whitespace_normal()
+                    .child(review_url_label),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1p5()
+                    .flex_wrap()
+                    .child({
+                        let view = view.clone();
+                        let review = review.clone();
+                        Button::new("git-open-current-review")
+                            .compact()
+                            .primary()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .label("Open")
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.open_review_summary_in_browser(&review, cx);
+                                });
+                            })
+                    })
+                    .child({
+                        let view = view.clone();
+                        let review = review.clone();
+                        Button::new("git-copy-current-review-url")
+                            .compact()
+                            .outline()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .label("Copy Link")
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.copy_review_summary_url(&review, cx);
+                                });
+                            })
+                    }),
+            )
+            .into_any_element()
+    }
+
     fn render_git_workspace_operations_panel_v2(&self, cx: &mut Context<Self>) -> AnyElement {
         h_flex()
             .size_full()
@@ -491,6 +611,9 @@ impl DiffViewer {
                             })
                     }),
             )
+            .when_some(self.selected_git_workspace_review_summary().cloned(), |this, review| {
+                this.child(self.render_git_review_summary_card(view.clone(), &review, cx))
+            })
             .into_any_element()
     }
 

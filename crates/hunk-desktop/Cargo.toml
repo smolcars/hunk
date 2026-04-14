@@ -57,6 +57,7 @@ rust-embed = "8.5"
 webbrowser = "1.0"
 hunk-domain = { path = "../hunk-domain" }
 hunk-git = { path = "../hunk-git" }
+hunk-forge = { path = "../hunk-forge" }
 hunk-codex = { path = "../hunk-codex" }
 hunk-terminal = { path = "../hunk-terminal" }
 hunk-editor = { path = "../hunk-editor" }

@@ -477,6 +477,7 @@ struct AiVisibleFrameState {
     ai_publish_blocker: Option<String>,
     ai_publish_disabled: bool,
     ai_open_pr_disabled: bool,
+    current_review_summary: Option<OpenReviewSummary>,
     ai_managed_worktree_target: Option<WorkspaceTargetSummary>,
     ai_delete_worktree_blocker: Option<String>,
     terminal_cwd_label: String,

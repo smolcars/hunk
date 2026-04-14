@@ -4799,6 +4799,7 @@ dependencies = [
  "hunk-codex",
  "hunk-domain",
  "hunk-editor",
+ "hunk-forge",
  "hunk-git",
  "hunk-language",
  "hunk-terminal",
