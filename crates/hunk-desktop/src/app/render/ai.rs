@@ -124,6 +124,7 @@ impl DiffViewer {
             composer_attachment_paths,
             composer_attachment_count,
             model_supports_image_inputs: ai_view_state.model_supports_image_inputs,
+            left_align_for_split: ai_view_state.inline_review_selected_row_id.is_some(),
             review_mode_active: self.ai_review_mode_active,
             usage_popover_open: self.ai_usage_popover_open,
             show_mode_badge: ai_view_state.workspace_kind.shows_mode_badge(),
