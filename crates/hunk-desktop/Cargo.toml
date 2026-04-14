@@ -66,6 +66,7 @@ hunk-text = { path = "../hunk-text" }
 hunk-updater = { path = "../hunk-updater" }
 codex-app-server-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
 codex-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 git2 = { version = "0.20", features = ["https", "ssh", "vendored-libgit2", "vendored-openssl"] }

@@ -67,6 +67,7 @@ include!("core.rs");
 include!("core_runtime.rs");
 include!("markdown_links.rs");
 include!("project_open.rs");
+include!("forge_auth_store.rs");
 include!("git_ops_review.rs");
 include!("git_ops.rs");
 include!("recent_commits.rs");

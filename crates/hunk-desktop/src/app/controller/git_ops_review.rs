@@ -39,9 +39,32 @@ struct GitHubReviewOperationResult {
     repo_root: PathBuf,
     source_branch: String,
     existed: bool,
+    token_cache_entry: Option<(String, String)>,
 }
 
 const GITHUB_TOKEN_ENV_KEYS: &[&str] = &["HUNK_GITHUB_TOKEN", "GITHUB_TOKEN"];
+
+#[derive(Debug, Clone)]
+enum GitHubTokenSource {
+    Immediate(String),
+    StoredCredential(String),
+}
+
+fn resolve_github_token_source(
+    token_source: GitHubTokenSource,
+) -> anyhow::Result<(String, Option<(String, String)>)> {
+    match token_source {
+        GitHubTokenSource::Immediate(token) => Ok((token, None)),
+        GitHubTokenSource::StoredCredential(credential_id) => {
+            let token = load_forge_secret(credential_id.as_str())?.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "No saved GitHub token found for the selected credential. Enter a token to continue."
+                )
+            })?;
+            Ok((token.clone(), Some((credential_id, token))))
+        }
+    }
+}
 
 fn next_forge_credential_id(
     provider: hunk_forge::ForgeProvider,
@@ -198,9 +221,27 @@ impl DiffViewer {
         self.forge_tokens_by_credential_id.get(credential_id).cloned()
     }
 
-    fn github_token_for_repo(&self, repo: &ForgeRepoRef) -> Option<String> {
+    fn load_forge_token_for_credential(
+        &mut self,
+        credential_id: &str,
+    ) -> anyhow::Result<Option<String>> {
+        if let Some(token) = self.forge_token_for_credential(credential_id) {
+            return Ok(Some(token));
+        }
+        let token = load_forge_secret(credential_id)?;
+        if let Some(secret) = token.as_ref() {
+            self.forge_tokens_by_credential_id
+                .insert(credential_id.to_string(), secret.clone());
+        }
+        Ok(token)
+    }
+
+    fn github_token_source_for_repo(&self, repo: &ForgeRepoRef) -> Option<GitHubTokenSource> {
         if let Some(resolved) = self.resolved_github_credential_for_repo(repo) {
-            return self.forge_token_for_credential(resolved.credential_id.as_str());
+            if let Some(token) = self.forge_token_for_credential(resolved.credential_id.as_str()) {
+                return Some(GitHubTokenSource::Immediate(token));
+            }
+            return Some(GitHubTokenSource::StoredCredential(resolved.credential_id));
         }
         if self.has_configured_github_credentials_for_host(repo.host.as_str()) {
             return None;
@@ -208,6 +249,7 @@ impl DiffViewer {
         GITHUB_TOKEN_ENV_KEYS
             .iter()
             .find_map(|key| std::env::var(key).ok().filter(|value| !value.trim().is_empty()))
+            .map(GitHubTokenSource::Immediate)
     }
 
     fn create_default_github_credential(&mut self, repo: &ForgeRepoRef) -> String {
@@ -274,7 +316,22 @@ impl DiffViewer {
                 resolved.credential_id
             }
             Some(resolved) => {
-                let existing_token = self.forge_token_for_credential(resolved.credential_id.as_str());
+                let existing_token = if let Some(token) =
+                    self.forge_token_for_credential(resolved.credential_id.as_str())
+                {
+                    Some(token)
+                } else {
+                    match self.load_forge_token_for_credential(resolved.credential_id.as_str()) {
+                        Ok(token) => token,
+                        Err(err) => {
+                            warn!(
+                                "failed to load stored forge credential {} while comparing tokens: {err:#}",
+                                resolved.credential_id
+                            );
+                            None
+                        }
+                    }
+                };
                 if configured_credential_count == 1
                     || existing_token.is_none()
                     || existing_token.as_deref() == Some(token)
@@ -393,7 +450,7 @@ impl DiffViewer {
         let Ok(repo) = ForgeRepoRef::try_from(&review_remote) else {
             return;
         };
-        let Some(token) = self.github_token_for_repo(&repo) else {
+        let Some(token_source) = self.github_token_source_for_repo(&repo) else {
             return;
         };
 
@@ -405,20 +462,25 @@ impl DiffViewer {
             let result = cx
                 .background_executor()
                 .spawn(async move {
+                    let (token, token_cache_entry) = resolve_github_token_source(token_source)?;
                     let client =
                         GitHubReviewClient::new(review_remote.host.as_str(), token.as_str())?;
-                    client.find_open_review(&OpenReviewQuery {
+                    let review = client.find_open_review(&OpenReviewQuery {
                         repo,
                         source_branch: source_branch.clone(),
                         target_branch: Some(target_branch),
-                    })
+                    })?;
+                    Ok::<_, anyhow::Error>((review, token_cache_entry))
                 })
                 .await;
             if let Some(this) = this.upgrade() {
                 this.update(cx, |this, cx| {
                     this.review_summary_lookup_in_flight.remove(cache_key.as_str());
                     match result {
-                        Ok(review) => {
+                        Ok((review, token_cache_entry)) => {
+                            if let Some((credential_id, token)) = token_cache_entry {
+                                this.forge_tokens_by_credential_id.insert(credential_id, token);
+                            }
                             this.cache_review_summary_for_branch(
                                 repo_root.as_path(),
                                 source_branch_for_update.as_str(),
@@ -444,11 +506,26 @@ impl DiffViewer {
         values: GitHubReviewDialogValues,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let token = if values.token.trim().is_empty() {
-            self.github_token_for_repo(&context.repo)
+        let token_source = if values.token.trim().is_empty() {
+            self.github_token_source_for_repo(&context.repo)
                 .ok_or_else(|| "GitHub token is required.".to_string())?
         } else {
-            values.token.trim().to_string()
+            let token = values.token.trim().to_string();
+            if let Some(credential_id) =
+                self.remember_github_token_for_repo(&context.repo, token.as_str())
+                && let Err(err) = save_forge_secret(credential_id.as_str(), token.as_str())
+            {
+                error!(
+                    "failed to save GitHub token for credential {}: {err:#}",
+                    credential_id
+                );
+                Self::push_warning_notification(
+                    "GitHub token could not be saved to the system credential store. It will only be available in this Hunk session.".to_string(),
+                    None,
+                    cx,
+                );
+            }
+            GitHubTokenSource::Immediate(token)
         };
         let target_branch = values.target_branch.trim();
         if target_branch.is_empty() {
@@ -461,7 +538,6 @@ impl DiffViewer {
         if target_branch == context.source_branch {
             return Err("Base branch must differ from the source branch.".to_string());
         }
-        self.remember_github_token_for_repo(&context.repo, token.as_str());
         self.run_github_review_lookup_or_create(
             GitHubReviewDialogContext {
                 target_branch: target_branch.to_string(),
@@ -469,7 +545,7 @@ impl DiffViewer {
                 body: values.body,
                 ..context
             },
-            token,
+            token_source,
             cx,
         );
         Ok(())
@@ -478,7 +554,7 @@ impl DiffViewer {
     fn run_github_review_lookup_or_create(
         &mut self,
         context: GitHubReviewDialogContext,
-        token: String,
+        token_source: GitHubTokenSource,
         cx: &mut Context<Self>,
     ) {
         let epoch = self.begin_git_action(context.action_label.clone(), cx);
@@ -489,6 +565,7 @@ impl DiffViewer {
                 .spawn(async move {
                     let execution_started_at = Instant::now();
                     let result = (|| -> anyhow::Result<GitHubReviewOperationResult> {
+                        let (token, token_cache_entry) = resolve_github_token_source(token_source)?;
                         let client =
                             GitHubReviewClient::new(context.repo.host.as_str(), token.as_str())?;
                         let existing = client.find_open_review(&OpenReviewQuery {
@@ -502,6 +579,7 @@ impl DiffViewer {
                                 repo_root: context.repo_root.clone(),
                                 source_branch: context.source_branch.clone(),
                                 existed: true,
+                                token_cache_entry,
                             });
                         }
 
@@ -518,6 +596,7 @@ impl DiffViewer {
                             repo_root: context.repo_root,
                             source_branch: context.source_branch,
                             existed: false,
+                            token_cache_entry,
                         })
                     })();
                     (execution_started_at.elapsed(), result)
@@ -534,6 +613,9 @@ impl DiffViewer {
                     this.finish_git_action();
                     match result {
                         Ok(result) => {
+                            if let Some((credential_id, token)) = result.token_cache_entry {
+                                this.forge_tokens_by_credential_id.insert(credential_id, token);
+                            }
                             debug!(
                                 "github review action complete: epoch={} branch={} existed={} lookup_elapsed_ms={} total_elapsed_ms={}",
                                 epoch,
@@ -586,9 +668,9 @@ impl DiffViewer {
         context: GitHubReviewDialogContext,
         cx: &mut Context<Self>,
     ) {
-        let cached_token = self.github_token_for_repo(&context.repo);
-        let token_placeholder = if cached_token.is_some() {
-            "GitHub token (leave blank to reuse selected credential)"
+        let has_reusable_token = self.github_token_source_for_repo(&context.repo).is_some();
+        let token_placeholder = if has_reusable_token {
+            "GitHub token (leave blank to reuse saved credential)"
         } else {
             "GitHub token"
         };

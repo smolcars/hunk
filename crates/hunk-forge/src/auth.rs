@@ -30,6 +30,14 @@ pub struct ResolvedForgeCredential {
     pub resolution: ForgeCredentialResolution,
 }
 
+pub trait ForgeSecretStore {
+    fn load_secret(&self, credential_id: &str) -> anyhow::Result<Option<String>>;
+
+    fn save_secret(&self, credential_id: &str, secret: &str) -> anyhow::Result<()>;
+
+    fn delete_secret(&self, credential_id: &str) -> anyhow::Result<()>;
+}
+
 pub fn resolve_credential_for_repo(
     repo: &ForgeRepoRef,
     credentials: &[ForgeCredentialMetadata],

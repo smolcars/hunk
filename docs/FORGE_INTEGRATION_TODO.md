@@ -45,6 +45,10 @@ Scope: Add real GitHub and GitLab forge integration to Hunk, starting with in-ap
   - crate: `octocrab`
   - pinned version: `0.49.7`
   - source tag/commit inspected directly for implementation decisions
+- Forge secret storage reference:
+  - crate: `keyring`
+  - pinned version: `3.6.3`
+  - feature set: `apple-native`, `windows-native`, `sync-secret-service`
 - Guidance:
   - prefer direct inspection of the pinned crate source in `/tmp` or the local Cargo registry,
   - use versioned docs as a supplement,
@@ -189,6 +193,14 @@ Phase B:
 - replace in-memory secrets with OS credential store access
 - key stored secrets by credential id
 - keep repo bindings and defaults unchanged
+- use the Rust `keyring` crate as the desktop implementation:
+  - macOS: Keychain
+  - Windows: Credential Manager
+  - Linux: Secret Service via synchronous access
+- keep keychain reads off the passive UI path where possible:
+  - resolve credentials synchronously,
+  - load saved secrets inside background work or explicit submit flows,
+  - retain an in-process credential-id keyed cache to avoid repeated secret-store reads
 
 Phase C:
 
@@ -233,25 +245,26 @@ Suggested minimum fields:
 
 ### Implementation TODO
 
-- [ ] Add `crates/hunk-forge`.
-- [ ] Define provider-neutral models for open review lookup and create-review requests.
-- [ ] Add a small remote-to-forge resolver.
-- [ ] Move remote host and repo parsing that is forge-relevant into a reusable API surface.
-- [ ] Add provider-neutral forge credential metadata and repo binding models.
-- [ ] Add credential resolution rules for `provider + host + repo path`.
-- [ ] Add secure token storage abstraction for GitHub and GitLab hosts.
-- [ ] Move actual secret storage behind a credential-id keyed interface.
-- [ ] Add GitHub client first via `octocrab`.
-- [ ] Implement `find_open_review_for_branch`.
-- [ ] Implement `create_review`.
-- [ ] Support the common same-repo branch flow first.
+- [x] Add `crates/hunk-forge`.
+- [x] Define provider-neutral models for open review lookup and create-review requests.
+- [x] Add a small remote-to-forge resolver.
+- [x] Move remote host and repo parsing that is forge-relevant into a reusable API surface.
+- [x] Add provider-neutral forge credential metadata and repo binding models.
+- [x] Add credential resolution rules for `provider + host + repo path`.
+- [x] Add secure token storage abstraction for GitHub and GitLab hosts.
+- [x] Move actual secret storage behind a credential-id keyed interface.
+- [x] Back desktop secret storage with `keyring` `3.6.3`.
+- [x] Add GitHub client first via `octocrab`.
+- [x] Implement `find_open_review_for_branch`.
+- [x] Implement `create_review`.
+- [x] Support the common same-repo branch flow first.
 - [ ] Fail clearly for unsupported fork or permission cases in v1.
-- [ ] Replace Git tab browser-based PR/MR open path with forge-backed lookup/create.
-- [ ] Replace AI flow browser-based PR open path with the same forge-backed lookup/create path.
-- [ ] Add current open PR/MR summary state to desktop view state.
-- [ ] Render current open PR/MR summary in the Git tab.
-- [ ] Render current open PR/MR summary in the AI view for the active thread branch.
-- [ ] Keep `Copy Review URL` as a simple copy action for the real PR/MR URL after creation or lookup.
+- [x] Replace Git tab browser-based PR/MR open path with forge-backed lookup/create.
+- [x] Replace AI flow browser-based PR open path with the same forge-backed lookup/create path.
+- [x] Add current open PR/MR summary state to desktop view state.
+- [x] Render current open PR/MR summary in the Git tab.
+- [x] Render current open PR/MR summary in the AI view for the active thread branch.
+- [x] Keep `Copy Review URL` as a simple copy action for the real PR/MR URL after creation or lookup.
 - [ ] Rename progress and status text away from browser-specific wording.
 - [ ] Add targeted tests for:
   - [ ] remote parsing and provider resolution,

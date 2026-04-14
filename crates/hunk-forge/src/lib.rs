@@ -4,7 +4,7 @@ mod models;
 
 pub use auth::{
     ForgeCredentialMetadata, ForgeCredentialResolution, ForgeRepoCredentialBinding,
-    ResolvedForgeCredential, resolve_credential_for_repo,
+    ForgeSecretStore, ResolvedForgeCredential, resolve_credential_for_repo,
 };
 pub use github::GitHubReviewClient;
 pub use models::{
