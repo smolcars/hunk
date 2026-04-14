@@ -154,6 +154,50 @@ impl DiffViewer {
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let inline_review_open = sections.timeline.inline_review_selected_row_id.is_some();
+        let main_content_column = v_flex()
+            .size_full()
+            .min_h_0()
+            .child(self.render_ai_timeline_panel(
+                view.clone(),
+                sections.timeline,
+                is_dark,
+                cx,
+            ))
+            .child(sections.composer_panel)
+            .when_some(sections.terminal_panel, |this, terminal_panel| {
+                this.child(terminal_panel)
+            });
+        let workspace_content = if inline_review_open {
+            h_resizable("hunk-ai-workspace-content-split")
+                .child(
+                    resizable_panel()
+                        .size(px(720.0))
+                        .size_range(px(420.0)..px(1280.0))
+                        .child(
+                            v_flex()
+                                .size_full()
+                                .min_h_0()
+                                .min_w_0()
+                                .child(main_content_column),
+                        ),
+                )
+                .child(
+                    resizable_panel()
+                        .size(px(640.0))
+                        .size_range(px(360.0)..px(1280.0))
+                        .child(
+                            div()
+                                .size_full()
+                                .min_h_0()
+                                .min_w_0()
+                                .child(self.render_ai_inline_review_pane(view.clone(), is_dark, cx)),
+                        ),
+                )
+                .into_any_element()
+        } else {
+            main_content_column.into_any_element()
+        };
         v_flex()
             .size_full()
             .w_full()
@@ -162,20 +206,7 @@ impl DiffViewer {
             .on_action(cx.listener(Self::ai_interrupt_selected_turn_action))
             .child(
                 div().flex_1().w_full().min_h_0().child(if self.ai_thread_sidebar_collapsed {
-                    v_flex()
-                        .size_full()
-                        .min_h_0()
-                        .child(self.render_ai_timeline_panel(
-                            view.clone(),
-                            sections.timeline,
-                            is_dark,
-                            cx,
-                        ))
-                        .child(sections.composer_panel)
-                        .when_some(sections.terminal_panel, |this, terminal_panel| {
-                            this.child(terminal_panel)
-                        })
-                        .into_any_element()
+                    workspace_content
                 } else {
                     h_resizable("hunk-ai-workspace")
                         .child(
@@ -189,23 +220,7 @@ impl DiffViewer {
                                     cx,
                                 )),
                         )
-                        .child(
-                            resizable_panel().child(
-                                v_flex()
-                                    .size_full()
-                                    .min_h_0()
-                                    .child(self.render_ai_timeline_panel(
-                                        view.clone(),
-                                        sections.timeline,
-                                        is_dark,
-                                        cx,
-                                    ))
-                                    .child(sections.composer_panel)
-                                    .when_some(sections.terminal_panel, |this, terminal_panel| {
-                                        this.child(terminal_panel)
-                                    }),
-                            ),
-                        )
+                        .child(resizable_panel().child(workspace_content))
                         .into_any_element()
                 }),
             )
@@ -1462,46 +1477,6 @@ impl DiffViewer {
                         }),
                 )
             });
-
-        if state.inline_review_selected_row_id.is_some() {
-            return div()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .w_full()
-                .child(
-                    h_resizable("hunk-ai-timeline-review-split")
-                        .child(
-                            resizable_panel()
-                                .size(px(720.0))
-                                .size_range(px(420.0)..px(1280.0))
-                                .child(
-                                    v_flex()
-                                        .size_full()
-                                        .min_h_0()
-                                        .min_w_0()
-                                        .child(timeline_column),
-                                ),
-                        )
-                        .child(
-                            resizable_panel()
-                                .size(px(640.0))
-                                .size_range(px(360.0)..px(1280.0))
-                                .child(
-                                    div()
-                                        .size_full()
-                                        .min_h_0()
-                                        .min_w_0()
-                                        .child(
-                                            self.render_ai_inline_review_pane(
-                                                view, is_dark, cx,
-                                            ),
-                                        ),
-                                ),
-                        ),
-                )
-                .into_any_element();
-        }
 
         timeline_column.into_any_element()
     }

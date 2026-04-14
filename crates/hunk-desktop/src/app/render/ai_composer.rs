@@ -5,6 +5,7 @@ struct AiComposerPanelState {
     composer_attachment_paths: Arc<[PathBuf]>,
     composer_attachment_count: usize,
     model_supports_image_inputs: bool,
+    left_align_for_split: bool,
     review_mode_active: bool,
     usage_popover_open: bool,
     show_mode_badge: bool,
@@ -311,7 +312,8 @@ impl DiffViewer {
             .into_any_element();
         h_flex()
             .w_full()
-            .justify_center()
+            .when(state.left_align_for_split, |this| this.justify_start())
+            .when(!state.left_align_for_split, |this| this.justify_center())
             .px_4()
             .pt_6()
             .pb_4()
