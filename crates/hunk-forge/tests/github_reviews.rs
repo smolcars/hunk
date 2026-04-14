@@ -1,5 +1,5 @@
 use anyhow::Result;
-use hunk_forge::github::{GitHubCreatePullRequest, github_api_base_url};
+use hunk_forge::github::github_api_base_url;
 use hunk_forge::{CreateReviewInput, ForgeProvider, ForgeRepoRef, GitHubReviewClient};
 
 #[test]
@@ -12,33 +12,32 @@ fn github_api_base_url_matches_host_type() {
 }
 
 #[test]
-fn create_pull_request_maps_input_fields() {
-    let input = CreateReviewInput {
-        repo: github_repo(),
-        source_branch: "feature/forge".to_string(),
-        target_branch: "main".to_string(),
-        title: "Forge PR".to_string(),
-        body: Some("Body".to_string()),
-        draft: true,
-    };
-
-    let request = GitHubCreatePullRequest::from_input(&input);
-    assert_eq!(
-        request,
-        GitHubCreatePullRequest {
-            title: "Forge PR".to_string(),
-            head: "feature/forge".to_string(),
-            base: "main".to_string(),
-            body: Some("Body".to_string()),
-            draft: true,
-        }
-    );
-}
-
-#[test]
 fn github_client_rejects_empty_token() {
     let err = GitHubReviewClient::new("github.com", "").expect_err("empty tokens must be rejected");
     assert!(err.to_string().contains("token"));
+}
+
+#[test]
+fn github_client_rejects_non_github_repo_requests() {
+    let client = GitHubReviewClient::new("github.com", "token").expect("client");
+    let err = client
+        .create_review(&CreateReviewInput {
+            repo: ForgeRepoRef {
+                provider: ForgeProvider::GitLab,
+                host: "gitlab.com".to_string(),
+                namespace: "example-group".to_string(),
+                name: "hunk".to_string(),
+                path: "example-group/hunk".to_string(),
+                web_base_url: "https://gitlab.com/example-group/hunk".to_string(),
+            },
+            source_branch: "feature/forge".to_string(),
+            target_branch: "main".to_string(),
+            title: "Forge PR".to_string(),
+            body: Some("Body".to_string()),
+            draft: true,
+        })
+        .expect_err("non-GitHub repos must be rejected");
+    assert!(err.to_string().contains("GitHub"));
 }
 
 #[test]

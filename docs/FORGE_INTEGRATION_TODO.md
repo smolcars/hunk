@@ -11,6 +11,7 @@ Scope: Add real GitHub and GitLab forge integration to Hunk, starting with in-ap
 - Add a new crate: `crates/hunk-forge`.
 - Keep Git repository mechanics in `crates/hunk-git`.
 - Do not depend on `gh` or `glab` for runtime product behavior.
+- Use `octocrab` as the GitHub client implementation instead of handwritten raw HTTP.
 - Start with a small PR-first slice:
   - replace browser-prefilled PR/MR creation from the Git tab,
   - replace browser-prefilled PR creation from the AI flow,
@@ -33,6 +34,21 @@ Scope: Add real GitHub and GitLab forge integration to Hunk, starting with in-ap
   - tests,
   - packaging.
 - CLI availability is not reliable enough to make it the product boundary.
+- For Rust crate decisions, prefer inspecting version-pinned source and docs directly over ad hoc web searches:
+  - clone or read the exact crate version being adopted,
+  - record the pinned version in this doc,
+  - use the crate's real source layout and builder/model types as the implementation reference.
+
+## Dependency Reference Strategy
+
+- GitHub client reference:
+  - crate: `octocrab`
+  - pinned version: `0.49.7`
+  - source tag/commit inspected directly for implementation decisions
+- Guidance:
+  - prefer direct inspection of the pinned crate source in `/tmp` or the local Cargo registry,
+  - use versioned docs as a supplement,
+  - avoid designing around unpinned latest web examples.
 
 ## Product Goals
 
@@ -87,7 +103,7 @@ Suggested initial modules:
 - `provider.rs`
 - `remote.rs`
 - `auth.rs`
-- `github.rs`
+- `github.rs` using `octocrab`
 - `gitlab.rs`
 - `pull_requests.rs`
 - `models.rs`
@@ -156,7 +172,7 @@ Suggested minimum fields:
 - [ ] Add a small remote-to-forge resolver.
 - [ ] Move remote host and repo parsing that is forge-relevant into a reusable API surface.
 - [ ] Add secure token storage abstraction for GitHub and GitLab hosts.
-- [ ] Add GitHub client first.
+- [ ] Add GitHub client first via `octocrab`.
 - [ ] Implement `find_open_review_for_branch`.
 - [ ] Implement `create_review`.
 - [ ] Support the common same-repo branch flow first.
