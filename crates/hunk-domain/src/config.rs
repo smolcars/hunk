@@ -46,13 +46,24 @@ pub struct ReviewProviderMapping {
     pub provider: ReviewProviderKind,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ForgeCredentialKind {
+    #[default]
+    #[serde(rename = "personal_access_token")]
+    PersonalAccessToken,
+    #[serde(rename = "github_com_session")]
+    GitHubComSession,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ForgeCredentialConfig {
     pub id: String,
     pub provider: ReviewProviderKind,
     pub host: String,
+    pub kind: ForgeCredentialKind,
     pub account_label: String,
+    pub account_login: Option<String>,
     pub is_default_for_host: bool,
 }
 
@@ -62,7 +73,9 @@ impl Default for ForgeCredentialConfig {
             id: String::new(),
             provider: ReviewProviderKind::GitHub,
             host: String::new(),
+            kind: ForgeCredentialKind::PersonalAccessToken,
             account_label: String::new(),
+            account_login: None,
             is_default_for_host: false,
         }
     }

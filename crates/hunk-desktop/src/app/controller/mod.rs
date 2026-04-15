@@ -29,7 +29,7 @@ use super::data::{
 };
 use super::*;
 use hunk_forge::{
-    CreateReviewInput, ForgeCredentialMetadata, ForgeCredentialResolution,
+    CreateReviewInput, ForgeCredentialKind, ForgeCredentialMetadata, ForgeCredentialResolution,
     ForgeRepoCredentialBinding, ForgeRepoRef, GitHubReviewClient, OpenReviewQuery,
     OpenReviewSummary, resolve_credential_for_repo,
 };

@@ -172,7 +172,16 @@ impl DiffViewer {
                 id: credential.id.clone(),
                 provider: credential.provider.into(),
                 host: credential.host.clone(),
+                kind: match credential.kind {
+                    hunk_domain::config::ForgeCredentialKind::PersonalAccessToken => {
+                        ForgeCredentialKind::PersonalAccessToken
+                    }
+                    hunk_domain::config::ForgeCredentialKind::GitHubComSession => {
+                        ForgeCredentialKind::GitHubComSession
+                    }
+                },
                 account_label: credential.account_label.clone(),
+                account_login: credential.account_login.clone(),
                 is_default_for_host: credential.is_default_for_host,
             })
             .collect()
@@ -264,7 +273,9 @@ impl DiffViewer {
                 id: credential_id.clone(),
                 provider: hunk_domain::config::ReviewProviderKind::GitHub,
                 host: repo.host.clone(),
+                kind: hunk_domain::config::ForgeCredentialKind::PersonalAccessToken,
                 account_label: "default".to_string(),
+                account_login: None,
                 is_default_for_host: true,
             });
         self.persist_config();
@@ -283,7 +294,9 @@ impl DiffViewer {
                 id: credential_id.clone(),
                 provider: hunk_domain::config::ReviewProviderKind::GitHub,
                 host: repo.host.clone(),
+                kind: hunk_domain::config::ForgeCredentialKind::PersonalAccessToken,
                 account_label: repo.path.clone(),
+                account_login: None,
                 is_default_for_host: false,
             });
         self.config.forge_repo_credential_bindings.retain(|binding| {

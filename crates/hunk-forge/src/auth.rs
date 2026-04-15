@@ -1,11 +1,19 @@
 use crate::models::{ForgeProvider, ForgeRepoRef};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForgeCredentialKind {
+    PersonalAccessToken,
+    GitHubComSession,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForgeCredentialMetadata {
     pub id: String,
     pub provider: ForgeProvider,
     pub host: String,
+    pub kind: ForgeCredentialKind,
     pub account_label: String,
+    pub account_login: Option<String>,
     pub is_default_for_host: bool,
 }
 

@@ -1,6 +1,6 @@
 use hunk_domain::config::{
-    AppConfig, ForgeCredentialConfig, ForgeRepoCredentialBindingConfig, KeyboardShortcuts,
-    ReviewProviderKind, TerminalShell, ThemePreference,
+    AppConfig, ForgeCredentialConfig, ForgeCredentialKind, ForgeRepoCredentialBindingConfig,
+    KeyboardShortcuts, ReviewProviderKind, TerminalShell, ThemePreference,
     default_terminal_hydrate_app_environment_on_launch,
 };
 
@@ -174,7 +174,9 @@ fn app_config_parses_forge_auth_metadata() {
 id = "github-com-default"
 provider = "github"
 host = "github.com"
+kind = "github_com_session"
 account_label = "personal"
+account_login = "smolcars"
 is_default_for_host = true
 
 [[forge_repo_credential_bindings]]
@@ -191,7 +193,9 @@ credential_id = "github-com-default"
             id: "github-com-default".to_string(),
             provider: ReviewProviderKind::GitHub,
             host: "github.com".to_string(),
+            kind: ForgeCredentialKind::GitHubComSession,
             account_label: "personal".to_string(),
+            account_login: Some("smolcars".to_string()),
             is_default_for_host: true,
         }]
     );

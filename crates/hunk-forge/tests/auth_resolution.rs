@@ -1,6 +1,6 @@
 use hunk_forge::{
-    ForgeCredentialMetadata, ForgeCredentialResolution, ForgeProvider, ForgeRepoCredentialBinding,
-    ForgeRepoRef, resolve_credential_for_repo,
+    ForgeCredentialKind, ForgeCredentialMetadata, ForgeCredentialResolution, ForgeProvider,
+    ForgeRepoCredentialBinding, ForgeRepoRef, resolve_credential_for_repo,
 };
 
 fn github_repo(path: &str) -> ForgeRepoRef {
@@ -26,7 +26,9 @@ fn github_credential(
         id: id.to_string(),
         provider: ForgeProvider::GitHub,
         host: host.to_string(),
+        kind: ForgeCredentialKind::PersonalAccessToken,
         account_label: account_label.to_string(),
+        account_login: None,
         is_default_for_host,
     }
 }
