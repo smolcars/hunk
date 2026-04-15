@@ -2,10 +2,8 @@ use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(test)]
 use std::sync::{Mutex, MutexGuard, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(super) fn resolve_codex_home_path() -> Option<PathBuf> {
     resolve_codex_home_path_from(
@@ -31,8 +29,7 @@ pub(super) fn ensure_ai_chats_root_path() -> Option<PathBuf> {
 }
 
 pub(super) fn is_ai_chats_workspace_path(path: &Path) -> bool {
-    resolve_ai_chats_root_path()
-        .is_some_and(|chats_root| path == chats_root || path.starts_with(chats_root))
+    resolve_ai_chats_root_path().is_some_and(|chats_root| path == chats_root)
 }
 
 pub(super) fn ai_chats_workspace_paths() -> Vec<PathBuf> {
@@ -40,43 +37,7 @@ pub(super) fn ai_chats_workspace_paths() -> Vec<PathBuf> {
         return Vec::new();
     };
 
-    let mut workspaces = vec![chats_root.clone()];
-    let Ok(entries) = fs::read_dir(&chats_root) else {
-        return workspaces;
-    };
-
-    let mut children = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect::<Vec<_>>();
-    children.sort();
-    workspaces.extend(children);
-    workspaces
-}
-
-pub(super) fn allocate_ai_chat_thread_workspace_path() -> Option<PathBuf> {
-    static NEXT_CHAT_WORKSPACE_ID: AtomicU64 = AtomicU64::new(0);
-
-    let chats_root = ensure_ai_chats_root_path().or_else(resolve_ai_chats_root_path)?;
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-    let process_id = std::process::id();
-
-    for _ in 0..128 {
-        let suffix = NEXT_CHAT_WORKSPACE_ID.fetch_add(1, Ordering::Relaxed);
-        let candidate = chats_root.join(format!("chat-{seed:x}-{process_id:x}-{suffix:x}"));
-        match fs::create_dir(&candidate) {
-            Ok(()) => return Some(candidate),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => return None,
-        }
-    }
-
-    None
+    vec![chats_root]
 }
 
 #[cfg(test)]
@@ -133,7 +94,6 @@ fn home_relative_suffix(path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::ai_chats_workspace_paths;
-    use super::allocate_ai_chat_thread_workspace_path;
     use super::expand_home_prefixed_path;
     use super::is_ai_chats_workspace_path;
     use super::lock_hunk_home_test_env;
@@ -217,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn chats_workspace_classifies_descendants() {
+    fn chats_workspace_classifies_only_root() {
         let _guard = lock_hunk_home_test_env();
         let hunk_home = std::env::temp_dir().join("hunk-ai-paths-descendants");
         let previous = std::env::var_os(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR);
@@ -229,7 +189,7 @@ mod tests {
         let thread_root = chats_root.join("chat-1");
 
         assert!(is_ai_chats_workspace_path(chats_root.as_path()));
-        assert!(is_ai_chats_workspace_path(thread_root.as_path()));
+        assert!(!is_ai_chats_workspace_path(thread_root.as_path()));
         assert!(!is_ai_chats_workspace_path(
             PathBuf::from("/repo").as_path()
         ));
@@ -244,26 +204,17 @@ mod tests {
     }
 
     #[test]
-    fn chat_workspace_paths_include_root_and_children() {
+    fn chat_workspace_paths_only_include_root() {
         let _guard = lock_hunk_home_test_env();
         let hunk_home = std::env::temp_dir().join("hunk-ai-paths-workspaces");
         let chats_root = hunk_home.join("chats");
-        let child_a = chats_root.join("chat-a");
-        let child_b = chats_root.join("chat-b");
-        let hidden_file = chats_root.join(".note");
         let previous = std::env::var_os(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR);
         unsafe { std::env::set_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR, &hunk_home) };
         let _ = std::fs::remove_dir_all(&hunk_home);
-        std::fs::create_dir_all(&child_a).expect("chat-a should exist");
-        std::fs::create_dir_all(&child_b).expect("chat-b should exist");
-        std::fs::write(&hidden_file, "ignore").expect("hidden file should exist");
+        std::fs::create_dir_all(&chats_root).expect("chats root should exist");
 
         let workspaces = ai_chats_workspace_paths();
-        let expected = vec![
-            canonicalize_if_exists(chats_root.clone()),
-            canonicalize_if_exists(child_a.clone()),
-            canonicalize_if_exists(child_b.clone()),
-        ];
+        let expected = vec![canonicalize_if_exists(chats_root.clone())];
 
         match previous {
             Some(value) => unsafe {
@@ -274,38 +225,5 @@ mod tests {
         let _ = std::fs::remove_dir_all(&hunk_home);
 
         assert_eq!(workspaces, expected);
-    }
-
-    #[test]
-    fn allocate_chat_thread_workspace_creates_unique_child_directory() {
-        let _guard = lock_hunk_home_test_env();
-        let hunk_home = std::env::temp_dir().join("hunk-ai-paths-allocate");
-        let previous = std::env::var_os(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR);
-        unsafe { std::env::set_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR, &hunk_home) };
-        let _ = std::fs::remove_dir_all(&hunk_home);
-
-        let first = allocate_ai_chat_thread_workspace_path().expect("first workspace should exist");
-        let second =
-            allocate_ai_chat_thread_workspace_path().expect("second workspace should exist");
-
-        match previous {
-            Some(value) => unsafe {
-                std::env::set_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR, value)
-            },
-            None => unsafe { std::env::remove_var(hunk_domain::paths::HUNK_HOME_DIR_ENV_VAR) },
-        }
-        let _ = std::fs::remove_dir_all(&hunk_home);
-
-        assert_ne!(first, second);
-        assert!(
-            first
-                .parent()
-                .is_some_and(|parent| parent.ends_with("chats"))
-        );
-        assert!(
-            second
-                .parent()
-                .is_some_and(|parent| parent.ends_with("chats"))
-        );
     }
 }

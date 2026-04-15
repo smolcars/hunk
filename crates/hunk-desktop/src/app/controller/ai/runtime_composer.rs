@@ -1,19 +1,4 @@
 impl DiffViewer {
-    fn cleanup_failed_chat_workspace(
-        &mut self,
-        chats_root_key: &str,
-        pending_workspace_key: &str,
-        cx: &mut Context<Self>,
-    ) {
-        self.shutdown_ai_runtime_for_workspace_blocking(pending_workspace_key);
-        self.ai_forget_deleted_workspace_state(pending_workspace_key, cx);
-        self.ai_draft_workspace_root_override = Some(std::path::PathBuf::from(chats_root_key));
-        self.ai_draft_workspace_target_id = None;
-        self.ai_worktree_base_branch_name = None;
-        self.restore_ai_workspace_state_for_key(Some(chats_root_key));
-        let _ = std::fs::remove_dir_all(pending_workspace_key);
-    }
-
     fn current_ai_composer_status_key(&self) -> AiComposerStatusKey {
         self.current_ai_composer_draft_key()
             .map(AiComposerStatusKey::Draft)
@@ -253,23 +238,9 @@ impl DiffViewer {
             self.ai_new_thread_draft_active = true;
         }
         self.ai_pending_new_thread_selection = false;
-        let Some(mut pending) = self.ai_pending_thread_start.take() else {
+        let Some(pending) = self.ai_pending_thread_start.take() else {
             return;
         };
-        if let Some((chats_root_key, pending_workspace_key)) =
-            failed_chat_workspace_cleanup_target(
-                self.ai_chats_root_path().as_deref(),
-                pending.workspace_key.as_str(),
-                pending.thread_id.as_deref(),
-            )
-        {
-            self.cleanup_failed_chat_workspace(
-                chats_root_key.as_str(),
-                pending_workspace_key.as_str(),
-                cx,
-            );
-            pending.workspace_key = chats_root_key;
-        }
         let current_workspace_key = self.ai_workspace_key_for_draft();
         if current_workspace_key.as_deref() != Some(pending.workspace_key.as_str()) {
             self.ai_pending_thread_start = Some(pending);
@@ -303,29 +274,6 @@ impl DiffViewer {
         self.ai_composer_activity_elapsed_second = next;
         true
     }
-}
-
-fn failed_chat_workspace_cleanup_target(
-    chats_root: Option<&std::path::Path>,
-    pending_workspace_key: &str,
-    pending_thread_id: Option<&str>,
-) -> Option<(String, String)> {
-    if pending_thread_id.is_some() {
-        return None;
-    }
-
-    let chats_root = chats_root?;
-    let pending_workspace = std::path::PathBuf::from(pending_workspace_key);
-    if pending_workspace == chats_root
-        || !crate::app::ai_paths::is_ai_chats_workspace_path(pending_workspace.as_path())
-    {
-        return None;
-    }
-
-    Some((
-        chats_root.to_string_lossy().to_string(),
-        pending_workspace_key.to_string(),
-    ))
 }
 
 fn composer_status_message_for_visible_target<'a>(
