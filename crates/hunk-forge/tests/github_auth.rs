@@ -49,10 +49,9 @@ fn github_browser_auth_request_contains_expected_query_parameters() {
     let url = Url::parse(request.authorization_url.as_str()).expect("url should parse");
     let query = url.query_pairs().collect::<Vec<_>>();
 
-    assert_eq!(
+    assert!(
         url.as_str()
-            .starts_with("https://github.com/login/oauth/authorize"),
-        true
+            .starts_with("https://github.com/login/oauth/authorize")
     );
     assert_eq!(
         query
