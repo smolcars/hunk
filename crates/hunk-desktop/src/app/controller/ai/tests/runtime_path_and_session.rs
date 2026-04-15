@@ -579,7 +579,7 @@ fn resolved_ai_thread_session_state_uses_preferred_defaults_without_overrides() 
 fn resolved_ai_thread_session_state_clamps_chats_to_default_mode() {
     with_temp_hunk_home("session-clamps-chats", |_| {
         let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-        let chats_key = chats_root.join("chat-1").to_string_lossy().to_string();
+        let chats_key = chats_root.to_string_lossy().to_string();
         let mut state = AppState::default();
         state.ai_workspace_session_overrides.insert(
             chats_key.clone(),
@@ -612,7 +612,7 @@ fn ai_thread_start_mode_for_workspace_does_not_treat_chats_as_repo_workspace() {
             ai_thread_start_mode_for_workspace(
                 Some(std::path::Path::new("/repo")),
                 &[],
-                chats_root.join("chat-1").as_path(),
+                chats_root.as_path(),
             ),
             None,
         );
@@ -627,7 +627,7 @@ fn ai_visible_thread_sections_prepend_global_chats_section() {
             vec![
                 ThreadSummary {
                     id: "chat-1".to_string(),
-                    cwd: chats_root.join("chat-1").to_string_lossy().to_string(),
+                    cwd: chats_root.to_string_lossy().to_string(),
                     title: Some("Chat".to_string()),
                     status: ThreadLifecycleStatus::Active,
                     created_at: 2,
@@ -660,49 +660,6 @@ fn ai_visible_thread_sections_prepend_global_chats_section() {
         assert_eq!(sections[1].project_root, PathBuf::from("/repo"));
         assert_eq!(sections[1].threads.len(), 1);
         assert_eq!(sections[1].threads[0].id, "repo-1");
-    });
-}
-
-#[test]
-fn failed_chat_workspace_cleanup_target_only_cleans_orphaned_chat_children() {
-    with_temp_hunk_home("failed-chat-cleanup-target", |_| {
-        let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-        let child = chats_root.join("chat-1");
-        let child_key = child.to_string_lossy().to_string();
-        let chats_key = chats_root.to_string_lossy().to_string();
-
-        assert_eq!(
-            failed_chat_workspace_cleanup_target(
-                Some(chats_root.as_path()),
-                child_key.as_str(),
-                None,
-            ),
-            Some((chats_key, child_key.clone())),
-        );
-        assert_eq!(
-            failed_chat_workspace_cleanup_target(
-                Some(chats_root.as_path()),
-                chats_root.to_string_lossy().as_ref(),
-                None,
-            ),
-            None,
-        );
-        assert_eq!(
-            failed_chat_workspace_cleanup_target(
-                Some(chats_root.as_path()),
-                child_key.as_str(),
-                Some("thread-1"),
-            ),
-            None,
-        );
-        assert_eq!(
-            failed_chat_workspace_cleanup_target(
-                Some(chats_root.as_path()),
-                "/repo",
-                None,
-            ),
-            None,
-        );
     });
 }
 

@@ -95,7 +95,6 @@ mod ai_tests {
     use super::timeline_turn_ids_by_thread;
     use super::timeline_visible_row_ids_for_turns;
     use super::timeline_visible_turn_ids;
-    use super::failed_chat_workspace_cleanup_target;
     use super::workspace_target_summary_for_root;
     use super::workspace_branch_name_for_root;
     use super::workspace_include_hidden_models;

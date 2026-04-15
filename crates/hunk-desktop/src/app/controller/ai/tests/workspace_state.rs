@@ -891,10 +891,6 @@
     fn thread_catalog_workspace_roots_skip_visible_primary_checkout() {
         with_temp_hunk_home("catalog-roots-primary", |temp_home| {
             let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-            let chat_a = chats_root.join("chat-a");
-            let chat_b = chats_root.join("chat-b");
-            std::fs::create_dir_all(&chat_a).expect("chat-a should exist");
-            std::fs::create_dir_all(&chat_b).expect("chat-b should exist");
 
             let workspace_targets = vec![
                 workspace_target(
@@ -931,8 +927,6 @@
                     PathBuf::from("/repo/worktrees/task-1"),
                     PathBuf::from("/repo/worktrees/task-2"),
                     chats_root,
-                    chat_a,
-                    chat_b,
                 ]
             );
             let _ = std::fs::remove_dir_all(temp_home);
@@ -943,8 +937,6 @@
     fn thread_catalog_workspace_roots_still_skip_visible_worktree() {
         with_temp_hunk_home("catalog-roots-worktree", |_| {
             let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-            let chat_a = chats_root.join("chat-a");
-            std::fs::create_dir_all(&chat_a).expect("chat-a should exist");
             let workspace_targets = vec![
                 workspace_target(
                     "primary",
@@ -972,7 +964,11 @@
             );
             assert_eq!(
                 roots,
-                vec![PathBuf::from("/repo"), PathBuf::from("/repo/worktrees/task-2"), chats_root, chat_a]
+                vec![
+                    PathBuf::from("/repo"),
+                    PathBuf::from("/repo/worktrees/task-2"),
+                    chats_root,
+                ]
             );
         });
     }
@@ -981,8 +977,6 @@
     fn workspace_catalog_inputs_include_all_projects_and_skip_visible_workspace_root() {
         with_temp_hunk_home("catalog-inputs-projects", |_| {
             let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-            let chat_a = chats_root.join("chat-a");
-            std::fs::create_dir_all(&chat_a).expect("chat-a should exist");
             let repo_a_targets = vec![
                 workspace_target(
                     "primary",
@@ -1022,7 +1016,6 @@
                 inputs.known_workspace_keys,
                 BTreeSet::from([
                     chats_root.to_string_lossy().to_string(),
-                    chat_a.to_string_lossy().to_string(),
                     "/repo-a".to_string(),
                     "/repo-a/worktrees/task-a".to_string(),
                     "/repo-b".to_string(),
@@ -1036,7 +1029,6 @@
                     PathBuf::from("/repo-a/worktrees/task-a"),
                     PathBuf::from("/repo-b"),
                     chats_root,
-                    chat_a,
                 ]
             );
         });
@@ -1046,8 +1038,6 @@
     fn workspace_catalog_inputs_keep_fallback_project_roots_for_projects_without_targets() {
         with_temp_hunk_home("catalog-inputs-fallback", |_| {
             let chats_root = resolve_ai_chats_root_path().expect("chats root should resolve");
-            let chat_a = chats_root.join("chat-a");
-            std::fs::create_dir_all(&chat_a).expect("chat-a should exist");
             let repo_a_targets = vec![workspace_target(
                 "primary",
                 WorkspaceTargetKind::PrimaryCheckout,
@@ -1065,14 +1055,13 @@
                 inputs.known_workspace_keys,
                 BTreeSet::from([
                     chats_root.to_string_lossy().to_string(),
-                    chat_a.to_string_lossy().to_string(),
                     "/repo-a".to_string(),
                     "/repo-b".to_string(),
                 ])
             );
             assert_eq!(
                 inputs.workspace_roots,
-                vec![PathBuf::from("/repo-b"), chats_root, chat_a]
+                vec![PathBuf::from("/repo-b"), chats_root]
             );
         });
     }
