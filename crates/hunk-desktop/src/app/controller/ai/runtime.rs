@@ -344,7 +344,15 @@ fn ai_snapshot_threads_changed(
     previous_state: &hunk_codex::state::AiState,
     next_state: &hunk_codex::state::AiState,
 ) -> bool {
-    previous_state.threads != next_state.threads
+    previous_state.threads.len() != next_state.threads.len()
+        || previous_state.threads.iter().any(|(thread_id, previous_thread)| {
+            next_state
+                .threads
+                .get(thread_id.as_str())
+                .is_none_or(|next_thread| {
+                    !ai_thread_supports_incremental_streaming(previous_thread, next_thread)
+                })
+        })
 }
 
 fn ai_snapshot_removed_thread_ids(
@@ -1193,11 +1201,38 @@ fn drain_ai_worker_events(
         match event_rx.try_recv() {
             Ok(event) => buffered_events.push(event),
             Err(std::sync::mpsc::TryRecvError::Empty) => {
-                return (buffered_events, false);
+                return (coalesce_ai_worker_events(buffered_events), false);
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                return (buffered_events, true);
+                return (coalesce_ai_worker_events(buffered_events), true);
             }
         }
     }
+}
+
+fn coalesce_ai_worker_events(buffered_events: Vec<AiWorkerEvent>) -> Vec<AiWorkerEvent> {
+    if buffered_events.len() < 2 {
+        return buffered_events;
+    }
+
+    let mut coalesced = Vec::with_capacity(buffered_events.len());
+    let mut pending_snapshot = None;
+
+    for event in buffered_events {
+        if matches!(&event.payload, AiWorkerEventPayload::Snapshot(_)) {
+            pending_snapshot = Some(event);
+            continue;
+        }
+
+        if let Some(snapshot) = pending_snapshot.take() {
+            coalesced.push(snapshot);
+        }
+        coalesced.push(event);
+    }
+
+    if let Some(snapshot) = pending_snapshot {
+        coalesced.push(snapshot);
+    }
+
+    coalesced
 }

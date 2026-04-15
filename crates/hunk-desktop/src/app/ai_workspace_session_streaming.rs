@@ -62,10 +62,18 @@ impl AiWorkspaceSession {
             }
 
             if current_block != next_block {
+                let text_layout_changed = current_block.kind != next_block.kind
+                    || current_block.role != next_block.role
+                    || current_block.mono_preview != next_block.mono_preview
+                    || current_block.markdown_preview != next_block.markdown_preview
+                    || current_block.title != next_block.title
+                    || current_block.preview != next_block.preview;
                 selection_surfaces_changed |= current_block.title != next_block.title
                     || current_block.preview != next_block.preview;
                 self.blocks[block_index] = next_block;
-                changed_block_indexes.push(block_index);
+                if text_layout_changed {
+                    changed_block_indexes.push(block_index);
+                }
             }
         }
 
@@ -152,18 +160,32 @@ impl AiWorkspaceSession {
         changed_block_indexes.sort_unstable();
         changed_block_indexes.dedup();
 
-        for (width_bucket, geometry) in &mut self.geometry_by_width_bucket {
-            let mut total_height_delta = 0isize;
+        for (width_bucket, text_layouts) in &mut self.text_layouts_by_width_bucket {
             for &block_index in &changed_block_indexes {
                 let Some(block) = self.blocks.get(block_index) else {
                     continue;
                 };
+                let Some(layout) = text_layouts.get_mut(block_index) else {
+                    continue;
+                };
+                *layout = ai_workspace_text_layout_for_block(block, *width_bucket);
+            }
+        }
+
+        for (width_bucket, geometry) in &mut self.geometry_by_width_bucket {
+            let mut total_height_delta = 0isize;
+            for &block_index in &changed_block_indexes {
                 let Some(entry) = geometry.blocks.get_mut(block_index) else {
                     continue;
                 };
-
-                let next_height_px =
-                    ai_workspace_text_layout_for_block(block, *width_bucket).height_px;
+                let Some(text_layouts) = self.text_layouts_by_width_bucket.get(width_bucket) else {
+                    continue;
+                };
+                let Some(next_height_px) =
+                    text_layouts.get(block_index).map(|layout| layout.height_px)
+                else {
+                    continue;
+                };
                 let previous_height_px = entry.height_px;
                 if next_height_px == previous_height_px {
                     continue;
@@ -198,6 +220,7 @@ fn ai_workspace_streaming_preview_update(
         || current_block.kind != next_block.kind
         || current_block.role != next_block.role
         || current_block.mono_preview != next_block.mono_preview
+        || current_block.markdown_preview != next_block.markdown_preview
         || current_block.expandable != next_block.expandable
         || current_block.expanded != next_block.expanded
     {

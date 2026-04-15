@@ -25,6 +25,7 @@ fn test_block(
         kind,
         nested: false,
         mono_preview: false,
+        markdown_preview: false,
         open_review_tab,
         expandable: false,
         expanded: true,

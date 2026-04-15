@@ -45,30 +45,38 @@ impl DiffViewer {
             return Some(snapshot);
         };
         let threads_changed = ai_snapshot_threads_changed(&self.ai_state_snapshot, &snapshot.state);
+        let can_reuse_timeline_indexes = !threads_changed
+            && ai_change_set_supports_direct_workspace_updates(self, &change_set);
 
         let AiSnapshot { state, .. } = snapshot;
         self.ai_state_snapshot = state;
-        self.rebuild_ai_timeline_indexes();
-        if threads_changed {
-            self.rebuild_ai_thread_sidebar_state();
-        }
-
-        let next_visible_row_ids = self.ai_timeline_visible_rows_for_thread(selected_thread_id).3;
-        if next_visible_row_ids != visible_row_ids {
-            self.invalidate_ai_visible_frame_state_with_reason("runtime");
-            if self.ai_timeline_follow_output
-                && should_scroll_timeline_to_bottom_on_new_activity(
-                    thread_latest_timeline_sequence(&self.ai_state_snapshot, selected_thread_id),
-                    previous_selected_thread_sequence,
-                    self.ai_timeline_follow_output,
-                )
-            {
-                self.ai_scroll_timeline_to_bottom = true;
+        let next_visible_row_ids = if can_reuse_timeline_indexes {
+            self.apply_incremental_item_row_sequence_updates(&change_set);
+            visible_row_ids.clone()
+        } else {
+            self.rebuild_ai_timeline_indexes();
+            if threads_changed {
+                self.rebuild_ai_thread_sidebar_state();
             }
-            self.flush_ai_timeline_scroll_request();
-            cx.notify();
-            return None;
-        }
+
+            let next_visible_row_ids = self.ai_timeline_visible_rows_for_thread(selected_thread_id).3;
+            if next_visible_row_ids != visible_row_ids {
+                self.invalidate_ai_visible_frame_state_with_reason("runtime");
+                if self.ai_timeline_follow_output
+                    && should_scroll_timeline_to_bottom_on_new_activity(
+                        thread_latest_timeline_sequence(&self.ai_state_snapshot, selected_thread_id),
+                        previous_selected_thread_sequence,
+                        self.ai_timeline_follow_output,
+                    )
+                {
+                    self.ai_scroll_timeline_to_bottom = true;
+                }
+                self.flush_ai_timeline_scroll_request();
+                cx.notify();
+                return None;
+            }
+            next_visible_row_ids
+        };
 
         let changed_container_row_ids = change_set
             .changed_item_keys
@@ -138,6 +146,21 @@ impl DiffViewer {
         self.flush_ai_timeline_scroll_request();
         cx.notify();
         None
+    }
+
+    fn apply_incremental_item_row_sequence_updates(
+        &mut self,
+        change_set: &AiIncrementalStreamingChangeSet,
+    ) {
+        for item_key in &change_set.changed_item_keys {
+            let Some(item) = self.ai_state_snapshot.items.get(item_key.as_str()) else {
+                continue;
+            };
+            let row_id = format!("item:{item_key}");
+            if let Some(row) = self.ai_timeline_rows_by_id.get_mut(row_id.as_str()) {
+                row.last_sequence = item.last_sequence;
+            }
+        }
     }
 
     fn ensure_ai_workspace_streaming_reveal_task(&mut self, cx: &mut Context<Self>) {
@@ -253,6 +276,29 @@ fn ai_incremental_streaming_change_set(
     Some(AiIncrementalStreamingChangeSet { changed_item_keys })
 }
 
+fn ai_change_set_supports_direct_workspace_updates(
+    this: &DiffViewer,
+    change_set: &AiIncrementalStreamingChangeSet,
+) -> bool {
+    !change_set.changed_item_keys.is_empty()
+        && change_set.changed_item_keys.iter().all(|item_key| {
+            let Some(item) = this.ai_state_snapshot.items.get(item_key.as_str()) else {
+                return false;
+            };
+            if !ai_item_kind_supports_direct_workspace_streaming(item.kind.as_str()) {
+                return false;
+            }
+
+            let row_id = format!("item:{item_key}");
+            this.ai_timeline_container_row_id(row_id.as_str())
+                .is_some_and(|container_row_id| container_row_id == row_id)
+        })
+}
+
+fn ai_item_kind_supports_direct_workspace_streaming(kind: &str) -> bool {
+    matches!(kind, "agentMessage" | "userMessage" | "plan")
+}
+
 fn ai_thread_supports_incremental_streaming(
     previous_thread: &hunk_codex::state::ThreadSummary,
     next_thread: &hunk_codex::state::ThreadSummary,
@@ -288,9 +334,11 @@ fn ai_item_supports_incremental_streaming(
         return None;
     }
 
+    // Item snapshots are sequence-driven: every meaningful content mutation updates
+    // `last_sequence` in the reducer. Rely on that instead of re-comparing the entire
+    // accumulated content string for every streamed delta.
     Some(
         previous_item.status != next_item.status
-            || previous_item.content != next_item.content
             || previous_item.display_metadata != next_item.display_metadata
             || previous_item.last_sequence != next_item.last_sequence,
     )

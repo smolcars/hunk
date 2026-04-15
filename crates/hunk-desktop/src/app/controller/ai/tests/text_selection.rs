@@ -161,6 +161,7 @@
             kind: ai_workspace_session::AiWorkspaceBlockKind::Message,
             nested: false,
             mono_preview: false,
+            markdown_preview: true,
             open_review_tab: false,
             expandable: false,
             expanded: true,
