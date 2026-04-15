@@ -148,8 +148,8 @@ pub fn github_loopback_redirect_url(listen_addr: SocketAddr) -> Result<String> {
 }
 
 fn normalize_host(host: &str) -> String {
-    let trimmed = host.trim();
-    let without_scheme = trimmed
+    let normalized = host.trim().to_ascii_lowercase();
+    let without_scheme = normalized
         .trim_start_matches("https://")
         .trim_start_matches("http://");
     without_scheme.trim_end_matches('/').to_ascii_lowercase()
