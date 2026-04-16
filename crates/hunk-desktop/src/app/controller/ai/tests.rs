@@ -456,7 +456,9 @@ mod ai_tests {
     include!("tests/runtime_path_and_session.rs");
     include!("tests/followup_prompts.rs");
     include!("tests/composer_status_scope.rs");
+    include!("tests/background_runtime.rs");
     include!("tests/workspace_surface_plan_items.rs");
     include!("tests/workspace_streaming.rs");
+    include!("tests/thread_switching.rs");
     include!("tests/text_selection.rs");
 }

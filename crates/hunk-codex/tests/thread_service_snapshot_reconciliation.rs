@@ -41,7 +41,7 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 
 #[test]
 fn authoritative_snapshots_replace_turn_items_after_fallback_and_follow_up_reads() {
-    let server = TestServer::spawn();
+    let server = TestServer::spawn(Scenario::ReplaceTurnItemsAfterFollowUpRead);
     let mut session = connect_initialized_session(server.port);
     let mut service = ThreadService::new(WORKSPACE_CWD.into());
 
@@ -103,6 +103,58 @@ fn authoritative_snapshots_replace_turn_items_after_fallback_and_follow_up_reads
     server.join();
 }
 
+#[test]
+fn authoritative_snapshots_replace_existing_agent_item_content_for_same_item_id() {
+    let server = TestServer::spawn(Scenario::ReplaceAgentContentForSameItemId);
+    let mut session = connect_initialized_session(server.port);
+    let mut service = ThreadService::new(WORKSPACE_CWD.into());
+
+    service
+        .resume_thread(
+            &mut session,
+            ThreadResumeParams {
+                thread_id: "external-thread".to_string(),
+                ..ThreadResumeParams::default()
+            },
+            TIMEOUT,
+        )
+        .expect("thread/resume should succeed");
+
+    assert_eq!(
+        turn_status_for(service.state(), "external-thread", "resume-turn-1"),
+        StateTurnStatus::InProgress
+    );
+    assert_eq!(
+        item_content_for(
+            service.state(),
+            "external-thread",
+            "resume-turn-1",
+            "resume-agent-1"
+        ),
+        Some("assistant chunk one")
+    );
+
+    service
+        .read_thread(&mut session, "external-thread".to_string(), true, TIMEOUT)
+        .expect("thread/read should succeed");
+
+    assert_eq!(
+        turn_status_for(service.state(), "external-thread", "resume-turn-1"),
+        StateTurnStatus::InProgress
+    );
+    assert_eq!(
+        item_content_for(
+            service.state(),
+            "external-thread",
+            "resume-turn-1",
+            "resume-agent-1"
+        ),
+        Some("assistant chunk two after reconnect")
+    );
+
+    server.join();
+}
+
 fn item_ids_for_turn(
     state: &hunk_codex::state::AiState,
     thread_id: &str,
@@ -133,13 +185,32 @@ fn string_set(values: &[&str]) -> BTreeSet<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }
 
+fn item_content_for<'a>(
+    state: &'a hunk_codex::state::AiState,
+    thread_id: &str,
+    turn_id: &str,
+    item_id: &str,
+) -> Option<&'a str> {
+    state
+        .items
+        .values()
+        .find(|item| item.thread_id == thread_id && item.turn_id == turn_id && item.id == item_id)
+        .map(|item| item.content.as_str())
+}
+
+#[derive(Clone, Copy)]
+enum Scenario {
+    ReplaceTurnItemsAfterFollowUpRead,
+    ReplaceAgentContentForSameItemId,
+}
+
 struct TestServer {
     port: u16,
     join: thread::JoinHandle<()>,
 }
 
 impl TestServer {
-    fn spawn() -> Self {
+    fn spawn(scenario: Scenario) -> Self {
         let (tx, rx) = mpsc::channel();
         let join = thread::spawn(move || {
             let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind should succeed");
@@ -152,7 +223,14 @@ impl TestServer {
             let (stream, _) = listener.accept().expect("accept should succeed");
             let mut socket = accept(stream).expect("websocket handshake should succeed");
             run_initialize_handshake(&mut socket);
-            run_resume_then_read_authoritative_snapshot(&mut socket);
+            match scenario {
+                Scenario::ReplaceTurnItemsAfterFollowUpRead => {
+                    run_resume_then_read_authoritative_snapshot(&mut socket)
+                }
+                Scenario::ReplaceAgentContentForSameItemId => {
+                    run_resume_then_read_same_item_snapshot(&mut socket)
+                }
+            }
         });
 
         let port = rx.recv().expect("port should be received");
@@ -234,6 +312,68 @@ fn run_resume_then_read_authoritative_snapshot(socket: &mut WebSocket<TcpStream>
                             "You're asking for current weather in California.",
                         ),
                         agent_message("read-agent-2", "California varies a lot by city."),
+                    ],
+                )],
+            ),
+        },
+    );
+}
+
+fn run_resume_then_read_same_item_snapshot(socket: &mut WebSocket<TcpStream>) {
+    let resume = expect_request(socket, api::method::THREAD_RESUME);
+    let resume_params = resume
+        .params
+        .expect("thread/resume params should be present");
+    assert_eq!(
+        param_string(&resume_params, "threadId"),
+        Some("external-thread".to_string())
+    );
+    send_typed_success_response(
+        socket,
+        resume.id,
+        &thread_resume_response(thread(
+            "external-thread",
+            WORKSPACE_CWD,
+            ThreadStatus::Active {
+                active_flags: Vec::new(),
+            },
+            vec![turn_with_items(
+                "resume-turn-1",
+                TurnStatus::InProgress,
+                vec![
+                    user_message("resume-user-1", "keep going"),
+                    agent_message("resume-agent-1", "assistant chunk one"),
+                ],
+            )],
+        )),
+    );
+
+    let read = expect_request(socket, api::method::THREAD_READ);
+    let read_params = read.params.expect("thread/read params should be present");
+    assert_eq!(
+        param_string(&read_params, "threadId"),
+        Some("external-thread".to_string())
+    );
+    assert_eq!(
+        read_params.get("includeTurns"),
+        Some(&serde_json::json!(true))
+    );
+    send_typed_success_response(
+        socket,
+        read.id,
+        &ThreadReadResponse {
+            thread: thread(
+                "external-thread",
+                WORKSPACE_CWD,
+                ThreadStatus::Active {
+                    active_flags: Vec::new(),
+                },
+                vec![turn_with_items(
+                    "resume-turn-1",
+                    TurnStatus::InProgress,
+                    vec![
+                        user_message("resume-user-1", "keep going"),
+                        agent_message("resume-agent-1", "assistant chunk two after reconnect"),
                     ],
                 )],
             ),

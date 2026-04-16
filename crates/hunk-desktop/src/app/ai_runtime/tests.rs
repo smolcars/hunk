@@ -844,4 +844,5 @@ mod ai_tests {
             other => panic!("expected fatal event, got {other:?}"),
         }
     }
+
 }

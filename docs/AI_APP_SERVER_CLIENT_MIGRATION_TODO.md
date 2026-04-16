@@ -5,7 +5,7 @@
 - Start date: 2026-04-16
 - Goal: Replace Hunk's custom Codex host + WebSocket worker path with an upstream-style app-server client architecture that is more stable, easier to reason about, and able to support both remote and embedded transports.
 - Current internal transport flag: `HUNK_CODEX_APP_SERVER_TRANSPORT=auto|embedded|remote`
-- Latest automated validation (2026-04-16): `cargo check --workspace`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`
+- Latest automated validation (2026-04-16): `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`
 
 ## Current Implementation Snapshot
 - [x] Hunk now has a transport-agnostic app-server client boundary in `hunk-codex`.
@@ -15,6 +15,8 @@
 - [x] Desktop AI runtime now consumes app-server events instead of polling raw WebSocket session queues.
 - [x] Stall detection and automatic recovery are implemented.
 - [x] Completed thread snapshots no longer reopen finished turns during item hydration, which removes a major source of false-positive stall recovery.
+- [x] Reconnect-time `thread/resume` / `thread/read` snapshots now replace stale same-item agent content, so restarted hosts do not keep showing old streamed text.
+- [x] Automated coverage now exercises reconnect-time snapshot replacement, background workspace disconnect/fatal cleanup, and thread-selection behavior while another thread is streaming.
 - [ ] A true in-process `Embedded` client is still blocked by upstream `sqlx/sqlite` linkage conflicting with Hunk's `rusqlite` linkage inside the desktop binary.
 - [ ] Default transport is still pending a longer soak period and measurement.
 - [ ] Manual soak validation, perf comparisons, and legacy transport cleanup are still pending.
@@ -164,7 +166,7 @@
 - [x] Verify no infinite reconnect/resume loops.
 - [ ] Verify recovery does not duplicate user turns or replay unsafe actions.
 - [x] Verify silent stalls become observable in logs and test fixtures.
-- [ ] Verify background/hidden AI workspaces recover correctly.
+- [x] Verify background/hidden AI workspaces recover correctly.
 
 ## Phase 4: Embedded Transport
 - [x] Add embedded transport selection and a shared app-server client surface for future in-process integration.
@@ -215,12 +217,12 @@
 - [x] Unit tests for event ordering and backpressure handling.
 - [x] Unit tests for disconnect and lag event handling.
 - [ ] Integration tests for:
-  - [ ] active streaming turn survives transport reconnect
-  - [ ] `thread/resume` reattaches and streaming continues
+  - [x] active streaming turn survives transport reconnect
+  - [x] `thread/resume` reattaches and streaming continues
   - [x] approval requests still resolve correctly
   - [x] user-input requests still resolve correctly
-  - [ ] background workspace runtime remains correct
-  - [ ] thread switching during streaming remains correct
+  - [x] background workspace runtime remains correct
+  - [x] thread switching during streaming remains correct
 
 ### Required Manual/Soak Validation
 - [ ] Long-running AI thread soak test in Hunk.
@@ -234,6 +236,7 @@
 - [x] `cargo check --workspace`
 - [x] `cargo test --workspace`
 - [x] `cargo clippy --workspace --all-targets -- -D warnings`
+- [x] `cargo build --workspace`
 
 ## Open Questions
 - [ ] Should Hunk vendor upstream app-server client code directly, or copy selected modules into `hunk-codex` and maintain them locally?

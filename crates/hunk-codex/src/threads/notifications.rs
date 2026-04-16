@@ -498,7 +498,7 @@ impl ThreadService {
                 delta: seed_content.clone(),
             });
         } else if let Some(seed_content) = seed_content.as_ref()
-            && self.should_replace_item_snapshot_content(item, item_key.as_str(), seed_content)
+            && self.should_replace_item_snapshot_content(item_key.as_str(), seed_content)
         {
             self.apply_event(ReducerEvent::ItemContentSet {
                 thread_id: thread_id.to_string(),
@@ -673,21 +673,11 @@ impl ThreadService {
         }
     }
 
-    fn should_replace_item_snapshot_content(
-        &self,
-        item: &ThreadItem,
-        item_key: &str,
-        seed_content: &str,
-    ) -> bool {
-        matches!(item, ThreadItem::UserMessage { .. })
-            && self
-                .state
-                .items
-                .get(item_key)
-                .is_some_and(|existing| {
-                    normalized_item_content(existing.content.as_str())
-                        != normalized_item_content(seed_content)
-                })
+    fn should_replace_item_snapshot_content(&self, item_key: &str, seed_content: &str) -> bool {
+        self.state.items.get(item_key).is_some_and(|existing| {
+            normalized_item_content(existing.content.as_str())
+                != normalized_item_content(seed_content)
+        })
     }
 
     fn ensure_thread_in_workspace(&self, thread: &Thread) -> Result<()> {
