@@ -189,6 +189,7 @@ jobs:
             clang \
             cmake \
             libasound2-dev \
+            libdbus-1-dev \
             libegl1 \
             libffi-dev \
             libfontconfig-dev \
