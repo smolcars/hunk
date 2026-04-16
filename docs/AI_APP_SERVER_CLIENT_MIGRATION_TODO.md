@@ -18,6 +18,7 @@
 - [x] Reconnect-time `thread/resume` / `thread/read` snapshots now replace stale same-item agent content, so restarted hosts do not keep showing old streamed text.
 - [x] Automated coverage now exercises reconnect-time snapshot replacement, background workspace disconnect/fatal cleanup, and thread-selection behavior while another thread is streaming.
 - [ ] A true in-process `Embedded` client is still blocked by upstream `sqlx/sqlite` linkage conflicting with Hunk's `rusqlite` linkage inside the desktop binary.
+- [x] The current recommended unblocker for the embedded/sqlite issue is documented in `docs/AI_EMBEDDED_SQLITE_PLAN.md`.
 - [ ] Default transport is still pending a longer soak period and measurement.
 - [ ] Manual soak validation, perf comparisons, and legacy transport cleanup are still pending.
 
