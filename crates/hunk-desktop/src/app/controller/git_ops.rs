@@ -59,7 +59,8 @@ impl DiffViewer {
                     crate::app::notifications::success(message.clone()),
                     cx,
                 );
-            }) {
+            }) && !Self::is_window_not_found_error(&err)
+            {
                 error!("failed to show git action success notification: {err:#}");
             }
         }
@@ -79,7 +80,8 @@ impl DiffViewer {
                     crate::app::notifications::error(message.clone()),
                     cx,
                 );
-            }) {
+            }) && !Self::is_window_not_found_error(&err)
+            {
                 error!("failed to show git action error notification: {err:#}");
             }
         }
@@ -112,7 +114,8 @@ impl DiffViewer {
                     crate::app::notifications::warning(message.clone()),
                     cx,
                 );
-            }) {
+            }) && !Self::is_window_not_found_error(&err)
+            {
                 error!("failed to show git action warning notification: {err:#}");
             }
         }
