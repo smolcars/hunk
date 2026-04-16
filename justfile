@@ -1,8 +1,11 @@
 set windows-shell := ["pwsh", "-Command"]
-set export
+set export := true
 
 start-mac:
     cargo run -p hunk-desktop
+
+start-mac-release:
+    RUST_LOG=hunk_desktop=debug,hunk_codex=debug cargo run --release -p hunk-desktop
 
 start-windows:
     pwsh ./scripts/run_windows_dev.ps1
@@ -12,7 +15,7 @@ start-windows-release:
 
 start-linux:
     cargo run -p hunk-desktop
-    
+
 fmt:
     cargo fmt --all
 
@@ -20,7 +23,7 @@ build:
     ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop
 
 build-worktree worktree:
-    ./scripts/build_worktree.sh {{worktree}}
+    ./scripts/build_worktree.sh {{ worktree }}
 
 release:
     ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --release

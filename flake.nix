@@ -30,6 +30,7 @@
             with pkgs;
             [
               alsa-lib
+              dbus.lib
               expat
               fontconfig
               glib
@@ -68,6 +69,10 @@
         {
           default = pkgs.mkShell {
             name = "hunk-dev-shell";
+            buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
+              pkgs.dbus.dev
+              pkgs.dbus.lib
+            ];
             packages =
               with pkgs;
               [
@@ -83,6 +88,7 @@
                 clang
                 cmake
                 alsa-lib
+                dbus
                 expat
                 fontconfig
                 libgit2

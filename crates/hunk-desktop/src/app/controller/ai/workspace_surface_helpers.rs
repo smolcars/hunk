@@ -82,6 +82,7 @@ fn ai_workspace_diff_block(
         kind: ai_workspace_session::AiWorkspaceBlockKind::DiffSummary,
         nested,
         mono_preview: false,
+        markdown_preview: false,
         open_review_tab: true,
         expandable: false,
         expanded: false,
@@ -133,25 +134,57 @@ fn ai_workspace_file_change_group_summary(
 }
 
 fn ai_workspace_full_preview_text(value: &str) -> String {
-    let normalized = value
-        .replace("\r\n", "\n")
-        .lines()
-        .take(160)
-        .map(|line| line.trim_end())
-        .collect::<Vec<_>>()
-        .join("\n");
-    truncate_ai_workspace_preview(normalized.as_str(), 12_000)
+    ai_workspace_normalized_preview_text(value, 160, 12_000)
 }
 
 fn ai_workspace_expanded_tool_text(value: &str) -> String {
-    let normalized = value
-        .replace("\r\n", "\n")
-        .lines()
-        .take(96)
-        .map(|line| line.trim_end())
-        .collect::<Vec<_>>()
-        .join("\n");
-    truncate_ai_workspace_preview(normalized.as_str(), 8_000)
+    ai_workspace_normalized_preview_text(value, 96, 8_000)
+}
+
+fn ai_workspace_normalized_preview_text(value: &str, max_lines: usize, max_len: usize) -> String {
+    let mut normalized = String::new();
+    let mut lines = value.lines().peekable();
+    let mut truncated = false;
+
+    for line_index in 0..max_lines {
+        let Some(raw_line) = lines.next() else {
+            break;
+        };
+        if line_index > 0 {
+            normalized.push('\n');
+        }
+
+        let trimmed_line = raw_line.trim_end();
+        let remaining = max_len.saturating_sub(normalized.len());
+        let (line_fragment, line_truncated) =
+            ai_workspace_preview_prefix(trimmed_line, remaining);
+        normalized.push_str(line_fragment);
+        if line_truncated {
+            truncated = true;
+            break;
+        }
+    }
+
+    if !truncated && lines.peek().is_some() {
+        truncated = true;
+    }
+
+    if truncated {
+        normalized = ai_workspace_finalize_truncated_preview(normalized.as_str(), max_len);
+    }
+    normalized
+}
+
+fn ai_workspace_preview_prefix(value: &str, max_len: usize) -> (&str, bool) {
+    if value.len() <= max_len {
+        return (value, false);
+    }
+
+    let mut end = max_len;
+    while end > 0 && !value.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    (&value[..end], true)
 }
 
 fn truncate_ai_workspace_preview(value: &str, max_len: usize) -> String {
@@ -165,6 +198,15 @@ fn truncate_ai_workspace_preview(value: &str, max_len: usize) -> String {
     }
     let trimmed = value[..end].trim_end();
     format!("{trimmed}...")
+}
+
+fn ai_workspace_finalize_truncated_preview(value: &str, max_len: usize) -> String {
+    let truncated = truncate_ai_workspace_preview(value, max_len);
+    if truncated == value {
+        format!("{}...", value.trim_end())
+    } else {
+        truncated
+    }
 }
 
 fn ai_workspace_prompt_preview(prompt: &str, local_images: &[PathBuf]) -> String {

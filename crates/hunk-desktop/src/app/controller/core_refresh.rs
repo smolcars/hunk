@@ -457,10 +457,11 @@ impl DiffViewer {
         if self.selected_git_workspace_root().as_ref() != Some(&repo_root) {
             return;
         }
+        let branch_name = self.branch_name.clone();
 
-        self.git_workspace.root = Some(repo_root);
+        self.git_workspace.root = Some(repo_root.clone());
         self.git_workspace.working_copy_commit_id = self.working_copy_commit_id.clone();
-        self.git_workspace.branch_name = self.branch_name.clone();
+        self.git_workspace.branch_name = branch_name.clone();
         self.git_workspace.branch_has_upstream = self.branch_has_upstream;
         self.git_workspace.branch_ahead_count = self.branch_ahead_count;
         self.git_workspace.branch_behind_count = self.branch_behind_count;
@@ -477,6 +478,7 @@ impl DiffViewer {
         self.git_workspace.file_status_by_path = self.file_status_by_path.clone();
         self.git_workspace.file_line_stats = self.file_line_stats.clone();
         self.git_workspace.overall_line_stats = self.overall_line_stats;
+        self.refresh_git_workspace_forge_repo(repo_root.as_path(), branch_name.as_str());
     }
 
     fn next_git_workspace_refresh_epoch(&mut self) -> usize {
@@ -501,6 +503,7 @@ impl DiffViewer {
 
     fn clear_git_workspace_state(&mut self) {
         self.git_workspace = GitWorkspaceState::default();
+        self.git_workspace_forge_repo = None;
         self.last_commit_subject = None;
         self.recent_commits.clear();
         self.recent_commits_error = None;
@@ -576,6 +579,10 @@ impl DiffViewer {
         {
             self.request_selected_diff_reload(cx);
         }
+        let review_branch_name = self.git_workspace.branch_name.clone();
+        self.clear_review_summary_miss_for_branch(root.as_path(), review_branch_name.as_str());
+        self.refresh_git_workspace_forge_repo(root.as_path(), review_branch_name.as_str());
+        self.maybe_queue_review_summary_lookup(root, review_branch_name, cx);
         self.sync_branch_picker_state(cx);
     }
 

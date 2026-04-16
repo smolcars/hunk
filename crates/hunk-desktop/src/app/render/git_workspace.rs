@@ -1,5 +1,6 @@
 impl DiffViewer {
     fn render_git_workspace_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
         let colors = hunk_git_workspace(cx.theme(), is_dark);
         let show_workflow_skeleton = self.workflow_loading && !self.git_workflow_ready_for_panel();
@@ -8,6 +9,7 @@ impl DiffViewer {
         } else {
             self.render_git_workspace_operations_panel(cx)
         };
+        let github_auth_repo = self.current_git_workspace_github_dot_com_repo().cloned();
         let active_branch_label = self
             .checked_out_branch_name()
             .map_or_else(|| "detached".to_string(), ToOwned::to_owned);
@@ -30,54 +32,69 @@ impl DiffViewer {
             .border_color(colors.shell.border)
             .bg(colors.shell.background)
             .child(
-                v_flex()
+                h_flex()
                     .w_full()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_base()
-                            .font_semibold()
-                            .text_color(cx.theme().foreground)
-                            .child("Git Workflow"),
-                    )
+                    .items_start()
+                    .justify_between()
+                    .gap_3()
                     .child(
                         v_flex()
+                            .flex_1()
                             .min_w_0()
                             .gap_1()
                             .child(
                                 div()
-                                    .max_w(px(520.0))
-                                    .truncate()
-                                    .text_sm()
+                                    .text_base()
                                     .font_semibold()
                                     .text_color(cx.theme().foreground)
-                                    .child(active_branch_label),
+                                    .child("Git Workflow"),
                             )
                             .child(
-                                div()
-                                    .max_w(px(520.0))
-                                    .truncate()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("Last commit: {last_commit_text}")),
-                            )
-                            .child(
-                                h_flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .flex_wrap()
-                                    .child(self.render_git_metric_pill(
-                                        format!("Changed {}", self.git_workspace.files.len()),
-                                        if self.git_workspace.files.is_empty() {
-                                            HunkAccentTone::Neutral
-                                        } else {
-                                            HunkAccentTone::Accent
-                                        },
-                                        cx,
-                                    ))
-                                    .child(self.render_git_workspace_summary_line_stats(cx)),
+                                v_flex()
+                                    .min_w_0()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .max_w(px(520.0))
+                                            .truncate()
+                                            .text_sm()
+                                            .font_semibold()
+                                            .text_color(cx.theme().foreground)
+                                            .child(active_branch_label),
+                                    )
+                                    .child(
+                                        div()
+                                            .max_w(px(520.0))
+                                            .truncate()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(format!("Last commit: {last_commit_text}")),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .flex_wrap()
+                                            .child(self.render_git_metric_pill(
+                                                format!("Changed {}", self.git_workspace.files.len()),
+                                                if self.git_workspace.files.is_empty() {
+                                                    HunkAccentTone::Neutral
+                                                } else {
+                                                    HunkAccentTone::Accent
+                                                },
+                                                cx,
+                                            ))
+                                            .child(self.render_git_workspace_summary_line_stats(cx)),
+                                    ),
                             ),
-                    ),
+                    )
+                    .when_some(github_auth_repo, |this, repo| {
+                        this.child(self.render_github_auth_header_controls(
+                            view.clone(),
+                            &repo,
+                            cx,
+                        ))
+                    }),
             )
             .child(
                 div()

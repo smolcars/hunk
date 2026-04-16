@@ -50,6 +50,7 @@ pub(crate) struct AiWorkspaceBlock {
     pub(crate) kind: AiWorkspaceBlockKind,
     pub(crate) nested: bool,
     pub(crate) mono_preview: bool,
+    pub(crate) markdown_preview: bool,
     pub(crate) open_review_tab: bool,
     pub(crate) expandable: bool,
     pub(crate) expanded: bool,
@@ -214,6 +215,7 @@ pub(crate) struct AiWorkspaceSession {
     source_row_block_ranges: BTreeMap<String, Range<usize>>,
     streaming_previews_by_block_id: BTreeMap<String, AiWorkspaceStreamingPreview>,
     selection_scope_id: String,
+    text_layouts_by_width_bucket: BTreeMap<usize, Vec<AiWorkspaceBlockTextLayout>>,
     geometry_by_width_bucket: BTreeMap<usize, AiWorkspaceDisplayGeometry>,
     selection_surfaces_by_width_bucket: BTreeMap<usize, Arc<[AiTextSelectionSurfaceSpec]>>,
 }
@@ -241,6 +243,7 @@ impl AiWorkspaceSession {
             source_row_block_ranges,
             streaming_previews_by_block_id: BTreeMap::new(),
             selection_scope_id,
+            text_layouts_by_width_bucket: BTreeMap::new(),
             geometry_by_width_bucket: BTreeMap::new(),
             selection_surfaces_by_width_bucket: BTreeMap::new(),
         }
@@ -272,8 +275,15 @@ impl AiWorkspaceSession {
             return selection_surfaces.clone();
         }
 
-        let selection_surfaces =
-            build_ai_workspace_selection_surfaces(self.blocks.as_slice(), width_bucket);
+        self.ensure_text_layouts_for_width_bucket(width_bucket);
+        let selection_surfaces = {
+            let blocks = self.blocks.as_slice();
+            let text_layouts = self
+                .text_layouts_by_width_bucket
+                .get(&width_bucket)
+                .expect("text layouts should exist before selection surface build");
+            build_ai_workspace_selection_surfaces(blocks, text_layouts.as_slice())
+        };
         self.selection_surfaces_by_width_bucket
             .insert(width_bucket, selection_surfaces.clone());
         selection_surfaces
@@ -298,10 +308,17 @@ impl AiWorkspaceSession {
     ) -> Option<AiWorkspaceBlockGeometry> {
         let block_index = self.block_index(block_id)?;
         let width_bucket = ai_workspace_width_bucket(width_px);
+        self.ensure_text_layouts_for_width_bucket(width_bucket);
         let geometry = self
             .geometry_by_width_bucket
             .entry(width_bucket)
-            .or_insert_with(|| build_ai_workspace_geometry(self.blocks.as_slice(), width_bucket));
+            .or_insert_with(|| {
+                let text_layouts = self
+                    .text_layouts_by_width_bucket
+                    .get(&width_bucket)
+                    .expect("text layouts should exist before geometry build");
+                build_ai_workspace_geometry(text_layouts.as_slice())
+            });
         geometry.blocks.get(block_index).cloned()
     }
 
@@ -315,11 +332,16 @@ impl AiWorkspaceSession {
         let geometry_rebuild_started_at =
             (!self.geometry_by_width_bucket.contains_key(&width_bucket)).then(Instant::now);
         let selection_surfaces = self.selection_surfaces_for_width(width_bucket);
+        self.ensure_text_layouts_for_width_bucket(width_bucket);
         let blocks = &self.blocks;
+        let text_layouts = self
+            .text_layouts_by_width_bucket
+            .get(&width_bucket)
+            .expect("text layouts should exist before surface snapshot");
         let geometry = self
             .geometry_by_width_bucket
             .entry(width_bucket)
-            .or_insert_with(|| build_ai_workspace_geometry(blocks.as_slice(), width_bucket));
+            .or_insert_with(|| build_ai_workspace_geometry(text_layouts.as_slice()));
         let geometry_rebuild_duration =
             geometry_rebuild_started_at.map(|started_at| started_at.elapsed());
         let viewport_end_px = scroll_top_px.saturating_add(viewport_height_px);
@@ -332,7 +354,10 @@ impl AiWorkspaceSession {
                 }
 
                 blocks.get(entry.block_index).cloned().map(|block| {
-                    let text_layout = ai_workspace_text_layout_for_block(&block, width_bucket);
+                    let text_layout = text_layouts
+                        .get(entry.block_index)
+                        .cloned()
+                        .expect("visible block should have cached text layout");
                     debug_assert_eq!(text_layout.height_px, entry.height_px);
                     AiWorkspaceViewportBlock {
                         block,
@@ -361,17 +386,33 @@ impl AiWorkspaceSession {
             geometry_rebuild_duration,
         }
     }
+
+    fn ensure_text_layouts_for_width_bucket(&mut self, width_bucket: usize) {
+        if self
+            .text_layouts_by_width_bucket
+            .contains_key(&width_bucket)
+        {
+            return;
+        }
+
+        let layouts = self
+            .blocks
+            .iter()
+            .map(|block| ai_workspace_text_layout_for_block(block, width_bucket))
+            .collect::<Vec<_>>();
+        self.text_layouts_by_width_bucket
+            .insert(width_bucket, layouts);
+    }
 }
 
 fn build_ai_workspace_selection_surfaces(
     blocks: &[AiWorkspaceBlock],
-    surface_width_px: usize,
+    text_layouts: &[AiWorkspaceBlockTextLayout],
 ) -> Arc<[AiTextSelectionSurfaceSpec]> {
     let mut surfaces = Vec::new();
 
-    for block in blocks {
+    for (block, text_layout) in blocks.iter().zip(text_layouts.iter()) {
         let block_separator = (!surfaces.is_empty()).then_some("\n\n");
-        let text_layout = ai_workspace_text_layout_for_block(block, surface_width_px);
         let title_text = text_layout.title_lines.join("\n");
         let preview_text = text_layout.preview_lines.join("\n");
         let has_title = !title_text.is_empty();
@@ -430,7 +471,7 @@ pub(crate) fn ai_workspace_text_layout_for_block(
         preview_line_style_spans,
         preview_line_syntax_spans,
         preview_copy_regions,
-    ) = if block.kind == AiWorkspaceBlockKind::Message {
+    ) = if block.kind == AiWorkspaceBlockKind::Message && block.markdown_preview {
         ai_workspace_message_preview_lines(block.preview.as_str(), text_width_px, block)
     } else {
         let preview_lines = ai_workspace_wrap_text(
@@ -564,14 +605,13 @@ pub(crate) fn ai_workspace_text_layout_for_block(
 }
 
 fn build_ai_workspace_geometry(
-    blocks: &[AiWorkspaceBlock],
-    surface_width_px: usize,
+    text_layouts: &[AiWorkspaceBlockTextLayout],
 ) -> AiWorkspaceDisplayGeometry {
     let mut top_px = AI_WORKSPACE_SURFACE_BLOCK_TOP_PADDING_PX;
-    let mut geometry_blocks = Vec::with_capacity(blocks.len());
+    let mut geometry_blocks = Vec::with_capacity(text_layouts.len());
 
-    for (block_index, block) in blocks.iter().enumerate() {
-        let height_px = ai_workspace_text_layout_for_block(block, surface_width_px).height_px;
+    for (block_index, text_layout) in text_layouts.iter().enumerate() {
+        let height_px = text_layout.height_px;
         geometry_blocks.push(AiWorkspaceBlockGeometry {
             block_index,
             top_px,

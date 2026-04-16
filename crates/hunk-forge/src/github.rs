@@ -1,0 +1,230 @@
+use std::future::Future;
+
+use anyhow::{Context as _, Result, anyhow, bail};
+use octocrab::models::{IssueState, pulls::PullRequest};
+use octocrab::{Octocrab, OctocrabBuilder, params};
+
+use crate::models::{
+    CreateReviewInput, CreateReviewResult, ForgeProvider, ForgeReviewState, OpenReviewQuery,
+    OpenReviewSummary,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitHubAuthenticatedAccount {
+    pub login: String,
+    pub display_label: String,
+}
+
+#[derive(Debug)]
+pub struct GitHubReviewClient {
+    api_base_url: String,
+    token: String,
+}
+
+impl GitHubReviewClient {
+    pub fn new(authority: &str, token: &str) -> Result<Self> {
+        let authority = authority.trim().trim_end_matches('/').to_ascii_lowercase();
+        if authority.is_empty() {
+            return Err(anyhow!("github authority cannot be empty"));
+        }
+
+        let token = token.trim();
+        if token.is_empty() {
+            return Err(anyhow!("github token cannot be empty"));
+        }
+
+        Ok(Self {
+            api_base_url: github_api_base_url(authority.as_str()),
+            token: token.to_string(),
+        })
+    }
+
+    pub fn find_open_review(&self, query: &OpenReviewQuery) -> Result<Option<OpenReviewSummary>> {
+        let (owner, repo_name) = github_owner_and_name(&query.repo)?;
+        let head_owner = query
+            .source_head_owner
+            .as_deref()
+            .filter(|owner| !owner.trim().is_empty())
+            .unwrap_or(owner);
+        let head = format!("{head_owner}:{}", query.source_branch);
+        let repo_web_base_url = query.repo.web_base_url.clone();
+        let target_branch = query.target_branch.clone();
+        let pull_requests = self.run(async move {
+            let octocrab = self.build_octocrab()?;
+            let pulls = octocrab.pulls(owner, repo_name);
+            pulls
+                .list()
+                .state(params::State::Open)
+                .head(head)
+                .send()
+                .await
+                .context("failed to query GitHub pull requests")
+        })?;
+        Ok(
+            select_open_pull_request(pull_requests.items, target_branch.as_deref()).map(
+                |pull_request| map_github_pull_request(repo_web_base_url.as_str(), pull_request),
+            ),
+        )
+    }
+
+    pub fn create_review(&self, input: &CreateReviewInput) -> Result<CreateReviewResult> {
+        let (owner, repo_name) = github_owner_and_name(&input.repo)?;
+        let repo_web_base_url = input.repo.web_base_url.clone();
+        let title = input.title.clone();
+        let source_branch = input.source_branch.clone();
+        let source_head_owner = input.source_head_owner.clone();
+        let target_branch = input.target_branch.clone();
+        let body = input.body.clone();
+        let draft = input.draft;
+        let pull_request = self.run(async move {
+            let octocrab = self.build_octocrab()?;
+            let pulls = octocrab.pulls(owner, repo_name);
+            let head =
+                github_create_head(source_head_owner.as_deref(), owner, source_branch.as_str());
+            let mut request = pulls.create(title, head, target_branch);
+            if let Some(body) = body.as_deref() {
+                request = request.body(body);
+            }
+            request
+                .draft(draft)
+                .send()
+                .await
+                .context("failed to create GitHub pull request")
+        })?;
+
+        Ok(CreateReviewResult {
+            review: map_github_pull_request(repo_web_base_url.as_str(), pull_request),
+        })
+    }
+
+    pub fn current_user(&self) -> Result<GitHubAuthenticatedAccount> {
+        self.run(async move {
+            let octocrab = self.build_octocrab()?;
+            let user = octocrab
+                .current()
+                .user()
+                .await
+                .context("failed to load authenticated GitHub user")?;
+            let login = user.login;
+            let display_label = user
+                .name
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| login.clone());
+            Ok(GitHubAuthenticatedAccount {
+                login,
+                display_label,
+            })
+        })
+    }
+
+    fn build_octocrab(&self) -> Result<Octocrab> {
+        OctocrabBuilder::default()
+            .base_uri(self.api_base_url.as_str())
+            .context("failed to configure GitHub API base URI")?
+            .personal_token(self.token.clone())
+            .build()
+            .context("failed to build octocrab GitHub client")
+    }
+
+    fn run<T>(&self, future: impl Future<Output = Result<T>>) -> Result<T> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("failed to initialize tokio runtime for GitHub API call")?;
+        runtime.block_on(future)
+    }
+}
+
+fn github_owner_and_name(repo: &crate::models::ForgeRepoRef) -> Result<(&str, &str)> {
+    validate_github_repo(repo.provider)?;
+    let owner = repo.github_owner()?;
+    let repo_name = repo.name.trim();
+    if repo_name.is_empty() {
+        bail!("github repository name cannot be empty");
+    }
+    Ok((owner, repo_name))
+}
+
+fn validate_github_repo(provider: ForgeProvider) -> Result<()> {
+    if provider != ForgeProvider::GitHub {
+        bail!("GitHub review client only supports GitHub repositories");
+    }
+    Ok(())
+}
+
+#[doc(hidden)]
+pub fn github_api_base_url(host: &str) -> String {
+    if host == "github.com" {
+        "https://api.github.com".to_string()
+    } else {
+        format!("https://{host}/api/v3")
+    }
+}
+
+fn select_open_pull_request(
+    pull_requests: Vec<PullRequest>,
+    target_branch: Option<&str>,
+) -> Option<PullRequest> {
+    let normalized_target = target_branch
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty());
+    if let Some(target_branch) = normalized_target
+        && let Some(index) = pull_requests
+            .iter()
+            .position(|pull_request| pull_request.base.ref_field == target_branch)
+    {
+        return pull_requests.into_iter().nth(index);
+    }
+
+    pull_requests.into_iter().next()
+}
+
+fn github_create_head(
+    source_head_owner: Option<&str>,
+    base_owner: &str,
+    source_branch: &str,
+) -> String {
+    let normalized_owner = source_head_owner
+        .map(str::trim)
+        .filter(|owner| !owner.is_empty());
+    if normalized_owner == Some(base_owner) || normalized_owner.is_none() {
+        return source_branch.to_string();
+    }
+
+    format!(
+        "{}:{source_branch}",
+        normalized_owner.expect("checked is_some")
+    )
+}
+
+fn map_github_pull_request(
+    repo_web_base_url: &str,
+    pull_request: PullRequest,
+) -> OpenReviewSummary {
+    let state = if pull_request.merged_at.is_some() {
+        ForgeReviewState::Merged
+    } else {
+        match pull_request.state.unwrap_or(IssueState::Open) {
+            IssueState::Open => ForgeReviewState::Open,
+            IssueState::Closed => ForgeReviewState::Closed,
+            _ => ForgeReviewState::Closed,
+        }
+    };
+
+    OpenReviewSummary {
+        provider: ForgeProvider::GitHub,
+        number: pull_request.number,
+        title: pull_request
+            .title
+            .unwrap_or_else(|| format!("Pull Request #{}", pull_request.number)),
+        url: pull_request
+            .html_url
+            .map(|url| url.to_string())
+            .unwrap_or_else(|| format!("{repo_web_base_url}/pull/{}", pull_request.number)),
+        state,
+        draft: pull_request.draft.unwrap_or(false),
+        source_branch: pull_request.head.ref_field,
+        target_branch: pull_request.base.ref_field,
+    }
+}

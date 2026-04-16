@@ -458,6 +458,135 @@ fn drain_ai_worker_events_preserves_final_fatal_before_disconnect() {
 }
 
 #[test]
+fn drain_ai_worker_events_coalesces_consecutive_snapshots() {
+    let (event_tx, event_rx) = mpsc::channel();
+    event_tx
+        .send(crate::app::ai_runtime::AiWorkerEvent {
+            workspace_key: "/repo-a".to_string(),
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Snapshot(Box::new(
+                test_ai_snapshot_with_thread("thread-1"),
+            )),
+        })
+        .expect("first snapshot should send");
+    event_tx
+        .send(crate::app::ai_runtime::AiWorkerEvent {
+            workspace_key: "/repo-a".to_string(),
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Snapshot(Box::new(
+                test_ai_snapshot_with_thread("thread-2"),
+            )),
+        })
+        .expect("second snapshot should send");
+
+    let (events, disconnected) = drain_ai_worker_events(&event_rx);
+    assert!(!disconnected);
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        events.first(),
+        Some(crate::app::ai_runtime::AiWorkerEvent {
+            workspace_key,
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Snapshot(snapshot),
+        }) if workspace_key == "/repo-a"
+            && snapshot.active_thread_id.as_deref() == Some("thread-2")
+            && snapshot.state.threads.contains_key("thread-2")
+    ));
+}
+
+#[test]
+fn drain_ai_worker_events_preserves_non_snapshot_event_boundaries() {
+    let (event_tx, event_rx) = mpsc::channel();
+    event_tx
+        .send(crate::app::ai_runtime::AiWorkerEvent {
+            workspace_key: "/repo-a".to_string(),
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Snapshot(Box::new(
+                test_ai_snapshot_with_thread("thread-1"),
+            )),
+        })
+        .expect("first snapshot should send");
+    event_tx
+        .send(crate::app::ai_runtime::AiWorkerEvent {
+            workspace_key: "/repo-a".to_string(),
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Status(
+                "still working".to_string(),
+            ),
+        })
+        .expect("status should send");
+    event_tx
+        .send(crate::app::ai_runtime::AiWorkerEvent {
+            workspace_key: "/repo-a".to_string(),
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Snapshot(Box::new(
+                test_ai_snapshot_with_thread("thread-2"),
+            )),
+        })
+        .expect("second snapshot should send");
+    event_tx
+        .send(crate::app::ai_runtime::AiWorkerEvent {
+            workspace_key: "/repo-a".to_string(),
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Snapshot(Box::new(
+                test_ai_snapshot_with_thread("thread-3"),
+            )),
+        })
+        .expect("third snapshot should send");
+
+    let (events, disconnected) = drain_ai_worker_events(&event_rx);
+    assert!(!disconnected);
+    assert_eq!(events.len(), 3);
+    assert!(matches!(
+        events.first(),
+        Some(crate::app::ai_runtime::AiWorkerEvent {
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Snapshot(snapshot),
+            ..
+        }) if snapshot.active_thread_id.as_deref() == Some("thread-1")
+    ));
+    assert!(matches!(
+        events.get(1),
+        Some(crate::app::ai_runtime::AiWorkerEvent {
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Status(message),
+            ..
+        }) if message == "still working"
+    ));
+    assert!(matches!(
+        events.get(2),
+        Some(crate::app::ai_runtime::AiWorkerEvent {
+            payload: crate::app::ai_runtime::AiWorkerEventPayload::Snapshot(snapshot),
+            ..
+        }) if snapshot.active_thread_id.as_deref() == Some("thread-3")
+    ));
+}
+
+fn test_ai_snapshot_with_thread(thread_id: &str) -> AiSnapshot {
+    let mut state = AiState::default();
+    state.threads.insert(
+        thread_id.to_string(),
+        ThreadSummary {
+            id: thread_id.to_string(),
+            cwd: "/repo-a".to_string(),
+            title: None,
+            status: ThreadLifecycleStatus::Idle,
+            created_at: 0,
+            updated_at: 0,
+            last_sequence: 1,
+        },
+    );
+    AiSnapshot {
+        state,
+        active_thread_id: Some(thread_id.to_string()),
+        pending_approvals: Vec::new(),
+        pending_user_inputs: Vec::new(),
+        account: None,
+        requires_openai_auth: false,
+        pending_chatgpt_login_id: None,
+        pending_chatgpt_auth_url: None,
+        rate_limits: None,
+        models: Vec::new(),
+        experimental_features: Vec::new(),
+        collaboration_modes: Vec::new(),
+        skills: Vec::new(),
+        include_hidden_models: true,
+        mad_max_mode: false,
+    }
+}
+
+#[test]
 fn normalized_thread_session_state_drops_empty_entries() {
     assert_eq!(
         normalized_thread_session_state(AiThreadSessionState::default()),

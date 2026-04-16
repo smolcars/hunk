@@ -180,8 +180,13 @@ impl DiffViewer {
     }
 
     fn apply_ai_worker_event(&mut self, event: AiWorkerEventPayload, cx: &mut Context<Self>) {
+        let mut invalidate_visible_frame = true;
         match event {
             AiWorkerEventPayload::Snapshot(snapshot) => {
+                // `apply_ai_snapshot` already decides when the visible-frame cache must be
+                // invalidated. Unconditionally clearing it here defeats the incremental
+                // streaming path and forces extra timeline/frame rebuilds on every delta.
+                invalidate_visible_frame = false;
                 let previous_auth_message = ai_auth_required_message(
                     self.ai_account.as_ref(),
                     self.ai_requires_openai_auth,
@@ -252,6 +257,8 @@ impl DiffViewer {
                 Self::push_error_notification(format!("Codex AI failed: {message}"), cx);
             }
         }
-        self.invalidate_ai_visible_frame_state_with_reason("event");
+        if invalidate_visible_frame {
+            self.invalidate_ai_visible_frame_state_with_reason("event");
+        }
     }
 }

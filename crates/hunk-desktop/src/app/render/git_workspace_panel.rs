@@ -1,6 +1,126 @@
 const GIT_WORKSPACE_RAIL_WIDTH: f32 = 396.0;
 
 impl DiffViewer {
+    fn render_git_review_summary_card(
+        &self,
+        view: Entity<Self>,
+        review: &OpenReviewSummary,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_dark = cx.theme().mode.is_dark();
+        let colors = hunk_git_workspace(cx.theme(), is_dark);
+        let review_kind = match review.provider {
+            hunk_forge::ForgeProvider::GitHub => "Pull Request",
+            hunk_forge::ForgeProvider::GitLab => "Merge Request",
+        };
+        let review_state_label = if review.draft {
+            "Draft"
+        } else {
+            match review.state {
+                hunk_forge::ForgeReviewState::Open => "Open",
+                hunk_forge::ForgeReviewState::Closed => "Closed",
+                hunk_forge::ForgeReviewState::Merged => "Merged",
+            }
+        };
+        let review_state_tone = if review.draft {
+            HunkAccentTone::Warning
+        } else {
+            match review.state {
+                hunk_forge::ForgeReviewState::Open => HunkAccentTone::Accent,
+                hunk_forge::ForgeReviewState::Closed => HunkAccentTone::Neutral,
+                hunk_forge::ForgeReviewState::Merged => HunkAccentTone::Success,
+            }
+        };
+        let review_url_label = review
+            .url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .to_string();
+        let review = review.clone();
+
+        v_flex()
+            .w_full()
+            .gap_1p5()
+            .p_2()
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(colors.muted_card.border)
+            .bg(colors.muted_card.background)
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_semibold()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{review_kind} #{}", review.number)),
+                    )
+                    .child(self.render_git_metric_pill(
+                        review_state_label,
+                        review_state_tone,
+                        cx,
+                    )),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .font_semibold()
+                    .text_color(cx.theme().foreground)
+                    .whitespace_normal()
+                    .child(review.title.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_color(cx.theme().muted_foreground)
+                    .whitespace_normal()
+                    .child(review_url_label),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_1p5()
+                    .flex_wrap()
+                    .child({
+                        let view = view.clone();
+                        let review = review.clone();
+                        Button::new("git-open-current-review")
+                            .compact()
+                            .primary()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .label("Open")
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.open_review_summary_in_browser(&review, cx);
+                                });
+                            })
+                    })
+                    .child({
+                        let view = view.clone();
+                        let review = review.clone();
+                        Button::new("git-copy-current-review-url")
+                            .compact()
+                            .outline()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .label("Copy Link")
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.copy_review_summary_url(&review, cx);
+                                });
+                            })
+                    }),
+            )
+            .into_any_element()
+    }
+
     fn render_git_workspace_operations_panel_v2(&self, cx: &mut Context<Self>) -> AnyElement {
         h_flex()
             .size_full()
@@ -59,6 +179,227 @@ impl DiffViewer {
             .font_semibold()
             .text_color(colors.text)
             .child(label.into())
+            .into_any_element()
+    }
+
+    fn render_github_auth_header_controls(
+        &self,
+        view: Entity<Self>,
+        repo: &hunk_forge::ForgeRepoRef,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let colors = hunk_git_workspace(cx.theme(), cx.theme().mode.is_dark());
+        let pending_prompt = self.pending_github_device_flow_prompt_for_repo(repo).cloned();
+        let has_pending_prompt = pending_prompt.is_some();
+        let has_session = self.github_session_identity_for_repo(repo).is_some();
+        let copied_device_code = pending_prompt.as_ref().is_some_and(|prompt| {
+            let copied_message = format!("Copied GitHub device code {}", prompt.user_code);
+            self.git_status_message.as_deref() == Some(copied_message.as_str())
+        });
+
+        v_flex()
+            .flex_none()
+            .max_w(px(420.0))
+            .items_end()
+            .gap_1()
+            .when_some(pending_prompt, |this, prompt| {
+                this.child(
+                    v_flex()
+                        .items_end()
+                        .gap_1p5()
+                        .child(
+                            h_flex()
+                                .items_center()
+                                .justify_end()
+                                .gap_1p5()
+                                .flex_wrap()
+                                .child(
+                                    div()
+                                        .rounded(px(10.0))
+                                        .border_1()
+                                        .border_color(colors.muted_card.border)
+                                        .bg(colors.muted_card.background)
+                                        .px_3()
+                                        .py_1p5()
+                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .text_sm()
+                                        .font_semibold()
+                                        .text_color(cx.theme().foreground)
+                                        .child(prompt.user_code.clone()),
+                                )
+                                .child({
+                                    let view = view.clone();
+                                    let repo = repo.clone();
+                                    Button::new("git-github-device-open")
+                                        .outline()
+                                        .compact()
+                                        .with_size(gpui_component::Size::Small)
+                                        .rounded(px(8.0))
+                                        .icon(Icon::new(IconName::ExternalLink).size(px(12.0)))
+                                        .label("Open GitHub")
+                                        .on_click(move |_, _, cx| {
+                                            let result = view.update(cx, |this, cx| {
+                                                this.open_github_device_flow_verification_for_repo(
+                                                    &repo, cx,
+                                                )
+                                            });
+                                            if let Err(message) = result {
+                                                view.update(cx, |this, cx| {
+                                                    this.set_git_warning_message(
+                                                        message, None, cx,
+                                                    );
+                                                });
+                                            }
+                                        })
+                                })
+                                .child({
+                                    let view = view.clone();
+                                    let repo = repo.clone();
+                                    let mut button = Button::new("git-github-device-copy")
+                                        .compact()
+                                        .with_size(gpui_component::Size::Small)
+                                        .rounded(px(8.0))
+                                        .icon(Icon::new(IconName::Copy).size(px(12.0)))
+                                        .label(if copied_device_code {
+                                            "Copied"
+                                        } else {
+                                            "Copy Code"
+                                        })
+                                        .on_click(move |_, _, cx| {
+                                            let result = view.update(cx, |this, cx| {
+                                                this.copy_github_device_flow_code_for_repo(&repo, cx)
+                                            });
+                                            if let Err(message) = result {
+                                                view.update(cx, |this, cx| {
+                                                    this.set_git_warning_message(
+                                                        message, None, cx,
+                                                    );
+                                                });
+                                            }
+                                        });
+                                    if copied_device_code {
+                                        button = button.primary();
+                                    } else {
+                                        button = button.outline();
+                                    }
+                                    button
+                                }),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .text_right()
+                                .child(if copied_device_code {
+                                    "Copied to your clipboard."
+                                } else {
+                                    "The device code was copied to your clipboard automatically."
+                                }),
+                        ),
+                )
+            })
+            .when(has_session && !has_pending_prompt, |this| {
+                this.child(
+                    h_flex()
+                        .items_center()
+                        .justify_end()
+                        .gap_1p5()
+                        .flex_wrap()
+                        .child({
+                            let view = view.clone();
+                            let repo = repo.clone();
+                            Button::new("git-github-sign-out")
+                                .outline()
+                                .compact()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(IconName::Github).size(px(12.0)))
+                                .label("Sign Out")
+                                .disabled(self.git_rail_controls_busy())
+                                .on_click(move |_, _, cx| {
+                                    let result = view.update(cx, |this, cx| {
+                                        this.sign_out_github_session_for_repo(&repo, cx)
+                                    });
+                                    if let Err(message) = result {
+                                        view.update(cx, |this, cx| {
+                                            this.set_git_warning_message(message, None, cx);
+                                        });
+                                    }
+                                })
+                        }),
+                )
+            })
+            .when(!has_session && !has_pending_prompt, |this| {
+                this.child({
+                    let view_for_primary = view.clone();
+                    let view_for_menu = view.clone();
+                    let repo_for_primary = repo.clone();
+                    let repo_for_menu = repo.clone();
+                    DropdownButton::new("git-github-auth-dropdown")
+                        .button(
+                            Button::new("git-github-sign-in")
+                                .outline()
+                                .compact()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(IconName::Github).size(px(12.0)))
+                                .label("Sign in with GitHub")
+                                .disabled(self.git_rail_controls_busy())
+                                .on_click(move |_, _, cx| {
+                                    let result = view_for_primary.update(cx, |this, cx| {
+                                        this.start_github_device_sign_in(
+                                            repo_for_primary.clone(),
+                                            cx,
+                                        )
+                                    });
+                                    if let Err(message) = result {
+                                        view_for_primary.update(cx, |this, cx| {
+                                            this.set_git_warning_message(message, None, cx);
+                                        });
+                                    }
+                                }),
+                        )
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .rounded(px(8.0))
+                        .disabled(self.git_rail_controls_busy())
+                        .dropdown_menu(move |menu, _, _| {
+                            menu.item(
+                                PopupMenuItem::new("Sign in with GitHub").on_click({
+                                    let view = view_for_menu.clone();
+                                    let repo = repo_for_menu.clone();
+                                    move |_, _, cx| {
+                                        let result = view.update(cx, |this, cx| {
+                                            this.start_github_device_sign_in(repo.clone(), cx)
+                                        });
+                                        if let Err(message) = result {
+                                            view.update(cx, |this, cx| {
+                                                this.set_git_warning_message(message, None, cx);
+                                            });
+                                        }
+                                    }
+                                }),
+                            )
+                            .item(PopupMenuItem::separator())
+                            .item(
+                                PopupMenuItem::new("Enter Personal Access Token").on_click({
+                                    let view = view_for_menu.clone();
+                                    let repo = repo_for_menu.clone();
+                                    move |_, window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.open_github_token_dialog_for_repo(
+                                                repo.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
+                            )
+                        })
+                })
+            })
             .into_any_element()
     }
 
@@ -439,7 +780,7 @@ impl DiffViewer {
                         } else {
                             button = button.primary();
                         }
-                        button
+                            button
                     }),
             )
             .child(
@@ -491,6 +832,9 @@ impl DiffViewer {
                             })
                     }),
             )
+            .when_some(self.selected_git_workspace_review_summary().cloned(), |this, review| {
+                this.child(self.render_git_review_summary_card(view.clone(), &review, cx))
+            })
             .into_any_element()
     }
 

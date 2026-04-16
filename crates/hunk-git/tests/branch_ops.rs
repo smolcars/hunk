@@ -8,7 +8,8 @@ use git2::{
 use hunk_domain::config::{ReviewProviderKind, ReviewProviderMapping};
 use hunk_git::branch::{
     RenameBranchIfSafeOutcome, RenameBranchSkipReason, rename_branch,
-    rename_branch_if_current_unpublished, review_url_for_branch,
+    rename_branch_if_current_unpublished, review_remote_for_branch_with_provider_map,
+    review_remote_for_named_remote_with_provider_map, review_url_for_branch,
     review_url_for_branch_with_provider_map, sanitize_branch_name,
 };
 use hunk_git::git::load_workflow_snapshot;
@@ -267,6 +268,76 @@ fn review_url_for_provider_mapping_uses_self_hosted_gitlab() -> Result<()> {
         review_url,
         "https://git.company.internal/example-org/hunk/-/merge_requests/new?merge_request[source_branch]=feature%2Fself-hosted"
     );
+    Ok(())
+}
+
+#[test]
+fn review_remote_for_github_branch_returns_structured_metadata() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "line one\n")?;
+    fixture.commit_all("initial")?;
+    fixture.checkout_branch("feature/remote-metadata")?;
+    fixture.add_remote("origin", "https://github.com/example-org/hunk.git")?;
+
+    let remote =
+        review_remote_for_branch_with_provider_map(fixture.root(), "feature/remote-metadata", &[])?
+            .expect("github remote should resolve structured review metadata");
+
+    assert_eq!(remote.provider, ReviewProviderKind::GitHub);
+    assert_eq!(remote.host, "github.com");
+    assert_eq!(remote.authority, "github.com");
+    assert_eq!(remote.repository_path, "example-org/hunk");
+    assert_eq!(remote.base_url, "https://github.com/example-org/hunk");
+    Ok(())
+}
+
+#[test]
+fn review_remote_for_self_hosted_gitlab_preserves_namespace_and_port() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "line one\n")?;
+    fixture.commit_all("initial")?;
+    fixture.checkout_branch("feature/grouped-path")?;
+    fixture.add_remote(
+        "origin",
+        "ssh://git@git.company.internal:2222/platform/tools/hunk.git",
+    )?;
+
+    let remote = review_remote_for_branch_with_provider_map(
+        fixture.root(),
+        "feature/grouped-path",
+        &[ReviewProviderMapping {
+            host: "git.company.internal".to_string(),
+            provider: ReviewProviderKind::GitLab,
+        }],
+    )?
+    .expect("gitlab remote should resolve structured review metadata");
+
+    assert_eq!(remote.provider, ReviewProviderKind::GitLab);
+    assert_eq!(remote.host, "git.company.internal");
+    assert_eq!(remote.authority, "git.company.internal:2222");
+    assert_eq!(remote.repository_path, "platform/tools/hunk");
+    assert_eq!(
+        remote.base_url,
+        "https://git.company.internal:2222/platform/tools/hunk"
+    );
+    Ok(())
+}
+
+#[test]
+fn review_remote_for_named_remote_resolves_upstream_github_repo() -> Result<()> {
+    let fixture = TempGitRepo::new()?;
+    fixture.write_file("tracked.txt", "line one\n")?;
+    fixture.commit_all("initial")?;
+    fixture.checkout_branch("feature/fork-pr")?;
+    fixture.add_remote("origin", "https://github.com/example-user/hunk.git")?;
+    fixture.add_remote("upstream", "https://github.com/example-org/hunk.git")?;
+
+    let remote = review_remote_for_named_remote_with_provider_map(fixture.root(), "upstream", &[])?
+        .expect("named upstream remote should resolve review metadata");
+
+    assert_eq!(remote.provider, ReviewProviderKind::GitHub);
+    assert_eq!(remote.repository_path, "example-org/hunk");
+    assert_eq!(remote.base_url, "https://github.com/example-org/hunk");
     Ok(())
 }
 

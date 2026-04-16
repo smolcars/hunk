@@ -11,6 +11,13 @@ enum RecentCommitsRefreshPriority {
     UserInitiated,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GitHubDeviceFlowPromptState {
+    repo: hunk_forge::ForgeRepoRef,
+    verification_uri: String,
+    user_code: String,
+}
+
 impl RecentCommitsRefreshPriority {
     const fn as_str(self) -> &'static str {
         match self {
@@ -477,6 +484,7 @@ struct AiVisibleFrameState {
     ai_publish_blocker: Option<String>,
     ai_publish_disabled: bool,
     ai_open_pr_disabled: bool,
+    current_review_summary: Option<OpenReviewSummary>,
     ai_managed_worktree_target: Option<WorkspaceTargetSummary>,
     ai_delete_worktree_blocker: Option<String>,
     terminal_cwd_label: String,

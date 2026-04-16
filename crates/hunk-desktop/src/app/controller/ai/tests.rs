@@ -21,12 +21,14 @@ mod ai_tests {
     use super::ai_historical_inline_review_loaded_state;
     use super::ai_inline_review_toggle_target_mode;
     use super::ai_inline_review_uses_review_compare_session_for_surface;
+    use super::ai_item_kind_supports_direct_workspace_streaming;
     use super::ai_latest_supported_inline_review_row_id_for_visible_rows;
     use super::ai_prominent_worker_status_error;
     use super::ai_resolved_inline_review_row_id_for_visible_rows;
     use super::ai_timeline_row_supports_inline_review;
     use super::AI_AUTH_REQUIRED_MESSAGE;
     use super::ai_workspace_catalog_inputs_from_target_sets;
+    use super::ai_workspace_message_uses_markdown_preview;
     use super::ai_visible_thread_sections;
     use super::ai_composer_draft_key;
     use super::ai_composer_prompt_for_target;
@@ -217,6 +219,91 @@ mod ai_tests {
             }),
             last_sequence,
         }
+    }
+
+    fn timeline_item(
+        item_id: &str,
+        thread_id: &str,
+        turn_id: &str,
+        kind: &str,
+        status: ItemStatus,
+        content: &str,
+        last_sequence: u64,
+    ) -> hunk_codex::state::ItemSummary {
+        hunk_codex::state::ItemSummary {
+            id: item_id.to_string(),
+            thread_id: thread_id.to_string(),
+            turn_id: turn_id.to_string(),
+            kind: kind.to_string(),
+            status,
+            content: content.to_string(),
+            display_metadata: None,
+            last_sequence,
+        }
+    }
+
+    #[test]
+    fn direct_workspace_streaming_kind_filter_is_narrow() {
+        assert!(ai_item_kind_supports_direct_workspace_streaming("agentMessage"));
+        assert!(ai_item_kind_supports_direct_workspace_streaming("userMessage"));
+        assert!(ai_item_kind_supports_direct_workspace_streaming("plan"));
+        assert!(!ai_item_kind_supports_direct_workspace_streaming("reasoning"));
+        assert!(!ai_item_kind_supports_direct_workspace_streaming("commandExecution"));
+        assert!(!ai_item_kind_supports_direct_workspace_streaming("fileChange"));
+    }
+
+    #[test]
+    fn workspace_message_markdown_preview_stays_off_while_turn_is_streaming() {
+        let turn_key = hunk_codex::state::turn_storage_key("thread-1", "turn-1");
+        let mut state = AiState::default();
+        state.turns.insert(
+            turn_key,
+            hunk_codex::state::TurnSummary {
+                id: "turn-1".to_string(),
+                thread_id: "thread-1".to_string(),
+                collaboration_mode: None,
+                status: hunk_codex::state::TurnStatus::InProgress,
+                last_sequence: 2,
+            },
+        );
+        let item = timeline_item(
+            "item-1",
+            "thread-1",
+            "turn-1",
+            "agentMessage",
+            ItemStatus::Streaming,
+            "`code` [link](https://example.com)",
+            2,
+        );
+
+        assert!(!ai_workspace_message_uses_markdown_preview(&state, &item));
+    }
+
+    #[test]
+    fn workspace_message_markdown_preview_returns_after_turn_completes() {
+        let turn_key = hunk_codex::state::turn_storage_key("thread-1", "turn-1");
+        let mut state = AiState::default();
+        state.turns.insert(
+            turn_key,
+            hunk_codex::state::TurnSummary {
+                id: "turn-1".to_string(),
+                thread_id: "thread-1".to_string(),
+                collaboration_mode: None,
+                status: hunk_codex::state::TurnStatus::Completed,
+                last_sequence: 3,
+            },
+        );
+        let item = timeline_item(
+            "item-1",
+            "thread-1",
+            "turn-1",
+            "agentMessage",
+            ItemStatus::Streaming,
+            "`code` [link](https://example.com)",
+            2,
+        );
+
+        assert!(ai_workspace_message_uses_markdown_preview(&state, &item));
     }
 
     fn timeline_item_row(

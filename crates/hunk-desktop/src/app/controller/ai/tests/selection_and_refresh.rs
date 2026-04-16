@@ -165,13 +165,39 @@
             },
         );
 
-        let next = previous.clone();
+        let mut next = previous.clone();
+        next.threads.get_mut("thread-a").expect("thread").updated_at = 4;
+        next.threads.get_mut("thread-a").expect("thread").last_sequence = 7;
 
         assert!(!ai_snapshot_threads_changed(&previous, &next));
         assert!(!ai_snapshot_removed_thread_ids(&previous, &next));
         assert!(!ai_snapshot_removed_retainable_terminal_threads(
             &previous, &next
         ));
+    }
+
+    #[test]
+    fn snapshot_thread_change_detection_flags_thread_metadata_changes() {
+        let mut previous = AiState::default();
+        previous.threads.insert(
+            "thread-a".to_string(),
+            ThreadSummary {
+                id: "thread-a".to_string(),
+                cwd: "/repo".to_string(),
+                title: Some("Thread".to_string()),
+                status: ThreadLifecycleStatus::Active,
+                created_at: 1,
+                updated_at: 2,
+                last_sequence: 3,
+            },
+        );
+
+        let mut next = previous.clone();
+        next.threads.get_mut("thread-a").expect("thread").title = Some("Renamed".to_string());
+        next.threads.get_mut("thread-a").expect("thread").updated_at = 4;
+        next.threads.get_mut("thread-a").expect("thread").last_sequence = 7;
+
+        assert!(ai_snapshot_threads_changed(&previous, &next));
     }
 
     #[test]

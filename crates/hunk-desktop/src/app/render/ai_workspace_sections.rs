@@ -30,6 +30,7 @@ struct AiTimelinePanelState {
     ai_create_branch_and_push_loading: bool,
     ai_open_pr_disabled: bool,
     ai_open_pr_loading: bool,
+    current_review_summary: Option<OpenReviewSummary>,
     ai_managed_worktree_target: Option<WorkspaceTargetSummary>,
     ai_delete_worktree_blocker: Option<String>,
     ai_delete_worktree_loading: bool,
@@ -942,7 +943,21 @@ impl DiffViewer {
                         .text_xs()
                         .font_family(cx.theme().mono_font_family.clone())
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!("Branch: {}", state.active_branch)),
+                        .child(format!(
+                            "Branch: {}{}",
+                            state.active_branch,
+                            state
+                                .current_review_summary
+                                .as_ref()
+                                .map(|review| {
+                                    let review_kind = match review.provider {
+                                        hunk_forge::ForgeProvider::GitHub => "PR",
+                                        hunk_forge::ForgeProvider::GitLab => "MR",
+                                    };
+                                    format!("  {review_kind} #{}", review.number)
+                                })
+                                .unwrap_or_default()
+                        )),
                 )
                 .child({
                     let view = view.clone();
@@ -1041,6 +1056,7 @@ impl DiffViewer {
                     let view = view.clone();
                     let push_label = format!("Commit and Push to {}", state.active_branch);
                     let create_branch_label = "Create Branch and Push".to_string();
+                    let current_review_summary = state.current_review_summary.clone();
                     let publish_tooltip =
                         state.ai_publish_blocker.clone().unwrap_or_else(|| {
                             match state.selected_thread_start_mode {
@@ -1068,33 +1084,70 @@ impl DiffViewer {
                         .tooltip(publish_tooltip)
                         .disabled(state.ai_publish_disabled || state.ai_open_pr_disabled)
                         .dropdown_menu(move |menu, _, _| {
-                            menu.item(PopupMenuItem::new(push_label.clone()).on_click({
-                                let view = view.clone();
-                                move |_, _, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.ai_commit_and_push_for_current_thread(cx);
-                                    });
-                                }
-                            }))
-                            .item(PopupMenuItem::new(create_branch_label.clone()).on_click({
-                                let view = view.clone();
-                                move |_, window, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.ai_create_branch_and_push_for_current_thread(
-                                            window, cx,
-                                        );
-                                    });
-                                }
-                            }))
-                            .item(PopupMenuItem::separator())
-                            .item(PopupMenuItem::new("Open PR").on_click({
-                                let view = view.clone();
-                                move |_, window, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.ai_open_pr_for_current_thread(window, cx);
-                                    });
-                                }
-                            }))
+                            let menu = menu
+                                .item(PopupMenuItem::new(push_label.clone()).on_click({
+                                    let view = view.clone();
+                                    move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_commit_and_push_for_current_thread(cx);
+                                        });
+                                    }
+                                }))
+                                .item(PopupMenuItem::new(create_branch_label.clone()).on_click({
+                                    let view = view.clone();
+                                    move |_, window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_create_branch_and_push_for_current_thread(
+                                                window, cx,
+                                            );
+                                        });
+                                    }
+                                }))
+                                .item(PopupMenuItem::separator());
+
+                            if let Some(review) = current_review_summary.clone() {
+                                let review_kind = match review.provider {
+                                    hunk_forge::ForgeProvider::GitHub => "PR",
+                                    hunk_forge::ForgeProvider::GitLab => "MR",
+                                };
+                                let review_for_open = review.clone();
+                                let review_for_copy = review.clone();
+                                menu.item(
+                                    PopupMenuItem::new(format!(
+                                        "View {review_kind} #{}",
+                                        review.number
+                                    ))
+                                        .on_click({
+                                            let view = view.clone();
+                                            move |_, _, cx| {
+                                                let review = review_for_open.clone();
+                                                view.update(cx, |this, cx| {
+                                                    this.open_review_summary_in_browser(
+                                                        &review, cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                )
+                                .item(PopupMenuItem::new(format!("Copy {review_kind} Link")).on_click({
+                                    let view = view.clone();
+                                    move |_, _, cx| {
+                                        let review = review_for_copy.clone();
+                                        view.update(cx, |this, cx| {
+                                            this.copy_review_summary_url(&review, cx);
+                                        });
+                                    }
+                                }))
+                            } else {
+                                menu.item(PopupMenuItem::new("Open PR").on_click({
+                                    let view = view.clone();
+                                    move |_, window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_open_pr_for_current_thread(window, cx);
+                                        });
+                                    }
+                                }))
+                            }
                         })
                         .into_any_element()
                 })

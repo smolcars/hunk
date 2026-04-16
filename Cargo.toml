@@ -6,6 +6,7 @@ members = [
   "crates/hunk-editor",
   "crates/hunk-domain",
   "crates/hunk-git",
+  "crates/hunk-forge",
   "crates/hunk-updater",
   "crates/hunk-desktop",
   "crates/hunk-codex",

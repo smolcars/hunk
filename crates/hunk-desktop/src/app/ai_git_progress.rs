@@ -26,7 +26,7 @@ impl AiGitProgressAction {
             Self::WorkspaceCommitAndPush => {
                 "Staging changed files, generating a commit message, creating a commit, and pushing the active branch."
             }
-            Self::OpenPr => "Publishing changes and opening the review in your browser.",
+            Self::OpenPr => "Publishing changes and preparing the pull request in Hunk.",
             Self::DeleteWorktree => {
                 "Archiving the thread, removing the managed worktree checkout, and cleaning up its AI state."
             }
@@ -58,7 +58,7 @@ impl AiGitProgressStep {
             Self::CreatingCommit => "Creating commit...",
             Self::PushingBranch => "Pushing branch...",
             Self::PreparingReviewUrl => "Preparing review URL...",
-            Self::OpeningBrowser => "Opening review in browser...",
+            Self::OpeningBrowser => "Opening review...",
             Self::ArchivingThread => "Archiving thread...",
             Self::RemovingWorktree => "Deleting worktree checkout...",
         }

@@ -111,6 +111,7 @@ impl DiffViewer {
             ai_create_branch_and_push_loading,
             ai_open_pr_disabled: ai_view_state.ai_open_pr_disabled,
             ai_open_pr_loading,
+            current_review_summary: ai_view_state.current_review_summary.clone(),
             ai_managed_worktree_target: ai_view_state.ai_managed_worktree_target.clone(),
             ai_delete_worktree_blocker: ai_view_state.ai_delete_worktree_blocker.clone(),
             ai_delete_worktree_loading,

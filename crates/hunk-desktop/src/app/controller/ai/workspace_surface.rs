@@ -317,6 +317,7 @@ impl DiffViewer {
                 kind: ai_workspace_session::AiWorkspaceBlockKind::Message,
                 nested: false,
                 mono_preview: false,
+                markdown_preview: false,
                 open_review_tab: false,
                 expandable: false,
                 expanded: true,
@@ -351,6 +352,7 @@ impl DiffViewer {
                 kind: ai_workspace_session::AiWorkspaceBlockKind::Message,
                 nested: false,
                 mono_preview: false,
+                markdown_preview: false,
                 open_review_tab: false,
                 expandable: false,
                 expanded: true,
@@ -425,6 +427,7 @@ impl DiffViewer {
                     kind: ai_workspace_session::AiWorkspaceBlockKind::Plan,
                     nested: false,
                     mono_preview: false,
+                    markdown_preview: false,
                     open_review_tab: false,
                     expandable: false,
                     expanded: true,
@@ -940,6 +943,10 @@ impl DiffViewer {
                 kind: ai_workspace_session::AiWorkspaceBlockKind::Message,
                 nested,
                 mono_preview: false,
+                markdown_preview: ai_workspace_message_uses_markdown_preview(
+                    &self.ai_state_snapshot,
+                    item,
+                ),
                 open_review_tab: false,
                 expandable: false,
                 expanded: true,
@@ -1008,6 +1015,7 @@ impl DiffViewer {
                     kind: ai_workspace_session::AiWorkspaceBlockKind::Tool,
                     nested,
                     mono_preview: true,
+                    markdown_preview: false,
                     open_review_tab: false,
                     expandable: has_details,
                     expanded,
@@ -1074,6 +1082,7 @@ impl DiffViewer {
                     },
                     nested,
                     mono_preview: item.kind != "reasoning" && item.kind != "webSearch",
+                    markdown_preview: false,
                     open_review_tab: false,
                     expandable: has_details,
                     expanded,
@@ -1104,6 +1113,7 @@ impl DiffViewer {
                 kind: ai_workspace_session::AiWorkspaceBlockKind::Status,
                 nested,
                 mono_preview: false,
+                markdown_preview: false,
                 open_review_tab: false,
                 expandable: false,
                 expanded: true,
@@ -1148,6 +1158,7 @@ impl DiffViewer {
             kind: ai_workspace_session::AiWorkspaceBlockKind::Group,
             nested: false,
             mono_preview: false,
+            markdown_preview: false,
             open_review_tab: false,
             expandable: true,
             expanded,
@@ -1285,4 +1296,19 @@ impl DiffViewer {
             .turn_diff_sequence(turn_key)
             .unwrap_or(row.last_sequence)
     }
+}
+
+fn ai_workspace_message_uses_markdown_preview(
+    state: &hunk_codex::state::AiState,
+    item: &hunk_codex::state::ItemSummary,
+) -> bool {
+    if item.status == hunk_codex::state::ItemStatus::Completed {
+        return true;
+    }
+
+    let turn_key = hunk_codex::state::turn_storage_key(item.thread_id.as_str(), item.turn_id.as_str());
+    !state
+        .turns
+        .get(turn_key.as_str())
+        .is_some_and(|turn| turn.status == hunk_codex::state::TurnStatus::InProgress)
 }

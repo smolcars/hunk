@@ -8,6 +8,23 @@ use crate::git2_helpers::open_git2_repo;
 
 const RESERVED_BRANCH_NAMES: &[&str] = &["detached", "unknown"];
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewRemote {
+    pub provider: ReviewProviderKind,
+    pub host: String,
+    pub authority: String,
+    pub repository_path: String,
+    pub base_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NormalizedReviewRemote {
+    host: String,
+    authority: String,
+    repository_path: String,
+    base_url: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenameBranchIfSafeOutcome {
     Renamed,
@@ -303,9 +320,45 @@ pub fn review_url_for_branch_with_provider_map(
     branch_name: &str,
     provider_mappings: &[ReviewProviderMapping],
 ) -> Result<Option<String>> {
+    Ok(
+        review_remote_for_branch_with_provider_map(repo_root, branch_name, provider_mappings)?
+            .map(|remote| review_url_for_review_remote(&remote, branch_name)),
+    )
+}
+
+pub fn review_remote_for_branch(
+    repo_root: &Path,
+    branch_name: &str,
+) -> Result<Option<ReviewRemote>> {
+    review_remote_for_branch_with_provider_map(repo_root, branch_name, &[])
+}
+
+pub fn review_remote_for_named_remote_with_provider_map(
+    repo_root: &Path,
+    remote_name: &str,
+    provider_mappings: &[ReviewProviderMapping],
+) -> Result<Option<ReviewRemote>> {
+    let remote_name = remote_name.trim();
+    if remote_name.is_empty() {
+        return Err(anyhow!(
+            "cannot resolve review remote without a remote name"
+        ));
+    }
+
+    let repo = open_repo_at_root(repo_root)?;
+    review_remote_for_named_remote(repo.repository(), remote_name, provider_mappings)
+}
+
+pub fn review_remote_for_branch_with_provider_map(
+    repo_root: &Path,
+    branch_name: &str,
+    provider_mappings: &[ReviewProviderMapping],
+) -> Result<Option<ReviewRemote>> {
     let branch_name = branch_name.trim();
     if branch_name.is_empty() || branch_name == "detached" {
-        return Err(anyhow!("cannot build review URL without a branch name"));
+        return Err(anyhow!(
+            "cannot resolve review remote without a branch name"
+        ));
     }
 
     let repo = open_repo_at_root(repo_root)?;
@@ -318,9 +371,8 @@ pub fn review_url_for_branch_with_provider_map(
     };
     let remote_url = remote_url.to_string();
 
-    Ok(review_url_for_remote(
+    Ok(review_remote_for_remote(
         remote_url.as_str(),
-        branch_name,
         provider_mappings,
     ))
 }
@@ -408,23 +460,64 @@ fn resolve_review_remote<'repo>(
     Err(anyhow!("no Git remote configured for push"))
 }
 
-fn review_url_for_remote(
-    remote_url: &str,
-    branch_name: &str,
+fn review_remote_for_named_remote(
+    repo: &gix::Repository,
+    remote_name: &str,
     provider_mappings: &[ReviewProviderMapping],
-) -> Option<String> {
-    let (host, base_url) = normalized_remote_base_url(remote_url)?;
-    let provider = review_provider_from_host(host.as_str(), provider_mappings)?;
+) -> Result<Option<ReviewRemote>> {
+    if !repo
+        .remote_names()
+        .into_iter()
+        .any(|name| name.as_ref() == remote_name)
+    {
+        return Ok(None);
+    }
+
+    let remote = repo
+        .find_remote(remote_name)
+        .with_context(|| format!("failed to resolve Git remote '{remote_name}' for review URL"))?;
+    let Some(remote_url) = remote
+        .url(gix::remote::Direction::Push)
+        .or_else(|| remote.url(gix::remote::Direction::Fetch))
+    else {
+        return Ok(None);
+    };
+
+    Ok(review_remote_for_remote(
+        remote_url.to_string().as_str(),
+        provider_mappings,
+    ))
+}
+
+fn review_remote_for_remote(
+    remote_url: &str,
+    provider_mappings: &[ReviewProviderMapping],
+) -> Option<ReviewRemote> {
+    let normalized = normalized_remote_base(remote_url)?;
+    let provider = review_provider_from_host(normalized.host.as_str(), provider_mappings)?;
+    Some(ReviewRemote {
+        provider,
+        host: normalized.host,
+        authority: normalized.authority,
+        repository_path: normalized.repository_path,
+        base_url: normalized.base_url,
+    })
+}
+
+fn review_url_for_review_remote(remote: &ReviewRemote, branch_name: &str) -> String {
     let encoded_branch = percent_encode(branch_name);
-    match provider {
-        ReviewProviderKind::GitLab => Some(format!(
-            "{base_url}/-/merge_requests/new?merge_request[source_branch]={encoded_branch}"
-        )),
-        ReviewProviderKind::GitHub => Some(format!("{base_url}/compare/{encoded_branch}?expand=1")),
+    match remote.provider {
+        ReviewProviderKind::GitLab => format!(
+            "{}/-/merge_requests/new?merge_request[source_branch]={encoded_branch}",
+            remote.base_url
+        ),
+        ReviewProviderKind::GitHub => {
+            format!("{}/compare/{encoded_branch}?expand=1", remote.base_url)
+        }
     }
 }
 
-fn normalized_remote_base_url(remote_url: &str) -> Option<(String, String)> {
+fn normalized_remote_base(remote_url: &str) -> Option<NormalizedReviewRemote> {
     if let Some((scheme, rest)) = remote_url
         .strip_prefix("https://")
         .map(|rest| ("https", rest))
@@ -436,8 +529,7 @@ fn normalized_remote_base_url(remote_url: &str) -> Option<(String, String)> {
         && let Some((authority, path)) = split_authority_and_path(rest)
     {
         let (host, authority) = sanitize_authority(authority)?;
-        let clean_path = trim_remote_path(path);
-        return Some((host, format!("{scheme}://{authority}/{}", clean_path)));
+        return normalized_remote_base_with_parts(scheme, host, authority, path);
     }
 
     if let Some(stripped) = remote_url.strip_prefix("ssh://") {
@@ -446,17 +538,33 @@ fn normalized_remote_base_url(remote_url: &str) -> Option<(String, String)> {
             .map_or(stripped, |(_, remainder)| remainder);
         let (authority, path) = split_authority_and_path(after_user)?;
         let (host, authority) = sanitize_authority(authority)?;
-        let clean_path = trim_remote_path(path);
-        return Some((host, format!("https://{authority}/{}", clean_path)));
+        return normalized_remote_base_with_parts("https", host, authority, path);
     }
 
     if let Some((authority, path)) = split_scp_like(remote_url) {
         let (host, authority) = sanitize_authority(authority)?;
-        let clean_path = trim_remote_path(path);
-        return Some((host, format!("https://{authority}/{}", clean_path)));
+        return normalized_remote_base_with_parts("https", host, authority, path);
     }
 
     None
+}
+
+fn normalized_remote_base_with_parts(
+    scheme: &str,
+    host: String,
+    authority: String,
+    path: &str,
+) -> Option<NormalizedReviewRemote> {
+    let repository_path = trim_remote_path(path);
+    if repository_path.is_empty() {
+        return None;
+    }
+    Some(NormalizedReviewRemote {
+        host,
+        authority: authority.clone(),
+        base_url: format!("{scheme}://{authority}/{repository_path}"),
+        repository_path,
+    })
 }
 
 fn split_authority_and_path(value: &str) -> Option<(&str, &str)> {

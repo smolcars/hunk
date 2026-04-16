@@ -51,6 +51,7 @@ use hunk_domain::state::{
     CachedChangedFileState, CachedLocalBranchState, CachedRecentCommitState,
     CachedRecentCommitsState, CachedWorkflowState, ReviewCompareSelectionState,
 };
+use hunk_forge::OpenReviewSummary;
 use hunk_git::git::{ChangedFile, FileStatus, LineStats, LocalBranch, RepoSnapshotFingerprint};
 use hunk_git::history::{
     DEFAULT_RECENT_AUTHORED_COMMIT_LIMIT, RecentCommitSummary, RecentCommitsFingerprint,
@@ -1603,6 +1604,13 @@ struct DiffViewer {
     branch_input_state: Entity<InputState>,
     branch_input_has_text: bool,
     commit_input_state: Entity<InputState>,
+    git_workspace_forge_repo: Option<hunk_forge::ForgeRepoRef>,
+    github_device_flow_prompt: Option<GitHubDeviceFlowPromptState>,
+    forge_tokens_by_credential_id: BTreeMap<String, String>,
+    review_summary_by_branch_key: BTreeMap<String, OpenReviewSummary>,
+    review_summary_miss_by_branch_key: BTreeSet<String>,
+    review_summary_lookup_in_flight: BTreeSet<String>,
+    review_summary_lookup_task: Task<()>,
     git_action_epoch: usize,
     git_action_task: Task<()>,
     git_action_loading: bool,

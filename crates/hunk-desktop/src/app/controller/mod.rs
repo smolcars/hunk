@@ -1,6 +1,7 @@
 use anyhow::Context as _;
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
+use gpui_component::Sizable as _;
 use gpui_component::WindowExt as _;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::dialog::DialogFooter;
@@ -27,8 +28,14 @@ use super::data::{
     load_file_editor_document, save_file_editor_document,
 };
 use super::*;
+use hunk_forge::{
+    CreateReviewInput, ForgeCredentialKind, ForgeCredentialMetadata, ForgeCredentialResolution,
+    ForgeRepoCredentialBinding, ForgeRepoRef, GitHubReviewClient, OpenReviewQuery,
+    OpenReviewSummary, resolve_credential_for_repo,
+};
 use hunk_git::branch::{
-    RenameBranchIfSafeOutcome, rename_branch_if_current_unpublished,
+    RenameBranchIfSafeOutcome, ReviewRemote, rename_branch_if_current_unpublished,
+    review_remote_for_branch_with_provider_map, review_remote_for_named_remote_with_provider_map,
     review_url_for_branch_with_provider_map, sanitize_branch_name,
 };
 use hunk_git::compare::{CompareSource, load_compare_snapshot, resolve_default_base_branch_name};
@@ -60,6 +67,8 @@ include!("core.rs");
 include!("core_runtime.rs");
 include!("markdown_links.rs");
 include!("project_open.rs");
+include!("forge_auth_store.rs");
+include!("github_auth_flow.rs");
 include!("git_ops_review.rs");
 include!("git_ops.rs");
 include!("recent_commits.rs");

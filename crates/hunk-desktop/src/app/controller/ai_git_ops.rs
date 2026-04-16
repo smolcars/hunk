@@ -21,6 +21,21 @@ struct AiGitProgressEvent {
     detail: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+enum AiOpenPrOutcome {
+    GitHubDialog {
+        committed_subject: Option<String>,
+        repo_root: PathBuf,
+        branch_name: String,
+        review_title: String,
+    },
+    BrowserUrl {
+        committed_subject: Option<String>,
+        review_url: String,
+        branch_name: String,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiBranchTargetChoiceAction {
     CreateBranchAndPush,
@@ -1096,7 +1111,7 @@ impl DiffViewer {
             epoch,
             cx,
             move |progress_tx| {
-                (|| -> anyhow::Result<(Option<String>, String, String)> {
+                (|| -> anyhow::Result<AiOpenPrOutcome> {
                     let review_branch_name = if open_pr_branch_strategy
                         == AiOpenPrBranchStrategy::CreateReviewBranch
                     {
@@ -1178,7 +1193,7 @@ impl DiffViewer {
                             review_branch_name.as_str(),
                         )),
                     );
-                    let review_url = review_url_for_branch_with_provider_map(
+                    let review_remote = review_remote_for_branch_with_provider_map(
                         repo_root.as_path(),
                         review_branch_name.as_str(),
                         &provider_mappings,
@@ -1191,14 +1206,38 @@ impl DiffViewer {
                     let review_title = committed_subject
                         .clone()
                         .unwrap_or_else(|| fallback_review_title.clone());
-                    let review_url = with_review_title_prefill(review_url, review_title.as_str());
                     send_ai_git_progress(
                         &progress_tx,
                         AiGitProgressStep::OpeningBrowser,
                         Some(review_title.clone()),
                     );
 
-                    Ok((committed_subject, review_url, review_branch_name))
+                    if review_remote.provider == hunk_git::config::ReviewProviderKind::GitHub {
+                        return Ok(AiOpenPrOutcome::GitHubDialog {
+                            committed_subject,
+                            repo_root: repo_root.clone(),
+                            branch_name: review_branch_name,
+                            review_title,
+                        });
+                    }
+
+                    let review_url = review_url_for_branch_with_provider_map(
+                        repo_root.as_path(),
+                        review_branch_name.as_str(),
+                        &provider_mappings,
+                    )?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "no review URL found for {review_branch_name}; configure review_provider_mappings for self-hosted remotes"
+                        )
+                    })?;
+                    let review_url = with_review_title_prefill(review_url, review_title.as_str());
+
+                    Ok(AiOpenPrOutcome::BrowserUrl {
+                        committed_subject,
+                        review_url,
+                        branch_name: review_branch_name,
+                    })
                 })()
             },
             move |this, result, execution_elapsed, total_elapsed, cx| {
@@ -1208,9 +1247,73 @@ impl DiffViewer {
 
                 this.finish_git_action();
                 match result {
-                    Ok((committed_subject, review_url, branch_name)) => {
+                    Ok(AiOpenPrOutcome::GitHubDialog {
+                        committed_subject,
+                        repo_root,
+                        branch_name,
+                        review_title,
+                    }) => {
                         debug!(
-                            "git action complete: epoch={} action=Open PR exec_elapsed_ms={} total_elapsed_ms={} branch={} mode={:?}",
+                            "git action complete: epoch={} action=Open PR exec_elapsed_ms={} total_elapsed_ms={} branch={} mode={:?} provider=github",
+                            epoch,
+                            execution_elapsed.as_millis(),
+                            total_elapsed.as_millis(),
+                            branch_name,
+                            start_mode
+                        );
+                        if let Some(subject) = committed_subject {
+                            this.last_commit_subject = Some(subject);
+                        }
+                        this.request_snapshot_refresh_workflow_only(true, cx);
+                        this.request_recent_commits_refresh(true, cx);
+                        let view = cx.entity();
+                        let window_handle = this.window_handle;
+                        cx.defer(move |cx| {
+                            let result = cx.update_window(window_handle, |_, window, cx| {
+                                view.update(cx, |this, cx| {
+                                    if let Err(err) = this.open_github_review_dialog_for_branch(
+                                        GitHubReviewOpenDialogRequest {
+                                            repo_root: repo_root.clone(),
+                                            branch_name: branch_name.clone(),
+                                            title: review_title.clone(),
+                                            body: None,
+                                            action_label: "Open PR".to_string(),
+                                        },
+                                        window,
+                                        cx,
+                                    ) {
+                                        this.set_git_warning_message(err, Some(window), cx);
+                                    } else {
+                                        this.git_status_message = Some(format!(
+                                            "Ready to create GitHub PR for {}",
+                                            branch_name
+                                        ));
+                                        cx.notify();
+                                    }
+                                });
+                            });
+                            if let Err(err) = result {
+                                error!("failed to open GitHub PR dialog: {err:#}");
+                                let summary = err.to_string();
+                                view.update(cx, |this, cx| {
+                                    this.git_status_message =
+                                        Some(format!("Git error: {summary}"));
+                                    Self::push_error_notification(
+                                        format!("Open PR failed: {summary}"),
+                                        cx,
+                                    );
+                                    cx.notify();
+                                });
+                            }
+                        });
+                    }
+                    Ok(AiOpenPrOutcome::BrowserUrl {
+                        committed_subject,
+                        review_url,
+                        branch_name,
+                    }) => {
+                        debug!(
+                            "git action complete: epoch={} action=Open PR exec_elapsed_ms={} total_elapsed_ms={} branch={} mode={:?} provider=browser",
                             epoch,
                             execution_elapsed.as_millis(),
                             total_elapsed.as_millis(),

@@ -34,7 +34,7 @@ impl DiffViewer {
             || (self.git_action_loading && !self.git_index_action_loading())
     }
 
-    fn set_git_warning_message(
+    pub(super) fn set_git_warning_message(
         &mut self,
         message: String,
         window: Option<&mut Window>,
@@ -59,7 +59,8 @@ impl DiffViewer {
                     crate::app::notifications::success(message.clone()),
                     cx,
                 );
-            }) {
+            }) && !Self::is_window_not_found_error(&err)
+            {
                 error!("failed to show git action success notification: {err:#}");
             }
         }
@@ -79,7 +80,8 @@ impl DiffViewer {
                     crate::app::notifications::error(message.clone()),
                     cx,
                 );
-            }) {
+            }) && !Self::is_window_not_found_error(&err)
+            {
                 error!("failed to show git action error notification: {err:#}");
             }
         }
@@ -112,7 +114,8 @@ impl DiffViewer {
                     crate::app::notifications::warning(message.clone()),
                     cx,
                 );
-            }) {
+            }) && !Self::is_window_not_found_error(&err)
+            {
                 error!("failed to show git action warning notification: {err:#}");
             }
         }
@@ -1027,11 +1030,31 @@ impl DiffViewer {
             );
             return;
         }
-        self.run_review_url_action_for_branch(
-            self.git_workspace.branch_name.clone(),
-            ReviewUrlAction::Open,
+        let Some(repo_root) = self.selected_git_workspace_root() else {
+            self.set_git_warning_message("No Git repository available.".to_string(), Some(window), cx);
+            return;
+        };
+        let branch_name = self.git_workspace.branch_name.clone();
+        let review_title = self.preferred_review_title_for_branch(branch_name.as_str());
+        match self.open_github_review_dialog_for_branch(
+            GitHubReviewOpenDialogRequest {
+                repo_root,
+                branch_name: branch_name.clone(),
+                title: review_title,
+                body: None,
+                action_label: "Open PR/MR".to_string(),
+            },
+            window,
             cx,
-        );
+        ) {
+            Ok(()) => {}
+            Err(err) if err.contains("GitHub only") => {
+                self.run_review_url_action_for_branch(branch_name, ReviewUrlAction::Open, cx);
+            }
+            Err(err) => {
+                self.set_git_warning_message(err, Some(window), cx);
+            }
+        }
     }
 
     pub(super) fn copy_current_branch_review_url(
@@ -1045,6 +1068,17 @@ impl DiffViewer {
                 Some(window),
                 cx,
             );
+            return;
+        }
+        if let Some(repo_root) = self.selected_git_workspace_root()
+            && let Some(review) =
+                self.cached_review_summary_for_branch(repo_root.as_path(), self.git_workspace.branch_name.as_str())
+        {
+            cx.write_to_clipboard(ClipboardItem::new_string(review.url.clone()));
+            let message = format!("Copied PR URL for {}", self.git_workspace.branch_name);
+            self.git_status_message = Some(message.clone());
+            Self::push_success_notification(message, cx);
+            cx.notify();
             return;
         }
         self.run_review_url_action_for_branch(
