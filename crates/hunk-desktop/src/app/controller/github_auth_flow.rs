@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use hunk_forge::{
     ForgeProvider, GitHubAuthMode, GitHubAuthenticatedAccount, GitHubBrowserAuthRequest,
@@ -9,8 +9,9 @@ use hunk_forge::{
 
 const GITHUB_OAUTH_CLIENT_ID_ENV_KEY: &str = "HUNK_GITHUB_OAUTH_CLIENT_ID";
 const GITHUB_OAUTH_CLIENT_SECRET_ENV_KEY: &str = "HUNK_GITHUB_OAUTH_CLIENT_SECRET";
-const GITHUB_OAUTH_CALLBACK_TIMEOUT: Duration = Duration::from_secs(180);
-const GITHUB_OAUTH_CALLBACK_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const GITHUB_OAUTH_CALLBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+const GITHUB_OAUTH_CALLBACK_POLL_INTERVAL: std::time::Duration =
+    std::time::Duration::from_millis(200);
 const GITHUB_OAUTH_RESPONSE_OK: &str = concat!(
     "HTTP/1.1 200 OK\r\n",
     "Content-Type: text/html; charset=utf-8\r\n",
@@ -278,7 +279,7 @@ fn complete_github_browser_sign_in(
 
 fn wait_for_github_browser_callback(
     listener: TcpListener,
-    timeout: Duration,
+    timeout: std::time::Duration,
 ) -> anyhow::Result<String> {
     let deadline = Instant::now() + timeout;
     loop {
@@ -299,10 +300,10 @@ fn wait_for_github_browser_callback(
 
 fn read_github_browser_callback(mut stream: TcpStream) -> anyhow::Result<String> {
     stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
         .context("failed to set GitHub callback read timeout")?;
     stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
+        .set_write_timeout(Some(std::time::Duration::from_secs(5)))
         .context("failed to set GitHub callback write timeout")?;
 
     let request = read_http_request(&mut stream)?;
