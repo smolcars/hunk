@@ -285,55 +285,6 @@ fn apply_login_completed_state(
         .unwrap_or_else(|| "ChatGPT login failed.".to_string())
 }
 
-fn allocate_loopback_port() -> u16 {
-    if let Ok(listener) = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-        && let Ok(address) = listener.local_addr()
-        && address.port() != 0
-    {
-        return address.port();
-    }
-
-    let initial_seed = {
-        let pid = std::process::id() as u16;
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.subsec_nanos() as u16)
-            .unwrap_or(0);
-        let mixed = pid.wrapping_mul(977).wrapping_add(nanos);
-        mixed.max(1)
-    };
-    let _ = NEXT_LOOPBACK_PORT_OFFSET.compare_exchange(
-        0,
-        initial_seed,
-        Ordering::Relaxed,
-        Ordering::Relaxed,
-    );
-    let offset = NEXT_LOOPBACK_PORT_OFFSET.fetch_add(1, Ordering::Relaxed) % LOOPBACK_PORT_RANGE_SIZE;
-    LOOPBACK_PORT_RANGE_START.saturating_add(offset)
-}
-
-fn should_retry_bootstrap_with_new_port(error: &CodexIntegrationError) -> bool {
-    match error {
-        CodexIntegrationError::HostExitedBeforeReady { status } => {
-            let normalized = status.to_ascii_lowercase();
-            normalized.contains("address already in use")
-                || normalized.contains("addrinuse")
-                || normalized.contains("10048")
-                || normalized.contains("10013")
-                || normalized.contains("forbidden by its access permissions")
-                || normalized.contains("access permissions")
-        }
-        CodexIntegrationError::HostStartupTimedOut { .. } => true,
-        CodexIntegrationError::WebSocketTransport(message) => {
-            let normalized = message.to_ascii_lowercase();
-            normalized.contains("connection refused")
-                || normalized.contains("timed out")
-                || normalized.contains("closed")
-        }
-        _ => false,
-    }
-}
-
 fn open_url_in_system_browser(url: &str) -> Result<(), CodexIntegrationError> {
     webbrowser::open(url)
         .map(|_| ())

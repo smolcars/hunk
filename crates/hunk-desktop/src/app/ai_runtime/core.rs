@@ -4,8 +4,6 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU16;
-use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::thread::JoinHandle;
@@ -55,11 +53,7 @@ use hunk_codex::app_server_client::AppServerEvent;
 use hunk_codex::app_server_client::AppServerClient;
 use hunk_codex::app_server_client::EmbeddedAppServerClient;
 use hunk_codex::app_server_client::EmbeddedAppServerClientStartArgs;
-use hunk_codex::app_server_client::ManagedAppServerClient;
-use hunk_codex::app_server_client::RemoteAppServerClient;
 use hunk_codex::errors::CodexIntegrationError;
-use hunk_codex::host::HostConfig;
-use hunk_codex::host::SharedHostLease;
 use hunk_codex::state::AiState;
 use hunk_codex::state::ServerRequestDecision;
 use hunk_codex::state::TurnCollaborationMode;
@@ -76,7 +70,6 @@ use crate::app::ai_rollout_fallback::parse_rollout_fallback;
 use crate::app::AiComposerSkillBinding;
 use crate::app::AiPromptSkillReference;
 
-const HOST_START_TIMEOUT: Duration = Duration::from_secs(10);
 const COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(20);
 const NOTIFICATION_POLL_TIMEOUT: Duration = Duration::from_millis(20);
 const MAX_NOTIFICATIONS_PER_POLL: usize = 256;
@@ -84,13 +77,9 @@ const STREAM_STALL_THRESHOLD: Duration = Duration::from_secs(20);
 const STREAM_STALL_RECOVERY_COOLDOWN: Duration = Duration::from_secs(20);
 const STREAM_STALL_MAX_SOFT_RECOVERIES: u8 = 2;
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
-const HOST_BOOTSTRAP_MAX_ATTEMPTS: usize = 12;
 const AI_CHATS_DEVELOPER_INSTRUCTIONS: &str = "This is the generic Chats workspace. Treat it as an empty placeholder working directory. Do not assume files here are relevant context unless the user explicitly references them.";
 const TRANSIENT_ROLLOUT_LOAD_MAX_RETRIES: usize = 3;
 const TRANSIENT_ROLLOUT_LOAD_RETRY_DELAY: Duration = Duration::from_millis(75);
-const LOOPBACK_PORT_RANGE_START: u16 = 49_152;
-const LOOPBACK_PORT_RANGE_SIZE: u16 = 16_384;
-static NEXT_LOOPBACK_PORT_OFFSET: AtomicU16 = AtomicU16::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiConnectionState {
@@ -261,10 +250,8 @@ pub enum AiWorkerCommand {
 }
 
 struct AiWorkerRuntime {
-    host: Option<SharedHostLease>,
-    session: ManagedAppServerClient,
+    session: EmbeddedAppServerClient,
     transport_kind: AppServerTransportKind,
-    transport_bootstrap_note: Option<String>,
     service: ThreadService,
     codex_home: PathBuf,
     workspace_key: String,

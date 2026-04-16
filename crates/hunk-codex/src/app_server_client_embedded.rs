@@ -1,18 +1,14 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use codex_app_server_client::EnvironmentManager;
-use codex_app_server_client::InProcessAppServerClient;
-use codex_app_server_client::InProcessClientStartArgs;
-use codex_app_server_client::InProcessServerEvent;
+use codex_app_server::in_process::InProcessServerEvent;
 use codex_app_server_protocol::ClientNotification;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::RequestId;
 use codex_arg0::Arg0DispatchPaths;
 use codex_core::config::ConfigBuilder;
-use codex_core::config_loader::CloudRequirementsLoader;
-use codex_core::config_loader::LoaderOverrides;
+use codex_exec_server::EnvironmentManager;
 use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use serde::Serialize;
@@ -28,6 +24,9 @@ use crate::app_server_client::AppServerEvent;
 use crate::app_server_client::DEFAULT_APP_SERVER_CHANNEL_CAPACITY;
 use crate::errors::CodexIntegrationError;
 use crate::errors::Result;
+use crate::in_process_app_server_client::InProcessAppServerClient;
+use crate::in_process_app_server_client::InProcessClientStartArgs;
+use crate::in_process_app_server_client::TypedRequestError;
 use crate::rpc::RequestIdGenerator;
 
 #[derive(Debug, Clone)]
@@ -98,9 +97,6 @@ impl EmbeddedAppServerClient {
                     main_execve_wrapper_exe: None,
                 },
                 config: std::sync::Arc::new(config),
-                cli_overrides: Vec::new(),
-                loader_overrides: LoaderOverrides::default(),
-                cloud_requirements: CloudRequirementsLoader::default(),
                 feedback: CodexFeedback::new(),
                 environment_manager: std::sync::Arc::new(EnvironmentManager::from_env()),
                 config_warnings,
@@ -298,22 +294,16 @@ fn map_event(event: InProcessServerEvent) -> AppServerEvent {
     }
 }
 
-fn map_typed_request_error(
-    error: codex_app_server_client::TypedRequestError,
-) -> CodexIntegrationError {
+fn map_typed_request_error(error: TypedRequestError) -> CodexIntegrationError {
     match error {
-        codex_app_server_client::TypedRequestError::Transport { source, .. } => {
-            CodexIntegrationError::WebSocketTransport(format!(
-                "embedded app-server request failed: {source}"
-            ))
-        }
-        codex_app_server_client::TypedRequestError::Server { source, .. } => {
-            CodexIntegrationError::JsonRpcServerError {
-                code: source.code,
-                message: source.message,
-            }
-        }
-        codex_app_server_client::TypedRequestError::Deserialize { source, .. } => {
+        TypedRequestError::Transport { source, .. } => CodexIntegrationError::WebSocketTransport(
+            format!("embedded app-server request failed: {source}"),
+        ),
+        TypedRequestError::Server { source, .. } => CodexIntegrationError::JsonRpcServerError {
+            code: source.code,
+            message: source.message,
+        },
+        TypedRequestError::Deserialize { source, .. } => {
             CodexIntegrationError::Serialization(source)
         }
     }

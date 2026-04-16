@@ -1766,29 +1766,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "codex-app-server-client"
-version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
-dependencies = [
- "codex-app-server",
- "codex-app-server-protocol",
- "codex-arg0",
- "codex-core",
- "codex-exec-server",
- "codex-feedback",
- "codex-protocol",
- "codex-utils-rustls-provider",
- "futures",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.28.0",
- "toml 0.9.12+spec-1.1.0",
- "tracing",
- "url",
-]
-
-[[package]]
 name = "codex-app-server-protocol"
 version = "0.120.0"
 source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
@@ -4354,26 +4331,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastwebsockets"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "305d3ba574508e27190906d11707dad683e0494e6b85eae9b044cb2734a5e422"
-dependencies = [
- "base64 0.21.7",
- "bytes",
- "http-body-util",
- "hyper",
- "hyper-util",
- "pin-project",
- "rand 0.8.5",
- "sha1",
- "simdutf8",
- "thiserror 1.0.69",
- "tokio",
- "utf-8",
-]
-
-[[package]]
 name = "fax"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6674,27 +6631,19 @@ name = "hunk-codex"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "codex-app-server-client",
+ "codex-app-server",
  "codex-app-server-protocol",
  "codex-arg0",
  "codex-core",
+ "codex-exec-server",
  "codex-feedback",
  "codex-protocol",
- "fastwebsockets",
- "futures-util",
- "http-body-util",
- "hyper",
- "hyper-util",
- "libc",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tokio-tungstenite 0.28.0",
  "tracing",
- "tungstenite 0.28.0",
- "url",
 ]
 
 [[package]]
@@ -14481,23 +14430,6 @@ dependencies = [
  "rand 0.9.2",
  "rustls",
  "rustls-pki-types",
- "sha1",
- "thiserror 2.0.18",
- "utf-8",
-]
-
-[[package]]
-name = "tungstenite"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8628dcc84e5a09eb3d8423d6cb682965dea9133204e8fb3efee74c2a0c259442"
-dependencies = [
- "bytes",
- "data-encoding",
- "http 1.4.0",
- "httparse",
- "log",
- "rand 0.9.2",
  "sha1",
  "thiserror 2.0.18",
  "utf-8",

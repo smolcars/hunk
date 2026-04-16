@@ -94,10 +94,6 @@ impl AiWorkerRuntime {
         connected_message: &str,
         emit_bootstrap_completed: bool,
     ) -> Result<(), CodexIntegrationError> {
-        if let Some(note) = self.transport_bootstrap_note.take() {
-            self.send_event(event_tx, AiWorkerEventPayload::Status(note));
-            self.emit_snapshot(event_tx);
-        }
         self.send_event(
             event_tx,
             AiWorkerEventPayload::Status(connected_message.to_string()),
@@ -215,74 +211,22 @@ impl AiWorkerRuntime {
         config: &AiWorkerStartConfig,
         preferred_active_thread_id: Option<&str>,
     ) -> Result<(), CodexIntegrationError> {
-        if self.transport_kind == AppServerTransportKind::RemoteBundled {
-            let soft_reconnect = self.try_reconnect_existing_host_session();
-            if soft_reconnect.is_ok() {
-                tracing::info!(
-                    port = self.host.as_ref().map(|host| host.port()).unwrap_or_default(),
-                    active_thread_id = preferred_active_thread_id.unwrap_or(""),
-                    "reused existing bundled Codex host session"
-                );
-                self.restore_active_thread_preference(preferred_active_thread_id);
-                return Ok(());
-            }
-            if let Err(error) = soft_reconnect {
-                tracing::warn!(error = %error, "failed to reconnect existing bundled Codex host session");
-            }
-
-            if self
-                .host
-                .as_ref()
-                .is_some_and(|host| host.ensure_running(HOST_START_TIMEOUT).is_ok())
-                && self.try_reconnect_existing_host_session().is_ok()
-            {
-                tracing::info!(
-                    port = self.host.as_ref().map(|host| host.port()).unwrap_or_default(),
-                    active_thread_id = preferred_active_thread_id.unwrap_or(""),
-                    "reconnected after ensuring bundled Codex host was running"
-                );
-                self.restore_active_thread_preference(preferred_active_thread_id);
-                return Ok(());
-            }
-        }
-
         tracing::warn!(
             transport = %self.transport_kind.status_label(),
             active_thread_id = preferred_active_thread_id.unwrap_or(""),
-            "rebootstrapping AI runtime after reconnect failure"
+            "rebootstrapping embedded AI runtime after reconnect failure"
         );
-        self.rebootstrap_runtime(config, preferred_active_thread_id, self.transport_kind)
-    }
-
-    fn try_reconnect_existing_host_session(&mut self) -> Result<(), CodexIntegrationError> {
-        let Some(host) = self.host.as_ref() else {
-            return Err(CodexIntegrationError::WebSocketTransport(
-                "remote bundled transport does not have an active host lease".to_string(),
-            ));
-        };
-
-        let session =
-            RemoteAppServerClient::connect_loopback(host.port(), self.request_timeout)?;
-        tracing::info!(port = host.port(), "reconnected bundled Codex loopback session");
-        self.session = ManagedAppServerClient::Remote(session);
-        Ok(())
+        self.rebootstrap_runtime(config, preferred_active_thread_id)
     }
 
     fn rebootstrap_runtime(
         &mut self,
         config: &AiWorkerStartConfig,
         preferred_active_thread_id: Option<&str>,
-        transport_kind: AppServerTransportKind,
     ) -> Result<(), CodexIntegrationError> {
         let mut replacement_config = config.clone();
         replacement_config.mad_max_mode = self.mad_max_mode;
         replacement_config.include_hidden_models = self.include_hidden_models;
-        replacement_config.transport_preference = match transport_kind {
-            AppServerTransportKind::Embedded => AiAppServerTransportPreference::Embedded,
-            AppServerTransportKind::RemoteBundled => {
-                AiAppServerTransportPreference::RemoteBundled
-            }
-        };
 
         let tool_registry = self.tool_registry.clone();
 

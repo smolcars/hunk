@@ -61,119 +61,29 @@ impl AiWorkerRuntime {
     fn bootstrap(config: AiWorkerStartConfig) -> Result<Self, CodexIntegrationError> {
         std::fs::create_dir_all(&config.codex_home)
             .map_err(CodexIntegrationError::HostProcessIo)?;
-
-        let mut fallback_note = None;
-        let mut last_error = None;
-        for transport_kind in config.transport_preference.bootstrap_candidates() {
-            match transport_kind {
-                AppServerTransportKind::Embedded => match Self::bootstrap_embedded(&config) {
-                    Ok(mut runtime) => {
-                        runtime.transport_bootstrap_note = fallback_note;
-                        return Ok(runtime);
-                    }
-                    Err(error) => {
-                        fallback_note = fallback_note.or_else(|| {
-                            Some(format!(
-                                "Embedded Codex App Server startup failed. Falling back to remote bundled runtime: {error}"
-                            ))
-                        });
-                        last_error = Some(error);
-                    }
-                },
-                AppServerTransportKind::RemoteBundled => match Self::bootstrap_remote(&config) {
-                    Ok(mut runtime) => {
-                        runtime.transport_bootstrap_note = fallback_note;
-                        return Ok(runtime);
-                    }
-                    Err(error) => {
-                        last_error = Some(error);
-                    }
-                },
-            }
-        }
-
-        Err(last_error.unwrap_or(CodexIntegrationError::WebSocketTransport(
-            "unable to start any configured Codex App Server transport".to_string(),
-        )))
-    }
-
-    fn bootstrap_remote(config: &AiWorkerStartConfig) -> Result<Self, CodexIntegrationError> {
-        let mut last_retryable_error = None;
-        for _attempt in 0..HOST_BOOTSTRAP_MAX_ATTEMPTS {
-            let port = allocate_loopback_port();
-            match Self::bootstrap_remote_on_port(config, port) {
-                Ok(runtime) => return Ok(runtime),
-                Err(error) if should_retry_bootstrap_with_new_port(&error) => {
-                    last_retryable_error = Some(error);
-                }
-                Err(error) => return Err(error),
-            }
-        }
-
-        Err(last_retryable_error.unwrap_or(CodexIntegrationError::HostStartupTimedOut {
-            port: 0,
-            timeout_ms: HOST_START_TIMEOUT
-                .as_millis()
-                .min(u128::from(u64::MAX)) as u64,
-        }))
-    }
-
-    fn bootstrap_remote_on_port(
-        config: &AiWorkerStartConfig,
-        port: u16,
-    ) -> Result<Self, CodexIntegrationError> {
-        let host_config = HostConfig::codex_app_server(
-            config.codex_executable.clone(),
-            config.host_working_directory.clone(),
-            config.codex_home.clone(),
-            port,
-        );
-        let host = SharedHostLease::acquire(host_config, HOST_START_TIMEOUT)?;
-
-        let session = ManagedAppServerClient::Remote(RemoteAppServerClient::connect_loopback(
-            host.port(),
-            config.request_timeout,
-        )?);
-
-        Ok(Self::new(
-            config,
-            Some(host),
-            session,
-            AppServerTransportKind::RemoteBundled,
-        ))
+        Self::bootstrap_embedded(&config)
     }
 
     fn bootstrap_embedded(config: &AiWorkerStartConfig) -> Result<Self, CodexIntegrationError> {
-        let session =
-            ManagedAppServerClient::Embedded(EmbeddedAppServerClient::start(
-                EmbeddedAppServerClientStartArgs::new(
-                    config.codex_home.clone(),
-                    config.cwd.clone(),
-                    config.codex_executable.clone(),
-                    "hunk-desktop".to_string(),
-                    env!("CARGO_PKG_VERSION").to_string(),
-                ),
-            )?);
+        let session = EmbeddedAppServerClient::start(EmbeddedAppServerClientStartArgs::new(
+            config.codex_home.clone(),
+            config.cwd.clone(),
+            config.codex_executable.clone(),
+            "hunk-desktop".to_string(),
+            env!("CARGO_PKG_VERSION").to_string(),
+        ))?;
 
-        Ok(Self::new(
-            config,
-            None,
-            session,
-            AppServerTransportKind::Embedded,
-        ))
+        Ok(Self::new(config, session, AppServerTransportKind::Embedded))
     }
 
     fn new(
         config: &AiWorkerStartConfig,
-        host: Option<SharedHostLease>,
-        session: ManagedAppServerClient,
+        session: EmbeddedAppServerClient,
         transport_kind: AppServerTransportKind,
     ) -> Self {
         Self {
-            host,
             session,
             transport_kind,
-            transport_bootstrap_note: None,
             service: ThreadService::new(config.cwd.clone()),
             codex_home: config.codex_home.clone(),
             workspace_key: config.workspace_key.clone(),

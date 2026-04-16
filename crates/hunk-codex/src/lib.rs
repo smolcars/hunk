@@ -2,12 +2,11 @@ pub mod api;
 pub mod app_server_client;
 pub mod diff_stats;
 pub mod errors;
-pub mod host;
+mod in_process_app_server_client;
 pub mod rpc;
 pub mod state;
 pub mod threads;
 pub mod tools;
-pub mod ws_client;
 
 /// Pinned upstream Codex commit selected during implementation kickoff.
 pub const CODEX_PINNED_MAIN_COMMIT: &str = "6bee02a346d0aa8dc4d5dcb312545fa37408b6ca";

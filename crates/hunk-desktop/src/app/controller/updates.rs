@@ -413,8 +413,6 @@ impl DiffViewer {
                 };
                 self.git_status_message = Some(format!("Installing Hunk {version}..."));
                 cx.notify();
-                hunk_codex::host::begin_host_shutdown();
-                hunk_codex::host::cleanup_tracked_hosts_for_shutdown();
                 std::process::exit(0);
             }
             Err(err) => {
@@ -476,8 +474,6 @@ impl DiffViewer {
                         "linux update installed; restarting through GPUI"
                     );
                     this.replace_ready_update(None);
-                    hunk_codex::host::begin_host_shutdown();
-                    hunk_codex::host::cleanup_tracked_hosts_for_shutdown();
                     cx.set_restart_path(applied_update.relaunch_executable);
                     cx.restart();
                 }
