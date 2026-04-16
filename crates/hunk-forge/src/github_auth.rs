@@ -2,15 +2,44 @@ use std::net::SocketAddr;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use oauth2::{CsrfToken, PkceCodeChallenge, PkceCodeVerifier};
+use reqwest::header::ACCEPT;
+use serde::Deserialize;
 use url::Url;
 
 const GITHUB_COM_HOST: &str = "github.com";
 const GITHUB_AUTHORIZE_URL: &str = "https://github.com/login/oauth/authorize";
+const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+const HUNK_GITHUB_AUTH_USER_AGENT: &str = "Hunk";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GitHubAuthMode {
     BrowserSession,
     PersonalAccessToken,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitHubOAuthAppConfig {
+    pub client_id: String,
+    pub client_secret: String,
+}
+
+impl GitHubOAuthAppConfig {
+    pub fn new(client_id: impl Into<String>, client_secret: impl Into<String>) -> Result<Self> {
+        let client_id = client_id.into().trim().to_string();
+        if client_id.is_empty() {
+            bail!("github oauth app client id cannot be empty");
+        }
+
+        let client_secret = client_secret.into().trim().to_string();
+        if client_secret.is_empty() {
+            bail!("github oauth app client secret cannot be empty");
+        }
+
+        Ok(Self {
+            client_id,
+            client_secret,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +68,13 @@ pub struct GitHubBrowserAuthRequest {
 pub struct GitHubBrowserAuthCallback {
     pub code: String,
     pub state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitHubOAuthToken {
+    pub access_token: String,
+    pub token_type: String,
+    pub scope: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +166,68 @@ impl GitHubBrowserAuthService {
         }
         Ok(PkceCodeVerifier::new(secret.to_string()))
     }
+
+    pub fn exchange_code_for_token(
+        &self,
+        app_config: &GitHubOAuthAppConfig,
+        callback: &GitHubBrowserAuthCallback,
+        redirect_url: &str,
+        pkce_verifier: &str,
+    ) -> Result<GitHubOAuthToken> {
+        let redirect_url = redirect_url.trim();
+        if redirect_url.is_empty() {
+            bail!("github oauth redirect url cannot be empty");
+        }
+        let pkce_verifier = self.build_pkce_verifier(pkce_verifier)?;
+
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(HUNK_GITHUB_AUTH_USER_AGENT)
+            .build()
+            .context("failed to build github oauth http client")?;
+        let response = client
+            .post(GITHUB_ACCESS_TOKEN_URL)
+            .header(ACCEPT, "application/json")
+            .form(&[
+                ("client_id", app_config.client_id.as_str()),
+                ("client_secret", app_config.client_secret.as_str()),
+                ("code", callback.code.as_str()),
+                ("redirect_uri", redirect_url),
+                ("code_verifier", pkce_verifier.secret()),
+            ])
+            .send()
+            .context("failed to exchange GitHub authorization code")?;
+        let status = response.status();
+        let payload = response
+            .json::<GitHubOAuthTokenResponse>()
+            .context("failed to decode GitHub oauth token response")?;
+
+        if let Some(error) = payload.error {
+            let description = payload
+                .error_description
+                .filter(|description| !description.trim().is_empty())
+                .unwrap_or(error);
+            bail!("github oauth token exchange failed: {description}");
+        }
+        if !status.is_success() {
+            bail!("github oauth token exchange failed with status {status}");
+        }
+
+        let access_token = payload.access_token.trim().to_string();
+        if access_token.is_empty() {
+            bail!("github oauth token exchange returned an empty access token");
+        }
+
+        let token_type = payload.token_type.trim().to_string();
+        if token_type.is_empty() {
+            bail!("github oauth token exchange returned an empty token type");
+        }
+
+        Ok(GitHubOAuthToken {
+            access_token,
+            token_type,
+            scope: payload.scope.filter(|scope| !scope.trim().is_empty()),
+        })
+    }
 }
 
 pub fn github_auth_mode_for_host(host: &str) -> GitHubAuthMode {
@@ -153,4 +251,18 @@ fn normalize_host(host: &str) -> String {
         .trim_start_matches("https://")
         .trim_start_matches("http://");
     without_scheme.trim_end_matches('/').to_ascii_lowercase()
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubOAuthTokenResponse {
+    #[serde(default)]
+    access_token: String,
+    #[serde(default)]
+    token_type: String,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    error_description: Option<String>,
 }
