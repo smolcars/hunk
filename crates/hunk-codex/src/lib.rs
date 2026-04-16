@@ -1,4 +1,5 @@
 pub mod api;
+pub mod app_server_client;
 pub mod diff_stats;
 pub mod errors;
 pub mod host;

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicU16;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
@@ -50,7 +50,13 @@ use codex_protocol::config_types::ServiceTier;
 use codex_protocol::openai_models::ReasoningEffort;
 use hunk_domain::state::AiCollaborationModeSelection;
 use hunk_domain::state::AiServiceTierSelection;
-use hunk_codex::api::InitializeOptions;
+use hunk_codex::app_server_client::AppServerTransportKind;
+use hunk_codex::app_server_client::AppServerEvent;
+use hunk_codex::app_server_client::AppServerClient;
+use hunk_codex::app_server_client::EmbeddedAppServerClient;
+use hunk_codex::app_server_client::EmbeddedAppServerClientStartArgs;
+use hunk_codex::app_server_client::ManagedAppServerClient;
+use hunk_codex::app_server_client::RemoteAppServerClient;
 use hunk_codex::errors::CodexIntegrationError;
 use hunk_codex::host::HostConfig;
 use hunk_codex::host::SharedHostLease;
@@ -63,8 +69,6 @@ use hunk_codex::threads::RolloutFallbackItem;
 use hunk_codex::threads::RolloutFallbackTurn;
 use hunk_codex::threads::ThreadService;
 use hunk_codex::tools::DynamicToolRegistry;
-use hunk_codex::ws_client::JsonRpcSession;
-use hunk_codex::ws_client::WebSocketEndpoint;
 
 use crate::app::ai_paths::default_codex_home_path;
 use crate::app::ai_rollout_fallback::find_rollout_path_for_thread;
@@ -75,8 +79,10 @@ use crate::app::AiPromptSkillReference;
 const HOST_START_TIMEOUT: Duration = Duration::from_secs(10);
 const COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(20);
 const NOTIFICATION_POLL_TIMEOUT: Duration = Duration::from_millis(20);
-const NOTIFICATION_DRAIN_TIMEOUT: Duration = Duration::from_millis(2);
 const MAX_NOTIFICATIONS_PER_POLL: usize = 256;
+const STREAM_STALL_THRESHOLD: Duration = Duration::from_secs(20);
+const STREAM_STALL_RECOVERY_COOLDOWN: Duration = Duration::from_secs(20);
+const STREAM_STALL_MAX_SOFT_RECOVERIES: u8 = 2;
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const HOST_BOOTSTRAP_MAX_ATTEMPTS: usize = 12;
 const AI_CHATS_DEVELOPER_INSTRUCTIONS: &str = "This is the generic Chats workspace. Treat it as an empty placeholder working directory. Do not assume files here are relevant context unless the user explicitly references them.";
@@ -254,102 +260,11 @@ pub enum AiWorkerCommand {
     Shutdown,
 }
 
-#[derive(Debug, Clone)]
-pub struct AiWorkerStartConfig {
-    pub cwd: PathBuf,
-    pub host_working_directory: PathBuf,
-    pub workspace_key: String,
-    pub codex_executable: PathBuf,
-    pub codex_home: PathBuf,
-    pub request_timeout: Duration,
-    pub mad_max_mode: bool,
-    pub include_hidden_models: bool,
-}
-
-impl AiWorkerStartConfig {
-    pub fn new(cwd: PathBuf, codex_executable: PathBuf, codex_home: PathBuf) -> Self {
-        let workspace_key = cwd.to_string_lossy().to_string();
-        let host_working_directory = shared_ai_host_working_directory(cwd.as_path());
-        Self {
-            cwd,
-            host_working_directory,
-            workspace_key,
-            codex_executable,
-            codex_home,
-            request_timeout: DEFAULT_REQUEST_TIMEOUT,
-            mad_max_mode: false,
-            include_hidden_models: true,
-        }
-    }
-}
-
-fn shared_ai_host_working_directory(workspace_root: &Path) -> PathBuf {
-    hunk_git::worktree::primary_repo_root(workspace_root)
-        .unwrap_or_else(|_| workspace_root.to_path_buf())
-}
-
-pub fn spawn_ai_worker(
-    config: AiWorkerStartConfig,
-    command_rx: Receiver<AiWorkerCommand>,
-    event_tx: Sender<AiWorkerEvent>,
-) -> JoinHandle<()> {
-    thread::spawn(move || {
-        let workspace_key = config.workspace_key.clone();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            run_ai_worker(config, command_rx, &event_tx)
-        }));
-        dispatch_ai_worker_result(result, workspace_key.as_str(), &event_tx);
-    })
-}
-
-fn dispatch_ai_worker_result(
-    result: std::thread::Result<Result<(), CodexIntegrationError>>,
-    workspace_key: &str,
-    event_tx: &Sender<AiWorkerEvent>,
-) {
-    match result {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
-            send_ai_worker_event(
-                event_tx,
-                workspace_key,
-                AiWorkerEventPayload::Fatal(error.to_string()),
-            );
-        }
-        Err(payload) => {
-            send_ai_worker_event(
-                event_tx,
-                workspace_key,
-                AiWorkerEventPayload::Fatal(format!(
-                    "AI worker panicked: {}",
-                    panic_payload_message(payload)
-                )),
-            );
-        }
-    }
-}
-
-fn send_ai_worker_event(
-    event_tx: &Sender<AiWorkerEvent>,
-    workspace_key: &str,
-    payload: AiWorkerEventPayload,
-) {
-    let _ = event_tx.send(AiWorkerEvent::new(workspace_key.to_string(), payload));
-}
-
-fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
-    match payload.downcast::<String>() {
-        Ok(message) => *message,
-        Err(payload) => match payload.downcast::<&'static str>() {
-            Ok(message) => (*message).to_string(),
-            Err(_) => "unknown panic payload".to_string(),
-        },
-    }
-}
-
 struct AiWorkerRuntime {
-    host: SharedHostLease,
-    session: JsonRpcSession,
+    host: Option<SharedHostLease>,
+    session: ManagedAppServerClient,
+    transport_kind: AppServerTransportKind,
+    transport_bootstrap_note: Option<String>,
     service: ThreadService,
     codex_home: PathBuf,
     workspace_key: String,
@@ -371,6 +286,7 @@ struct AiWorkerRuntime {
     pending_user_inputs: BTreeMap<String, PendingUserInput>,
     next_approval_sequence: u64,
     next_user_input_sequence: u64,
+    turn_stream_watches: BTreeMap<String, TurnStreamWatch>,
 }
 
 #[derive(Debug, Clone)]
@@ -387,78 +303,15 @@ struct PendingUserInput {
     sequence: u64,
 }
 
+#[derive(Debug, Clone)]
+struct TurnStreamWatch {
+    thread_id: String,
+    turn_id: String,
+    last_meaningful_activity_at: Instant,
+    last_recovery_at: Option<Instant>,
+    soft_recovery_attempts: u8,
+}
 impl AiWorkerRuntime {
-    fn bootstrap(config: AiWorkerStartConfig) -> Result<Self, CodexIntegrationError> {
-        std::fs::create_dir_all(&config.codex_home)
-            .map_err(CodexIntegrationError::HostProcessIo)?;
-
-        let mut last_retryable_error = None;
-        for _attempt in 0..HOST_BOOTSTRAP_MAX_ATTEMPTS {
-            let port = allocate_loopback_port();
-            match Self::bootstrap_on_port(&config, port) {
-                Ok(runtime) => return Ok(runtime),
-                Err(error) if should_retry_bootstrap_with_new_port(&error) => {
-                    last_retryable_error = Some(error);
-                }
-                Err(error) => return Err(error),
-            }
-        }
-
-        Err(last_retryable_error.unwrap_or(CodexIntegrationError::HostStartupTimedOut {
-            port: 0,
-            timeout_ms: HOST_START_TIMEOUT
-                .as_millis()
-                .min(u128::from(u64::MAX)) as u64,
-        }))
-    }
-
-    fn bootstrap_on_port(
-        config: &AiWorkerStartConfig,
-        port: u16,
-    ) -> Result<Self, CodexIntegrationError> {
-        let host_config = HostConfig::codex_app_server(
-            config.codex_executable.clone(),
-            config.host_working_directory.clone(),
-            config.codex_home.clone(),
-            port,
-        );
-        let host = SharedHostLease::acquire(host_config, HOST_START_TIMEOUT)?;
-
-        let endpoint = WebSocketEndpoint::loopback(host.port());
-        let mut session = JsonRpcSession::connect(&endpoint)?;
-        session.initialize(InitializeOptions::default(), config.request_timeout)?;
-
-        Ok(Self {
-            host,
-            session,
-            service: ThreadService::new(config.cwd.clone()),
-            codex_home: config.codex_home.clone(),
-            workspace_key: config.workspace_key.clone(),
-            request_timeout: config.request_timeout,
-            mad_max_mode: config.mad_max_mode,
-            account: None,
-            requires_openai_auth: false,
-            pending_chatgpt_login_id: None,
-            pending_chatgpt_auth_url: None,
-            rate_limits: None,
-            rate_limits_by_limit_id: HashMap::new(),
-            models: Vec::new(),
-            experimental_features: Vec::new(),
-            collaboration_modes: Vec::new(),
-            skills: Vec::new(),
-            include_hidden_models: config.include_hidden_models,
-            tool_registry: DynamicToolRegistry::new(),
-            pending_approvals: BTreeMap::new(),
-            pending_user_inputs: BTreeMap::new(),
-            next_approval_sequence: 1,
-            next_user_input_sequence: 1,
-        })
-    }
-
-    fn send_event(&self, event_tx: &Sender<AiWorkerEvent>, payload: AiWorkerEventPayload) {
-        send_ai_worker_event(event_tx, self.workspace_key.as_str(), payload);
-    }
-
     fn handle_command(
         &mut self,
         command: AiWorkerCommand,

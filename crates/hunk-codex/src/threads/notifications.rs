@@ -1,7 +1,7 @@
 impl ThreadService {
     pub fn archive_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         timeout: Duration,
     ) -> Result<ThreadArchiveResponse> {
@@ -43,7 +43,7 @@ impl ThreadService {
 
     pub fn unarchive_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         timeout: Duration,
     ) -> Result<ThreadUnarchiveResponse> {
@@ -66,7 +66,7 @@ impl ThreadService {
 
     pub fn compact_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         timeout: Duration,
     ) -> Result<ThreadCompactStartResponse> {
@@ -81,7 +81,7 @@ impl ThreadService {
 
     pub fn rollback_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         num_turns: u32,
         timeout: Duration,
@@ -106,7 +106,7 @@ impl ThreadService {
 
     pub fn unsubscribe_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         timeout: Duration,
     ) -> Result<ThreadUnsubscribeResponse> {
@@ -343,28 +343,6 @@ impl ThreadService {
             }
             _ => {}
         }
-    }
-
-    pub fn apply_queued_notifications(&mut self, session: &mut JsonRpcSession) {
-        let _ = self.drain_and_apply_queued_notifications(session);
-    }
-
-    pub fn drain_and_apply_queued_notifications(
-        &mut self,
-        session: &mut JsonRpcSession,
-    ) -> Vec<ServerNotification> {
-        let notifications = session.drain_server_notifications();
-        for notification in notifications.iter().cloned() {
-            self.apply_server_notification(notification);
-        }
-        notifications
-    }
-
-    pub fn drain_queued_server_requests(
-        &mut self,
-        session: &mut JsonRpcSession,
-    ) -> Vec<ServerRequest> {
-        session.drain_server_requests()
     }
 
     pub fn record_server_request_resolved(

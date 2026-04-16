@@ -1,5 +1,7 @@
 # AI Coding in Hunk (Codex WebSocket-Only) TODO
 
+Superseded by [AI_APP_SERVER_CLIENT_MIGRATION_TODO.md](./AI_APP_SERVER_CLIENT_MIGRATION_TODO.md). The current implementation now runs `RemoteBundled` on a shared app-server client boundary, and it keeps `Embedded` transport selection scaffolded behind the same boundary, but true in-process desktop support is still blocked by SQLite linkage.
+
 ## Scope Lock (Non-Negotiable)
 - [ ] Transport is WebSocket only for Codex App Server integration.
 - [ ] No stdio transport path in Hunk runtime logic.

@@ -8,7 +8,8 @@ fn run_ai_worker(
     event_tx: &Sender<AiWorkerEvent>,
 ) -> Result<(), CodexIntegrationError> {
     let mut runtime = AiWorkerRuntime::bootstrap(config.clone())?;
-    runtime.sync_after_connect(event_tx, "Codex App Server connected over WebSocket", true)?;
+    let connected_message = runtime.connected_status_message();
+    runtime.sync_after_connect(event_tx, connected_message.as_str(), true)?;
     let mut rate_limit_refresh_deadline = Some(Instant::now() + INITIAL_RATE_LIMIT_REFRESH_DELAY);
 
     loop {
@@ -77,6 +78,7 @@ fn run_ai_worker(
                         return Err(error);
                     }
                 }
+                runtime.maybe_recover_stalled_turns(&config, event_tx)?;
             }
             Err(RecvTimeoutError::Disconnected) => break,
         }
@@ -92,6 +94,10 @@ impl AiWorkerRuntime {
         connected_message: &str,
         emit_bootstrap_completed: bool,
     ) -> Result<(), CodexIntegrationError> {
+        if let Some(note) = self.transport_bootstrap_note.take() {
+            self.send_event(event_tx, AiWorkerEventPayload::Status(note));
+            self.emit_snapshot(event_tx);
+        }
         self.send_event(
             event_tx,
             AiWorkerEventPayload::Status(connected_message.to_string()),
@@ -150,13 +156,15 @@ impl AiWorkerRuntime {
             );
 
             match self.try_restore_transport(config, preferred_active_thread_id.as_deref()) {
-                Ok(()) => match self.sync_after_connect(event_tx, "AI connection restored.", false)
-                {
-                    Ok(()) => return Ok(()),
-                    Err(error) => {
-                        last_error = Some(error);
+                Ok(()) => {
+                    let connected_message = self.reconnected_status_message();
+                    match self.sync_after_connect(event_tx, connected_message.as_str(), false) {
+                        Ok(()) => return Ok(()),
+                        Err(error) => {
+                            last_error = Some(error);
+                        }
                     }
-                },
+                }
                 Err(error) => {
                     last_error = Some(error);
                 }
@@ -179,27 +187,37 @@ impl AiWorkerRuntime {
         config: &AiWorkerStartConfig,
         preferred_active_thread_id: Option<&str>,
     ) -> Result<(), CodexIntegrationError> {
-        let soft_reconnect = self.try_reconnect_existing_host_session();
-        if soft_reconnect.is_ok() {
-            self.restore_active_thread_preference(preferred_active_thread_id);
-            return Ok(());
+        if self.transport_kind == AppServerTransportKind::RemoteBundled {
+            let soft_reconnect = self.try_reconnect_existing_host_session();
+            if soft_reconnect.is_ok() {
+                self.restore_active_thread_preference(preferred_active_thread_id);
+                return Ok(());
+            }
+
+            if self
+                .host
+                .as_ref()
+                .is_some_and(|host| host.ensure_running(HOST_START_TIMEOUT).is_ok())
+                && self.try_reconnect_existing_host_session().is_ok()
+            {
+                self.restore_active_thread_preference(preferred_active_thread_id);
+                return Ok(());
+            }
         }
 
-        if self.host.ensure_running(HOST_START_TIMEOUT).is_ok()
-            && self.try_reconnect_existing_host_session().is_ok()
-        {
-            self.restore_active_thread_preference(preferred_active_thread_id);
-            return Ok(());
-        }
-
-        self.rebootstrap_runtime(config, preferred_active_thread_id)
+        self.rebootstrap_runtime(config, preferred_active_thread_id, self.transport_kind)
     }
 
     fn try_reconnect_existing_host_session(&mut self) -> Result<(), CodexIntegrationError> {
-        let endpoint = WebSocketEndpoint::loopback(self.host.port());
-        let mut session = JsonRpcSession::connect(&endpoint)?;
-        session.initialize(InitializeOptions::default(), self.request_timeout)?;
-        self.session = session;
+        let Some(host) = self.host.as_ref() else {
+            return Err(CodexIntegrationError::WebSocketTransport(
+                "remote bundled transport does not have an active host lease".to_string(),
+            ));
+        };
+
+        let session =
+            RemoteAppServerClient::connect_loopback(host.port(), self.request_timeout)?;
+        self.session = ManagedAppServerClient::Remote(session);
         Ok(())
     }
 
@@ -207,10 +225,17 @@ impl AiWorkerRuntime {
         &mut self,
         config: &AiWorkerStartConfig,
         preferred_active_thread_id: Option<&str>,
+        transport_kind: AppServerTransportKind,
     ) -> Result<(), CodexIntegrationError> {
         let mut replacement_config = config.clone();
         replacement_config.mad_max_mode = self.mad_max_mode;
         replacement_config.include_hidden_models = self.include_hidden_models;
+        replacement_config.transport_preference = match transport_kind {
+            AppServerTransportKind::Embedded => AiAppServerTransportPreference::Embedded,
+            AppServerTransportKind::RemoteBundled => {
+                AiAppServerTransportPreference::RemoteBundled
+            }
+        };
 
         let tool_registry = self.tool_registry.clone();
 

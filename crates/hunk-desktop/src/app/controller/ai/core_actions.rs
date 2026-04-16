@@ -77,6 +77,7 @@ impl DiffViewer {
         let mut start_config = AiWorkerStartConfig::new(cwd, codex_executable, codex_home);
         start_config.mad_max_mode = self.ai_mad_max_mode;
         start_config.include_hidden_models = self.ai_include_hidden_models;
+        let starting_status_message = start_config.transport_preference.starting_status_message();
 
         let worker = spawn_ai_worker(start_config, command_rx, event_tx);
         self.mark_ai_runtime_start_in_flight(worker_workspace_key.as_str());
@@ -84,7 +85,7 @@ impl DiffViewer {
         self.ai_connection_state = AiConnectionState::Connecting;
         self.ai_bootstrap_loading = true;
         self.ai_error_message = None;
-        self.ai_status_message = Some("Starting Codex App Server...".to_string());
+        self.ai_status_message = Some(starting_status_message);
         self.invalidate_ai_visible_frame_state_with_reason("runtime");
         let listener_workspace_key = worker_workspace_key.clone();
         self.ai_command_tx = Some(command_tx);

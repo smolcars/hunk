@@ -26,7 +26,6 @@ use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::ReviewStartResponse;
 use codex_app_server_protocol::ServerNotification;
-use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::SkillsConfigWriteParams;
 use codex_app_server_protocol::SkillsConfigWriteResponse;
 use codex_app_server_protocol::SkillsListParams;
@@ -82,7 +81,9 @@ use crate::state::StreamEvent;
 use crate::state::ThreadLifecycleStatus;
 use crate::state::TurnStatus as StateTurnStatus;
 use crate::state::item_storage_key;
-use crate::ws_client::JsonRpcSession;
+use crate::app_server_client::AppServerClient;
+
+const BUFFERED_NOTIFICATION_DRAIN_TIMEOUT: Duration = Duration::ZERO;
 
 #[derive(Debug, Clone)]
 pub struct ThreadService {
@@ -154,7 +155,7 @@ impl ThreadService {
 
     fn request_with_notifications<P, R>(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         method: &str,
         params: Option<&P>,
         timeout: Duration,
@@ -168,7 +169,7 @@ impl ThreadService {
 
     fn request_and_reconcile<P, R, F>(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         method: &str,
         params: Option<&P>,
         timeout: Duration,
@@ -181,13 +182,25 @@ impl ThreadService {
     {
         let mut response: R = session.request_typed(method, params, timeout)?;
         reconcile(self, &mut response)?;
-        self.apply_queued_notifications(session);
+        self.apply_buffered_notifications(session)?;
         Ok(response)
+    }
+
+    fn apply_buffered_notifications(
+        &mut self,
+        session: &mut impl AppServerClient,
+    ) -> Result<()> {
+        for notification in
+            session.drain_buffered_notifications(BUFFERED_NOTIFICATION_DRAIN_TIMEOUT)?
+        {
+            self.apply_server_notification(notification);
+        }
+        Ok(())
     }
 
     pub fn list_threads(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         cursor: Option<String>,
         limit: Option<u32>,
         timeout: Duration,
@@ -218,7 +231,7 @@ impl ThreadService {
 
     fn list_threads_for_cwd(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         cursor: Option<String>,
         limit: Option<u32>,
         cwd: String,
@@ -254,7 +267,7 @@ impl ThreadService {
 
     pub fn list_loaded_threads(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         cursor: Option<String>,
         limit: Option<u32>,
         timeout: Duration,
@@ -270,7 +283,7 @@ impl ThreadService {
 
     pub fn list_skills(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         force_reload: bool,
         timeout: Duration,
     ) -> Result<SkillsListResponse> {
@@ -284,7 +297,7 @@ impl ThreadService {
 
     pub fn write_skills_config(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         path: PathBuf,
         enabled: bool,
         timeout: Duration,
@@ -311,7 +324,7 @@ impl ThreadService {
 
     pub fn list_apps(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         cursor: Option<String>,
         limit: Option<u32>,
         force_refetch: bool,
@@ -328,7 +341,7 @@ impl ThreadService {
 
     pub fn list_models(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         cursor: Option<String>,
         limit: Option<u32>,
         include_hidden: Option<bool>,
@@ -344,7 +357,7 @@ impl ThreadService {
 
     pub fn list_experimental_features(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         cursor: Option<String>,
         limit: Option<u32>,
         timeout: Duration,
@@ -360,7 +373,7 @@ impl ThreadService {
 
     pub fn list_collaboration_modes(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         timeout: Duration,
     ) -> Result<CollaborationModeListResponse> {
         self.request_with_notifications(
@@ -373,7 +386,7 @@ impl ThreadService {
 
     pub fn read_account(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         refresh_token: bool,
         timeout: Duration,
     ) -> Result<GetAccountResponse> {
@@ -383,7 +396,7 @@ impl ThreadService {
 
     pub fn login_account(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         params: LoginAccountParams,
         timeout: Duration,
     ) -> Result<LoginAccountResponse> {
@@ -397,7 +410,7 @@ impl ThreadService {
 
     pub fn cancel_account_login(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         login_id: String,
         timeout: Duration,
     ) -> Result<CancelLoginAccountResponse> {
@@ -412,7 +425,7 @@ impl ThreadService {
 
     pub fn logout_account(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         timeout: Duration,
     ) -> Result<LogoutAccountResponse> {
         self.request_with_notifications(
@@ -425,7 +438,7 @@ impl ThreadService {
 
     pub fn read_account_rate_limits(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         timeout: Duration,
     ) -> Result<GetAccountRateLimitsResponse> {
         self.request_with_notifications(
@@ -438,7 +451,7 @@ impl ThreadService {
 
     pub fn start_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         mut params: ThreadStartParams,
         timeout: Duration,
     ) -> Result<ThreadStartResponse> {
@@ -459,7 +472,7 @@ impl ThreadService {
 
     pub fn resume_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         mut params: ThreadResumeParams,
         timeout: Duration,
     ) -> Result<ThreadResumeResponse> {
@@ -483,7 +496,7 @@ impl ThreadService {
 
     pub fn fork_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         mut params: ThreadForkParams,
         timeout: Duration,
     ) -> Result<ThreadForkResponse> {
@@ -507,7 +520,7 @@ impl ThreadService {
 
     pub fn read_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         include_turns: bool,
         timeout: Duration,
@@ -534,7 +547,7 @@ impl ThreadService {
 
     pub fn start_turn(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         params: TurnStartParams,
         timeout: Duration,
     ) -> Result<TurnStartResponse> {
@@ -554,7 +567,7 @@ impl ThreadService {
 
     pub fn steer_turn(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         params: TurnSteerParams,
         timeout: Duration,
     ) -> Result<TurnSteerResponse> {
@@ -564,7 +577,7 @@ impl ThreadService {
 
     pub fn interrupt_turn(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         params: TurnInterruptParams,
         timeout: Duration,
     ) -> Result<TurnInterruptResponse> {
@@ -585,7 +598,7 @@ impl ThreadService {
 
     pub fn start_review(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         params: ReviewStartParams,
         timeout: Duration,
     ) -> Result<ReviewStartResponse> {
@@ -606,7 +619,7 @@ impl ThreadService {
 
     pub fn command_exec(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         mut params: CommandExecParams,
         timeout: Duration,
     ) -> Result<CommandExecResponse> {

@@ -1,4 +1,6 @@
+include!("ai_runtime/transport.rs");
 include!("ai_runtime/core.rs");
+include!("ai_runtime/lifecycle.rs");
 include!("ai_runtime/pending_steer.rs");
 include!("ai_runtime/sync.rs");
 include!("ai_runtime/reconnect.rs");
