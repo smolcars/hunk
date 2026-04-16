@@ -1,44 +1,33 @@
-use std::net::SocketAddr;
-
-use anyhow::{Context as _, Result, anyhow, bail};
-use oauth2::{CsrfToken, PkceCodeChallenge, PkceCodeVerifier};
+use anyhow::{Context as _, Result, bail};
 use reqwest::header::ACCEPT;
 use serde::Deserialize;
-use url::Url;
 
 const GITHUB_COM_HOST: &str = "github.com";
-const GITHUB_AUTHORIZE_URL: &str = "https://github.com/login/oauth/authorize";
+const GITHUB_DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
 const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+const GITHUB_DEVICE_CODE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const HUNK_GITHUB_AUTH_USER_AGENT: &str = "Hunk";
+const DEFAULT_DEVICE_POLL_INTERVAL_SECS: u64 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GitHubAuthMode {
-    BrowserSession,
+    DeviceFlow,
     PersonalAccessToken,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitHubOAuthAppConfig {
     pub client_id: String,
-    pub client_secret: String,
 }
 
 impl GitHubOAuthAppConfig {
-    pub fn new(client_id: impl Into<String>, client_secret: impl Into<String>) -> Result<Self> {
+    pub fn new(client_id: impl Into<String>) -> Result<Self> {
         let client_id = client_id.into().trim().to_string();
         if client_id.is_empty() {
             bail!("github oauth app client id cannot be empty");
         }
 
-        let client_secret = client_secret.into().trim().to_string();
-        if client_secret.is_empty() {
-            bail!("github oauth app client secret cannot be empty");
-        }
-
-        Ok(Self {
-            client_id,
-            client_secret,
-        })
+        Ok(Self { client_id })
     }
 }
 
@@ -56,18 +45,12 @@ impl GitHubAuthScopes {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GitHubBrowserAuthRequest {
-    pub authorization_url: String,
-    pub redirect_url: String,
-    pub listen_addr: SocketAddr,
-    pub state: String,
-    pub pkce_verifier: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GitHubBrowserAuthCallback {
-    pub code: String,
-    pub state: String,
+pub struct GitHubDeviceAuthorization {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    pub expires_in_secs: u64,
+    pub interval_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,16 +61,25 @@ pub struct GitHubOAuthToken {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GitHubBrowserAuthService {
+pub enum GitHubDeviceFlowPoll {
+    AuthorizationPending,
+    SlowDown,
+    Complete(GitHubOAuthToken),
+    AccessDenied(String),
+    ExpiredToken,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitHubDeviceFlowService {
     client_id: String,
     scopes: GitHubAuthScopes,
 }
 
-impl GitHubBrowserAuthService {
+impl GitHubDeviceFlowService {
     pub fn new(client_id: impl Into<String>) -> Result<Self> {
         let client_id = client_id.into().trim().to_string();
         if client_id.is_empty() {
-            bail!("github browser auth client id cannot be empty");
+            bail!("github device flow client id cannot be empty");
         }
         Ok(Self {
             client_id,
@@ -95,154 +87,135 @@ impl GitHubBrowserAuthService {
         })
     }
 
-    pub fn begin_loopback_auth(&self, listen_addr: SocketAddr) -> Result<GitHubBrowserAuthRequest> {
-        let redirect_url = github_loopback_redirect_url(listen_addr)?;
-        let state = CsrfToken::new_random();
-        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+    pub fn start_device_flow(&self) -> Result<GitHubDeviceAuthorization> {
+        let client = build_github_auth_http_client()?;
+        let response = client
+            .post(GITHUB_DEVICE_CODE_URL)
+            .header(ACCEPT, "application/json")
+            .form(&[
+                ("client_id", self.client_id.as_str()),
+                ("scope", self.scopes.as_space_delimited().as_str()),
+            ])
+            .send()
+            .context("failed to start GitHub device authorization flow")?;
+        let status = response.status();
+        let payload = response
+            .json::<GitHubDeviceAuthorizationResponse>()
+            .context("failed to decode GitHub device authorization response")?;
+        if !status.is_success() {
+            bail!("github device authorization failed with status {status}");
+        }
 
-        let mut authorization_url = Url::parse(GITHUB_AUTHORIZE_URL)
-            .context("failed to construct GitHub authorization URL")?;
-        authorization_url
-            .query_pairs_mut()
-            .append_pair("client_id", self.client_id.as_str())
-            .append_pair("redirect_uri", redirect_url.as_str())
-            .append_pair("scope", self.scopes.as_space_delimited().as_str())
-            .append_pair("state", state.secret())
-            .append_pair("code_challenge", pkce_challenge.as_str())
-            .append_pair("code_challenge_method", "S256")
-            .append_pair("allow_signup", "false");
+        let device_code = payload.device_code.trim().to_string();
+        if device_code.is_empty() {
+            bail!("github device authorization response was missing a device code");
+        }
 
-        Ok(GitHubBrowserAuthRequest {
-            authorization_url: authorization_url.into(),
-            redirect_url,
-            listen_addr,
-            state: state.secret().to_string(),
-            pkce_verifier: pkce_verifier.secret().to_string(),
+        let user_code = payload.user_code.trim().to_string();
+        if user_code.is_empty() {
+            bail!("github device authorization response was missing a user code");
+        }
+
+        let verification_uri = payload.verification_uri.trim().to_string();
+        if verification_uri.is_empty() {
+            bail!("github device authorization response was missing a verification URI");
+        }
+
+        if payload.expires_in <= 0 {
+            bail!("github device authorization response returned an invalid expiration");
+        }
+
+        Ok(GitHubDeviceAuthorization {
+            device_code,
+            user_code,
+            verification_uri,
+            expires_in_secs: payload.expires_in as u64,
+            interval_secs: payload.interval.max(1) as u64,
         })
     }
 
-    pub fn validate_callback_url(
-        &self,
-        callback_url: &str,
-        expected_state: &str,
-    ) -> Result<GitHubBrowserAuthCallback> {
-        if expected_state.trim().is_empty() {
-            bail!("expected GitHub auth state cannot be empty");
+    pub fn poll_device_flow_token(&self, device_code: &str) -> Result<GitHubDeviceFlowPoll> {
+        let device_code = device_code.trim();
+        if device_code.is_empty() {
+            bail!("github device code cannot be empty");
         }
 
-        let parsed = Url::parse(callback_url).context("failed to parse GitHub callback URL")?;
-        let query = parsed.query_pairs().collect::<Vec<_>>();
-        if let Some((_, error)) = query.iter().find(|(key, _)| key == "error") {
-            let description = query
-                .iter()
-                .find(|(key, _)| key == "error_description")
-                .map(|(_, value)| value.to_string())
-                .unwrap_or_else(|| error.to_string());
-            bail!("github authorization failed: {description}");
-        }
-
-        let state = query
-            .iter()
-            .find(|(key, _)| key == "state")
-            .map(|(_, value)| value.to_string())
-            .ok_or_else(|| anyhow!("github callback is missing state"))?;
-        if state != expected_state {
-            bail!("github callback state did not match the pending sign-in request");
-        }
-
-        let code = query
-            .iter()
-            .find(|(key, _)| key == "code")
-            .map(|(_, value)| value.to_string())
-            .ok_or_else(|| anyhow!("github callback is missing authorization code"))?;
-
-        Ok(GitHubBrowserAuthCallback { code, state })
-    }
-
-    pub fn build_pkce_verifier(&self, secret: &str) -> Result<PkceCodeVerifier> {
-        let secret = secret.trim();
-        if secret.is_empty() {
-            bail!("github PKCE verifier cannot be empty");
-        }
-        Ok(PkceCodeVerifier::new(secret.to_string()))
-    }
-
-    pub fn exchange_code_for_token(
-        &self,
-        app_config: &GitHubOAuthAppConfig,
-        callback: &GitHubBrowserAuthCallback,
-        redirect_url: &str,
-        pkce_verifier: &str,
-    ) -> Result<GitHubOAuthToken> {
-        let redirect_url = redirect_url.trim();
-        if redirect_url.is_empty() {
-            bail!("github oauth redirect url cannot be empty");
-        }
-        let pkce_verifier = self.build_pkce_verifier(pkce_verifier)?;
-
-        let client = reqwest::blocking::Client::builder()
-            .user_agent(HUNK_GITHUB_AUTH_USER_AGENT)
-            .build()
-            .context("failed to build github oauth http client")?;
+        let client = build_github_auth_http_client()?;
         let response = client
             .post(GITHUB_ACCESS_TOKEN_URL)
             .header(ACCEPT, "application/json")
             .form(&[
-                ("client_id", app_config.client_id.as_str()),
-                ("client_secret", app_config.client_secret.as_str()),
-                ("code", callback.code.as_str()),
-                ("redirect_uri", redirect_url),
-                ("code_verifier", pkce_verifier.secret()),
+                ("client_id", self.client_id.as_str()),
+                ("device_code", device_code),
+                ("grant_type", GITHUB_DEVICE_CODE_GRANT_TYPE),
             ])
             .send()
-            .context("failed to exchange GitHub authorization code")?;
+            .context("failed to poll GitHub device authorization token")?;
         let status = response.status();
         let payload = response
-            .json::<GitHubOAuthTokenResponse>()
-            .context("failed to decode GitHub oauth token response")?;
+            .json::<GitHubDeviceTokenResponse>()
+            .context("failed to decode GitHub device token response")?;
 
-        if let Some(error) = payload.error {
-            let description = payload
-                .error_description
-                .filter(|description| !description.trim().is_empty())
-                .unwrap_or(error);
-            bail!("github oauth token exchange failed: {description}");
-        }
-        if !status.is_success() {
-            bail!("github oauth token exchange failed with status {status}");
+        if let Some(access_token) = payload
+            .access_token
+            .as_ref()
+            .map(|token| token.trim())
+            .filter(|token| !token.is_empty())
+        {
+            let token_type = payload
+                .token_type
+                .as_ref()
+                .map(|token_type| token_type.trim())
+                .filter(|token_type| !token_type.is_empty())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("github device token response was missing a token type")
+                })?;
+
+            return Ok(GitHubDeviceFlowPoll::Complete(GitHubOAuthToken {
+                access_token: access_token.to_string(),
+                token_type: token_type.to_string(),
+                scope: payload.scope.filter(|scope| !scope.trim().is_empty()),
+            }));
         }
 
-        let access_token = payload.access_token.trim().to_string();
-        if access_token.is_empty() {
-            bail!("github oauth token exchange returned an empty access token");
+        match payload.error.as_deref() {
+            Some("authorization_pending") => Ok(GitHubDeviceFlowPoll::AuthorizationPending),
+            Some("slow_down") => Ok(GitHubDeviceFlowPoll::SlowDown),
+            Some("access_denied") => Ok(GitHubDeviceFlowPoll::AccessDenied(
+                payload
+                    .error_description
+                    .filter(|description| !description.trim().is_empty())
+                    .unwrap_or_else(|| "GitHub sign-in was denied.".to_string()),
+            )),
+            Some("expired_token") => Ok(GitHubDeviceFlowPoll::ExpiredToken),
+            Some(error) => {
+                let description = payload
+                    .error_description
+                    .filter(|description| !description.trim().is_empty())
+                    .unwrap_or_else(|| error.to_string());
+                bail!("github device token polling failed: {description}");
+            }
+            None if !status.is_success() => {
+                bail!("github device token polling failed with status {status}");
+            }
+            None => bail!("github device token response was missing both token and error data"),
         }
-
-        let token_type = payload.token_type.trim().to_string();
-        if token_type.is_empty() {
-            bail!("github oauth token exchange returned an empty token type");
-        }
-
-        Ok(GitHubOAuthToken {
-            access_token,
-            token_type,
-            scope: payload.scope.filter(|scope| !scope.trim().is_empty()),
-        })
     }
 }
 
 pub fn github_auth_mode_for_host(host: &str) -> GitHubAuthMode {
     if normalize_host(host) == GITHUB_COM_HOST {
-        GitHubAuthMode::BrowserSession
+        GitHubAuthMode::DeviceFlow
     } else {
         GitHubAuthMode::PersonalAccessToken
     }
 }
 
-pub fn github_loopback_redirect_url(listen_addr: SocketAddr) -> Result<String> {
-    if listen_addr.ip().is_unspecified() {
-        bail!("github loopback redirect cannot use an unspecified address");
-    }
-    Ok(format!("http://{listen_addr}/auth/github/callback"))
+fn build_github_auth_http_client() -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .user_agent(HUNK_GITHUB_AUTH_USER_AGENT)
+        .build()
+        .context("failed to build GitHub auth HTTP client")
 }
 
 fn normalize_host(host: &str) -> String {
@@ -254,15 +227,32 @@ fn normalize_host(host: &str) -> String {
 }
 
 #[derive(Debug, Deserialize)]
-struct GitHubOAuthTokenResponse {
+struct GitHubDeviceAuthorizationResponse {
     #[serde(default)]
-    access_token: String,
+    device_code: String,
     #[serde(default)]
-    token_type: String,
+    user_code: String,
+    #[serde(default)]
+    verification_uri: String,
+    expires_in: i64,
+    #[serde(default = "default_device_poll_interval_secs")]
+    interval: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubDeviceTokenResponse {
+    #[serde(default)]
+    access_token: Option<String>,
+    #[serde(default)]
+    token_type: Option<String>,
     #[serde(default)]
     scope: Option<String>,
     #[serde(default)]
     error: Option<String>,
     #[serde(default)]
     error_description: Option<String>,
+}
+
+const fn default_device_poll_interval_secs() -> i64 {
+    DEFAULT_DEVICE_POLL_INTERVAL_SECS as i64
 }

@@ -11,6 +11,13 @@ enum RecentCommitsRefreshPriority {
     UserInitiated,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GitHubDeviceFlowPromptState {
+    repo: hunk_forge::ForgeRepoRef,
+    verification_uri: String,
+    user_code: String,
+}
+
 impl RecentCommitsRefreshPriority {
     const fn as_str(self) -> &'static str {
         match self {

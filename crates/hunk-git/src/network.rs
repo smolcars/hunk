@@ -613,10 +613,9 @@ fn resolve_credentials(
             .as_ref()
             .map(|target| target.username.as_str())
             .unwrap_or_else(|| username_from_url.unwrap_or("git"));
-        if let Ok(cred) = Cred::ssh_key_from_agent(username) {
-            return Ok(cred);
-        }
         if let Some(target) = ssh_target.as_ref() {
+            // Prefer explicit host-scoped identities from ~/.ssh/config before falling back to
+            // ssh-agent so host-specific keys win over whichever key happens to be loaded.
             for identity in ssh_identity_candidates(target) {
                 let public_key = public_key_path(identity.as_path());
                 if let Ok(cred) = Cred::ssh_key(
@@ -628,6 +627,9 @@ fn resolve_credentials(
                     return Ok(cred);
                 }
             }
+        }
+        if let Ok(cred) = Cred::ssh_key_from_agent(username) {
+            return Ok(cred);
         }
     }
 

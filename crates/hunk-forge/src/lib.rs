@@ -10,9 +10,8 @@ pub use auth::{
 };
 pub use github::{GitHubAuthenticatedAccount, GitHubReviewClient};
 pub use github_auth::{
-    GitHubAuthMode, GitHubAuthScopes, GitHubBrowserAuthCallback, GitHubBrowserAuthRequest,
-    GitHubBrowserAuthService, GitHubOAuthAppConfig, GitHubOAuthToken, github_auth_mode_for_host,
-    github_loopback_redirect_url,
+    GitHubAuthMode, GitHubAuthScopes, GitHubDeviceAuthorization, GitHubDeviceFlowPoll,
+    GitHubDeviceFlowService, GitHubOAuthAppConfig, GitHubOAuthToken, github_auth_mode_for_host,
 };
 pub use models::{
     CreateReviewInput, CreateReviewResult, ForgeProvider, ForgeRepoRef, ForgeReviewState,

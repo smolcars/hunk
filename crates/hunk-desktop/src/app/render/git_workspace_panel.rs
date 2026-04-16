@@ -182,6 +182,180 @@ impl DiffViewer {
             .into_any_element()
     }
 
+    fn render_github_auth_header_controls(
+        &self,
+        view: Entity<Self>,
+        repo: &hunk_forge::ForgeRepoRef,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let colors = hunk_git_workspace(cx.theme(), cx.theme().mode.is_dark());
+        let pending_prompt = self.pending_github_device_flow_prompt_for_repo(repo).cloned();
+        let has_pending_prompt = pending_prompt.is_some();
+        let has_session = self.github_session_identity_for_repo(repo).is_some();
+        let copied_device_code = pending_prompt.as_ref().is_some_and(|prompt| {
+            let copied_message = format!("Copied GitHub device code {}", prompt.user_code);
+            self.git_status_message.as_deref() == Some(copied_message.as_str())
+        });
+
+        v_flex()
+            .flex_none()
+            .max_w(px(420.0))
+            .items_end()
+            .gap_1()
+            .when_some(pending_prompt, |this, prompt| {
+                this.child(
+                    v_flex()
+                        .items_end()
+                        .gap_1p5()
+                        .child(
+                            h_flex()
+                                .items_center()
+                                .justify_end()
+                                .gap_1p5()
+                                .flex_wrap()
+                                .child(
+                                    div()
+                                        .rounded(px(10.0))
+                                        .border_1()
+                                        .border_color(colors.muted_card.border)
+                                        .bg(colors.muted_card.background)
+                                        .px_3()
+                                        .py_1p5()
+                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .text_sm()
+                                        .font_semibold()
+                                        .text_color(cx.theme().foreground)
+                                        .child(prompt.user_code.clone()),
+                                )
+                                .child({
+                                    let view = view.clone();
+                                    let repo = repo.clone();
+                                    Button::new("git-github-device-open")
+                                        .outline()
+                                        .compact()
+                                        .with_size(gpui_component::Size::Small)
+                                        .rounded(px(8.0))
+                                        .icon(Icon::new(IconName::ExternalLink).size(px(12.0)))
+                                        .label("Open GitHub")
+                                        .on_click(move |_, _, cx| {
+                                            let result = view.update(cx, |this, cx| {
+                                                this.open_github_device_flow_verification_for_repo(
+                                                    &repo, cx,
+                                                )
+                                            });
+                                            if let Err(message) = result {
+                                                view.update(cx, |this, cx| {
+                                                    this.set_git_warning_message(
+                                                        message, None, cx,
+                                                    );
+                                                });
+                                            }
+                                        })
+                                })
+                                .child({
+                                    let view = view.clone();
+                                    let repo = repo.clone();
+                                    let mut button = Button::new("git-github-device-copy")
+                                        .compact()
+                                        .with_size(gpui_component::Size::Small)
+                                        .rounded(px(8.0))
+                                        .icon(Icon::new(IconName::Copy).size(px(12.0)))
+                                        .label(if copied_device_code {
+                                            "Copied"
+                                        } else {
+                                            "Copy Code"
+                                        })
+                                        .on_click(move |_, _, cx| {
+                                            let result = view.update(cx, |this, cx| {
+                                                this.copy_github_device_flow_code_for_repo(&repo, cx)
+                                            });
+                                            if let Err(message) = result {
+                                                view.update(cx, |this, cx| {
+                                                    this.set_git_warning_message(
+                                                        message, None, cx,
+                                                    );
+                                                });
+                                            }
+                                        });
+                                    if copied_device_code {
+                                        button = button.primary();
+                                    } else {
+                                        button = button.outline();
+                                    }
+                                    button
+                                }),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .text_right()
+                                .child(if copied_device_code {
+                                    "Copied to your clipboard."
+                                } else {
+                                    "The device code was copied to your clipboard automatically."
+                                }),
+                        ),
+                )
+            })
+            .when(has_session && !has_pending_prompt, |this| {
+                this.child(
+                    h_flex()
+                        .items_center()
+                        .justify_end()
+                        .gap_1p5()
+                        .flex_wrap()
+                        .child({
+                            let view = view.clone();
+                            let repo = repo.clone();
+                            Button::new("git-github-sign-out")
+                                .outline()
+                                .compact()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(IconName::Github).size(px(12.0)))
+                                .label("Sign Out")
+                                .disabled(self.git_rail_controls_busy())
+                                .on_click(move |_, _, cx| {
+                                    let result = view.update(cx, |this, cx| {
+                                        this.sign_out_github_session_for_repo(&repo, cx)
+                                    });
+                                    if let Err(message) = result {
+                                        view.update(cx, |this, cx| {
+                                            this.set_git_warning_message(message, None, cx);
+                                        });
+                                    }
+                                })
+                        }),
+                )
+            })
+            .when(!has_session && !has_pending_prompt, |this| {
+                this.child({
+                    let view = view.clone();
+                    let repo = repo.clone();
+                    Button::new("git-github-sign-in")
+                        .outline()
+                        .compact()
+                        .with_size(gpui_component::Size::Small)
+                        .rounded(px(8.0))
+                        .icon(Icon::new(IconName::Github).size(px(12.0)))
+                        .label("Sign in with GitHub")
+                        .disabled(self.git_rail_controls_busy())
+                        .on_click(move |_, _, cx| {
+                            let result = view.update(cx, |this, cx| {
+                                this.start_github_device_sign_in(repo.clone(), cx)
+                            });
+                            if let Err(message) = result {
+                                view.update(cx, |this, cx| {
+                                    this.set_git_warning_message(message, None, cx);
+                                });
+                            }
+                        })
+                })
+            })
+            .into_any_element()
+    }
+
     fn render_git_branch_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let view = cx.entity();
         let is_dark = cx.theme().mode.is_dark();
@@ -559,7 +733,7 @@ impl DiffViewer {
                         } else {
                             button = button.primary();
                         }
-                        button
+                            button
                     }),
             )
             .child(

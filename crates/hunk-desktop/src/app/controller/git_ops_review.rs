@@ -683,22 +683,22 @@ impl DiffViewer {
     ) {
         let has_reusable_token = self.github_token_source_for_repo(&context.repo).is_some();
         let auth_mode = github_auth_mode_for_host(context.repo.host.as_str());
-        let browser_sign_in_available = self.github_browser_sign_in_available_for_repo(&context.repo);
+        let device_sign_in_available = self.github_device_sign_in_available_for_repo(&context.repo);
         let token_placeholder = match (auth_mode, has_reusable_token) {
-            (GitHubAuthMode::BrowserSession, true) => {
+            (GitHubAuthMode::DeviceFlow, true) => {
                 "Personal access token (optional; leave blank to reuse saved credential)"
             }
-            (GitHubAuthMode::BrowserSession, false) => "Personal access token (optional fallback)",
+            (GitHubAuthMode::DeviceFlow, false) => "Personal access token (optional fallback)",
             (GitHubAuthMode::PersonalAccessToken, true) => {
                 "GitHub token (leave blank to reuse saved credential)"
             }
             (GitHubAuthMode::PersonalAccessToken, false) => "GitHub token",
         };
         let token_label = match auth_mode {
-            GitHubAuthMode::BrowserSession => "Personal Access Token",
+            GitHubAuthMode::DeviceFlow => "Personal Access Token",
             GitHubAuthMode::PersonalAccessToken => "Token",
         };
-        let auth_hint = self.github_browser_sign_in_hint_for_repo(&context.repo);
+        let auth_hint = self.github_device_sign_in_hint_for_repo(&context.repo);
         let token_input = cx.new(|cx| InputState::new(window, cx).placeholder(token_placeholder));
         let title_input = cx.new(|cx| InputState::new(window, cx).placeholder("Pull request title"));
         let base_branch_input =
@@ -853,19 +853,19 @@ impl DiffViewer {
                                         }),
                                 )
                                 .when(
-                                    auth_mode == GitHubAuthMode::BrowserSession,
+                                    auth_mode == GitHubAuthMode::DeviceFlow,
                                     |this| {
                                         this.child(
                                             Button::new("github-review-sign-in")
                                                 .label("Sign in with GitHub")
                                                 .outline()
-                                                .disabled(!browser_sign_in_available)
+                                                .disabled(!device_sign_in_available)
                                                 .on_click({
                                                     let view = view.clone();
                                                     let repo = context.repo.clone();
                                                     move |_, _, cx| {
                                                         let result = view.update(cx, |this, cx| {
-                                                            this.start_github_browser_sign_in(
+                                                            this.start_github_device_sign_in(
                                                                 repo.clone(),
                                                                 cx,
                                                             )

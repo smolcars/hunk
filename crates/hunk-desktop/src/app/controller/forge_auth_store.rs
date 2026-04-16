@@ -20,6 +20,10 @@ fn save_forge_secret(credential_id: &str, secret: &str) -> anyhow::Result<()> {
     KeyringForgeSecretStore.save_secret(credential_id, secret)
 }
 
+fn delete_forge_secret(credential_id: &str) -> anyhow::Result<()> {
+    KeyringForgeSecretStore.delete_secret(credential_id)
+}
+
 impl KeyringForgeSecretStore {
     fn entry(&self, credential_id: &str) -> anyhow::Result<keyring::Entry> {
         keyring::Entry::new(FORGE_KEYRING_SERVICE, credential_id)

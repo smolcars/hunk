@@ -34,7 +34,7 @@ impl DiffViewer {
             || (self.git_action_loading && !self.git_index_action_loading())
     }
 
-    fn set_git_warning_message(
+    pub(super) fn set_git_warning_message(
         &mut self,
         message: String,
         window: Option<&mut Window>,

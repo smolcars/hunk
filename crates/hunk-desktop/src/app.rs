@@ -1604,6 +1604,8 @@ struct DiffViewer {
     branch_input_state: Entity<InputState>,
     branch_input_has_text: bool,
     commit_input_state: Entity<InputState>,
+    git_workspace_forge_repo: Option<hunk_forge::ForgeRepoRef>,
+    github_device_flow_prompt: Option<GitHubDeviceFlowPromptState>,
     forge_tokens_by_credential_id: BTreeMap<String, String>,
     review_summary_by_branch_key: BTreeMap<String, OpenReviewSummary>,
     review_summary_miss_by_branch_key: BTreeSet<String>,

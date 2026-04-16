@@ -1,101 +1,142 @@
-use std::io::{Read, Write};
-use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::time::Instant;
 
 use hunk_forge::{
-    ForgeProvider, GitHubAuthMode, GitHubAuthenticatedAccount, GitHubBrowserAuthRequest,
-    GitHubBrowserAuthService, GitHubOAuthAppConfig, github_auth_mode_for_host,
+    ForgeProvider, GitHubAuthMode, GitHubAuthenticatedAccount, GitHubDeviceAuthorization,
+    GitHubDeviceFlowPoll, GitHubDeviceFlowService, GitHubOAuthAppConfig,
+    github_auth_mode_for_host,
 };
 
+// OAuth client IDs are public identifiers, so shipping the GitHub.com device-flow client id
+// in the desktop binary is expected and avoids a local env-var setup step.
+const HUNK_GITHUB_DEVICE_FLOW_CLIENT_ID: &str = "Ov23liecmGTDOJDVpP5c";
 const GITHUB_OAUTH_CLIENT_ID_ENV_KEY: &str = "HUNK_GITHUB_OAUTH_CLIENT_ID";
-const GITHUB_OAUTH_CLIENT_SECRET_ENV_KEY: &str = "HUNK_GITHUB_OAUTH_CLIENT_SECRET";
-const GITHUB_OAUTH_CALLBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
-const GITHUB_OAUTH_CALLBACK_POLL_INTERVAL: std::time::Duration =
-    std::time::Duration::from_millis(200);
-const GITHUB_OAUTH_RESPONSE_OK: &str = concat!(
-    "HTTP/1.1 200 OK\r\n",
-    "Content-Type: text/html; charset=utf-8\r\n",
-    "Connection: close\r\n\r\n",
-    "<html><body><h2>GitHub sign-in received.</h2>",
-    "<p>You can return to Hunk.</p></body></html>"
-);
-const GITHUB_OAUTH_RESPONSE_BAD_REQUEST: &str = concat!(
-    "HTTP/1.1 400 Bad Request\r\n",
-    "Content-Type: text/html; charset=utf-8\r\n",
-    "Connection: close\r\n\r\n",
-    "<html><body><h2>GitHub sign-in failed.</h2>",
-    "<p>You can close this tab and try again from Hunk.</p></body></html>"
-);
+const GITHUB_DEVICE_FLOW_SLOW_DOWN_SECS: u64 = 5;
 
 #[derive(Debug, Clone)]
-struct GitHubBrowserSignInResult {
+struct GitHubDeviceSignInResult {
     repo: ForgeRepoRef,
     account: GitHubAuthenticatedAccount,
     access_token: String,
 }
 
 impl DiffViewer {
-    fn github_browser_sign_in_available_for_repo(&self, repo: &ForgeRepoRef) -> bool {
-        github_auth_mode_for_host(repo.host.as_str()) == GitHubAuthMode::BrowserSession
-            && load_github_oauth_app_config().is_ok()
+    pub(super) fn refresh_git_workspace_forge_repo(
+        &mut self,
+        repo_root: &std::path::Path,
+        branch_name: &str,
+    ) {
+        let branch_name = branch_name.trim();
+        if branch_name.is_empty() || matches!(branch_name, "detached" | "unknown") {
+            self.git_workspace_forge_repo = None;
+            return;
+        }
+
+        self.git_workspace_forge_repo = review_remote_for_branch_with_provider_map(
+            repo_root,
+            branch_name,
+            self.config.review_provider_mappings.as_slice(),
+        )
+        .ok()
+        .flatten()
+        .and_then(|review_remote| ForgeRepoRef::try_from(&review_remote).ok());
     }
 
-    fn github_browser_sign_in_hint_for_repo(&self, repo: &ForgeRepoRef) -> String {
+    pub(super) fn current_git_workspace_github_dot_com_repo(&self) -> Option<&ForgeRepoRef> {
+        let repo = self.git_workspace_forge_repo.as_ref()?;
+        (repo.provider == ForgeProvider::GitHub
+            && github_auth_mode_for_host(repo.host.as_str()) == GitHubAuthMode::DeviceFlow)
+            .then_some(repo)
+    }
+
+    pub(super) fn pending_github_device_flow_prompt_for_repo(
+        &self,
+        repo: &ForgeRepoRef,
+    ) -> Option<&GitHubDeviceFlowPromptState> {
+        self.github_device_flow_prompt
+            .as_ref()
+            .filter(|prompt| &prompt.repo == repo)
+    }
+
+    pub(super) fn github_session_identity_for_repo(
+        &self,
+        repo: &ForgeRepoRef,
+    ) -> Option<(String, String, Option<String>)> {
+        let resolved = self.resolved_github_credential_for_repo(repo)?;
+        let credential = self
+            .config
+            .forge_credentials
+            .iter()
+            .find(|credential| credential.id == resolved.credential_id)?;
+        (credential.kind == hunk_domain::config::ForgeCredentialKind::GitHubComSession).then(|| {
+            (
+                credential.id.clone(),
+                credential.account_label.clone(),
+                credential.account_login.clone(),
+            )
+        })
+    }
+
+    pub(super) fn github_device_sign_in_available_for_repo(&self, repo: &ForgeRepoRef) -> bool {
+        github_auth_mode_for_host(repo.host.as_str()) == GitHubAuthMode::DeviceFlow
+    }
+
+    pub(super) fn github_device_sign_in_hint_for_repo(&self, repo: &ForgeRepoRef) -> String {
         match github_auth_mode_for_host(repo.host.as_str()) {
-            GitHubAuthMode::BrowserSession => match load_github_oauth_app_config() {
-                Ok(_) => {
-                    "Sign in with GitHub to save a reusable session for this repo. A personal access token still works as a fallback."
-                        .to_string()
-                }
-                Err(_) => format!(
-                    "Browser sign-in is not configured in this build. Set {GITHUB_OAUTH_CLIENT_ID_ENV_KEY} and {GITHUB_OAUTH_CLIENT_SECRET_ENV_KEY}, or use a personal access token."
-                ),
-            },
+            GitHubAuthMode::DeviceFlow => {
+                "Sign in with GitHub to start a reusable device-flow session for this repo. A personal access token still works as a fallback."
+                    .to_string()
+            }
             GitHubAuthMode::PersonalAccessToken => {
                 "This GitHub host currently uses a personal access token.".to_string()
             }
         }
     }
 
-    fn start_github_browser_sign_in(
+    pub(super) fn start_github_device_sign_in(
         &mut self,
         repo: ForgeRepoRef,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        if github_auth_mode_for_host(repo.host.as_str()) != GitHubAuthMode::BrowserSession {
-            return Err("Browser sign-in is only available for github.com right now.".to_string());
+        if github_auth_mode_for_host(repo.host.as_str()) != GitHubAuthMode::DeviceFlow {
+            return Err("Device sign-in is only available for github.com right now.".to_string());
         }
 
         let app_config = load_github_oauth_app_config().map_err(|err| err.to_string())?;
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|err| {
-            format!("Failed to bind a local callback listener for GitHub sign-in: {err}")
-        })?;
-        listener
-            .set_nonblocking(true)
-            .map_err(|err| format!("Failed to configure GitHub callback listener: {err}"))?;
-        let listen_addr = listener
-            .local_addr()
-            .map_err(|err| format!("Failed to inspect GitHub callback listener: {err}"))?;
-        let auth_service = GitHubBrowserAuthService::new(app_config.client_id.clone())
+        let auth_service = GitHubDeviceFlowService::new(app_config.client_id.clone())
             .map_err(|err| err.to_string())?;
-        let auth_request = auth_service
-            .begin_loopback_auth(listen_addr)
+        let authorization = auth_service
+            .start_device_flow()
             .map_err(|err| err.to_string())?;
 
-        open_url_in_browser(auth_request.authorization_url.as_str()).map_err(|err| {
+        let browser_opened = open_url_in_browser(authorization.verification_uri.as_str()).is_ok();
+        cx.write_to_clipboard(ClipboardItem::new_string(authorization.user_code.clone()));
+
+        self.github_device_flow_prompt = Some(GitHubDeviceFlowPromptState {
+            repo: repo.clone(),
+            verification_uri: authorization.verification_uri.clone(),
+            user_code: authorization.user_code.clone(),
+        });
+
+        let launch_message = if browser_opened {
             format!(
-                "Failed to open the browser for GitHub sign-in: {}",
-                err
+                "Opened GitHub sign-in. Enter code {} in the browser. The code was copied to the clipboard.",
+                authorization.user_code
             )
-        })?;
+        } else {
+            format!(
+                "Open {} and enter code {}. The code was copied to the clipboard.",
+                authorization.verification_uri, authorization.user_code
+            )
+        };
 
         let epoch = self.begin_git_action("GitHub sign-in".to_string(), cx);
         let started_at = Instant::now();
-        self.git_status_message = Some("Waiting for GitHub sign-in in the browser…".to_string());
-        Self::push_success_notification(
-            "Opened the browser for GitHub sign-in.".to_string(),
-            cx,
-        );
+        self.git_status_message = Some(launch_message.clone());
+        if browser_opened {
+            Self::push_success_notification(launch_message, cx);
+        } else {
+            Self::push_warning_notification(launch_message, None, cx);
+        }
         cx.notify();
 
         self.git_action_task = cx.spawn(async move |this, cx| {
@@ -103,13 +144,7 @@ impl DiffViewer {
                 .background_executor()
                 .spawn(async move {
                     let execution_started_at = Instant::now();
-                    let result = complete_github_browser_sign_in(
-                        repo,
-                        listener,
-                        auth_service,
-                        auth_request,
-                        app_config,
-                    );
+                    let result = complete_github_device_sign_in(repo, auth_service, authorization);
                     (execution_started_at.elapsed(), result)
                 })
                 .await;
@@ -121,6 +156,7 @@ impl DiffViewer {
                     }
 
                     let total_elapsed = started_at.elapsed();
+                    this.github_device_flow_prompt = None;
                     this.finish_git_action();
                     match result {
                         Ok(result) => {
@@ -134,7 +170,7 @@ impl DiffViewer {
                                 save_forge_secret(credential_id.as_str(), result.access_token.as_str())
                             {
                                 warn!(
-                                    "failed to save GitHub browser session {}: {err:#}",
+                                    "failed to save GitHub device-flow session {}: {err:#}",
                                     credential_id
                                 );
                                 Self::push_warning_notification(
@@ -144,19 +180,18 @@ impl DiffViewer {
                                 );
                             }
                             debug!(
-                                "github sign-in complete: epoch={} login={} execution_elapsed_ms={} total_elapsed_ms={}",
+                                "github device sign-in complete: epoch={} login={} execution_elapsed_ms={} total_elapsed_ms={}",
                                 epoch,
                                 result.account.login,
                                 execution_elapsed.as_millis(),
                                 total_elapsed.as_millis()
                             );
-                            let message =
-                                format!("Signed in to GitHub as {}", result.account.login);
+                            let message = format!("Signed in to GitHub as {}", result.account.login);
                             this.git_status_message = Some(message.clone());
                             Self::push_success_notification(message, cx);
                         }
                         Err(err) => {
-                            error!("github sign-in failed: epoch={} err={err:#}", epoch);
+                            error!("github device sign-in failed: epoch={} err={err:#}", epoch);
                             let summary = err.to_string();
                             this.git_status_message =
                                 Some(format!("GitHub sign-in failed: {summary}"));
@@ -170,6 +205,108 @@ impl DiffViewer {
                 });
             }
         });
+        Ok(())
+    }
+
+    pub(super) fn copy_github_device_flow_code_for_repo(
+        &mut self,
+        repo: &ForgeRepoRef,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let prompt = self
+            .pending_github_device_flow_prompt_for_repo(repo)
+            .ok_or_else(|| "No GitHub device sign-in code is currently active.".to_string())?;
+        cx.write_to_clipboard(ClipboardItem::new_string(prompt.user_code.clone()));
+        let message = format!("Copied GitHub device code {}", prompt.user_code);
+        self.git_status_message = Some(message.clone());
+        Self::push_success_notification(message, cx);
+        cx.notify();
+        Ok(())
+    }
+
+    pub(super) fn open_github_device_flow_verification_for_repo(
+        &mut self,
+        repo: &ForgeRepoRef,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let prompt = self
+            .pending_github_device_flow_prompt_for_repo(repo)
+            .ok_or_else(|| "No GitHub device sign-in session is currently active.".to_string())?;
+        open_url_in_browser(prompt.verification_uri.as_str()).map_err(|err| {
+            format!("Failed to open the GitHub verification URL: {err}")
+        })?;
+        let message = "Opened GitHub device verification in the browser.".to_string();
+        self.git_status_message = Some(message.clone());
+        Self::push_success_notification(message, cx);
+        cx.notify();
+        Ok(())
+    }
+
+    pub(super) fn sign_out_github_session_for_repo(
+        &mut self,
+        repo: &ForgeRepoRef,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let (credential_id, account_label, account_login) = self
+            .github_session_identity_for_repo(repo)
+            .ok_or_else(|| "No saved GitHub session is available for this repo.".to_string())?;
+
+        let removed_index = self
+            .config
+            .forge_credentials
+            .iter()
+            .position(|credential| credential.id == credential_id)
+            .ok_or_else(|| "The saved GitHub session could not be found.".to_string())?;
+        let removed = self.config.forge_credentials.remove(removed_index);
+
+        self.config
+            .forge_repo_credential_bindings
+            .retain(|binding| binding.credential_id != credential_id);
+
+        let host_missing_default = !self.config.forge_credentials.iter().any(|credential| {
+            credential.provider == removed.provider
+                && credential.host == removed.host
+                && credential.is_default_for_host
+        });
+        if removed.is_default_for_host
+            && host_missing_default
+            && let Some(next_default) = self.config.forge_credentials.iter_mut().find(|credential| {
+                credential.provider == removed.provider && credential.host == removed.host
+            })
+        {
+            next_default.is_default_for_host = true;
+        }
+
+        self.forge_tokens_by_credential_id
+            .remove(credential_id.as_str());
+        if self
+            .github_device_flow_prompt
+            .as_ref()
+            .is_some_and(|prompt| &prompt.repo == repo)
+        {
+            self.github_device_flow_prompt = None;
+        }
+        self.persist_config();
+
+        if let Err(err) = delete_forge_secret(credential_id.as_str()) {
+            warn!(
+                "failed to delete saved GitHub session {} during sign-out: {err:#}",
+                credential_id
+            );
+            Self::push_warning_notification(
+                "Signed out in Hunk, but the saved GitHub session could not be removed from the system credential store.".to_string(),
+                None,
+                cx,
+            );
+        }
+
+        let account_name = account_login
+            .filter(|login| !login.trim().is_empty())
+            .unwrap_or_else(|| account_label.clone());
+        let message = format!("Signed out of GitHub account {}", account_name);
+        self.git_status_message = Some(message.clone());
+        Self::push_success_notification(message, cx);
+        cx.notify();
         Ok(())
     }
 
@@ -240,136 +377,62 @@ impl DiffViewer {
 }
 
 fn load_github_oauth_app_config() -> anyhow::Result<GitHubOAuthAppConfig> {
-    let client_id = std::env::var(GITHUB_OAUTH_CLIENT_ID_ENV_KEY).with_context(|| {
-        format!("{GITHUB_OAUTH_CLIENT_ID_ENV_KEY} is required for GitHub browser sign-in")
-    })?;
-    let client_secret = std::env::var(GITHUB_OAUTH_CLIENT_SECRET_ENV_KEY).with_context(|| {
-        format!("{GITHUB_OAUTH_CLIENT_SECRET_ENV_KEY} is required for GitHub browser sign-in")
-    })?;
-    GitHubOAuthAppConfig::new(client_id, client_secret)
+    let client_id = std::env::var(GITHUB_OAUTH_CLIENT_ID_ENV_KEY)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| HUNK_GITHUB_DEVICE_FLOW_CLIENT_ID.to_string());
+    GitHubOAuthAppConfig::new(client_id)
 }
 
-fn complete_github_browser_sign_in(
+fn complete_github_device_sign_in(
     repo: ForgeRepoRef,
-    listener: TcpListener,
-    auth_service: GitHubBrowserAuthService,
-    auth_request: GitHubBrowserAuthRequest,
-    app_config: GitHubOAuthAppConfig,
-) -> anyhow::Result<GitHubBrowserSignInResult> {
-    let callback_url =
-        wait_for_github_browser_callback(listener, GITHUB_OAUTH_CALLBACK_TIMEOUT)?;
-    let callback = auth_service.validate_callback_url(
-        callback_url.as_str(),
-        auth_request.state.as_str(),
-    )?;
-    let token = auth_service.exchange_code_for_token(
-        &app_config,
-        &callback,
-        auth_request.redirect_url.as_str(),
-        auth_request.pkce_verifier.as_str(),
-    )?;
-    let client = GitHubReviewClient::new(repo.host.as_str(), token.access_token.as_str())?;
-    let account = client.current_user()?;
-    Ok(GitHubBrowserSignInResult {
-        repo,
-        account,
-        access_token: token.access_token,
-    })
-}
+    auth_service: GitHubDeviceFlowService,
+    authorization: GitHubDeviceAuthorization,
+) -> anyhow::Result<GitHubDeviceSignInResult> {
+    let deadline =
+        Instant::now() + std::time::Duration::from_secs(authorization.expires_in_secs.max(1));
+    let mut poll_interval_secs = authorization.interval_secs.max(1);
 
-fn wait_for_github_browser_callback(
-    listener: TcpListener,
-    timeout: std::time::Duration,
-) -> anyhow::Result<String> {
-    let deadline = Instant::now() + timeout;
     loop {
-        match listener.accept() {
-            Ok((stream, _)) => return read_github_browser_callback(stream),
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                if Instant::now() >= deadline {
-                    anyhow::bail!("Timed out waiting for the GitHub sign-in callback.");
-                }
-                std::thread::sleep(GITHUB_OAUTH_CALLBACK_POLL_INTERVAL);
+        if Instant::now() >= deadline {
+            anyhow::bail!("Timed out waiting for GitHub sign-in approval.");
+        }
+
+        match auth_service.poll_device_flow_token(authorization.device_code.as_str())? {
+            GitHubDeviceFlowPoll::AuthorizationPending => {
+                sleep_until_next_poll(deadline, poll_interval_secs);
             }
-            Err(err) => {
-                return Err(err).context("failed while waiting for the GitHub sign-in callback");
+            GitHubDeviceFlowPoll::SlowDown => {
+                poll_interval_secs =
+                    poll_interval_secs.saturating_add(GITHUB_DEVICE_FLOW_SLOW_DOWN_SECS);
+                sleep_until_next_poll(deadline, poll_interval_secs);
+            }
+            GitHubDeviceFlowPoll::Complete(token) => {
+                let client = GitHubReviewClient::new(repo.host.as_str(), token.access_token.as_str())?;
+                let account = client.current_user()?;
+                return Ok(GitHubDeviceSignInResult {
+                    repo,
+                    account,
+                    access_token: token.access_token,
+                });
+            }
+            GitHubDeviceFlowPoll::AccessDenied(description) => {
+                anyhow::bail!("{description}");
+            }
+            GitHubDeviceFlowPoll::ExpiredToken => {
+                anyhow::bail!("GitHub sign-in expired before approval was completed.");
             }
         }
     }
 }
 
-fn read_github_browser_callback(mut stream: TcpStream) -> anyhow::Result<String> {
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-        .context("failed to set GitHub callback read timeout")?;
-    stream
-        .set_write_timeout(Some(std::time::Duration::from_secs(5)))
-        .context("failed to set GitHub callback write timeout")?;
-
-    let request = read_http_request(&mut stream)?;
-    let callback_url = match parse_github_callback_url(
-        request.as_str(),
-        stream
-            .local_addr()
-            .context("failed to read local GitHub callback address")?,
-    ) {
-        Ok(callback_url) => {
-            let _ = stream.write_all(GITHUB_OAUTH_RESPONSE_OK.as_bytes());
-            callback_url
-        }
-        Err(err) => {
-            let _ = stream.write_all(GITHUB_OAUTH_RESPONSE_BAD_REQUEST.as_bytes());
-            return Err(err);
-        }
-    };
-
-    Ok(callback_url)
-}
-
-fn read_http_request(stream: &mut TcpStream) -> anyhow::Result<String> {
-    let mut request = Vec::with_capacity(2048);
-    let mut buffer = [0_u8; 1024];
-    loop {
-        let read = stream
-            .read(&mut buffer)
-            .context("failed to read the GitHub callback request")?;
-        if read == 0 {
-            break;
-        }
-        request.extend_from_slice(&buffer[..read]);
-        if request.windows(4).any(|window| window == b"\r\n\r\n") {
-            break;
-        }
-        if request.len() >= 16 * 1024 {
-            anyhow::bail!("github callback request was unexpectedly large");
-        }
+fn sleep_until_next_poll(deadline: Instant, poll_interval_secs: u64) {
+    let now = Instant::now();
+    if now >= deadline {
+        return;
     }
 
-    if request.is_empty() {
-        anyhow::bail!("github callback request was empty");
-    }
-
-    String::from_utf8(request).context("github callback request was not valid UTF-8")
-}
-
-fn parse_github_callback_url(request: &str, local_addr: std::net::SocketAddr) -> anyhow::Result<String> {
-    let request_line = request
-        .lines()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("github callback request was missing a request line"))?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("github callback request was missing a method"))?;
-    if method != "GET" {
-        anyhow::bail!("github callback request used an unsupported method");
-    }
-    let target = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("github callback request was missing a target"))?;
-    if !target.starts_with("/auth/github/callback") {
-        anyhow::bail!("github callback request used an unexpected path");
-    }
-
-    Ok(format!("http://{local_addr}{target}"))
+    let remaining = deadline.saturating_duration_since(now);
+    let requested = std::time::Duration::from_secs(poll_interval_secs.max(1));
+    std::thread::sleep(requested.min(remaining));
 }
