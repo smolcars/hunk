@@ -19,7 +19,6 @@ struct GitHubReviewDialogContext {
 
 #[derive(Debug, Clone)]
 struct GitHubReviewDialogValues {
-    token: String,
     target_branch: String,
     title: String,
     body: Option<String>,
@@ -550,27 +549,11 @@ impl DiffViewer {
         values: GitHubReviewDialogValues,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let token_source = if values.token.trim().is_empty() {
-            self.github_token_source_for_repo(&context.base_repo)
-                .ok_or_else(|| "GitHub token is required.".to_string())?
-        } else {
-            let token = values.token.trim().to_string();
-            if let Some(credential_id) =
-                self.remember_github_token_for_repo(&context.base_repo, token.as_str())
-                && let Err(err) = save_forge_secret(credential_id.as_str(), token.as_str())
-            {
-                error!(
-                    "failed to save GitHub token for credential {}: {err:#}",
-                    credential_id
-                );
-                Self::push_warning_notification(
-                    "GitHub token could not be saved to the system credential store. It will only be available in this Hunk session.".to_string(),
-                    None,
-                    cx,
-                );
-            }
-            GitHubTokenSource::Immediate(token)
-        };
+        let token_source = self
+            .github_token_source_for_repo(&context.base_repo)
+            .ok_or_else(|| {
+                "GitHub auth is required. Use the GitHub control in the Git tab to sign in or enter a token first.".to_string()
+            })?;
         let target_branch = values.target_branch.trim();
         if target_branch.is_empty() {
             return Err("Base branch is required.".to_string());
@@ -717,26 +700,6 @@ impl DiffViewer {
         context: GitHubReviewDialogContext,
         cx: &mut Context<Self>,
     ) {
-        let has_reusable_token = self.github_token_source_for_repo(&context.base_repo).is_some();
-        let auth_mode = github_auth_mode_for_host(context.base_repo.host.as_str());
-        let device_sign_in_available =
-            self.github_device_sign_in_available_for_repo(&context.base_repo);
-        let token_placeholder = match (auth_mode, has_reusable_token) {
-            (GitHubAuthMode::DeviceFlow, true) => {
-                "Personal access token (optional; leave blank to reuse saved credential)"
-            }
-            (GitHubAuthMode::DeviceFlow, false) => "Personal access token (optional fallback)",
-            (GitHubAuthMode::PersonalAccessToken, true) => {
-                "GitHub token (leave blank to reuse saved credential)"
-            }
-            (GitHubAuthMode::PersonalAccessToken, false) => "GitHub token",
-        };
-        let token_label = match auth_mode {
-            GitHubAuthMode::DeviceFlow => "Personal Access Token",
-            GitHubAuthMode::PersonalAccessToken => "Token",
-        };
-        let auth_hint = self.github_device_sign_in_hint_for_repo(&context.base_repo);
-        let token_input = cx.new(|cx| InputState::new(window, cx).placeholder(token_placeholder));
         let title_input = cx.new(|cx| InputState::new(window, cx).placeholder("Pull request title"));
         let base_branch_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Base branch"));
@@ -791,30 +754,6 @@ impl DiffViewer {
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
                                 .child(host_hint.clone()),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(auth_hint.clone()),
-                        )
-                        .child(
-                            v_flex()
-                                .w_full()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .font_semibold()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(token_label),
-                                )
-                                .child(
-                                    gpui_component::input::Input::new(&token_input)
-                                        .appearance(true)
-                                        .w_full()
-                                        .with_size(gpui_component::Size::Medium),
-                                ),
                         )
                         .child(
                             v_flex()
@@ -875,50 +814,16 @@ impl DiffViewer {
                 .footer(
                     DialogFooter::new()
                         .w_full()
-                        .justify_between()
-                        .items_start()
-                        .gap_3()
+                        .justify_end()
                         .child(
-                            h_flex()
-                                .gap_2()
-                                .child(
-                                    Button::new("github-review-cancel")
-                                        .label("Cancel")
-                                        .outline()
-                                        .on_click(|_, window, cx| {
-                                            window.close_dialog(cx);
-                                        }),
-                                )
-                                .when(
-                                    auth_mode == GitHubAuthMode::DeviceFlow,
-                                    |this| {
-                                        this.child(
-                                            Button::new("github-review-sign-in")
-                                                .label("Sign in with GitHub")
-                                                .outline()
-                                                .disabled(!device_sign_in_available)
-                                                .on_click({
-                                                    let view = view.clone();
-                                                    let repo = context.base_repo.clone();
-                                                    move |_, _, cx| {
-                                                        let result = view.update(cx, |this, cx| {
-                                                            this.start_github_device_sign_in(
-                                                                repo.clone(),
-                                                                cx,
-                                                            )
-                                                        });
-                                                        if let Err(message) = result {
-                                                            view.update(cx, |this, cx| {
-                                                                this.set_git_warning_message(
-                                                                    message, None, cx,
-                                                                );
-                                                            });
-                                                        }
-                                                    }
-                                                }),
-                                        )
-                                    },
-                                ),
+                            h_flex().gap_2().child(
+                                Button::new("github-review-cancel")
+                                    .label("Cancel")
+                                    .outline()
+                                    .on_click(|_, window, cx| {
+                                        window.close_dialog(cx);
+                                    }),
+                            ),
                         )
                         .child(
                             Button::new("github-review-submit")
@@ -927,13 +832,11 @@ impl DiffViewer {
                                 .on_click({
                                     let view = view.clone();
                                     let context = context.clone();
-                                    let token_input = token_input.clone();
                                     let title_input = title_input.clone();
                                     let base_branch_input = base_branch_input.clone();
                                     let body_input = body_input.clone();
                                     move |_, window, cx| {
                                         let values = GitHubReviewDialogValues {
-                                            token: token_input.read(cx).value().to_string(),
                                             target_branch: base_branch_input
                                                 .read(cx)
                                                 .value()
@@ -981,6 +884,12 @@ impl DiffViewer {
             request.repo_root.as_path(),
             request.branch_name.as_str(),
         )?;
+        if self.github_token_source_for_repo(&resolved_repos.base_repo).is_none() {
+            return Err(
+                "GitHub auth is required. Use the GitHub control in the Git tab to sign in or enter a token first."
+                    .to_string(),
+            );
+        }
         let target_branch = self.preferred_review_base_branch(
             request.repo_root.as_path(),
             request.branch_name.as_str(),

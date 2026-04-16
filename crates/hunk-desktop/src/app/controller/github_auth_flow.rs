@@ -20,6 +20,28 @@ struct GitHubDeviceSignInResult {
 }
 
 impl DiffViewer {
+    fn refresh_selected_git_workspace_review_summary_after_auth_change(
+        &mut self,
+        repo: &ForgeRepoRef,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(repo_root) = self.selected_git_workspace_root() else {
+            return;
+        };
+        let branch_name = self.git_workspace.branch_name.trim().to_string();
+        if branch_name.is_empty() || matches!(branch_name.as_str(), "detached" | "unknown") {
+            return;
+        }
+
+        self.refresh_git_workspace_forge_repo(repo_root.as_path(), branch_name.as_str());
+        if self.git_workspace_forge_repo.as_ref() != Some(repo) {
+            return;
+        }
+
+        self.clear_review_summary_miss_for_branch(repo_root.as_path(), branch_name.as_str());
+        self.maybe_queue_review_summary_lookup(repo_root, branch_name, cx);
+    }
+
     pub(super) fn refresh_git_workspace_forge_repo(
         &mut self,
         repo_root: &std::path::Path,
@@ -76,20 +98,138 @@ impl DiffViewer {
         })
     }
 
-    pub(super) fn github_device_sign_in_available_for_repo(&self, repo: &ForgeRepoRef) -> bool {
-        github_auth_mode_for_host(repo.host.as_str()) == GitHubAuthMode::DeviceFlow
+    pub(super) fn open_github_token_dialog_for_repo(
+        &mut self,
+        repo: ForgeRepoRef,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let token_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("GitHub personal access token")
+        });
+        let description = format!("Save a personal access token for {}.", repo.path);
+        let host_hint = format!("Host: {}", repo.host);
+        let view = cx.entity();
+
+        gpui_component::WindowExt::open_alert_dialog(window, cx, move |alert, _, cx| {
+            alert
+                .width(px(520.0))
+                .title("GitHub Personal Access Token")
+                .description(description.clone())
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(host_hint.clone()),
+                        )
+                        .child(
+                            v_flex()
+                                .w_full()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_semibold()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child("Personal Access Token"),
+                                )
+                                .child(
+                                    gpui_component::input::Input::new(&token_input)
+                                        .appearance(true)
+                                        .w_full()
+                                        .with_size(gpui_component::Size::Medium),
+                                ),
+                        ),
+                )
+                .footer(
+                    DialogFooter::new()
+                        .w_full()
+                        .justify_end()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("github-token-cancel")
+                                        .label("Cancel")
+                                        .outline()
+                                        .on_click(|_, window, cx| {
+                                            window.close_dialog(cx);
+                                        }),
+                                )
+                                .child(
+                                    Button::new("github-token-save")
+                                        .label("Save Token")
+                                        .primary()
+                                        .on_click({
+                                            let view = view.clone();
+                                            let repo = repo.clone();
+                                            let token_input = token_input.clone();
+                                            move |_, window, cx| {
+                                                let token =
+                                                    token_input.read(cx).value().to_string();
+                                                let result = view.update(cx, |this, cx| {
+                                                    this.save_github_token_for_repo(
+                                                        &repo,
+                                                        token.as_str(),
+                                                        cx,
+                                                    )
+                                                });
+                                                match result {
+                                                    Ok(()) => window.close_dialog(cx),
+                                                    Err(message) => {
+                                                        view.update(cx, |this, cx| {
+                                                            this.set_git_warning_message(
+                                                                message,
+                                                                Some(window),
+                                                                cx,
+                                                            );
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }),
+                                ),
+                        ),
+                )
+        });
     }
 
-    pub(super) fn github_device_sign_in_hint_for_repo(&self, repo: &ForgeRepoRef) -> String {
-        match github_auth_mode_for_host(repo.host.as_str()) {
-            GitHubAuthMode::DeviceFlow => {
-                "Sign in with GitHub to start a reusable device-flow session for this repo. A personal access token still works as a fallback."
-                    .to_string()
-            }
-            GitHubAuthMode::PersonalAccessToken => {
-                "This GitHub host currently uses a personal access token.".to_string()
-            }
+    pub(super) fn save_github_token_for_repo(
+        &mut self,
+        repo: &ForgeRepoRef,
+        token: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let token = token.trim();
+        if token.is_empty() {
+            return Err("GitHub token is required.".to_string());
         }
+
+        let credential_id = self
+            .remember_github_token_for_repo(repo, token)
+            .ok_or_else(|| "GitHub token is required.".to_string())?;
+        if let Err(err) = save_forge_secret(credential_id.as_str(), token) {
+            error!(
+                "failed to save GitHub token for credential {}: {err:#}",
+                credential_id
+            );
+            Self::push_warning_notification(
+                "GitHub token could not be saved to the system credential store. It will only be available in this Hunk session.".to_string(),
+                None,
+                cx,
+            );
+        }
+
+        let message = format!("Saved GitHub token for {}", repo.path);
+        self.git_status_message = Some(message.clone());
+        Self::push_success_notification(message, cx);
+        self.refresh_selected_git_workspace_review_summary_after_auth_change(repo, cx);
+        cx.notify();
+        Ok(())
     }
 
     pub(super) fn start_github_device_sign_in(
@@ -189,6 +329,10 @@ impl DiffViewer {
                             let message = format!("Signed in to GitHub as {}", result.account.login);
                             this.git_status_message = Some(message.clone());
                             Self::push_success_notification(message, cx);
+                            this.refresh_selected_git_workspace_review_summary_after_auth_change(
+                                &result.repo,
+                                cx,
+                            );
                         }
                         Err(err) => {
                             error!("github device sign-in failed: epoch={} err={err:#}", epoch);

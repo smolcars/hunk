@@ -1,7 +1,6 @@
 use anyhow::Context as _;
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
-use gpui_component::Disableable as _;
 use gpui_component::Sizable as _;
 use gpui_component::WindowExt as _;
 use gpui_component::button::{Button, ButtonVariants as _};

@@ -331,25 +331,72 @@ impl DiffViewer {
             })
             .when(!has_session && !has_pending_prompt, |this| {
                 this.child({
-                    let view = view.clone();
-                    let repo = repo.clone();
-                    Button::new("git-github-sign-in")
-                        .outline()
+                    let view_for_primary = view.clone();
+                    let view_for_menu = view.clone();
+                    let repo_for_primary = repo.clone();
+                    let repo_for_menu = repo.clone();
+                    DropdownButton::new("git-github-auth-dropdown")
+                        .button(
+                            Button::new("git-github-sign-in")
+                                .outline()
+                                .compact()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(IconName::Github).size(px(12.0)))
+                                .label("Sign in with GitHub")
+                                .disabled(self.git_rail_controls_busy())
+                                .on_click(move |_, _, cx| {
+                                    let result = view_for_primary.update(cx, |this, cx| {
+                                        this.start_github_device_sign_in(
+                                            repo_for_primary.clone(),
+                                            cx,
+                                        )
+                                    });
+                                    if let Err(message) = result {
+                                        view_for_primary.update(cx, |this, cx| {
+                                            this.set_git_warning_message(message, None, cx);
+                                        });
+                                    }
+                                }),
+                        )
                         .compact()
+                        .outline()
                         .with_size(gpui_component::Size::Small)
                         .rounded(px(8.0))
-                        .icon(Icon::new(IconName::Github).size(px(12.0)))
-                        .label("Sign in with GitHub")
                         .disabled(self.git_rail_controls_busy())
-                        .on_click(move |_, _, cx| {
-                            let result = view.update(cx, |this, cx| {
-                                this.start_github_device_sign_in(repo.clone(), cx)
-                            });
-                            if let Err(message) = result {
-                                view.update(cx, |this, cx| {
-                                    this.set_git_warning_message(message, None, cx);
-                                });
-                            }
+                        .dropdown_menu(move |menu, _, _| {
+                            menu.item(
+                                PopupMenuItem::new("Sign in with GitHub").on_click({
+                                    let view = view_for_menu.clone();
+                                    let repo = repo_for_menu.clone();
+                                    move |_, _, cx| {
+                                        let result = view.update(cx, |this, cx| {
+                                            this.start_github_device_sign_in(repo.clone(), cx)
+                                        });
+                                        if let Err(message) = result {
+                                            view.update(cx, |this, cx| {
+                                                this.set_git_warning_message(message, None, cx);
+                                            });
+                                        }
+                                    }
+                                }),
+                            )
+                            .item(PopupMenuItem::separator())
+                            .item(
+                                PopupMenuItem::new("Enter Personal Access Token").on_click({
+                                    let view = view_for_menu.clone();
+                                    let repo = repo_for_menu.clone();
+                                    move |_, window, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.open_github_token_dialog_for_repo(
+                                                repo.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
+                            )
                         })
                 })
             })
