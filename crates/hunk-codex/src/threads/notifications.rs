@@ -590,14 +590,14 @@ impl ThreadService {
                 thread_id: thread.id.clone(),
                 turn_id: turn.id.clone(),
             });
+            for item in &turn.items {
+                self.apply_item_snapshot(&thread.id, &turn.id, item);
+            }
             if !matches!(turn.status, TurnStatus::InProgress) {
                 self.apply_event(ReducerEvent::TurnCompleted {
                     thread_id: thread.id.clone(),
                     turn_id: turn.id.clone(),
                 });
-            }
-            for item in &turn.items {
-                self.apply_item_snapshot(&thread.id, &turn.id, item);
             }
         }
 

@@ -25,6 +25,7 @@ use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
 use hunk_codex::api;
 use hunk_codex::api::InitializeOptions;
+use hunk_codex::state::TurnStatus as StateTurnStatus;
 use hunk_codex::threads::RolloutFallbackItem;
 use hunk_codex::threads::RolloutFallbackTurn;
 use hunk_codex::threads::ThreadService;
@@ -78,6 +79,10 @@ fn authoritative_snapshots_replace_turn_items_after_fallback_and_follow_up_reads
         .expect("thread/resume should succeed");
 
     assert_eq!(
+        turn_status_for(service.state(), "external-thread", "resume-turn-1"),
+        StateTurnStatus::Completed
+    );
+    assert_eq!(
         item_ids_for_turn(service.state(), "external-thread", "resume-turn-1"),
         string_set(&["resume-agent-1", "resume-user-1"])
     );
@@ -86,6 +91,10 @@ fn authoritative_snapshots_replace_turn_items_after_fallback_and_follow_up_reads
         .read_thread(&mut session, "external-thread".to_string(), true, TIMEOUT)
         .expect("thread/read should succeed");
 
+    assert_eq!(
+        turn_status_for(service.state(), "external-thread", "resume-turn-1"),
+        StateTurnStatus::Completed
+    );
     assert_eq!(
         item_ids_for_turn(service.state(), "external-thread", "resume-turn-1"),
         string_set(&["read-agent-1", "read-agent-2", "read-user-1"])
@@ -105,6 +114,19 @@ fn item_ids_for_turn(
         .filter(|item| item.thread_id == thread_id && item.turn_id == turn_id)
         .map(|item| item.id.clone())
         .collect()
+}
+
+fn turn_status_for(
+    state: &hunk_codex::state::AiState,
+    thread_id: &str,
+    turn_id: &str,
+) -> StateTurnStatus {
+    state
+        .turns
+        .values()
+        .find(|turn| turn.thread_id == thread_id && turn.id == turn_id)
+        .expect("turn should exist")
+        .status
 }
 
 fn string_set(values: &[&str]) -> BTreeSet<String> {

@@ -148,6 +148,14 @@ impl AiWorkerRuntime {
         let mut last_error = None;
 
         for attempt in 1..=WORKER_RECONNECT_MAX_ATTEMPTS {
+            tracing::warn!(
+                transport = %self.transport_kind.status_label(),
+                context,
+                attempt,
+                max_attempts = WORKER_RECONNECT_MAX_ATTEMPTS,
+                active_thread_id = preferred_active_thread_id.as_deref().unwrap_or(""),
+                "attempting AI transport reconnect"
+            );
             self.send_event(
                 event_tx,
                 AiWorkerEventPayload::Reconnecting(format!(
@@ -157,15 +165,35 @@ impl AiWorkerRuntime {
 
             match self.try_restore_transport(config, preferred_active_thread_id.as_deref()) {
                 Ok(()) => {
+                    tracing::info!(
+                        transport = %self.transport_kind.status_label(),
+                        context,
+                        attempt,
+                        "AI transport reconnect succeeded"
+                    );
                     let connected_message = self.reconnected_status_message();
                     match self.sync_after_connect(event_tx, connected_message.as_str(), false) {
                         Ok(()) => return Ok(()),
                         Err(error) => {
+                            tracing::warn!(
+                                transport = %self.transport_kind.status_label(),
+                                context,
+                                attempt,
+                                error = %error,
+                                "AI reconnect succeeded but post-connect sync failed"
+                            );
                             last_error = Some(error);
                         }
                     }
                 }
                 Err(error) => {
+                    tracing::warn!(
+                        transport = %self.transport_kind.status_label(),
+                        context,
+                        attempt,
+                        error = %error,
+                        "AI transport reconnect attempt failed"
+                    );
                     last_error = Some(error);
                 }
             }
@@ -190,8 +218,16 @@ impl AiWorkerRuntime {
         if self.transport_kind == AppServerTransportKind::RemoteBundled {
             let soft_reconnect = self.try_reconnect_existing_host_session();
             if soft_reconnect.is_ok() {
+                tracing::info!(
+                    port = self.host.as_ref().map(|host| host.port()).unwrap_or_default(),
+                    active_thread_id = preferred_active_thread_id.unwrap_or(""),
+                    "reused existing bundled Codex host session"
+                );
                 self.restore_active_thread_preference(preferred_active_thread_id);
                 return Ok(());
+            }
+            if let Err(error) = soft_reconnect {
+                tracing::warn!(error = %error, "failed to reconnect existing bundled Codex host session");
             }
 
             if self
@@ -200,11 +236,21 @@ impl AiWorkerRuntime {
                 .is_some_and(|host| host.ensure_running(HOST_START_TIMEOUT).is_ok())
                 && self.try_reconnect_existing_host_session().is_ok()
             {
+                tracing::info!(
+                    port = self.host.as_ref().map(|host| host.port()).unwrap_or_default(),
+                    active_thread_id = preferred_active_thread_id.unwrap_or(""),
+                    "reconnected after ensuring bundled Codex host was running"
+                );
                 self.restore_active_thread_preference(preferred_active_thread_id);
                 return Ok(());
             }
         }
 
+        tracing::warn!(
+            transport = %self.transport_kind.status_label(),
+            active_thread_id = preferred_active_thread_id.unwrap_or(""),
+            "rebootstrapping AI runtime after reconnect failure"
+        );
         self.rebootstrap_runtime(config, preferred_active_thread_id, self.transport_kind)
     }
 
@@ -217,6 +263,7 @@ impl AiWorkerRuntime {
 
         let session =
             RemoteAppServerClient::connect_loopback(host.port(), self.request_timeout)?;
+        tracing::info!(port = host.port(), "reconnected bundled Codex loopback session");
         self.session = ManagedAppServerClient::Remote(session);
         Ok(())
     }

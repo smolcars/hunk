@@ -11,6 +11,9 @@ use codex_app_server_protocol::JSONRPCNotification;
 use codex_app_server_protocol::JSONRPCRequest;
 use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::RequestId;
+use codex_app_server_protocol::ServerNotification;
+use codex_app_server_protocol::ToolRequestUserInputAnswer;
+use codex_app_server_protocol::ToolRequestUserInputResponse;
 use hunk_codex::app_server_client::AppServerClient;
 use hunk_codex::app_server_client::AppServerEvent;
 use hunk_codex::app_server_client::RemoteAppServerClient;
@@ -45,7 +48,6 @@ fn remote_client_receives_idle_notification_event() {
 }
 
 #[test]
-#[ignore = "server-request roundtrip fixture needs an async websocket harness"]
 fn remote_client_round_trips_server_request_responses() {
     let server = TestServer::spawn(Scenario::CommandApprovalRequestRoundTrip);
     let mut client = RemoteAppServerClient::connect_loopback(server.port, Duration::from_secs(2))
@@ -84,6 +86,67 @@ fn remote_client_round_trips_server_request_responses() {
 }
 
 #[test]
+fn remote_client_round_trips_request_user_input_and_receives_follow_up_notifications() {
+    let server = TestServer::spawn(Scenario::ToolRequestUserInputRoundTrip);
+    let mut client = RemoteAppServerClient::connect_loopback(server.port, Duration::from_secs(2))
+        .expect("client should connect");
+
+    let event = client
+        .next_event(Duration::from_secs(2))
+        .expect("event read should succeed")
+        .expect("event should arrive");
+
+    let request_id = match event {
+        AppServerEvent::ServerRequest(
+            codex_app_server_protocol::ServerRequest::ToolRequestUserInput {
+                request_id,
+                params,
+            },
+        ) => {
+            assert_eq!(params.thread_id, "thread-live");
+            assert_eq!(params.turn_id, "turn-live");
+            assert_eq!(params.item_id, "item-input");
+            assert_eq!(params.questions.len(), 1);
+            assert_eq!(params.questions[0].id, "approval_mode");
+            request_id
+        }
+        other => panic!("unexpected event: {other:?}"),
+    };
+
+    client
+        .respond_typed(
+            request_id,
+            &ToolRequestUserInputResponse {
+                answers: [(
+                    "approval_mode".to_string(),
+                    ToolRequestUserInputAnswer {
+                        answers: vec!["Apply now".to_string()],
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            },
+        )
+        .expect("response should be sent");
+
+    let follow_up = client
+        .next_event(Duration::from_secs(2))
+        .expect("follow-up read should succeed")
+        .expect("follow-up notification should arrive");
+
+    match follow_up {
+        AppServerEvent::ServerNotification(ServerNotification::TurnDiffUpdated(notification)) => {
+            assert_eq!(notification.thread_id, "thread-live");
+            assert_eq!(notification.turn_id, "turn-live");
+            assert_eq!(notification.diff, "diff --git a/src/main.rs b/src/main.rs");
+        }
+        other => panic!("unexpected follow-up event: {other:?}"),
+    }
+
+    server.join();
+}
+
+#[test]
 fn remote_client_surfaces_disconnect_events() {
     let server = TestServer::spawn(Scenario::DisconnectAfterInitialize);
     let mut client = RemoteAppServerClient::connect_loopback(server.port, Duration::from_secs(2))
@@ -108,6 +171,7 @@ fn remote_client_surfaces_disconnect_events() {
 enum Scenario {
     IdleNotification,
     CommandApprovalRequestRoundTrip,
+    ToolRequestUserInputRoundTrip,
     DisconnectAfterInitialize,
 }
 
@@ -142,6 +206,9 @@ impl TestServer {
                 Scenario::IdleNotification => run_idle_notification(&mut socket),
                 Scenario::CommandApprovalRequestRoundTrip => {
                     run_command_approval_request_round_trip(&mut socket)
+                }
+                Scenario::ToolRequestUserInputRoundTrip => {
+                    run_tool_request_user_input_round_trip(&mut socket)
                 }
                 Scenario::DisconnectAfterInitialize => run_disconnect_after_initialize(&mut socket),
             }
@@ -203,6 +270,57 @@ fn run_command_approval_request_round_trip(socket: &mut WebSocket<TcpStream>) {
     let response = expect_response(socket);
     assert_eq!(response.id, RequestId::String("approval-1".to_string()));
     assert_eq!(response.result["decision"], serde_json::json!("accept"));
+    thread::sleep(Duration::from_millis(100));
+    let _ = socket.close(None);
+}
+
+fn run_tool_request_user_input_round_trip(socket: &mut WebSocket<TcpStream>) {
+    send_request(
+        socket,
+        RequestId::String("input-1".to_string()),
+        "item/tool/requestUserInput",
+        serde_json::json!({
+            "threadId": "thread-live",
+            "turnId": "turn-live",
+            "itemId": "item-input",
+            "questions": [
+                {
+                    "id": "approval_mode",
+                    "header": "Execution mode",
+                    "question": "How should we continue?",
+                    "isOther": false,
+                    "isSecret": false,
+                    "options": [
+                        {
+                            "label": "Apply now",
+                            "description": "Apply edits immediately."
+                        },
+                        {
+                            "label": "Hold",
+                            "description": "Prepare patch without applying."
+                        }
+                    ]
+                }
+            ]
+        }),
+    );
+
+    let response = expect_response(socket);
+    assert_eq!(response.id, RequestId::String("input-1".to_string()));
+    assert_eq!(
+        response.result["answers"]["approval_mode"]["answers"],
+        serde_json::json!(["Apply now"])
+    );
+
+    send_notification(
+        socket,
+        "turn/diff/updated",
+        serde_json::json!({
+            "threadId": "thread-live",
+            "turnId": "turn-live",
+            "diff": "diff --git a/src/main.rs b/src/main.rs"
+        }),
+    );
     thread::sleep(Duration::from_millis(100));
     let _ = socket.close(None);
 }

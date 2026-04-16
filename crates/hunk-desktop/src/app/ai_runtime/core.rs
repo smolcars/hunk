@@ -681,6 +681,11 @@ impl AiWorkerRuntime {
         thread_id: String,
     ) -> Result<(), CodexIntegrationError> {
         let read_thread_id = thread_id.clone();
+        tracing::info!(
+            thread_id = read_thread_id.as_str(),
+            transport = %self.transport_kind.status_label(),
+            "refreshing AI thread snapshot with thread/resume + thread/read"
+        );
         match retry_transient_rollout_load(
             TRANSIENT_ROLLOUT_LOAD_MAX_RETRIES,
             TRANSIENT_ROLLOUT_LOAD_RETRY_DELAY,
@@ -716,6 +721,11 @@ impl AiWorkerRuntime {
                     && self.reconcile_missing_rollout_thread_error(read_thread_id.as_str())? => {}
             Err(error) => return Err(error),
         }
+        tracing::info!(
+            thread_id = read_thread_id.as_str(),
+            transport = %self.transport_kind.status_label(),
+            "AI thread snapshot refresh completed"
+        );
         self.hydrate_thread_from_rollout_fallback_if_needed(read_thread_id.as_str());
         Ok(())
     }

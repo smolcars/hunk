@@ -748,6 +748,13 @@ impl AiWorkerRuntime {
                     watch.soft_recovery_attempts.saturating_add(1);
             }
 
+            tracing::info!(
+                thread_id = thread_id.as_str(),
+                turn_id = turn_id.as_str(),
+                stalled_for_ms = stalled_for.as_millis() as u64,
+                next_soft_recovery_attempt = soft_recovery_attempts.saturating_add(1),
+                "attempting stalled AI stream recovery via thread snapshot refresh"
+            );
             self.send_event(
                 event_tx,
                 AiWorkerEventPayload::Status(format!(
@@ -764,6 +771,13 @@ impl AiWorkerRuntime {
             AiWorkerEventPayload::Status(format!(
                 "AI stream is still stalled for turn {turn_id}. Reconnecting transport..."
             )),
+        );
+        tracing::warn!(
+            thread_id = thread_id.as_str(),
+            turn_id = turn_id.as_str(),
+            stalled_for_ms = stalled_for.as_millis() as u64,
+            soft_recovery_attempts,
+            "stall recovery exhausted soft retries; reconnecting AI transport"
         );
         self.reconnect_after_transport_failure(config, "recovering stalled AI stream", event_tx)?;
         self.sync_stream_watches_from_state(Instant::now());

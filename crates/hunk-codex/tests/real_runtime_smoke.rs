@@ -67,24 +67,18 @@ fn bundled_macos_remote_client_bootstraps_and_lists_threads() {
     let setup = SmokeSetup::new(runtime_binary);
     let mut host = HostRuntime::new(setup.host_config());
 
-    eprintln!("starting host");
     host.start(STARTUP_TIMEOUT)
         .expect("bundled runtime should start");
     assert_eq!(host.state(), HostLifecycleState::Ready);
 
-    eprintln!("connecting remote client");
-    let mut session =
-        RemoteAppServerClient::connect_loopback(setup.port, REQUEST_TIMEOUT)
-            .expect("remote client should connect");
-    eprintln!("remote client connected");
+    let mut session = RemoteAppServerClient::connect_loopback(setup.port, REQUEST_TIMEOUT)
+        .expect("remote client should connect");
     let mut service = ThreadService::new(setup.workspace.clone());
-    eprintln!("listing threads");
     let response = service
         .list_threads(&mut session, None, Some(20), REQUEST_TIMEOUT)
         .expect("thread/list should succeed");
 
     assert!(response.data.is_empty());
-    eprintln!("shutting down remote client");
     session.shutdown().expect("remote client should shut down");
     host.stop().expect("runtime should stop");
 }

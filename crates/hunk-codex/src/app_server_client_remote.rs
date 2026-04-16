@@ -99,8 +99,7 @@ impl RemoteAppServerClient {
 
         let (init_tx, init_rx) = std::sync::mpsc::channel();
         let worker_handle = runtime.spawn(async move {
-            let init_result = remote_worker(websocket_url, timeout, command_rx, event_tx).await;
-            let _ = init_tx.send(init_result);
+            remote_worker(websocket_url, timeout, command_rx, event_tx, init_tx).await;
         });
 
         let pending_events = init_rx.recv().map_err(|_| {
@@ -290,18 +289,39 @@ async fn remote_worker(
     initialize_timeout: Duration,
     mut command_rx: mpsc::Receiver<RemoteClientCommand>,
     event_tx: mpsc::Sender<AppServerEvent>,
-) -> Result<Vec<AppServerEvent>> {
-    let (mut stream, _response) = connect_async(websocket_url.as_str())
+    init_tx: std::sync::mpsc::Sender<Result<Vec<AppServerEvent>>>,
+) {
+    let connect_result = connect_async(websocket_url.as_str())
         .await
         .map_err(|error| {
             CodexIntegrationError::WebSocketTransport(format!(
                 "failed to connect to remote app server at `{websocket_url}`: {error}"
             ))
-        })?;
+        });
 
-    let pending_events =
-        initialize_remote_connection(&mut stream, websocket_url.as_str(), initialize_timeout)
-            .await?;
+    let (mut stream, _response) = match connect_result {
+        Ok(stream) => stream,
+        Err(error) => {
+            let _ = init_tx.send(Err(error));
+            return;
+        }
+    };
+
+    match initialize_remote_connection(&mut stream, websocket_url.as_str(), initialize_timeout)
+        .await
+    {
+        Ok(pending_events) => {
+            if init_tx.send(Ok(pending_events)).is_err() {
+                let _ = stream.close(None).await;
+                return;
+            }
+        }
+        Err(error) => {
+            let _ = init_tx.send(Err(error));
+            let _ = stream.close(None).await;
+            return;
+        }
+    }
 
     let mut pending_requests = HashMap::<RequestId, PendingRequest>::new();
     let mut skipped_events = 0usize;
@@ -600,8 +620,6 @@ async fn remote_worker(
                 closed_error.to_string(),
             )));
     }
-
-    Ok(pending_events)
 }
 
 async fn initialize_remote_connection<S>(
@@ -612,7 +630,9 @@ async fn initialize_remote_connection<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let request_id = RequestId::String("initialize".to_string());
+    // Match the legacy session/request generator behavior for the initial handshake.
+    // The bundled 0.120 runtime is known to initialize correctly on numeric ids.
+    let request_id = RequestId::Integer(1);
     let request = JSONRPCRequest {
         id: request_id.clone(),
         method: api::method::INITIALIZE.to_string(),
