@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use hunk_forge::{
-    GitHubAuthMode, GitHubBrowserAuthService, github_auth_mode_for_host,
+    GitHubAuthMode, GitHubBrowserAuthService, GitHubOAuthAppConfig, github_auth_mode_for_host,
     github_loopback_redirect_url,
 };
 use url::Url;
@@ -24,6 +24,14 @@ fn github_auth_mode_uses_pat_for_enterprise_hosts() {
         github_auth_mode_for_host("github.company.com"),
         GitHubAuthMode::PersonalAccessToken
     );
+}
+
+#[test]
+fn github_oauth_app_config_requires_client_secret() {
+    let err =
+        GitHubOAuthAppConfig::new("client-id", "").expect_err("empty client secret must fail");
+
+    assert!(err.to_string().contains("client secret"));
 }
 
 #[test]

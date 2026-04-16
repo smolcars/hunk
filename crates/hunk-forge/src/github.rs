@@ -9,6 +9,12 @@ use crate::models::{
     OpenReviewSummary,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitHubAuthenticatedAccount {
+    pub login: String,
+    pub display_label: String,
+}
+
 #[derive(Debug)]
 pub struct GitHubReviewClient {
     api_base_url: String,
@@ -84,6 +90,27 @@ impl GitHubReviewClient {
 
         Ok(CreateReviewResult {
             review: map_github_pull_request(repo_web_base_url.as_str(), pull_request),
+        })
+    }
+
+    pub fn current_user(&self) -> Result<GitHubAuthenticatedAccount> {
+        self.run(async move {
+            let octocrab = self.build_octocrab()?;
+            let user = octocrab
+                .current()
+                .user()
+                .await
+                .context("failed to load authenticated GitHub user")?;
+            let login = user.login;
+            let display_label = user
+                .name
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| login.clone());
+            Ok(GitHubAuthenticatedAccount {
+                login,
+                display_label,
+            })
         })
     }
 

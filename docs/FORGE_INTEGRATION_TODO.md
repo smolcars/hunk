@@ -52,7 +52,7 @@ Scope: Add real GitHub and GitLab forge integration to Hunk, starting with in-ap
 - GitHub auth flow reference:
   - crate: `oauth2`
   - pinned version: `5.0.0`
-  - use a browser-based authorization code flow with PKCE semantics where supported by the chosen GitHub app registration shape
+  - use a browser-based OAuth app authorization code flow with PKCE for `github.com`
 - Forge secret storage reference:
   - crate: `keyring`
   - pinned version: `3.6.3`
@@ -278,7 +278,7 @@ Phase D:
 7. Hunk validates the returned state and exchanges the authorization code for session tokens.
 8. Hunk calls the authenticated user endpoint to identify the account.
 9. Hunk stores the session in the OS credential store and stores only non-secret account metadata in config.
-10. Future GitHub API calls reuse the stored session and refresh it before expiry where supported.
+10. Future GitHub API calls reuse the stored session.
 
 ### Why This Shape
 
@@ -286,6 +286,17 @@ Phase D:
 - It fits the current keychain-backed credential storage model.
 - It avoids forcing an enterprise-host story before the product has a reason to support it.
 - It keeps provider-neutral credential resolution intact while changing only how `github.com` credentials are acquired.
+- It maps cleanly to an OAuth app registration without forcing Hunk to adopt a GitHub App user-token flow first.
+
+### App Registration Requirements
+
+- The first implementation expects a registered GitHub OAuth app for `github.com`.
+- Hunk needs:
+  - `HUNK_GITHUB_OAUTH_CLIENT_ID`
+  - `HUNK_GITHUB_OAUTH_CLIENT_SECRET`
+- If those are not present in the environment:
+  - `github.com` falls back to PAT entry,
+  - browser sign-in stays disabled in the UI for that build.
 
 ### Enterprise Fallback
 
@@ -302,14 +313,13 @@ Phase D:
 - Access token:
   - loaded from the OS credential store,
   - reused for normal API calls,
-  - refreshed before or after expiry where supported by the provider flow.
-- Refresh token:
-  - stored only in the OS credential store,
-  - never written to config,
-  - revoked or deleted on sign-out.
+  - stored as a `GitHubComSession` credential secret.
 - Account identity:
   - login and display label stored in config metadata for chooser UI,
   - used to label multiple `github.com` accounts.
+- Refresh handling:
+  - not required for the first implementation slice,
+  - can be added later if Hunk moves to a token flow with refresh semantics.
 
 ### Rust Implementation Strategy
 
@@ -325,8 +335,8 @@ Phase D:
 2. Add a GitHub.com auth service in `hunk-forge` that can:
    - build the browser authorization URL,
    - validate callback state,
-   - exchange the code for tokens,
-   - refresh stored sessions.
+   - exchange the code for an access token,
+   - identify the authenticated account.
 3. Add a desktop auth coordinator in `hunk-desktop` that:
    - starts the local callback listener,
    - opens the browser,
@@ -339,7 +349,6 @@ Phase D:
    - manual recovery on `github.com`.
 6. Teach the GitHub client bootstrap path to:
    - load a stored session,
-   - refresh if needed,
    - fall back to prompting only when no usable auth exists.
 7. Add sign-out and re-authenticate actions.
 8. Add targeted tests for:
@@ -354,7 +363,6 @@ Phase D:
 - A `github.com` user can sign in without pasting a PAT.
 - After sign-in, PR creation works without showing the token field as the primary path.
 - Restarting Hunk preserves the signed-in session through the keychain.
-- Expired sessions refresh automatically when possible.
 - GitHub Enterprise users still have a clear PAT path that behaves exactly as today.
 
 ## Provider Model
@@ -486,7 +494,7 @@ Suggested minimum fields:
 
 ## Open Questions
 
-- [ ] Whether the `github.com` browser sign-in should be backed by a GitHub App user-token flow or an OAuth app registration, while preserving the same Hunk-side UX
+- [x] `github.com` browser sign-in will be backed by a GitHub OAuth app registration with PKCE, while preserving the same Hunk-side UX
 - [ ] Whether the first `github.com` sign-in flow should expose a secondary `Use PAT instead` path directly in the auth dialog or only behind an advanced/manual option
 - [ ] Whether the initial `github.com` browser sign-in slice should support multiple `github.com` accounts on day one or land as single-account-first
 - [ ] Whether repo bindings should remain exact-path matches in v1 or also support namespace-level defaults later

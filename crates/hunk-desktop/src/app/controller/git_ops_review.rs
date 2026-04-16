@@ -682,11 +682,23 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         let has_reusable_token = self.github_token_source_for_repo(&context.repo).is_some();
-        let token_placeholder = if has_reusable_token {
-            "GitHub token (leave blank to reuse saved credential)"
-        } else {
-            "GitHub token"
+        let auth_mode = github_auth_mode_for_host(context.repo.host.as_str());
+        let browser_sign_in_available = self.github_browser_sign_in_available_for_repo(&context.repo);
+        let token_placeholder = match (auth_mode, has_reusable_token) {
+            (GitHubAuthMode::BrowserSession, true) => {
+                "Personal access token (optional; leave blank to reuse saved credential)"
+            }
+            (GitHubAuthMode::BrowserSession, false) => "Personal access token (optional fallback)",
+            (GitHubAuthMode::PersonalAccessToken, true) => {
+                "GitHub token (leave blank to reuse saved credential)"
+            }
+            (GitHubAuthMode::PersonalAccessToken, false) => "GitHub token",
         };
+        let token_label = match auth_mode {
+            GitHubAuthMode::BrowserSession => "Personal Access Token",
+            GitHubAuthMode::PersonalAccessToken => "Token",
+        };
+        let auth_hint = self.github_browser_sign_in_hint_for_repo(&context.repo);
         let token_input = cx.new(|cx| InputState::new(window, cx).placeholder(token_placeholder));
         let title_input = cx.new(|cx| InputState::new(window, cx).placeholder("Pull request title"));
         let base_branch_input =
@@ -744,6 +756,12 @@ impl DiffViewer {
                                 .child(host_hint.clone()),
                         )
                         .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(auth_hint.clone()),
+                        )
+                        .child(
                             v_flex()
                                 .w_full()
                                 .gap_1()
@@ -752,7 +770,7 @@ impl DiffViewer {
                                         .text_xs()
                                         .font_semibold()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child("Token"),
+                                        .child(token_label),
                                 )
                                 .child(
                                     gpui_component::input::Input::new(&token_input)
@@ -824,12 +842,46 @@ impl DiffViewer {
                         .items_start()
                         .gap_3()
                         .child(
-                            Button::new("github-review-cancel")
-                                .label("Cancel")
-                                .outline()
-                                .on_click(|_, window, cx| {
-                                    window.close_dialog(cx);
-                                }),
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("github-review-cancel")
+                                        .label("Cancel")
+                                        .outline()
+                                        .on_click(|_, window, cx| {
+                                            window.close_dialog(cx);
+                                        }),
+                                )
+                                .when(
+                                    auth_mode == GitHubAuthMode::BrowserSession,
+                                    |this| {
+                                        this.child(
+                                            Button::new("github-review-sign-in")
+                                                .label("Sign in with GitHub")
+                                                .outline()
+                                                .disabled(!browser_sign_in_available)
+                                                .on_click({
+                                                    let view = view.clone();
+                                                    let repo = context.repo.clone();
+                                                    move |_, _, cx| {
+                                                        let result = view.update(cx, |this, cx| {
+                                                            this.start_github_browser_sign_in(
+                                                                repo.clone(),
+                                                                cx,
+                                                            )
+                                                        });
+                                                        if let Err(message) = result {
+                                                            view.update(cx, |this, cx| {
+                                                                this.set_git_warning_message(
+                                                                    message, None, cx,
+                                                                );
+                                                            });
+                                                        }
+                                                    }
+                                                }),
+                                        )
+                                    },
+                                ),
                         )
                         .child(
                             Button::new("github-review-submit")
