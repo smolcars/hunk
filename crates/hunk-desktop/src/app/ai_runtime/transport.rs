@@ -26,13 +26,10 @@ impl AiAppServerTransportPreference {
 
     fn bootstrap_candidates(self) -> Vec<hunk_codex::app_server_client::AppServerTransportKind> {
         match self {
-            Self::Auto => [
+            Self::Auto => vec![
                 hunk_codex::app_server_client::AppServerTransportKind::Embedded,
                 hunk_codex::app_server_client::AppServerTransportKind::RemoteBundled,
-            ]
-            .into_iter()
-            .filter(|transport| transport.is_supported())
-            .collect(),
+            ],
             Self::Embedded => {
                 vec![hunk_codex::app_server_client::AppServerTransportKind::Embedded]
             }
@@ -139,20 +136,12 @@ mod transport_tests {
         let candidates = AiAppServerTransportPreference::Auto.bootstrap_candidates();
 
         assert_eq!(
-            candidates.last().copied(),
-            Some(AppServerTransportKind::RemoteBundled)
+            candidates,
+            vec![
+                AppServerTransportKind::Embedded,
+                AppServerTransportKind::RemoteBundled
+            ]
         );
-        if AppServerTransportKind::Embedded.is_supported() {
-            assert_eq!(
-                candidates,
-                vec![
-                    AppServerTransportKind::Embedded,
-                    AppServerTransportKind::RemoteBundled
-                ]
-            );
-        } else {
-            assert_eq!(candidates, vec![AppServerTransportKind::RemoteBundled]);
-        }
     }
 
     #[test]

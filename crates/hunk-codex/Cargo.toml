@@ -6,7 +6,12 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
+codex-app-server-client = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
 codex-app-server-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
+codex-arg0 = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
+codex-core = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
+codex-feedback = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
+codex-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
 fastwebsockets = { version = "0.10", features = ["upgrade"] }
 futures-util = "0.3"
 http-body-util = "0.1"

@@ -1,15 +1,34 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use codex_app_server_client::EnvironmentManager;
+use codex_app_server_client::InProcessAppServerClient;
+use codex_app_server_client::InProcessClientStartArgs;
+use codex_app_server_client::InProcessServerEvent;
+use codex_app_server_protocol::ClientNotification;
+use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::RequestId;
+use codex_arg0::Arg0DispatchPaths;
+use codex_core::config::ConfigBuilder;
+use codex_core::config_loader::CloudRequirementsLoader;
+use codex_core::config_loader::LoaderOverrides;
+use codex_feedback::CodexFeedback;
+use codex_protocol::protocol::SessionSource;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::Map;
+use serde_json::Value;
+use tokio::runtime::Builder;
+use tokio::runtime::Runtime;
+use tokio::time::timeout;
 
 use crate::app_server_client::AppServerClient;
 use crate::app_server_client::AppServerEvent;
+use crate::app_server_client::DEFAULT_APP_SERVER_CHANNEL_CAPACITY;
 use crate::errors::CodexIntegrationError;
 use crate::errors::Result;
+use crate::rpc::RequestIdGenerator;
 
 #[derive(Debug, Clone)]
 pub struct EmbeddedAppServerClientStartArgs {
@@ -38,73 +57,271 @@ impl EmbeddedAppServerClientStartArgs {
     }
 }
 
-pub struct EmbeddedAppServerClient;
+pub struct EmbeddedAppServerClient {
+    runtime: Runtime,
+    client: Option<InProcessAppServerClient>,
+    request_ids: RequestIdGenerator,
+}
 
 impl EmbeddedAppServerClient {
-    pub fn is_supported() -> bool {
-        false
-    }
-
-    pub fn unavailable_reason() -> &'static str {
-        "embedded Codex App Server support is not compiled into the desktop workspace yet because \
-         the upstream in-process stack links sqlite through sqlx while Hunk already links \
-         rusqlite; isolate that dependency graph in a separate binary or crate before enabling it"
-    }
-
     pub fn start(args: EmbeddedAppServerClientStartArgs) -> Result<Self> {
-        let _ = args;
-        Err(unavailable_error())
+        let runtime = build_runtime()?;
+        let client = runtime.block_on(async move {
+            let config = ConfigBuilder::default()
+                .codex_home(args.codex_home.clone())
+                .fallback_cwd(Some(args.fallback_cwd.clone()))
+                .build()
+                .await
+                .map_err(|error| {
+                    CodexIntegrationError::WebSocketTransport(format!(
+                        "failed to load embedded Codex config: {error}"
+                    ))
+                })?;
+
+            let config_warnings = config
+                .startup_warnings
+                .iter()
+                .map(
+                    |warning| codex_app_server_protocol::ConfigWarningNotification {
+                        summary: warning.clone(),
+                        details: None,
+                        path: None,
+                        range: None,
+                    },
+                )
+                .collect();
+
+            InProcessAppServerClient::start(InProcessClientStartArgs {
+                arg0_paths: Arg0DispatchPaths {
+                    codex_self_exe: Some(args.codex_executable.clone()),
+                    codex_linux_sandbox_exe: None,
+                    main_execve_wrapper_exe: None,
+                },
+                config: std::sync::Arc::new(config),
+                cli_overrides: Vec::new(),
+                loader_overrides: LoaderOverrides::default(),
+                cloud_requirements: CloudRequirementsLoader::default(),
+                feedback: CodexFeedback::new(),
+                environment_manager: std::sync::Arc::new(EnvironmentManager::from_env()),
+                config_warnings,
+                session_source: SessionSource::Custom(args.client_name.clone()),
+                enable_codex_api_key_env: true,
+                client_name: args.client_name,
+                client_version: args.client_version,
+                experimental_api: true,
+                opt_out_notification_methods: Vec::new(),
+                channel_capacity: DEFAULT_APP_SERVER_CHANNEL_CAPACITY.max(1),
+            })
+            .await
+            .map_err(|error| {
+                CodexIntegrationError::WebSocketTransport(format!(
+                    "failed to start embedded Codex app server: {error}"
+                ))
+            })
+        })?;
+
+        Ok(Self {
+            runtime,
+            client: Some(client),
+            request_ids: RequestIdGenerator::default(),
+        })
+    }
+
+    fn client(&self) -> Result<&InProcessAppServerClient> {
+        self.client.as_ref().ok_or_else(missing_client_error)
     }
 }
 
 impl AppServerClient for EmbeddedAppServerClient {
     fn request_typed<P, R>(
         &mut self,
-        _method: &str,
-        _params: Option<&P>,
-        _timeout: Duration,
+        method: &str,
+        params: Option<&P>,
+        timeout_duration: Duration,
     ) -> Result<R>
     where
         P: Serialize,
         R: DeserializeOwned,
     {
-        Err(unavailable_error())
+        let request_id = self.request_ids.next_request_id();
+        let request = client_request(method, params, request_id)?;
+        let runtime = &self.runtime;
+        let client = self.client()?;
+        match runtime
+            .block_on(async { timeout(timeout_duration, client.request_typed(request)).await })
+        {
+            Err(_) => Err(CodexIntegrationError::RequestTimedOut {
+                method: method.to_string(),
+                timeout_ms: timeout_duration.as_millis().min(u128::from(u64::MAX)) as u64,
+            }),
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(error)) => Err(map_typed_request_error(error)),
+        }
     }
 
-    fn notify<P>(&mut self, _method: &str, _params: Option<&P>) -> Result<()>
+    fn notify<P>(&mut self, method: &str, params: Option<&P>) -> Result<()>
     where
         P: Serialize,
     {
-        Err(unavailable_error())
+        let notification = client_notification(method, params)?;
+        let runtime = &self.runtime;
+        let client = self.client()?;
+        runtime
+            .block_on(client.notify(notification))
+            .map_err(|error| {
+                CodexIntegrationError::WebSocketTransport(format!(
+                    "embedded app-server notification failed: {error}"
+                ))
+            })
     }
 
-    fn next_event(&mut self, _timeout: Duration) -> Result<Option<AppServerEvent>> {
-        Err(unavailable_error())
+    fn next_event(&mut self, timeout_duration: Duration) -> Result<Option<AppServerEvent>> {
+        let Self {
+            runtime, client, ..
+        } = self;
+        let client = client.as_mut().ok_or_else(missing_client_error)?;
+        match runtime.block_on(async { timeout(timeout_duration, client.next_event()).await }) {
+            Err(_) => Ok(None),
+            Ok(Some(event)) => Ok(Some(map_event(event))),
+            Ok(None) => Ok(None),
+        }
     }
 
-    fn respond_typed<T>(&mut self, _request_id: RequestId, _result: &T) -> Result<()>
+    fn respond_typed<T>(&mut self, request_id: RequestId, result: &T) -> Result<()>
     where
         T: Serialize,
     {
-        Err(unavailable_error())
+        let result = serde_json::to_value(result).map_err(CodexIntegrationError::Serialization)?;
+        let runtime = &self.runtime;
+        let client = self.client()?;
+        runtime
+            .block_on(client.resolve_server_request(request_id, result))
+            .map_err(|error| {
+                CodexIntegrationError::WebSocketTransport(format!(
+                    "embedded app-server response failed: {error}"
+                ))
+            })
     }
 
     fn reject_server_request(
         &mut self,
-        _request_id: RequestId,
-        _error: JSONRPCErrorError,
+        request_id: RequestId,
+        error: JSONRPCErrorError,
     ) -> Result<()> {
-        Err(unavailable_error())
+        let runtime = &self.runtime;
+        let client = self.client()?;
+        runtime
+            .block_on(client.reject_server_request(request_id, error))
+            .map_err(|error| {
+                CodexIntegrationError::WebSocketTransport(format!(
+                    "embedded app-server rejection failed: {error}"
+                ))
+            })
     }
 
     fn shutdown(&mut self) -> Result<()> {
-        Ok(())
+        let Some(client) = self.client.take() else {
+            return Ok(());
+        };
+        self.runtime.block_on(client.shutdown()).map_err(|error| {
+            CodexIntegrationError::WebSocketTransport(format!(
+                "embedded app-server shutdown failed: {error}"
+            ))
+        })
     }
 }
 
-fn unavailable_error() -> CodexIntegrationError {
+impl Drop for EmbeddedAppServerClient {
+    fn drop(&mut self) {
+        let _ = self.shutdown();
+    }
+}
+
+fn build_runtime() -> Result<Runtime> {
+    Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|error| {
+            CodexIntegrationError::WebSocketTransport(format!(
+                "failed to build embedded app-server runtime: {error}"
+            ))
+        })
+}
+
+fn client_request<P>(
+    method: &str,
+    params: Option<&P>,
+    request_id: RequestId,
+) -> Result<ClientRequest>
+where
+    P: Serialize,
+{
+    let mut value = Map::new();
+    value.insert("method".to_string(), Value::String(method.to_string()));
+    value.insert(
+        "id".to_string(),
+        serde_json::to_value(request_id).map_err(CodexIntegrationError::Serialization)?,
+    );
+    if let Some(params) = params {
+        value.insert(
+            "params".to_string(),
+            serde_json::to_value(params).map_err(CodexIntegrationError::Serialization)?,
+        );
+    }
+    serde_json::from_value(Value::Object(value)).map_err(CodexIntegrationError::Serialization)
+}
+
+fn client_notification<P>(method: &str, params: Option<&P>) -> Result<ClientNotification>
+where
+    P: Serialize,
+{
+    let mut value = Map::new();
+    value.insert("method".to_string(), Value::String(method.to_string()));
+    if let Some(params) = params {
+        value.insert(
+            "params".to_string(),
+            serde_json::to_value(params).map_err(CodexIntegrationError::Serialization)?,
+        );
+    }
+    serde_json::from_value(Value::Object(value)).map_err(CodexIntegrationError::Serialization)
+}
+
+fn map_event(event: InProcessServerEvent) -> AppServerEvent {
+    match event {
+        InProcessServerEvent::Lagged { skipped } => AppServerEvent::Lagged { skipped },
+        InProcessServerEvent::ServerNotification(notification) => {
+            AppServerEvent::ServerNotification(notification)
+        }
+        InProcessServerEvent::ServerRequest(request) => AppServerEvent::ServerRequest(request),
+    }
+}
+
+fn map_typed_request_error(
+    error: codex_app_server_client::TypedRequestError,
+) -> CodexIntegrationError {
+    match error {
+        codex_app_server_client::TypedRequestError::Transport { source, .. } => {
+            CodexIntegrationError::WebSocketTransport(format!(
+                "embedded app-server request failed: {source}"
+            ))
+        }
+        codex_app_server_client::TypedRequestError::Server { source, .. } => {
+            CodexIntegrationError::JsonRpcServerError {
+                code: source.code,
+                message: source.message,
+            }
+        }
+        codex_app_server_client::TypedRequestError::Deserialize { source, .. } => {
+            CodexIntegrationError::Serialization(source)
+        }
+    }
+}
+
+fn missing_client_error() -> CodexIntegrationError {
     CodexIntegrationError::WebSocketTransport(
-        EmbeddedAppServerClient::unavailable_reason().to_string(),
+        "embedded app-server client is not available".to_string(),
     )
 }
 
@@ -113,8 +330,7 @@ mod tests {
     use super::EmbeddedAppServerClient;
 
     #[test]
-    fn embedded_transport_is_reported_unavailable() {
-        assert!(!EmbeddedAppServerClient::is_supported());
-        assert!(EmbeddedAppServerClient::unavailable_reason().contains("sqlite"));
+    fn embedded_client_start_args_type_is_available() {
+        let _ = std::mem::size_of::<EmbeddedAppServerClient>();
     }
 }

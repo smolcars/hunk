@@ -34,13 +34,6 @@ impl AppServerTransportKind {
             Self::Embedded => "embedded Codex App Server",
         }
     }
-
-    pub fn is_supported(self) -> bool {
-        match self {
-            Self::RemoteBundled => true,
-            Self::Embedded => EmbeddedAppServerClient::is_supported(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

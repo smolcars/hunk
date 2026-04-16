@@ -10,15 +10,15 @@
 ## Current Implementation Snapshot
 - [x] Hunk now has a transport-agnostic app-server client boundary in `hunk-codex`.
 - [x] `RemoteBundled` now runs on the new upstream-style client boundary.
-- [x] `Embedded` transport selection is wired through the same boundary and fails fast with a clear unsupported error in the current desktop workspace build.
-- [x] `auto` transport selection now skips embedded when the current build cannot link it and falls back directly to `RemoteBundled`.
+- [x] `Embedded` transport selection is wired through the same boundary and now boots a real in-process Codex app-server client.
+- [x] `auto` transport selection now prefers embedded first because the desktop workspace can link it again.
 - [x] Desktop AI runtime now consumes app-server events instead of polling raw WebSocket session queues.
 - [x] Stall detection and automatic recovery are implemented.
 - [x] Completed thread snapshots no longer reopen finished turns during item hydration, which removes a major source of false-positive stall recovery.
 - [x] Reconnect-time `thread/resume` / `thread/read` snapshots now replace stale same-item agent content, so restarted hosts do not keep showing old streamed text.
 - [x] Automated coverage now exercises reconnect-time snapshot replacement, background workspace disconnect/fatal cleanup, and thread-selection behavior while another thread is streaming.
-- [ ] A true in-process `Embedded` client is still blocked by upstream `sqlx/sqlite` linkage conflicting with Hunk's `rusqlite` linkage inside the desktop binary.
-- [x] The current recommended unblocker for the embedded/sqlite issue is documented in `docs/AI_EMBEDDED_SQLITE_PLAN.md`.
+- [x] The SQLite/native-link blocker was removed by aligning `hunk-domain` to `rusqlite 0.32.x` and `libsqlite3-sys 0.30.1`, matching the pinned Codex embedded stack.
+- [x] The direct-stack alignment and its implications are documented in `docs/AI_EMBEDDED_SQLITE_PLAN.md`.
 - [ ] Default transport is still pending a longer soak period and measurement.
 - [ ] Manual soak validation, perf comparisons, and legacy transport cleanup are still pending.
 
@@ -44,7 +44,7 @@
 - [x] Introduce a transport-agnostic Hunk app-server client interface used by the AI worker.
 - [ ] Support two concrete transports in the shipped desktop build:
   - [x] `RemoteBundled`: bundled Codex runtime started by Hunk, connected through upstream-style remote app-server client plumbing.
-  - [ ] `Embedded`: true in-process app server client path modeled after upstream `InProcessAppServerClient` is still blocked by sqlite linkage.
+  - [x] `Embedded`: true in-process app server client path modeled after upstream `InProcessAppServerClient`.
 - [x] Make Hunk's AI worker consume app-server events rather than directly polling `JsonRpcSession`.
 - [x] Preserve Hunk's `ThreadService` and `AiState` reducer initially so desktop UI integration stays stable during migration.
 
@@ -173,12 +173,12 @@
 - [x] Add embedded transport selection and a shared app-server client surface for future in-process integration.
 - [x] Reuse the same Hunk app-server client interface from Phase 1.
 - [x] Add transport selection by internal config/flag.
-- [x] Make `auto` skip embedded when the current build cannot link it.
-- [x] Make explicit `embedded` preference fail fast with a clear unsupported error.
-- [ ] Isolate upstream sqlite/sqlx linkage so a true in-process `Embedded` client can be compiled into the desktop workspace.
+- [x] Restore embedded startup so `auto` can prefer embedded again in supported desktop builds.
+- [x] Make explicit `embedded` preference boot the real in-process client instead of failing fast.
+- [x] Resolve the upstream sqlite/sqlx linkage conflict so a true in-process `Embedded` client can be compiled into the desktop workspace.
 - [ ] Support side-by-side validation:
   - [x] `RemoteBundled`
-  - [ ] `Embedded`
+  - [x] `Embedded`
 - [ ] Ensure embedded mode preserves:
   - [ ] approvals
   - [ ] user inputs

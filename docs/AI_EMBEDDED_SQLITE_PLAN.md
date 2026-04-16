@@ -4,13 +4,27 @@
 
 Unblock an upstream-style embedded Codex path for Hunk without destabilizing Hunk's own SQLite-backed features.
 
-## Current Blocker
+## Status Update
+
+As of 2026-04-16, the original SQLite/native-link blocker has been cleared.
+
+What changed:
+- `crates/hunk-domain/Cargo.toml` now depends on `rusqlite = { version = "0.32", features = ["bundled"] }`
+- the workspace now resolves `libsqlite3-sys 0.30.1`, matching the pinned Codex embedded stack
+- `hunk-codex` now links `codex-app-server-client` directly again and boots a real in-process embedded client
+
+What remains:
+- soak validation
+- transport/default selection decisions
+- future dependency maintenance if a later Codex bump changes its SQLite line again
+
+## Original Blocker
 
 Hunk desktop and upstream embedded Codex currently want different native SQLite linkages in the same final binary.
 
 Hunk side:
-- `crates/hunk-domain/Cargo.toml` depends on `rusqlite = { version = "0.37", features = ["bundled"] }`
-- `cargo tree -p hunk-desktop -i libsqlite3-sys@0.35.0` resolves:
+- `crates/hunk-domain/Cargo.toml` previously depended on `rusqlite = { version = "0.37", features = ["bundled"] }`
+- that previously resolved:
   - `hunk-desktop -> hunk-domain -> rusqlite 0.37.0 -> libsqlite3-sys 0.35.0`
 
 Upstream embedded side:
@@ -19,7 +33,7 @@ Upstream embedded side:
 - `codex-rs/state/Cargo.toml` depends directly on `sqlx`
 - `codex-rs/Cargo.lock` pins `libsqlite3-sys 0.30.1`
 
-Cargo will not link two different crates that both declare `links = "sqlite3"` into the same binary. That is why the current desktop build can ship `RemoteBundled` but not true in-process embedded Codex.
+Cargo will not link two different crates that both declare `links = "sqlite3"` into the same binary. That is why the desktop build could ship `RemoteBundled` but not true in-process embedded Codex before the stack alignment.
 
 ## Constraints
 
@@ -37,13 +51,15 @@ Ways this could happen:
 - upgrade/fork upstream Codex SQL stack to match Hunk's `libsqlite3-sys`
 - remove `bundled` and rely on a shared system SQLite crate path
 
-Problems:
+Tradeoffs:
 - this touches unrelated Hunk persistence code
 - the conflict is the Rust crate-level `links = "sqlite3"` identity, not only the native library on disk
 - it creates upgrade pressure every time either Hunk or Codex changes SQLite dependencies
 
-Recommendation:
-- do not use this as the primary path
+Outcome:
+- this is the path Hunk chose
+- `rusqlite 0.32.x` aligns Hunk with Codex's `libsqlite3-sys 0.30.1`
+- it unblocks compiling the upstream embedded client stack directly into the desktop build
 
 ### Option B: Isolate embedded Codex in a separate helper binary
 
@@ -68,7 +84,7 @@ Cons:
 - performance/stability will improve less than a true in-process integration
 
 Recommendation:
-- this is the best engineering path if we want to unblock embedded behavior in the near term
+- keep this as the fallback path if a future Codex bump makes direct stack alignment too expensive again
 
 ### Option C: Upstream feature split to remove `codex-state/sqlx` from the embedded client path
 
@@ -103,12 +119,12 @@ Recommendation:
 
 ## Recommended Path
 
-Adopt Option B now, keep Option C as the long-term true-embedded path.
+The current chosen path is a direct stack alignment plus real in-process embedded startup.
 
 That means:
-- short term: isolate upstream embedded Codex in a helper binary
-- medium term: validate whether helper-based embedded semantics are materially better than `RemoteBundled`
-- long term: only pursue true same-process embedding if the helper still leaves meaningful reliability or latency gaps
+- short term: validate the newly re-enabled embedded client in the desktop workspace
+- medium term: compare embedded against `RemoteBundled` for stability and performance
+- fallback: if future Codex bumps make direct alignment too costly, revisit the helper-binary path from Option B
 
 ## Proposed Architecture
 
@@ -238,8 +254,8 @@ Manual:
 ## Explicit Non-Recommendations
 
 - Do not rewrite Hunk persistence to `sqlx` just to match upstream.
-- Do not downgrade `rusqlite` as the first move.
 - Do not maintain a long-lived fork of upstream Codex just to patch SQLite versions together.
+- Do not assume the current SQLite alignment removes the need for future dependency review on Codex bumps.
 
 ## First Spike
 
