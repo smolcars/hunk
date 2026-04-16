@@ -14,6 +14,7 @@
 - [x] `auto` transport selection now skips embedded when the current build cannot link it and falls back directly to `RemoteBundled`.
 - [x] Desktop AI runtime now consumes app-server events instead of polling raw WebSocket session queues.
 - [x] Stall detection and automatic recovery are implemented.
+- [x] Completed thread snapshots no longer reopen finished turns during item hydration, which removes a major source of false-positive stall recovery.
 - [ ] A true in-process `Embedded` client is still blocked by upstream `sqlx/sqlite` linkage conflicting with Hunk's `rusqlite` linkage inside the desktop binary.
 - [ ] Default transport is still pending a longer soak period and measurement.
 - [ ] Manual soak validation, perf comparisons, and legacy transport cleanup are still pending.
@@ -152,17 +153,17 @@
   - [x] reconnect transport if needed
   - [x] surface clear UI status
 - [ ] Add stronger structured logging around:
-  - [ ] reconnect attempts
-  - [ ] resume attempts
-  - [ ] listener reattachment
-  - [ ] stall durations
+  - [x] reconnect attempts
+  - [x] resume attempts
+  - [x] listener reattachment
+  - [x] stall durations
 - [x] Ensure recovery is automatic before asking the user to manually type another prompt.
 - [x] Keep current Hunk snapshot/UI model but improve self-healing behavior.
 
 ### Phase 3 Code Review Checklist
 - [x] Verify no infinite reconnect/resume loops.
 - [ ] Verify recovery does not duplicate user turns or replay unsafe actions.
-- [ ] Verify silent stalls become observable in logs and test fixtures.
+- [x] Verify silent stalls become observable in logs and test fixtures.
 - [ ] Verify background/hidden AI workspaces recover correctly.
 
 ## Phase 4: Embedded Transport
@@ -216,8 +217,8 @@
 - [ ] Integration tests for:
   - [ ] active streaming turn survives transport reconnect
   - [ ] `thread/resume` reattaches and streaming continues
-  - [ ] approval requests still resolve correctly
-  - [ ] user-input requests still resolve correctly
+  - [x] approval requests still resolve correctly
+  - [x] user-input requests still resolve correctly
   - [ ] background workspace runtime remains correct
   - [ ] thread switching during streaming remains correct
 

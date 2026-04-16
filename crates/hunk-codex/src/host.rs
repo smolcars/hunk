@@ -79,11 +79,45 @@ impl SharedHostKey {
         Self {
             executable_path: config.executable_path.clone(),
             codex_home: config.codex_home.clone(),
-            arguments: config.arguments.clone(),
+            arguments: normalized_shared_host_arguments(config),
             environment,
             cleared_environment,
         }
     }
+}
+
+fn normalized_shared_host_arguments(config: &HostConfig) -> Vec<String> {
+    let mut normalized = Vec::with_capacity(config.arguments.len());
+    let mut index = 0usize;
+
+    while index < config.arguments.len() {
+        let argument = &config.arguments[index];
+        normalized.push(argument.clone());
+
+        if argument == "--listen"
+            && let Some(value) = config.arguments.get(index + 1)
+        {
+            normalized.push(normalize_listen_argument(value.as_str()));
+            index += 2;
+            continue;
+        }
+
+        index += 1;
+    }
+
+    normalized
+}
+
+fn normalize_listen_argument(argument: &str) -> String {
+    if argument
+        .strip_prefix("ws://127.0.0.1:")
+        .and_then(|port| port.parse::<u16>().ok())
+        .is_some()
+    {
+        return "ws://127.0.0.1:<loopback-port>".to_string();
+    }
+
+    argument.to_string()
 }
 
 #[derive(Debug)]
@@ -831,4 +865,55 @@ fn reap_child_process(process_id: u32) -> io::Result<bool> {
         return Ok(true);
     }
     Err(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HostConfig;
+    use super::SharedHostKey;
+    use std::path::PathBuf;
+
+    #[test]
+    fn shared_host_key_ignores_loopback_listen_port_for_codex_app_server() {
+        let first = HostConfig::codex_app_server(
+            PathBuf::from("/tmp/codex"),
+            PathBuf::from("/repo"),
+            PathBuf::from("/tmp/.codex"),
+            64100,
+        );
+        let second = HostConfig::codex_app_server(
+            PathBuf::from("/tmp/codex"),
+            PathBuf::from("/repo"),
+            PathBuf::from("/tmp/.codex"),
+            64199,
+        );
+
+        assert_eq!(
+            SharedHostKey::from_config(&first),
+            SharedHostKey::from_config(&second)
+        );
+    }
+
+    #[test]
+    fn shared_host_key_preserves_non_listen_arguments() {
+        let mut first = HostConfig::codex_app_server(
+            PathBuf::from("/tmp/codex"),
+            PathBuf::from("/repo"),
+            PathBuf::from("/tmp/.codex"),
+            64100,
+        );
+        first.arguments.push("--verbose".to_string());
+
+        let second = HostConfig::codex_app_server(
+            PathBuf::from("/tmp/codex"),
+            PathBuf::from("/repo"),
+            PathBuf::from("/tmp/.codex"),
+            64100,
+        );
+
+        assert_ne!(
+            SharedHostKey::from_config(&first),
+            SharedHostKey::from_config(&second)
+        );
+    }
 }

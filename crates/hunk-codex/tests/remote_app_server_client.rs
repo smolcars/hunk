@@ -98,10 +98,7 @@ fn remote_client_round_trips_request_user_input_and_receives_follow_up_notificat
 
     let request_id = match event {
         AppServerEvent::ServerRequest(
-            codex_app_server_protocol::ServerRequest::ToolRequestUserInput {
-                request_id,
-                params,
-            },
+            codex_app_server_protocol::ServerRequest::ToolRequestUserInput { request_id, params },
         ) => {
             assert_eq!(params.thread_id, "thread-live");
             assert_eq!(params.turn_id, "turn-live");
