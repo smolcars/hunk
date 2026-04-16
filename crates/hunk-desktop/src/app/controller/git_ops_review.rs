@@ -8,7 +8,8 @@ enum ReviewUrlAction {
 struct GitHubReviewDialogContext {
     repo_root: PathBuf,
     review_remote: ReviewRemote,
-    repo: ForgeRepoRef,
+    base_repo: ForgeRepoRef,
+    source_head_owner: String,
     source_branch: String,
     target_branch: String,
     title: String,
@@ -40,6 +41,13 @@ struct GitHubReviewOperationResult {
     source_branch: String,
     existed: bool,
     token_cache_entry: Option<(String, String)>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedGitHubReviewRepos {
+    review_remote: ReviewRemote,
+    base_repo: ForgeRepoRef,
+    source_head_owner: String,
 }
 
 const GITHUB_TOKEN_ENV_KEYS: &[&str] = &["HUNK_GITHUB_TOKEN", "GITHUB_TOKEN"];
@@ -345,10 +353,7 @@ impl DiffViewer {
                         }
                     }
                 };
-                if configured_credential_count == 1
-                    || existing_token.is_none()
-                    || existing_token.as_deref() == Some(token)
-                {
+                if existing_token.is_none() || existing_token.as_deref() == Some(token) {
                     resolved.credential_id
                 } else {
                     self.create_repo_bound_github_credential(repo)
@@ -383,6 +388,46 @@ impl DiffViewer {
             return "master".to_string();
         }
         resolved
+    }
+
+    fn resolve_github_review_repos_for_branch(
+        &self,
+        repo_root: &std::path::Path,
+        branch_name: &str,
+    ) -> Result<ResolvedGitHubReviewRepos, String> {
+        let provider_mappings = self.config.review_provider_mappings.clone();
+        let review_remote = review_remote_for_branch_with_provider_map(
+            repo_root,
+            branch_name,
+            provider_mappings.as_slice(),
+        )
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "No review remote found for the active branch.".to_string())?;
+
+        if review_remote.provider != hunk_git::config::ReviewProviderKind::GitHub {
+            return Err("In-app PR creation is currently implemented for GitHub only.".to_string());
+        }
+
+        let head_repo = ForgeRepoRef::try_from(&review_remote).map_err(|err| err.to_string())?;
+        let base_remote = review_remote_for_named_remote_with_provider_map(
+            repo_root,
+            "upstream",
+            provider_mappings.as_slice(),
+        )
+        .map_err(|err| err.to_string())?
+        .filter(|candidate| {
+            candidate.provider == hunk_git::config::ReviewProviderKind::GitHub
+                && candidate.repository_path != review_remote.repository_path
+        })
+        .unwrap_or_else(|| review_remote.clone());
+        let base_repo = ForgeRepoRef::try_from(&base_remote).map_err(|err| err.to_string())?;
+        let source_head_owner = head_repo.github_owner().map_err(|err| err.to_string())?;
+
+        Ok(ResolvedGitHubReviewRepos {
+            review_remote: base_remote,
+            base_repo,
+            source_head_owner: source_head_owner.to_string(),
+        })
     }
 
     pub(super) fn open_review_summary_in_browser(
@@ -440,34 +485,19 @@ impl DiffViewer {
             return;
         }
         let cache_key = Self::review_summary_cache_key(repo_root.as_path(), normalized_branch);
-        if self.review_summary_by_branch_key.contains_key(cache_key.as_str())
-            || self
-                .review_summary_miss_by_branch_key
-                .contains(cache_key.as_str())
-            || self.review_summary_lookup_in_flight.contains(cache_key.as_str())
-        {
+        if self.review_summary_lookup_in_flight.contains(cache_key.as_str()) {
             return;
         }
 
-        let provider_mappings = self.config.review_provider_mappings.clone();
-        let Ok(Some(review_remote)) = review_remote_for_branch_with_provider_map(
-            repo_root.as_path(),
-            normalized_branch,
-            &provider_mappings,
-        ) else {
+        let Ok(resolved_repos) =
+            self.resolve_github_review_repos_for_branch(repo_root.as_path(), normalized_branch)
+        else {
             return;
         };
-        if review_remote.provider != hunk_git::config::ReviewProviderKind::GitHub {
-            return;
-        }
-        let Ok(repo) = ForgeRepoRef::try_from(&review_remote) else {
-            return;
-        };
-        let Some(token_source) = self.github_token_source_for_repo(&repo) else {
+        let Some(token_source) = self.github_token_source_for_repo(&resolved_repos.base_repo) else {
             return;
         };
 
-        let target_branch = self.preferred_review_base_branch(repo_root.as_path(), normalized_branch);
         self.review_summary_lookup_in_flight.insert(cache_key.clone());
         let source_branch = normalized_branch.to_string();
         let source_branch_for_update = source_branch.clone();
@@ -477,11 +507,12 @@ impl DiffViewer {
                 .spawn(async move {
                     let (token, token_cache_entry) = resolve_github_token_source(token_source)?;
                     let client =
-                        GitHubReviewClient::new(review_remote.host.as_str(), token.as_str())?;
+                        GitHubReviewClient::new(resolved_repos.base_repo.authority.as_str(), token.as_str())?;
                     let review = client.find_open_review(&OpenReviewQuery {
-                        repo,
+                        repo: resolved_repos.base_repo,
                         source_branch: source_branch.clone(),
-                        target_branch: Some(target_branch),
+                        source_head_owner: Some(resolved_repos.source_head_owner),
+                        target_branch: None,
                     })?;
                     Ok::<_, anyhow::Error>((review, token_cache_entry))
                 })
@@ -520,12 +551,12 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let token_source = if values.token.trim().is_empty() {
-            self.github_token_source_for_repo(&context.repo)
+            self.github_token_source_for_repo(&context.base_repo)
                 .ok_or_else(|| "GitHub token is required.".to_string())?
         } else {
             let token = values.token.trim().to_string();
             if let Some(credential_id) =
-                self.remember_github_token_for_repo(&context.repo, token.as_str())
+                self.remember_github_token_for_repo(&context.base_repo, token.as_str())
                 && let Err(err) = save_forge_secret(credential_id.as_str(), token.as_str())
             {
                 error!(
@@ -580,10 +611,14 @@ impl DiffViewer {
                     let result = (|| -> anyhow::Result<GitHubReviewOperationResult> {
                         let (token, token_cache_entry) = resolve_github_token_source(token_source)?;
                         let client =
-                            GitHubReviewClient::new(context.repo.host.as_str(), token.as_str())?;
+                            GitHubReviewClient::new(
+                                context.base_repo.authority.as_str(),
+                                token.as_str(),
+                            )?;
                         let existing = client.find_open_review(&OpenReviewQuery {
-                            repo: context.repo.clone(),
+                            repo: context.base_repo.clone(),
                             source_branch: context.source_branch.clone(),
+                            source_head_owner: Some(context.source_head_owner.clone()),
                             target_branch: Some(context.target_branch.clone()),
                         })?;
                         if let Some(review) = existing {
@@ -597,8 +632,9 @@ impl DiffViewer {
                         }
 
                         let created = client.create_review(&CreateReviewInput {
-                            repo: context.repo,
+                            repo: context.base_repo,
                             source_branch: context.source_branch.clone(),
+                            source_head_owner: Some(context.source_head_owner),
                             target_branch: context.target_branch,
                             title: context.title,
                             body: context.body,
@@ -681,9 +717,10 @@ impl DiffViewer {
         context: GitHubReviewDialogContext,
         cx: &mut Context<Self>,
     ) {
-        let has_reusable_token = self.github_token_source_for_repo(&context.repo).is_some();
-        let auth_mode = github_auth_mode_for_host(context.repo.host.as_str());
-        let device_sign_in_available = self.github_device_sign_in_available_for_repo(&context.repo);
+        let has_reusable_token = self.github_token_source_for_repo(&context.base_repo).is_some();
+        let auth_mode = github_auth_mode_for_host(context.base_repo.host.as_str());
+        let device_sign_in_available =
+            self.github_device_sign_in_available_for_repo(&context.base_repo);
         let token_placeholder = match (auth_mode, has_reusable_token) {
             (GitHubAuthMode::DeviceFlow, true) => {
                 "Personal access token (optional; leave blank to reuse saved credential)"
@@ -698,7 +735,7 @@ impl DiffViewer {
             GitHubAuthMode::DeviceFlow => "Personal Access Token",
             GitHubAuthMode::PersonalAccessToken => "Token",
         };
-        let auth_hint = self.github_device_sign_in_hint_for_repo(&context.repo);
+        let auth_hint = self.github_device_sign_in_hint_for_repo(&context.base_repo);
         let token_input = cx.new(|cx| InputState::new(window, cx).placeholder(token_placeholder));
         let title_input = cx.new(|cx| InputState::new(window, cx).placeholder("Pull request title"));
         let base_branch_input =
@@ -735,7 +772,7 @@ impl DiffViewer {
             },
             context.source_branch,
             context.target_branch,
-            context.repo.path
+            context.base_repo.path
         );
         let host_hint = format!("Host: {}", context.review_remote.host);
         let view = cx.entity();
@@ -862,7 +899,7 @@ impl DiffViewer {
                                                 .disabled(!device_sign_in_available)
                                                 .on_click({
                                                     let view = view.clone();
-                                                    let repo = context.repo.clone();
+                                                    let repo = context.base_repo.clone();
                                                     move |_, _, cx| {
                                                         let result = view.update(cx, |this, cx| {
                                                             this.start_github_device_sign_in(
@@ -940,20 +977,10 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let provider_mappings = self.config.review_provider_mappings.clone();
-        let review_remote = review_remote_for_branch_with_provider_map(
+        let resolved_repos = self.resolve_github_review_repos_for_branch(
             request.repo_root.as_path(),
             request.branch_name.as_str(),
-            provider_mappings.as_slice(),
-        )
-        .map_err(|err| err.to_string())?
-        .ok_or_else(|| "No review remote found for the active branch.".to_string())?;
-
-        if review_remote.provider != hunk_git::config::ReviewProviderKind::GitHub {
-            return Err("In-app PR creation is currently implemented for GitHub only.".to_string());
-        }
-
-        let repo = ForgeRepoRef::try_from(&review_remote).map_err(|err| err.to_string())?;
+        )?;
         let target_branch = self.preferred_review_base_branch(
             request.repo_root.as_path(),
             request.branch_name.as_str(),
@@ -962,8 +989,9 @@ impl DiffViewer {
             window,
             GitHubReviewDialogContext {
                 repo_root: request.repo_root,
-                review_remote,
-                repo,
+                review_remote: resolved_repos.review_remote,
+                base_repo: resolved_repos.base_repo,
+                source_head_owner: resolved_repos.source_head_owner,
                 source_branch: request.branch_name,
                 target_branch,
                 title: request.title,

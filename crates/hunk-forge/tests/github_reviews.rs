@@ -9,6 +9,10 @@ fn github_api_base_url_matches_host_type() {
         github_api_base_url("github.company.internal"),
         "https://github.company.internal/api/v3"
     );
+    assert_eq!(
+        github_api_base_url("github.company.internal:8443"),
+        "https://github.company.internal:8443/api/v3"
+    );
 }
 
 #[test]
@@ -25,12 +29,14 @@ fn github_client_rejects_non_github_repo_requests() {
             repo: ForgeRepoRef {
                 provider: ForgeProvider::GitLab,
                 host: "gitlab.com".to_string(),
+                authority: "gitlab.com".to_string(),
                 namespace: "example-group".to_string(),
                 name: "hunk".to_string(),
                 path: "example-group/hunk".to_string(),
                 web_base_url: "https://gitlab.com/example-group/hunk".to_string(),
             },
             source_branch: "feature/forge".to_string(),
+            source_head_owner: None,
             target_branch: "main".to_string(),
             title: "Forge PR".to_string(),
             body: Some("Body".to_string()),
@@ -51,6 +57,7 @@ fn github_repo() -> ForgeRepoRef {
     ForgeRepoRef {
         provider: ForgeProvider::GitHub,
         host: "github.com".to_string(),
+        authority: "github.com".to_string(),
         namespace: "example-org".to_string(),
         name: "hunk".to_string(),
         path: "example-org/hunk".to_string(),

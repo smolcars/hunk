@@ -36,8 +36,8 @@ use hunk_forge::{
 };
 use hunk_git::branch::{
     RenameBranchIfSafeOutcome, ReviewRemote, rename_branch_if_current_unpublished,
-    review_remote_for_branch_with_provider_map, review_url_for_branch_with_provider_map,
-    sanitize_branch_name,
+    review_remote_for_branch_with_provider_map, review_remote_for_named_remote_with_provider_map,
+    review_url_for_branch_with_provider_map, sanitize_branch_name,
 };
 use hunk_git::compare::{CompareSource, load_compare_snapshot, resolve_default_base_branch_name};
 use hunk_git::git::{

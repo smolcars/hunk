@@ -408,7 +408,10 @@ fn complete_github_device_sign_in(
                 sleep_until_next_poll(deadline, poll_interval_secs);
             }
             GitHubDeviceFlowPoll::Complete(token) => {
-                let client = GitHubReviewClient::new(repo.host.as_str(), token.access_token.as_str())?;
+                let client = GitHubReviewClient::new(
+                    repo.authority.as_str(),
+                    token.access_token.as_str(),
+                )?;
                 let account = client.current_user()?;
                 return Ok(GitHubDeviceSignInResult {
                     repo,

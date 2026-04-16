@@ -21,6 +21,7 @@ impl From<ReviewProviderKind> for ForgeProvider {
 pub struct ForgeRepoRef {
     pub provider: ForgeProvider,
     pub host: String,
+    pub authority: String,
     pub namespace: String,
     pub name: String,
     pub path: String,
@@ -76,6 +77,7 @@ impl TryFrom<&ReviewRemote> for ForgeRepoRef {
         Ok(Self {
             provider: value.provider.into(),
             host: value.host.clone(),
+            authority: value.authority.clone(),
             namespace,
             name,
             path: value.repository_path.clone(),
@@ -107,6 +109,7 @@ pub struct OpenReviewSummary {
 pub struct OpenReviewQuery {
     pub repo: ForgeRepoRef,
     pub source_branch: String,
+    pub source_head_owner: Option<String>,
     pub target_branch: Option<String>,
 }
 
@@ -114,6 +117,7 @@ pub struct OpenReviewQuery {
 pub struct CreateReviewInput {
     pub repo: ForgeRepoRef,
     pub source_branch: String,
+    pub source_head_owner: Option<String>,
     pub target_branch: String,
     pub title: String,
     pub body: Option<String>,

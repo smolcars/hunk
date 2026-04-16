@@ -17,6 +17,7 @@ fn github_review_remote_maps_to_forge_repo() -> Result<()> {
     assert_eq!(repo.provider, ForgeProvider::GitHub);
     assert_eq!(repo.namespace, "example-org");
     assert_eq!(repo.name, "hunk");
+    assert_eq!(repo.authority, "github.com");
     assert_eq!(repo.path, "example-org/hunk");
     Ok(())
 }
@@ -26,15 +27,16 @@ fn gitlab_review_remote_supports_nested_groups() -> Result<()> {
     let remote = ReviewRemote {
         provider: ReviewProviderKind::GitLab,
         host: "gitlab.company.internal".to_string(),
-        authority: "gitlab.company.internal".to_string(),
+        authority: "gitlab.company.internal:8443".to_string(),
         repository_path: "platform/desktop/hunk".to_string(),
-        base_url: "https://gitlab.company.internal/platform/desktop/hunk".to_string(),
+        base_url: "https://gitlab.company.internal:8443/platform/desktop/hunk".to_string(),
     };
 
     let repo = ForgeRepoRef::try_from(&remote)?;
     assert_eq!(repo.provider, ForgeProvider::GitLab);
     assert_eq!(repo.namespace, "platform/desktop");
     assert_eq!(repo.name, "hunk");
+    assert_eq!(repo.authority, "gitlab.company.internal:8443");
     Ok(())
 }
 

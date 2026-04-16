@@ -333,6 +333,22 @@ pub fn review_remote_for_branch(
     review_remote_for_branch_with_provider_map(repo_root, branch_name, &[])
 }
 
+pub fn review_remote_for_named_remote_with_provider_map(
+    repo_root: &Path,
+    remote_name: &str,
+    provider_mappings: &[ReviewProviderMapping],
+) -> Result<Option<ReviewRemote>> {
+    let remote_name = remote_name.trim();
+    if remote_name.is_empty() {
+        return Err(anyhow!(
+            "cannot resolve review remote without a remote name"
+        ));
+    }
+
+    let repo = open_repo_at_root(repo_root)?;
+    review_remote_for_named_remote(repo.repository(), remote_name, provider_mappings)
+}
+
 pub fn review_remote_for_branch_with_provider_map(
     repo_root: &Path,
     branch_name: &str,
@@ -442,6 +458,35 @@ fn resolve_review_remote<'repo>(
     }
 
     Err(anyhow!("no Git remote configured for push"))
+}
+
+fn review_remote_for_named_remote(
+    repo: &gix::Repository,
+    remote_name: &str,
+    provider_mappings: &[ReviewProviderMapping],
+) -> Result<Option<ReviewRemote>> {
+    if !repo
+        .remote_names()
+        .into_iter()
+        .any(|name| name.as_ref() == remote_name)
+    {
+        return Ok(None);
+    }
+
+    let remote = repo
+        .find_remote(remote_name)
+        .with_context(|| format!("failed to resolve Git remote '{remote_name}' for review URL"))?;
+    let Some(remote_url) = remote
+        .url(gix::remote::Direction::Push)
+        .or_else(|| remote.url(gix::remote::Direction::Fetch))
+    else {
+        return Ok(None);
+    };
+
+    Ok(review_remote_for_remote(
+        remote_url.to_string().as_str(),
+        provider_mappings,
+    ))
 }
 
 fn review_remote_for_remote(

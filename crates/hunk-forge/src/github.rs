@@ -22,10 +22,10 @@ pub struct GitHubReviewClient {
 }
 
 impl GitHubReviewClient {
-    pub fn new(host: &str, token: &str) -> Result<Self> {
-        let host = host.trim().trim_end_matches('/').to_ascii_lowercase();
-        if host.is_empty() {
-            return Err(anyhow!("github host cannot be empty"));
+    pub fn new(authority: &str, token: &str) -> Result<Self> {
+        let authority = authority.trim().trim_end_matches('/').to_ascii_lowercase();
+        if authority.is_empty() {
+            return Err(anyhow!("github authority cannot be empty"));
         }
 
         let token = token.trim();
@@ -34,36 +34,37 @@ impl GitHubReviewClient {
         }
 
         Ok(Self {
-            api_base_url: github_api_base_url(host.as_str()),
+            api_base_url: github_api_base_url(authority.as_str()),
             token: token.to_string(),
         })
     }
 
     pub fn find_open_review(&self, query: &OpenReviewQuery) -> Result<Option<OpenReviewSummary>> {
         let (owner, repo_name) = github_owner_and_name(&query.repo)?;
-        let head = format!("{owner}:{}", query.source_branch);
+        let head_owner = query
+            .source_head_owner
+            .as_deref()
+            .filter(|owner| !owner.trim().is_empty())
+            .unwrap_or(owner);
+        let head = format!("{head_owner}:{}", query.source_branch);
         let repo_web_base_url = query.repo.web_base_url.clone();
         let target_branch = query.target_branch.clone();
         let pull_requests = self.run(async move {
             let octocrab = self.build_octocrab()?;
             let pulls = octocrab.pulls(owner, repo_name);
-            let mut request = pulls.list().state(params::State::Open).head(head);
-            if let Some(base) = target_branch
-                .as_ref()
-                .filter(|base| !base.trim().is_empty())
-            {
-                request = request.base(base.as_str());
-            }
-            request
+            pulls
+                .list()
+                .state(params::State::Open)
+                .head(head)
                 .send()
                 .await
                 .context("failed to query GitHub pull requests")
         })?;
-        Ok(pull_requests
-            .items
-            .into_iter()
-            .next()
-            .map(|pull_request| map_github_pull_request(repo_web_base_url.as_str(), pull_request)))
+        Ok(
+            select_open_pull_request(pull_requests.items, target_branch.as_deref()).map(
+                |pull_request| map_github_pull_request(repo_web_base_url.as_str(), pull_request),
+            ),
+        )
     }
 
     pub fn create_review(&self, input: &CreateReviewInput) -> Result<CreateReviewResult> {
@@ -71,13 +72,16 @@ impl GitHubReviewClient {
         let repo_web_base_url = input.repo.web_base_url.clone();
         let title = input.title.clone();
         let source_branch = input.source_branch.clone();
+        let source_head_owner = input.source_head_owner.clone();
         let target_branch = input.target_branch.clone();
         let body = input.body.clone();
         let draft = input.draft;
         let pull_request = self.run(async move {
             let octocrab = self.build_octocrab()?;
             let pulls = octocrab.pulls(owner, repo_name);
-            let mut request = pulls.create(title, source_branch, target_branch);
+            let head =
+                github_create_head(source_head_owner.as_deref(), owner, source_branch.as_str());
+            let mut request = pulls.create(title, head, target_branch);
             if let Some(body) = body.as_deref() {
                 request = request.body(body);
             }
@@ -156,6 +160,42 @@ pub fn github_api_base_url(host: &str) -> String {
     } else {
         format!("https://{host}/api/v3")
     }
+}
+
+fn select_open_pull_request(
+    pull_requests: Vec<PullRequest>,
+    target_branch: Option<&str>,
+) -> Option<PullRequest> {
+    let normalized_target = target_branch
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty());
+    if let Some(target_branch) = normalized_target
+        && let Some(index) = pull_requests
+            .iter()
+            .position(|pull_request| pull_request.base.ref_field == target_branch)
+    {
+        return pull_requests.into_iter().nth(index);
+    }
+
+    pull_requests.into_iter().next()
+}
+
+fn github_create_head(
+    source_head_owner: Option<&str>,
+    base_owner: &str,
+    source_branch: &str,
+) -> String {
+    let normalized_owner = source_head_owner
+        .map(str::trim)
+        .filter(|owner| !owner.is_empty());
+    if normalized_owner == Some(base_owner) || normalized_owner.is_none() {
+        return source_branch.to_string();
+    }
+
+    format!(
+        "{}:{source_branch}",
+        normalized_owner.expect("checked is_some")
+    )
 }
 
 fn map_github_pull_request(

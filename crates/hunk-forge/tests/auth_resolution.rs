@@ -9,6 +9,7 @@ fn github_repo(path: &str) -> ForgeRepoRef {
     ForgeRepoRef {
         provider: ForgeProvider::GitHub,
         host: "github.com".to_string(),
+        authority: "github.com".to_string(),
         namespace: segments.join("/"),
         name,
         path: path.to_string(),
