@@ -175,40 +175,32 @@ jobs:
           clean: false
 
       - name: Install stable Rust
+        if: runner.os != 'macOS'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Zig
+        if: runner.os != 'macOS'
         uses: mlugg/setup-zig@v2
         with:
           use-cache: false
           version: 0.15.2
 
+      - name: Install Determinate Nix
+        if: runner.os == 'macOS'
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Enable Magic Nix Cache
+        if: runner.os == 'macOS'
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
       - name: Cache cargo registry and Rust dependencies
+        if: runner.os != 'macOS'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: pr-build-${{ runner.os }}-desktop-v2
           workspaces: |
             . -> target
           cache-on-failure: "true"
-
-      - name: Configure macOS SDK environment
-        if: runner.os == 'macOS'
-        run: |
-          sdkroot="$(xcrun --sdk macosx --show-sdk-path)"
-          deployment_target="${HUNK_MACOSX_DEPLOYMENT_TARGET:-14.0}"
-          {
-            echo "SDKROOT=$sdkroot"
-            echo "MACOSX_DEPLOYMENT_TARGET=$deployment_target"
-            echo "CMAKE_OSX_SYSROOT=$sdkroot"
-            echo "CMAKE_OSX_DEPLOYMENT_TARGET=$deployment_target"
-            echo "LIBRARY_PATH=$sdkroot/usr/lib"
-            echo "CPATH=$sdkroot/usr/include"
-            echo "CFLAGS=-isysroot $sdkroot -mmacosx-version-min=$deployment_target"
-            echo "CXXFLAGS=-isysroot $sdkroot -mmacosx-version-min=$deployment_target"
-            echo "LDFLAGS=-L$sdkroot/usr/lib -Wl,-macosx_version_min,$deployment_target"
-            echo "RUSTFLAGS=-L native=$sdkroot/usr/lib -C link-arg=-mmacosx-version-min=$deployment_target"
-          } >> "$GITHUB_ENV"
-        shell: bash
 
       # Temporarily disabled for PR builds; release packaging stays in release workflows.
       # - name: Resolve release version
@@ -233,7 +225,7 @@ jobs:
 
       - name: Run hunk-terminal tests
         if: runner.os == 'macOS'
-        run: cargo test -p hunk-terminal --tests
+        run: nix develop --accept-flake-config -c cargo test -p hunk-terminal --tests
         shell: bash
 
       - name: Run hunk-terminal tests
@@ -243,7 +235,7 @@ jobs:
 
       - name: Build hunk-desktop
         if: runner.os == 'macOS'
-        run: cargo build -p hunk-desktop --locked --profile ci
+        run: nix develop --accept-flake-config -c cargo build -p hunk-desktop --locked --profile ci
         shell: bash
 
       - name: Build hunk-desktop
