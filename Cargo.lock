@@ -532,6 +532,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert-json-diff"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -986,7 +996,7 @@ dependencies = [
  "bitflags 2.11.0",
  "cexpr",
  "clang-sys",
- "itertools 0.11.0",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1006,7 +1016,7 @@ dependencies = [
  "bitflags 2.11.0",
  "cexpr",
  "clang-sys",
- "itertools 0.11.0",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1661,7 +1671,7 @@ dependencies = [
 [[package]]
 name = "codex-analytics"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-app-server-protocol",
  "codex-git-utils",
@@ -1679,7 +1689,7 @@ dependencies = [
 [[package]]
 name = "codex-api"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1707,7 +1717,7 @@ dependencies = [
 [[package]]
 name = "codex-app-server"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1768,7 +1778,7 @@ dependencies = [
 [[package]]
 name = "codex-app-server-protocol"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "clap",
@@ -1793,7 +1803,7 @@ dependencies = [
 [[package]]
 name = "codex-apply-patch"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "codex-exec-server",
@@ -1808,7 +1818,7 @@ dependencies = [
 [[package]]
 name = "codex-arg0"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "codex-apply-patch",
@@ -1826,7 +1836,7 @@ dependencies = [
 [[package]]
 name = "codex-async-utils"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "async-trait",
  "tokio",
@@ -1836,7 +1846,7 @@ dependencies = [
 [[package]]
 name = "codex-backend-client"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "codex-backend-openapi-models",
@@ -1851,7 +1861,7 @@ dependencies = [
 [[package]]
 name = "codex-backend-openapi-models"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "serde",
  "serde_json",
@@ -1861,7 +1871,7 @@ dependencies = [
 [[package]]
 name = "codex-chatgpt"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "clap",
@@ -1878,7 +1888,7 @@ dependencies = [
 [[package]]
 name = "codex-client"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1904,7 +1914,7 @@ dependencies = [
 [[package]]
 name = "codex-cloud-requirements"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1928,7 +1938,7 @@ dependencies = [
 [[package]]
 name = "codex-code-mode"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "async-trait",
  "serde",
@@ -1942,12 +1952,12 @@ dependencies = [
 [[package]]
 name = "codex-collaboration-mode-templates"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 
 [[package]]
 name = "codex-config"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "codex-app-server-protocol",
@@ -1977,7 +1987,7 @@ dependencies = [
 [[package]]
 name = "codex-connectors"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "codex-app-server-protocol",
@@ -1988,7 +1998,7 @@ dependencies = [
 [[package]]
 name = "codex-core"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2089,7 +2099,7 @@ dependencies = [
 [[package]]
 name = "codex-core-skills"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "codex-analytics",
@@ -2117,7 +2127,7 @@ dependencies = [
 [[package]]
 name = "codex-exec-server"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -2140,7 +2150,7 @@ dependencies = [
 [[package]]
 name = "codex-execpolicy"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "clap",
@@ -2156,7 +2166,7 @@ dependencies = [
 [[package]]
 name = "codex-experimental-api-macros"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2166,7 +2176,7 @@ dependencies = [
 [[package]]
 name = "codex-features"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-otel",
  "codex-protocol",
@@ -2179,7 +2189,7 @@ dependencies = [
 [[package]]
 name = "codex-feedback"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "codex-login",
@@ -2192,7 +2202,7 @@ dependencies = [
 [[package]]
 name = "codex-file-search"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "clap",
@@ -2207,7 +2217,7 @@ dependencies = [
 [[package]]
 name = "codex-git-utils"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-utils-absolute-path",
  "futures",
@@ -2225,7 +2235,7 @@ dependencies = [
 [[package]]
 name = "codex-hooks"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2242,7 +2252,7 @@ dependencies = [
 [[package]]
 name = "codex-instructions"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-protocol",
  "serde",
@@ -2251,7 +2261,7 @@ dependencies = [
 [[package]]
 name = "codex-keyring-store"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "keyring",
  "tracing",
@@ -2260,7 +2270,7 @@ dependencies = [
 [[package]]
 name = "codex-linux-sandbox"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "cc",
  "clap",
@@ -2279,7 +2289,7 @@ dependencies = [
 [[package]]
 name = "codex-login"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2313,7 +2323,7 @@ dependencies = [
 [[package]]
 name = "codex-mcp"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
@@ -2341,7 +2351,7 @@ dependencies = [
 [[package]]
 name = "codex-model-provider-info"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-api",
  "codex-app-server-protocol",
@@ -2354,7 +2364,7 @@ dependencies = [
 [[package]]
 name = "codex-models-manager"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "chrono",
  "codex-api",
@@ -2379,7 +2389,7 @@ dependencies = [
 [[package]]
 name = "codex-network-proxy"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2409,7 +2419,7 @@ dependencies = [
 [[package]]
 name = "codex-otel"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "chrono",
  "codex-api",
@@ -2441,7 +2451,7 @@ dependencies = [
 [[package]]
 name = "codex-plugin"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-utils-absolute-path",
  "codex-utils-plugins",
@@ -2451,7 +2461,7 @@ dependencies = [
 [[package]]
 name = "codex-protocol"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "chardetng",
  "chrono",
@@ -2488,7 +2498,7 @@ dependencies = [
 [[package]]
 name = "codex-response-debug-context"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "base64 0.22.1",
  "codex-api",
@@ -2499,7 +2509,7 @@ dependencies = [
 [[package]]
 name = "codex-rmcp-client"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "axum",
@@ -2530,7 +2540,7 @@ dependencies = [
 [[package]]
 name = "codex-rollout"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2554,7 +2564,7 @@ dependencies = [
 [[package]]
 name = "codex-sandboxing"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-network-proxy",
  "codex-protocol",
@@ -2570,7 +2580,7 @@ dependencies = [
 [[package]]
 name = "codex-secrets"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "age",
  "anyhow",
@@ -2589,7 +2599,7 @@ dependencies = [
 [[package]]
 name = "codex-shell-command"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "base64 0.22.1",
  "codex-protocol",
@@ -2608,7 +2618,7 @@ dependencies = [
 [[package]]
 name = "codex-shell-escalation"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2628,7 +2638,7 @@ dependencies = [
 [[package]]
 name = "codex-skills"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-utils-absolute-path",
  "include_dir",
@@ -2638,7 +2648,7 @@ dependencies = [
 [[package]]
 name = "codex-state"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2660,7 +2670,7 @@ dependencies = [
 [[package]]
 name = "codex-terminal-detection"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "tracing",
 ]
@@ -2668,7 +2678,7 @@ dependencies = [
 [[package]]
 name = "codex-tools"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-app-server-protocol",
  "codex-code-mode",
@@ -2685,7 +2695,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-absolute-path"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "dirs 6.0.0",
  "dunce",
@@ -2697,7 +2707,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-cache"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "lru",
  "sha1",
@@ -2707,7 +2717,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-cli"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "clap",
  "codex-protocol",
@@ -2718,7 +2728,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-home-dir"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "dirs 6.0.0",
 ]
@@ -2726,7 +2736,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-image"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "base64 0.22.1",
  "codex-utils-cache",
@@ -2739,7 +2749,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-json-to-toml"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "serde_json",
  "toml 0.9.12+spec-1.1.0",
@@ -2748,7 +2758,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-output-truncation"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-protocol",
  "codex-utils-string",
@@ -2757,7 +2767,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-path"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-utils-absolute-path",
  "dunce",
@@ -2767,7 +2777,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-plugins"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "codex-login",
  "serde",
@@ -2777,7 +2787,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-pty"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "filedescriptor",
@@ -2793,7 +2803,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-readiness"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "async-trait",
  "thiserror 2.0.18",
@@ -2804,7 +2814,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-rustls-provider"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "rustls",
 ]
@@ -2812,12 +2822,12 @@ dependencies = [
 [[package]]
 name = "codex-utils-stream-parser"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 
 [[package]]
 name = "codex-utils-string"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "regex-lite",
 ]
@@ -2825,12 +2835,12 @@ dependencies = [
 [[package]]
 name = "codex-utils-template"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 
 [[package]]
 name = "codex-windows-sandbox"
 version = "0.120.0"
-source = "git+https://github.com/openai/codex.git?tag=rust-v0.120.0#65319eb1400cbd2890c43d572263dabd25f18ba9"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3524,6 +3534,24 @@ dependencies = [
  "sha2",
  "zeroize",
 ]
+
+[[package]]
+name = "deadpool"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0be2b1d1d6ec8d846f05e137292d0b89133caf95ef33695424c09568bdd39b1b"
+dependencies = [
+ "deadpool-runtime",
+ "lazy_static",
+ "num_cpus",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool-runtime"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
 
 [[package]]
 name = "debugid"
@@ -4880,8 +4908,8 @@ dependencies = [
  "libc",
  "log",
  "rustversion",
- "windows-link 0.1.3",
- "windows-result 0.3.4",
+ "windows-link 0.2.1",
+ "windows-result 0.4.1",
 ]
 
 [[package]]
@@ -6644,6 +6672,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]
@@ -6892,7 +6921,7 @@ dependencies = [
  "tokio",
  "tower-service",
  "tracing",
- "windows-registry 0.4.0",
+ "windows-registry 0.6.1",
 ]
 
 [[package]]
@@ -6973,7 +7002,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.57.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -8935,7 +8964,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.17",
  "http 1.4.0",
@@ -10133,7 +10162,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -12174,7 +12203,7 @@ version = "3.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32824fab5e16e6c4d86dc1ba84489390419a39f97699852b66480bb87d297ed8"
 dependencies = [
- "dirs 4.0.0",
+ "dirs 6.0.0",
 ]
 
 [[package]]
@@ -12353,7 +12382,7 @@ version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1c97747dbf44bb1ca44a561ece23508e99cb592e862f22222dcf42f51d1e451"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -15485,7 +15514,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -16155,6 +16184,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d129932f4644ac2396cb456385cbf9e63b5b30c6e8dc4820bdca4eb082037a5"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "wiremock"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08db1edfb05d9b3c1542e521aea074442088292f00b5f28e435c714a98f85031"
+dependencies = [
+ "assert-json-diff",
+ "base64 0.22.1",
+ "deadpool",
+ "futures",
+ "http 1.4.0",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "log",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

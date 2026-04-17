@@ -21,3 +21,4 @@ tracing = "0.1"
 
 [dev-dependencies]
 tempfile = "3.23"
+wiremock = "0.6.5"
