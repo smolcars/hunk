@@ -3,7 +3,7 @@ use std::time::Duration;
 
 #[cfg(not(test))]
 use crate::app::ai_paths::resolve_codex_home_path;
-use hunk_codex::codex_protocol::openai_models::ReasoningEffort;
+use hunk_codex::protocol::ReasoningEffort;
 use hunk_codex::state::AiState;
 use hunk_codex::structured_generation::StructuredGenerationRequest;
 use hunk_codex::structured_generation::generate_structured_output;

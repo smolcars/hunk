@@ -10,7 +10,7 @@ use gpui_component::{
     Rope, RopeExt,
     input::{CompletionProvider, InputState},
 };
-use hunk_codex::app_server_protocol::{SkillMetadata, SkillScope};
+use hunk_codex::protocol::{SkillMetadata, SkillScope};
 use lsp_types::{
     CompletionContext, CompletionItem, CompletionItemKind, CompletionResponse, CompletionTextEdit,
     InsertReplaceEdit, Range as LspRange,
@@ -842,7 +842,7 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::app::{AiComposerSkillBinding, AiPromptSkillReference};
-    use hunk_codex::app_server_protocol::{SkillInterface, SkillMetadata, SkillScope};
+    use hunk_codex::protocol::{SkillInterface, SkillMetadata, SkillScope};
 
     use super::{
         ActivePrefixedToken, active_file_completion_token, active_skill_completion_token,

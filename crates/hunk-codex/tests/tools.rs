@@ -1,8 +1,8 @@
 use std::fs;
 
-use codex_app_server_protocol::DynamicToolCallOutputContentItem;
-use codex_app_server_protocol::DynamicToolCallParams;
-use codex_app_server_protocol::DynamicToolCallResponse;
+use hunk_codex::protocol::DynamicToolCallOutputContentItem;
+use hunk_codex::protocol::DynamicToolCallParams;
+use hunk_codex::protocol::DynamicToolCallResponse;
 use hunk_codex::tools::DynamicToolRegistry;
 use tempfile::tempdir;
 

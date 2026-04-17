@@ -227,13 +227,13 @@ impl ThreadService {
                             .map(|step| crate::state::TurnPlanStepSummary {
                                 step: step.step,
                                 status: match step.status {
-                                    codex_app_server_protocol::TurnPlanStepStatus::Pending => {
+                                    crate::protocol::TurnPlanStepStatus::Pending => {
                                         crate::state::TurnPlanStepStatus::Pending
                                     }
-                                    codex_app_server_protocol::TurnPlanStepStatus::InProgress => {
+                                    crate::protocol::TurnPlanStepStatus::InProgress => {
                                         crate::state::TurnPlanStepStatus::InProgress
                                     }
-                                    codex_app_server_protocol::TurnPlanStepStatus::Completed => {
+                                    crate::protocol::TurnPlanStepStatus::Completed => {
                                         crate::state::TurnPlanStepStatus::Completed
                                     }
                                 },
@@ -448,7 +448,7 @@ impl ThreadService {
         });
     }
 
-    fn apply_turn_snapshot(&mut self, thread_id: &str, turn: &codex_app_server_protocol::Turn) {
+    fn apply_turn_snapshot(&mut self, thread_id: &str, turn: &crate::protocol::Turn) {
         self.apply_event(ReducerEvent::TurnStarted {
             thread_id: thread_id.to_string(),
             turn_id: turn.id.clone(),

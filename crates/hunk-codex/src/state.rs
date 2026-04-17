@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-use codex_app_server_protocol::TokenUsageBreakdown;
+use crate::protocol::TokenUsageBreakdown;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThreadLifecycleStatus {

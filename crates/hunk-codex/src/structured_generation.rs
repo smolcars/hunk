@@ -1,22 +1,22 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use codex_app_server_protocol::AskForApproval;
-use codex_app_server_protocol::JSONRPCErrorError;
-use codex_app_server_protocol::ReadOnlyAccess;
-use codex_app_server_protocol::SandboxMode;
-use codex_app_server_protocol::SandboxPolicy;
-use codex_app_server_protocol::ServerNotification;
-use codex_app_server_protocol::ThreadItem;
-use codex_app_server_protocol::ThreadReadParams;
-use codex_app_server_protocol::ThreadReadResponse;
-use codex_app_server_protocol::ThreadStartParams;
-use codex_app_server_protocol::ThreadStartResponse;
-use codex_app_server_protocol::TurnStartParams;
-use codex_app_server_protocol::TurnStartResponse;
-use codex_app_server_protocol::TurnStatus;
-use codex_app_server_protocol::UserInput;
-use codex_protocol::openai_models::ReasoningEffort;
+use crate::protocol::AskForApproval;
+use crate::protocol::JSONRPCErrorError;
+use crate::protocol::ReadOnlyAccess;
+use crate::protocol::ReasoningEffort;
+use crate::protocol::SandboxMode;
+use crate::protocol::SandboxPolicy;
+use crate::protocol::ServerNotification;
+use crate::protocol::ThreadItem;
+use crate::protocol::ThreadReadParams;
+use crate::protocol::ThreadReadResponse;
+use crate::protocol::ThreadStartParams;
+use crate::protocol::ThreadStartResponse;
+use crate::protocol::TurnStartParams;
+use crate::protocol::TurnStartResponse;
+use crate::protocol::TurnStatus;
+use crate::protocol::UserInput;
 use serde_json::Value;
 
 use crate::api;

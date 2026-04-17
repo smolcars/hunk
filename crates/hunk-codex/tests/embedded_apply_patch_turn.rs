@@ -5,15 +5,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use codex_app_server_protocol::{
+use hunk_codex::api::method;
+use hunk_codex::app_server_client::{
+    AppServerClient, AppServerEvent, EmbeddedAppServerClient, EmbeddedAppServerClientStartArgs,
+};
+use hunk_codex::protocol::{
     AskForApproval, FileChangeApprovalDecision, FileChangeOutputDeltaNotification,
     FileChangeRequestApprovalResponse, PatchApplyStatus, SandboxMode, ServerNotification,
     ServerRequest, ThreadItem, ThreadStartParams, ThreadStartResponse, TurnStartParams,
     TurnStartResponse, UserInput,
-};
-use hunk_codex::api::method;
-use hunk_codex::app_server_client::{
-    AppServerClient, AppServerEvent, EmbeddedAppServerClient, EmbeddedAppServerClientStartArgs,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;

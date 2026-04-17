@@ -3,10 +3,10 @@ mod app_server_client_embedded;
 
 use std::time::Duration;
 
-use codex_app_server_protocol::JSONRPCErrorError;
-use codex_app_server_protocol::RequestId;
-use codex_app_server_protocol::ServerNotification;
-use codex_app_server_protocol::ServerRequest;
+use crate::protocol::JSONRPCErrorError;
+use crate::protocol::RequestId;
+use crate::protocol::ServerNotification;
+use crate::protocol::ServerRequest;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 

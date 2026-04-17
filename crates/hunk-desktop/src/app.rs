@@ -27,7 +27,7 @@ use gpui_component::{
     scroll::ScrollableElement,
     v_flex,
 };
-use hunk_codex::app_server_protocol::SkillMetadata;
+use hunk_codex::protocol::SkillMetadata;
 use tracing::error;
 
 mod hunk_assets;
@@ -1472,14 +1472,14 @@ struct DiffViewer {
     ai_pending_approvals: Vec<AiPendingApproval>,
     ai_pending_user_inputs: Vec<AiPendingUserInputRequest>,
     ai_pending_user_input_answers: BTreeMap<String, BTreeMap<String, Vec<String>>>,
-    ai_account: Option<hunk_codex::app_server_protocol::Account>,
+    ai_account: Option<hunk_codex::protocol::Account>,
     ai_requires_openai_auth: bool,
     ai_pending_chatgpt_login_id: Option<String>,
     ai_pending_chatgpt_auth_url: Option<String>,
-    ai_rate_limits: Option<hunk_codex::app_server_protocol::RateLimitSnapshot>,
-    ai_models: Vec<hunk_codex::app_server_protocol::Model>,
-    ai_experimental_features: Vec<hunk_codex::app_server_protocol::ExperimentalFeature>,
-    ai_collaboration_modes: Vec<hunk_codex::app_server_protocol::CollaborationModeMask>,
+    ai_rate_limits: Option<hunk_codex::protocol::RateLimitSnapshot>,
+    ai_models: Vec<hunk_codex::protocol::Model>,
+    ai_experimental_features: Vec<hunk_codex::protocol::ExperimentalFeature>,
+    ai_collaboration_modes: Vec<hunk_codex::protocol::CollaborationModeMask>,
     ai_skills: Vec<SkillMetadata>,
     ai_skills_generation: usize,
     ai_include_hidden_models: bool,

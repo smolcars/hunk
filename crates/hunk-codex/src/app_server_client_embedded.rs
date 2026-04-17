@@ -1,16 +1,16 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::protocol::ClientNotification;
+use crate::protocol::ClientRequest;
+use crate::protocol::JSONRPCErrorError;
+use crate::protocol::RequestId;
+use crate::protocol::SessionSource;
 use codex_app_server::in_process::InProcessServerEvent;
-use codex_app_server_protocol::ClientNotification;
-use codex_app_server_protocol::ClientRequest;
-use codex_app_server_protocol::JSONRPCErrorError;
-use codex_app_server_protocol::RequestId;
 use codex_arg0::Arg0DispatchPaths;
 use codex_core::config::ConfigBuilder;
 use codex_exec_server::EnvironmentManager;
 use codex_feedback::CodexFeedback;
-use codex_protocol::protocol::SessionSource;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Map;
@@ -80,14 +80,12 @@ impl EmbeddedAppServerClient {
             let config_warnings = config
                 .startup_warnings
                 .iter()
-                .map(
-                    |warning| codex_app_server_protocol::ConfigWarningNotification {
-                        summary: warning.clone(),
-                        details: None,
-                        path: None,
-                        range: None,
-                    },
-                )
+                .map(|warning| crate::protocol::ConfigWarningNotification {
+                    summary: warning.clone(),
+                    details: None,
+                    path: None,
+                    range: None,
+                })
                 .collect();
 
             InProcessAppServerClient::start(InProcessClientStartArgs {

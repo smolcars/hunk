@@ -19,16 +19,12 @@ pub fn unified_diff_line_counts(diff_text: &str) -> (usize, usize) {
 }
 
 pub fn file_update_change_line_counts(
-    change: &codex_app_server_protocol::FileUpdateChange,
+    change: &crate::protocol::FileUpdateChange,
 ) -> (usize, usize) {
     match &change.kind {
-        codex_app_server_protocol::PatchChangeKind::Add => {
-            (content_line_count(change.diff.as_str()), 0)
-        }
-        codex_app_server_protocol::PatchChangeKind::Delete => {
-            (0, content_line_count(change.diff.as_str()))
-        }
-        codex_app_server_protocol::PatchChangeKind::Update { .. } => {
+        crate::protocol::PatchChangeKind::Add => (content_line_count(change.diff.as_str()), 0),
+        crate::protocol::PatchChangeKind::Delete => (0, content_line_count(change.diff.as_str())),
+        crate::protocol::PatchChangeKind::Update { .. } => {
             unified_diff_line_counts(change.diff.as_str())
         }
     }
@@ -57,30 +53,27 @@ mod tests {
 
     #[test]
     fn file_update_change_line_counts_handle_add_delete_and_update() {
-        let added = serde_json::from_value::<codex_app_server_protocol::FileUpdateChange>(
-            serde_json::json!({
+        let added =
+            serde_json::from_value::<crate::protocol::FileUpdateChange>(serde_json::json!({
                 "path": "docs/new.md",
                 "kind": { "type": "add" },
                 "diff": "first line\nsecond line\n"
-            }),
-        )
-        .expect("add change should deserialize");
-        let deleted = serde_json::from_value::<codex_app_server_protocol::FileUpdateChange>(
-            serde_json::json!({
+            }))
+            .expect("add change should deserialize");
+        let deleted =
+            serde_json::from_value::<crate::protocol::FileUpdateChange>(serde_json::json!({
                 "path": "docs/old.md",
                 "kind": { "type": "delete" },
                 "diff": "gone line\n"
-            }),
-        )
-        .expect("delete change should deserialize");
-        let updated = serde_json::from_value::<codex_app_server_protocol::FileUpdateChange>(
-            serde_json::json!({
+            }))
+            .expect("delete change should deserialize");
+        let updated =
+            serde_json::from_value::<crate::protocol::FileUpdateChange>(serde_json::json!({
                 "path": "docs/edit.md",
                 "kind": { "type": "update", "movePath": null },
                 "diff": "@@ -1 +1,2 @@\n-old\n+new\n+extra"
-            }),
-        )
-        .expect("update change should deserialize");
+            }))
+            .expect("update change should deserialize");
 
         assert_eq!(file_update_change_line_counts(&added), (2, 0));
         assert_eq!(file_update_change_line_counts(&deleted), (0, 1));

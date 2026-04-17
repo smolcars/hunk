@@ -94,8 +94,8 @@ fn ai_workspace_timeline_item_details_value(
 
 fn ai_workspace_timeline_item_thread_item(
     item: &hunk_codex::state::ItemSummary,
-) -> Option<hunk_codex::app_server_protocol::ThreadItem> {
-    serde_json::from_str::<hunk_codex::app_server_protocol::ThreadItem>(
+) -> Option<hunk_codex::protocol::ThreadItem> {
+    serde_json::from_str::<hunk_codex::protocol::ThreadItem>(
         ai_workspace_timeline_item_details_json(item)?,
     )
     .ok()
@@ -170,13 +170,11 @@ fn ai_workspace_tool_compact_preview_text(
     }
 
     match ai_workspace_timeline_item_thread_item(item) {
-        Some(hunk_codex::app_server_protocol::ThreadItem::McpToolCall { server, tool, .. }) => {
+        Some(hunk_codex::protocol::ThreadItem::McpToolCall { server, tool, .. }) => {
             Some(format!("{server} :: {tool}"))
         }
-        Some(hunk_codex::app_server_protocol::ThreadItem::DynamicToolCall { tool, .. }) => {
-            Some(tool)
-        }
-        Some(hunk_codex::app_server_protocol::ThreadItem::CollabAgentToolCall {
+        Some(hunk_codex::protocol::ThreadItem::DynamicToolCall { tool, .. }) => Some(tool),
+        Some(hunk_codex::protocol::ThreadItem::CollabAgentToolCall {
             tool,
             receiver_thread_ids,
             ..
@@ -294,7 +292,7 @@ pub(crate) fn ai_workspace_file_change_summary(
         return Some(summary);
     }
 
-    let hunk_codex::app_server_protocol::ThreadItem::FileChange { changes, .. } =
+    let hunk_codex::protocol::ThreadItem::FileChange { changes, .. } =
         ai_workspace_timeline_item_thread_item(item)?
     else {
         return None;

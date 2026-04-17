@@ -3,14 +3,12 @@ pub mod app_server_client;
 pub mod diff_stats;
 pub mod errors;
 mod in_process_app_server_client;
+pub mod protocol;
 pub mod rpc;
 pub mod state;
 pub mod structured_generation;
 pub mod threads;
 pub mod tools;
-
-pub use codex_app_server_protocol as app_server_protocol;
-pub use codex_protocol;
 
 /// Pinned upstream Codex commit selected during implementation kickoff.
 pub const CODEX_PINNED_MAIN_COMMIT: &str = "6bee02a346d0aa8dc4d5dcb312545fa37408b6ca";

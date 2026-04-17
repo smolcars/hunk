@@ -18,6 +18,7 @@ What still remains:
 - Hunk still bundles a `codex` executable in `assets/codex-runtime/...`.
 - Embedded startup still passes `codex_self_exe` to upstream internals.
 - Hunk no longer shells out to `codex exec` for AI branch-name or commit-message generation; those one-shot structured-output requests now use the same embedded app-server seam as the rest of the AI workspace.
+- Hunk-owned crates now consume Codex protocol types through `hunk-codex::protocol` instead of reaching into upstream crate paths directly. That gives the workspace one local protocol boundary for future Codex bumps.
 
 Important dependency note:
 - Hunk now pins the Codex fork explicitly through `workspace.dependencies` instead of using a blanket root patch override for the entire upstream workspace.
@@ -27,4 +28,5 @@ Important dependency note:
 - Hunk-owned websocket/host dependencies were removed from `hunk-codex`.
 - Some websocket/tungstenite crates still appear transitively through upstream embedded Codex crates.
 - A larger remaining cost is that upstream `codex-app-server` still pulls login, keyring, plugin, analytics, and websocket surfaces even for Hunk's embedded-only use case.
+- That remaining cost is no longer spread across the app. It is concentrated in `crates/hunk-codex` and specifically in the local in-process wrapper around upstream `codex-app-server`.
 - Reducing those remaining transitive dependencies requires a deeper upstream carve-out or vendoring a smaller in-process runtime surface locally.

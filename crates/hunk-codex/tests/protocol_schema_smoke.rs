@@ -1,9 +1,9 @@
 use std::fs;
 
-use codex_app_server_protocol::JSONRPCMessage;
-use codex_app_server_protocol::JSONRPCRequest;
-use codex_app_server_protocol::RequestId;
-use codex_app_server_protocol::generate_json_with_experimental;
+use hunk_codex::protocol::JSONRPCMessage;
+use hunk_codex::protocol::JSONRPCRequest;
+use hunk_codex::protocol::RequestId;
+use hunk_codex::protocol::generate_json_with_experimental;
 use tempfile::TempDir;
 
 #[test]
