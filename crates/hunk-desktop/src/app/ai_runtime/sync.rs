@@ -766,6 +766,30 @@ impl AiWorkerRuntime {
             return Ok(());
         }
 
+        if self.transport_kind == AppServerTransportKind::Embedded {
+            if let Some(watch) = self.turn_stream_watches.get_mut(turn_id.as_str()) {
+                watch.last_recovery_at = Some(now);
+                watch.last_meaningful_activity_at = now;
+            }
+
+            tracing::warn!(
+                thread_id = thread_id.as_str(),
+                turn_id = turn_id.as_str(),
+                stalled_for_ms = stalled_for.as_millis() as u64,
+                soft_recovery_attempts,
+                "stall recovery exhausted soft retries; refreshing snapshot without embedded runtime reboot"
+            );
+            self.send_event(
+                event_tx,
+                AiWorkerEventPayload::Status(format!(
+                    "AI stream is still stalled for turn {turn_id}. Refreshing thread state without restarting the embedded runtime..."
+                )),
+            );
+            self.load_thread_snapshot(thread_id)?;
+            self.emit_snapshot_after_sync(event_tx)?;
+            return Ok(());
+        }
+
         self.send_event(
             event_tx,
             AiWorkerEventPayload::Status(format!(
