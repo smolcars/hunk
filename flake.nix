@@ -125,7 +125,7 @@
 
               if [ "$(uname -s)" = "Darwin" ]; then
                 sdkroot="$(xcrun --sdk macosx --show-sdk-path)"
-                deployment_target="''${HUNK_MACOSX_DEPLOYMENT_TARGET:-12.0}"
+                deployment_target="''${HUNK_MACOSX_DEPLOYMENT_TARGET:-14.0}"
                 export SDKROOT="$sdkroot"
                 export MACOSX_DEPLOYMENT_TARGET="$deployment_target"
                 export CMAKE_OSX_SYSROOT="$sdkroot"
