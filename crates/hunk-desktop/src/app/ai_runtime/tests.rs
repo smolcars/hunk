@@ -1,31 +1,25 @@
 #[cfg(test)]
 mod ai_tests {
-    use std::fs;
     use std::cell::Cell;
     use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::sync::mpsc;
     use std::time::Duration;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use codex_app_server_protocol::AccountLoginCompletedNotification;
-    use codex_app_server_protocol::AskForApproval;
-    use codex_protocol::config_types::ModeKind;
-    use codex_app_server_protocol::RateLimitSnapshot;
-    use codex_app_server_protocol::RateLimitWindow;
-    use codex_app_server_protocol::RequestId;
-    use codex_app_server_protocol::SandboxMode;
-    use codex_app_server_protocol::SandboxPolicy;
-    use codex_app_server_protocol::ServerNotification;
-    use codex_app_server_protocol::SkillsChangedNotification;
-    use codex_app_server_protocol::ThreadStartParams;
-    use codex_app_server_protocol::TurnStartParams;
-    use codex_app_server_protocol::UserInput;
-    use codex_protocol::config_types::ServiceTier;
-    use git2::IndexAddOption;
-    use git2::Repository;
-    use git2::RepositoryInitOptions;
-    use git2::Signature;
+    use hunk_codex::protocol::AccountLoginCompletedNotification;
+    use hunk_codex::protocol::AskForApproval;
+    use hunk_codex::protocol::ModeKind;
+    use hunk_codex::protocol::RateLimitSnapshot;
+    use hunk_codex::protocol::RateLimitWindow;
+    use hunk_codex::protocol::RequestId;
+    use hunk_codex::protocol::SandboxMode;
+    use hunk_codex::protocol::SandboxPolicy;
+    use hunk_codex::protocol::ServerNotification;
+    use hunk_codex::protocol::SkillsChangedNotification;
+    use hunk_codex::protocol::ThreadStartParams;
+    use hunk_codex::protocol::TurnStartParams;
+    use hunk_codex::protocol::UserInput;
+    use hunk_codex::protocol::ServiceTier;
     use hunk_codex::errors::CodexIntegrationError;
     use hunk_codex::state::AiState;
     use hunk_codex::state::ReducerEvent;
@@ -60,7 +54,6 @@ mod ai_tests {
     use super::retry_transient_rollout_load;
     use super::selected_ai_service_tier;
     use super::should_attempt_runtime_reconnect;
-    use super::should_retry_bootstrap_with_new_port;
     use super::should_retry_stale_turn_after_steer_error;
     use super::thread_missing_item_turn_ids;
 
@@ -80,22 +73,6 @@ mod ai_tests {
             std::path::PathBuf::from("/tmp/codex-home"),
         );
         assert_eq!(config.workspace_key, "/repo/worktrees/task-a");
-    }
-
-    #[test]
-    fn worker_start_config_anchors_shared_host_to_primary_repo_root() {
-        let temp_dir = TestTempDir::new();
-        let repo_root = init_test_repo(temp_dir.path());
-        let worktree_root = create_linked_worktree(repo_root.as_path(), "task-a");
-
-        let config = AiWorkerStartConfig::new(
-            worktree_root.clone(),
-            PathBuf::from("/bin/codex"),
-            PathBuf::from("/tmp/codex-home"),
-        );
-
-        assert_eq!(config.workspace_key, worktree_root.display().to_string());
-        assert_eq!(config.host_working_directory, repo_root);
     }
 
     #[test]
@@ -240,11 +217,11 @@ mod ai_tests {
     fn approval_decision_mapping_is_stable() {
         assert_eq!(
             map_command_approval_decision(AiApprovalDecision::Accept),
-            codex_app_server_protocol::CommandExecutionApprovalDecision::Accept
+            hunk_codex::protocol::CommandExecutionApprovalDecision::Accept
         );
         assert_eq!(
             map_file_change_approval_decision(AiApprovalDecision::Decline),
-            codex_app_server_protocol::FileChangeApprovalDecision::Decline
+            hunk_codex::protocol::FileChangeApprovalDecision::Decline
         );
     }
 
@@ -307,7 +284,7 @@ mod ai_tests {
         let mode = collaboration_mode_for_turn(
             ModeKind::Plan,
             Some("gpt-5.4".to_string()),
-            Some(codex_protocol::openai_models::ReasoningEffort::High),
+            Some(hunk_codex::protocol::ReasoningEffort::High),
             None,
         )
         .expect("collaboration mode should resolve");
@@ -316,7 +293,7 @@ mod ai_tests {
         assert_eq!(mode.settings.model, "gpt-5.4");
         assert_eq!(
             mode.settings.reasoning_effort,
-            Some(codex_protocol::openai_models::ReasoningEffort::High)
+            Some(hunk_codex::protocol::ReasoningEffort::High)
         );
     }
 
@@ -380,88 +357,6 @@ mod ai_tests {
             selected.primary.as_ref().map(|window| window.used_percent),
             Some(22)
         );
-    }
-
-    struct TestTempDir {
-        path: PathBuf,
-    }
-
-    impl TestTempDir {
-        fn new() -> Self {
-            let unique_suffix = format!(
-                "{}-{}",
-                std::process::id(),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("time")
-                    .as_nanos()
-            );
-            let path =
-                std::env::temp_dir().join(format!("hunk-ai-runtime-tests-{unique_suffix}"));
-            fs::create_dir_all(path.as_path()).expect("create temp dir");
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            self.path.as_path()
-        }
-    }
-
-    impl Drop for TestTempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(self.path.as_path());
-        }
-    }
-
-    fn normalize_test_path(path: PathBuf) -> PathBuf {
-        #[cfg(windows)]
-        {
-            let text = path.to_string_lossy();
-            if let Some(stripped) = text.strip_prefix(r"\\?\UNC\") {
-                return PathBuf::from(format!(r"\\{stripped}"));
-            }
-            if let Some(stripped) = text.strip_prefix(r"\\?\") {
-                return PathBuf::from(stripped);
-            }
-        }
-
-        path
-    }
-
-    fn init_test_repo(root: &Path) -> PathBuf {
-        let repo_root = root.join("repo");
-        fs::create_dir_all(repo_root.as_path()).expect("repo dir");
-        let mut options = RepositoryInitOptions::new();
-        options.initial_head("main");
-        let repo =
-            Repository::init_opts(repo_root.as_path(), &options).expect("initialize git repo");
-
-        fs::write(repo_root.join("README.md"), "hello\n").expect("write repo file");
-        let mut index = repo.index().expect("repo index");
-        index
-            .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
-            .expect("stage repo files");
-        index.write().expect("write index");
-        let tree_id = index.write_tree().expect("write tree");
-        let tree = repo.find_tree(tree_id).expect("find tree");
-        let signature = Signature::now("Hunk Test", "hunk@example.com").expect("signature");
-        repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
-            .expect("initial commit");
-
-        normalize_test_path(fs::canonicalize(repo_root.as_path()).expect("canonical repo root"))
-    }
-
-    fn create_linked_worktree(repo_root: &Path, worktree_name: &str) -> PathBuf {
-        let repo = Repository::open(repo_root).expect("open repo");
-        let worktree_root = repo_root
-            .parent()
-            .expect("repo parent")
-            .join(format!("{worktree_name}-worktree"));
-        repo.worktree(worktree_name, worktree_root.as_path(), None)
-            .expect("create linked worktree");
-        normalize_test_path(
-            fs::canonicalize(worktree_root.as_path()).expect("canonical worktree root"),
-        )
     }
 
     #[test]
@@ -802,20 +697,6 @@ mod ai_tests {
     }
 
     #[test]
-    fn bootstrap_retry_helper_treats_windows_socket_permission_denied_as_retryable() {
-        assert!(should_retry_bootstrap_with_new_port(
-            &CodexIntegrationError::HostExitedBeforeReady {
-                status: "exit code: 1; stderr: Error: An attempt was made to access a socket in a way forbidden by its access permissions. (os error 10013)".to_string(),
-            }
-        ));
-        assert!(!should_retry_bootstrap_with_new_port(
-            &CodexIntegrationError::HostExitedBeforeReady {
-                status: "exit code: 1; stderr: Error: failed to read config file".to_string(),
-            }
-        ));
-    }
-
-    #[test]
     fn reconnect_backoff_grows_and_caps() {
         assert_eq!(reconnect_backoff(1), std::time::Duration::from_millis(250));
         assert_eq!(reconnect_backoff(2), std::time::Duration::from_millis(500));
@@ -844,4 +725,5 @@ mod ai_tests {
             other => panic!("expected fatal event, got {other:?}"),
         }
     }
+
 }

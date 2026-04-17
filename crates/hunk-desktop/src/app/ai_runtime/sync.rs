@@ -250,31 +250,12 @@ impl AiWorkerRuntime {
         &mut self,
         event_tx: &Sender<AiWorkerEvent>,
     ) -> Result<(), CodexIntegrationError> {
-        let mut captured = self
-            .session
-            .poll_server_notifications(NOTIFICATION_POLL_TIMEOUT)?;
-        if captured > 0 {
-            for _ in 1..MAX_NOTIFICATIONS_PER_POLL {
-                let drained = self
-                    .session
-                    .poll_server_notifications(NOTIFICATION_DRAIN_TIMEOUT)?;
-                if drained == 0 {
-                    break;
-                }
-                captured += drained;
-            }
-        }
-        let mut notifications = Vec::new();
-        if captured > 0 {
-            notifications = self
-                .service
-                .drain_and_apply_queued_notifications(&mut self.session);
-        }
-
+        let drained =
+            self.drain_transport_events(NOTIFICATION_POLL_TIMEOUT, MAX_NOTIFICATIONS_PER_POLL, event_tx)?;
         let session_changed =
-            self.sync_session_notifications(notifications.as_slice(), event_tx)?;
-        let approvals_changed = self.sync_server_requests()?;
-        if captured == 0 && !approvals_changed && !session_changed {
+            self.sync_session_notifications(drained.notifications.as_slice(), event_tx)?;
+        let approvals_changed = self.sync_server_requests(drained.server_requests)?;
+        if drained.received == 0 && drained.lagged == 0 && !approvals_changed && !session_changed {
             return Ok(());
         }
 
@@ -286,9 +267,59 @@ impl AiWorkerRuntime {
         &mut self,
         event_tx: &Sender<AiWorkerEvent>,
     ) -> Result<(), CodexIntegrationError> {
-        self.sync_server_requests()?;
+        let drained =
+            self.drain_transport_events(Duration::ZERO, MAX_NOTIFICATIONS_PER_POLL, event_tx)?;
+        self.sync_session_notifications(drained.notifications.as_slice(), event_tx)?;
+        self.sync_server_requests(drained.server_requests)?;
         self.emit_snapshot(event_tx);
         Ok(())
+    }
+
+    fn drain_transport_events(
+        &mut self,
+        initial_wait: Duration,
+        max_events: usize,
+        event_tx: &Sender<AiWorkerEvent>,
+    ) -> Result<TransportEventDrain, CodexIntegrationError> {
+        let mut drained = TransportEventDrain::default();
+        let mut wait = initial_wait;
+
+        while drained.received < max_events {
+            let Some(event) = self.session.next_event(wait)? else {
+                break;
+            };
+            drained.received = drained.received.saturating_add(1);
+            wait = Duration::ZERO;
+
+            match event {
+                AppServerEvent::ServerNotification(notification) => {
+                    self.service.apply_server_notification(notification.clone());
+                    self.mark_stream_activity_from_notification(&notification, Instant::now());
+                    drained.notifications.push(notification);
+                }
+                AppServerEvent::ServerRequest(request) => {
+                    drained.server_requests.push(request);
+                }
+                AppServerEvent::Lagged { skipped } => {
+                    drained.lagged = drained.lagged.saturating_add(skipped);
+                }
+                AppServerEvent::Disconnected { message } => {
+                    return Err(CodexIntegrationError::WebSocketTransport(message));
+                }
+            }
+        }
+
+        if drained.lagged > 0 {
+            self.send_event(
+                event_tx,
+                AiWorkerEventPayload::Status(format!(
+                    "AI event stream lagged; dropped {} non-critical updates.",
+                    drained.lagged
+                )),
+            );
+        }
+
+        Ok(drained)
     }
 
     fn sync_session_notifications(
@@ -360,7 +391,10 @@ impl AiWorkerRuntime {
             preferred_rate_limit_snapshot(&self.rate_limits_by_limit_id, Some(&snapshot));
     }
 
-    fn sync_server_requests(&mut self) -> Result<bool, CodexIntegrationError> {
+    fn sync_server_requests(
+        &mut self,
+        requests: Vec<ServerRequest>,
+    ) -> Result<bool, CodexIntegrationError> {
         let mut changed = false;
         if self.mad_max_mode && !self.pending_approvals.is_empty() {
             let queued = self.pending_approvals.keys().cloned().collect::<Vec<_>>();
@@ -382,10 +416,14 @@ impl AiWorkerRuntime {
             changed = true;
         }
 
-        let requests = self.service.drain_queued_server_requests(&mut self.session);
         for request in requests {
             match request {
                 ServerRequest::CommandExecutionRequestApproval { request_id, params } => {
+                    self.mark_stream_activity(
+                        params.thread_id.as_str(),
+                        params.turn_id.as_str(),
+                        Instant::now(),
+                    );
                     let request_id_key = request_id_key(&request_id);
                     if self.mad_max_mode {
                         self.session.respond_typed(
@@ -412,7 +450,7 @@ impl AiWorkerRuntime {
                         kind: AiApprovalKind::CommandExecution,
                         reason: params.reason,
                         command: params.command,
-                        cwd: params.cwd,
+                        cwd: params.cwd.map(|cwd| cwd.to_path_buf()),
                         grant_root: None,
                     };
                     self.pending_approvals.insert(
@@ -426,6 +464,11 @@ impl AiWorkerRuntime {
                     changed = true;
                 }
                 ServerRequest::FileChangeRequestApproval { request_id, params } => {
+                    self.mark_stream_activity(
+                        params.thread_id.as_str(),
+                        params.turn_id.as_str(),
+                        Instant::now(),
+                    );
                     let request_id_key = request_id_key(&request_id);
                     if self.mad_max_mode {
                         self.session.respond_typed(
@@ -466,6 +509,11 @@ impl AiWorkerRuntime {
                     changed = true;
                 }
                 ServerRequest::ToolRequestUserInput { request_id, params } => {
+                    self.mark_stream_activity(
+                        params.thread_id.as_str(),
+                        params.turn_id.as_str(),
+                        Instant::now(),
+                    );
                     let request_id_key = request_id_key(&request_id);
                     let mapped_questions = params
                         .questions
@@ -503,6 +551,11 @@ impl AiWorkerRuntime {
                     changed = true;
                 }
                 ServerRequest::DynamicToolCall { request_id, params } => {
+                    self.mark_stream_activity(
+                        params.thread_id.as_str(),
+                        params.turn_id.as_str(),
+                        Instant::now(),
+                    );
                     let response = self.tool_registry.execute(self.service.cwd(), &params);
                     self.session.respond_typed(request_id, &response)?;
                     changed = true;
@@ -614,7 +667,8 @@ impl AiWorkerRuntime {
         sequence
     }
 
-    fn emit_snapshot(&self, event_tx: &Sender<AiWorkerEvent>) {
+    fn emit_snapshot(&mut self, event_tx: &Sender<AiWorkerEvent>) {
+        self.sync_stream_watches_from_state(Instant::now());
         let pending_approvals = ordered_pending_approvals(&self.pending_approvals);
         let pending_user_inputs = ordered_pending_user_inputs(&self.pending_user_inputs);
         self.send_event(
@@ -641,6 +695,194 @@ impl AiWorkerRuntime {
             })),
         );
     }
+
+    fn maybe_recover_stalled_turns(
+        &mut self,
+        config: &AiWorkerStartConfig,
+        event_tx: &Sender<AiWorkerEvent>,
+    ) -> Result<(), CodexIntegrationError> {
+        let now = Instant::now();
+        self.sync_stream_watches_from_state(now);
+
+        let stalled = self
+            .turn_stream_watches
+            .values()
+            .filter(|watch| !self.turn_is_waiting_for_user_action(&watch.thread_id, &watch.turn_id))
+            .filter(|watch| {
+                now.duration_since(watch.last_meaningful_activity_at) >= STREAM_STALL_THRESHOLD
+            })
+            .filter(|watch| {
+                watch.last_recovery_at.is_none_or(|last_recovery| {
+                    now.duration_since(last_recovery) >= STREAM_STALL_RECOVERY_COOLDOWN
+                })
+            })
+            .map(|watch| {
+                (
+                    watch.thread_id.clone(),
+                    watch.turn_id.clone(),
+                    watch.soft_recovery_attempts,
+                    now.duration_since(watch.last_meaningful_activity_at),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let Some((thread_id, turn_id, soft_recovery_attempts, stalled_for)) =
+            stalled.into_iter().next()
+        else {
+            return Ok(());
+        };
+
+        tracing::warn!(
+            thread_id = thread_id.as_str(),
+            turn_id = turn_id.as_str(),
+            stalled_for_ms = stalled_for.as_millis() as u64,
+            soft_recovery_attempts,
+            "detected stalled AI stream"
+        );
+
+        if soft_recovery_attempts < STREAM_STALL_MAX_SOFT_RECOVERIES {
+            if let Some(watch) = self.turn_stream_watches.get_mut(turn_id.as_str()) {
+                watch.last_recovery_at = Some(now);
+                watch.last_meaningful_activity_at = now;
+                watch.soft_recovery_attempts =
+                    watch.soft_recovery_attempts.saturating_add(1);
+            }
+
+            tracing::info!(
+                thread_id = thread_id.as_str(),
+                turn_id = turn_id.as_str(),
+                stalled_for_ms = stalled_for.as_millis() as u64,
+                next_soft_recovery_attempt = soft_recovery_attempts.saturating_add(1),
+                "attempting stalled AI stream recovery via thread snapshot refresh"
+            );
+            self.send_event(
+                event_tx,
+                AiWorkerEventPayload::Status(format!(
+                    "AI stream stalled for turn {turn_id}. Attempting recovery..."
+                )),
+            );
+            self.load_thread_snapshot(thread_id)?;
+            self.emit_snapshot_after_sync(event_tx)?;
+            return Ok(());
+        }
+
+        if self.transport_kind == AppServerTransportKind::Embedded {
+            if let Some(watch) = self.turn_stream_watches.get_mut(turn_id.as_str()) {
+                watch.last_recovery_at = Some(now);
+                watch.last_meaningful_activity_at = now;
+            }
+
+            tracing::warn!(
+                thread_id = thread_id.as_str(),
+                turn_id = turn_id.as_str(),
+                stalled_for_ms = stalled_for.as_millis() as u64,
+                soft_recovery_attempts,
+                "stall recovery exhausted soft retries; refreshing snapshot without embedded runtime reboot"
+            );
+            self.send_event(
+                event_tx,
+                AiWorkerEventPayload::Status(format!(
+                    "AI stream is still stalled for turn {turn_id}. Refreshing thread state without restarting the embedded runtime..."
+                )),
+            );
+            self.load_thread_snapshot(thread_id)?;
+            self.emit_snapshot_after_sync(event_tx)?;
+            return Ok(());
+        }
+
+        self.send_event(
+            event_tx,
+            AiWorkerEventPayload::Status(format!(
+                "AI stream is still stalled for turn {turn_id}. Reconnecting transport..."
+            )),
+        );
+        tracing::warn!(
+            thread_id = thread_id.as_str(),
+            turn_id = turn_id.as_str(),
+            stalled_for_ms = stalled_for.as_millis() as u64,
+            soft_recovery_attempts,
+            "stall recovery exhausted soft retries; reconnecting AI transport"
+        );
+        self.reconnect_after_transport_failure(config, "recovering stalled AI stream", event_tx)?;
+        self.sync_stream_watches_from_state(Instant::now());
+        Ok(())
+    }
+
+    fn sync_stream_watches_from_state(&mut self, now: Instant) {
+        let mut active_watches = BTreeMap::new();
+        for turn in self
+            .service
+            .state()
+            .turns
+            .values()
+            .filter(|turn| turn.status == StateTurnStatus::InProgress)
+        {
+            let watch = self
+                .turn_stream_watches
+                .remove(turn.id.as_str())
+                .unwrap_or_else(|| TurnStreamWatch {
+                    thread_id: turn.thread_id.clone(),
+                    turn_id: turn.id.clone(),
+                    last_meaningful_activity_at: now,
+                    last_recovery_at: None,
+                    soft_recovery_attempts: 0,
+                });
+            active_watches.insert(
+                turn.id.clone(),
+                TurnStreamWatch {
+                    thread_id: turn.thread_id.clone(),
+                    turn_id: turn.id.clone(),
+                    ..watch
+                },
+            );
+        }
+        self.turn_stream_watches = active_watches;
+    }
+
+    fn mark_stream_activity_from_notification(
+        &mut self,
+        notification: &ServerNotification,
+        now: Instant,
+    ) {
+        let Some((thread_id, turn_id)) = notification_turn_identity(notification) else {
+            return;
+        };
+        self.mark_stream_activity(thread_id, turn_id, now);
+    }
+
+    fn mark_stream_activity(&mut self, thread_id: &str, turn_id: &str, now: Instant) {
+        let watch = self
+            .turn_stream_watches
+            .entry(turn_id.to_string())
+            .or_insert_with(|| TurnStreamWatch {
+                thread_id: thread_id.to_string(),
+                turn_id: turn_id.to_string(),
+                last_meaningful_activity_at: now,
+                last_recovery_at: None,
+                soft_recovery_attempts: 0,
+            });
+        watch.thread_id = thread_id.to_string();
+        watch.turn_id = turn_id.to_string();
+        watch.last_meaningful_activity_at = now;
+        watch.last_recovery_at = None;
+        watch.soft_recovery_attempts = 0;
+    }
+
+    fn turn_is_waiting_for_user_action(&self, thread_id: &str, turn_id: &str) -> bool {
+        self.pending_approvals.values().any(|pending| {
+            pending.approval.thread_id == thread_id && pending.approval.turn_id == turn_id
+        }) || self.pending_user_inputs.values().any(|pending| {
+            pending.request.thread_id == thread_id && pending.request.turn_id == turn_id
+        })
+    }
+}
+
+#[derive(Default)]
+struct TransportEventDrain {
+    notifications: Vec<ServerNotification>,
+    server_requests: Vec<ServerRequest>,
+    received: usize,
+    lagged: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -671,4 +913,49 @@ fn notification_refresh_flags(notifications: &[ServerNotification]) -> Notificat
     }
 
     flags
+}
+
+fn notification_turn_identity(notification: &ServerNotification) -> Option<(&str, &str)> {
+    match notification {
+        ServerNotification::TurnStarted(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn.id.as_str()))
+        }
+        ServerNotification::TurnCompleted(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn.id.as_str()))
+        }
+        ServerNotification::TurnDiffUpdated(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::TurnPlanUpdated(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::ItemStarted(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::ItemCompleted(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::AgentMessageDelta(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::PlanDelta(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::ReasoningSummaryTextDelta(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::ReasoningTextDelta(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::CommandExecutionOutputDelta(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::FileChangeOutputDelta(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        ServerNotification::Error(notification) => {
+            Some((notification.thread_id.as_str(), notification.turn_id.as_str()))
+        }
+        _ => None,
+    }
 }

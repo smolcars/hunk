@@ -1,7 +1,7 @@
 impl ThreadService {
     pub fn archive_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         timeout: Duration,
     ) -> Result<ThreadArchiveResponse> {
@@ -43,7 +43,7 @@ impl ThreadService {
 
     pub fn unarchive_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         timeout: Duration,
     ) -> Result<ThreadUnarchiveResponse> {
@@ -66,7 +66,7 @@ impl ThreadService {
 
     pub fn compact_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         timeout: Duration,
     ) -> Result<ThreadCompactStartResponse> {
@@ -81,7 +81,7 @@ impl ThreadService {
 
     pub fn rollback_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         num_turns: u32,
         timeout: Duration,
@@ -106,7 +106,7 @@ impl ThreadService {
 
     pub fn unsubscribe_thread(
         &mut self,
-        session: &mut JsonRpcSession,
+        session: &mut impl AppServerClient,
         thread_id: String,
         timeout: Duration,
     ) -> Result<ThreadUnsubscribeResponse> {
@@ -227,13 +227,13 @@ impl ThreadService {
                             .map(|step| crate::state::TurnPlanStepSummary {
                                 step: step.step,
                                 status: match step.status {
-                                    codex_app_server_protocol::TurnPlanStepStatus::Pending => {
+                                    crate::protocol::TurnPlanStepStatus::Pending => {
                                         crate::state::TurnPlanStepStatus::Pending
                                     }
-                                    codex_app_server_protocol::TurnPlanStepStatus::InProgress => {
+                                    crate::protocol::TurnPlanStepStatus::InProgress => {
                                         crate::state::TurnPlanStepStatus::InProgress
                                     }
-                                    codex_app_server_protocol::TurnPlanStepStatus::Completed => {
+                                    crate::protocol::TurnPlanStepStatus::Completed => {
                                         crate::state::TurnPlanStepStatus::Completed
                                     }
                                 },
@@ -345,28 +345,6 @@ impl ThreadService {
         }
     }
 
-    pub fn apply_queued_notifications(&mut self, session: &mut JsonRpcSession) {
-        let _ = self.drain_and_apply_queued_notifications(session);
-    }
-
-    pub fn drain_and_apply_queued_notifications(
-        &mut self,
-        session: &mut JsonRpcSession,
-    ) -> Vec<ServerNotification> {
-        let notifications = session.drain_server_notifications();
-        for notification in notifications.iter().cloned() {
-            self.apply_server_notification(notification);
-        }
-        notifications
-    }
-
-    pub fn drain_queued_server_requests(
-        &mut self,
-        session: &mut JsonRpcSession,
-    ) -> Vec<ServerRequest> {
-        session.drain_server_requests()
-    }
-
     pub fn record_server_request_resolved(
         &mut self,
         request_id: RequestId,
@@ -470,7 +448,7 @@ impl ThreadService {
         });
     }
 
-    fn apply_turn_snapshot(&mut self, thread_id: &str, turn: &codex_app_server_protocol::Turn) {
+    fn apply_turn_snapshot(&mut self, thread_id: &str, turn: &crate::protocol::Turn) {
         self.apply_event(ReducerEvent::TurnStarted {
             thread_id: thread_id.to_string(),
             turn_id: turn.id.clone(),
@@ -520,7 +498,7 @@ impl ThreadService {
                 delta: seed_content.clone(),
             });
         } else if let Some(seed_content) = seed_content.as_ref()
-            && self.should_replace_item_snapshot_content(item, item_key.as_str(), seed_content)
+            && self.should_replace_item_snapshot_content(item_key.as_str(), seed_content)
         {
             self.apply_event(ReducerEvent::ItemContentSet {
                 thread_id: thread_id.to_string(),
@@ -612,14 +590,14 @@ impl ThreadService {
                 thread_id: thread.id.clone(),
                 turn_id: turn.id.clone(),
             });
+            for item in &turn.items {
+                self.apply_item_snapshot(&thread.id, &turn.id, item);
+            }
             if !matches!(turn.status, TurnStatus::InProgress) {
                 self.apply_event(ReducerEvent::TurnCompleted {
                     thread_id: thread.id.clone(),
                     turn_id: turn.id.clone(),
                 });
-            }
-            for item in &turn.items {
-                self.apply_item_snapshot(&thread.id, &turn.id, item);
             }
         }
 
@@ -695,21 +673,11 @@ impl ThreadService {
         }
     }
 
-    fn should_replace_item_snapshot_content(
-        &self,
-        item: &ThreadItem,
-        item_key: &str,
-        seed_content: &str,
-    ) -> bool {
-        matches!(item, ThreadItem::UserMessage { .. })
-            && self
-                .state
-                .items
-                .get(item_key)
-                .is_some_and(|existing| {
-                    normalized_item_content(existing.content.as_str())
-                        != normalized_item_content(seed_content)
-                })
+    fn should_replace_item_snapshot_content(&self, item_key: &str, seed_content: &str) -> bool {
+        self.state.items.get(item_key).is_some_and(|existing| {
+            normalized_item_content(existing.content.as_str())
+                != normalized_item_content(seed_content)
+        })
     }
 
     fn ensure_thread_in_workspace(&self, thread: &Thread) -> Result<()> {

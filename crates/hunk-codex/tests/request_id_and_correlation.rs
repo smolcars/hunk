@@ -1,4 +1,4 @@
-use codex_app_server_protocol::RequestId;
+use hunk_codex::protocol::RequestId;
 use hunk_codex::rpc::PendingRequestMap;
 use hunk_codex::rpc::RequestIdGenerator;
 

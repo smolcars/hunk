@@ -8,7 +8,6 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use codex_app_server_protocol::SkillMetadata;
 use gpui::{
     AnchoredPositionMode, Animation, AnimationExt as _, AnyWindowHandle, App, AppContext as _,
     Bounds, ClipboardItem, Context, Corner, Decorations, DragMoveEvent, Empty, Entity, EntityId,
@@ -28,6 +27,7 @@ use gpui_component::{
     scroll::ScrollableElement,
     v_flex,
 };
+use hunk_codex::protocol::SkillMetadata;
 use tracing::error;
 
 mod hunk_assets;
@@ -970,12 +970,6 @@ pub fn run() -> Result<()> {
     app.run(move |cx| {
         gpui_component::init(cx);
         theme::install_hunk_themes(cx);
-        // Keep a global quit hook alive so tracked Codex hosts are cleaned up even if a
-        // particular view/runtime teardown path is bypassed during shutdown.
-        std::mem::forget(cx.on_app_quit(|_| async move {
-            hunk_codex::host::begin_host_shutdown();
-            hunk_codex::host::cleanup_tracked_hosts_for_shutdown();
-        }));
         cx.on_action(quit_app);
         bind_keyboard_shortcuts(cx, &keyboard_shortcuts);
         install_application_menus(cx);
@@ -1478,14 +1472,14 @@ struct DiffViewer {
     ai_pending_approvals: Vec<AiPendingApproval>,
     ai_pending_user_inputs: Vec<AiPendingUserInputRequest>,
     ai_pending_user_input_answers: BTreeMap<String, BTreeMap<String, Vec<String>>>,
-    ai_account: Option<codex_app_server_protocol::Account>,
+    ai_account: Option<hunk_codex::protocol::Account>,
     ai_requires_openai_auth: bool,
     ai_pending_chatgpt_login_id: Option<String>,
     ai_pending_chatgpt_auth_url: Option<String>,
-    ai_rate_limits: Option<codex_app_server_protocol::RateLimitSnapshot>,
-    ai_models: Vec<codex_app_server_protocol::Model>,
-    ai_experimental_features: Vec<codex_app_server_protocol::ExperimentalFeature>,
-    ai_collaboration_modes: Vec<codex_app_server_protocol::CollaborationModeMask>,
+    ai_rate_limits: Option<hunk_codex::protocol::RateLimitSnapshot>,
+    ai_models: Vec<hunk_codex::protocol::Model>,
+    ai_experimental_features: Vec<hunk_codex::protocol::ExperimentalFeature>,
+    ai_collaboration_modes: Vec<hunk_codex::protocol::CollaborationModeMask>,
     ai_skills: Vec<SkillMetadata>,
     ai_skills_generation: usize,
     ai_include_hidden_models: bool,

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use codex_app_server_protocol::RequestId;
+use crate::protocol::RequestId;
 
 #[derive(Debug)]
 pub struct RequestIdGenerator {

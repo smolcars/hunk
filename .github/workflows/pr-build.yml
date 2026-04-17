@@ -56,7 +56,7 @@ jobs:
       - name: Cache cargo registry and Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: pr-build-${{ runner.os }}-desktop
+          shared-key: pr-build-${{ runner.os }}-desktop-v2
           workspaces: |
             . -> target
           cache-on-failure: "true"
@@ -69,6 +69,7 @@ jobs:
             clang \
             cmake \
             libasound2-dev \
+            libcap-dev \
             libdbus-1-dev \
             libegl1 \
             libffi-dev \
@@ -155,7 +156,7 @@ jobs:
       matrix:
         include:
           - name: macOS
-            os: macos-latest
+            os: macos-26
             install_packager: cargo install cargo-packager --locked --version 0.11.8
             resolve_version: |
               version="$(./scripts/resolve_hunk_version.sh)"
@@ -174,18 +175,29 @@ jobs:
           clean: false
 
       - name: Install stable Rust
+        if: runner.os != 'macOS'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Zig
+        if: runner.os != 'macOS'
         uses: mlugg/setup-zig@v2
         with:
           use-cache: false
           version: 0.15.2
 
+      - name: Install Determinate Nix
+        if: runner.os == 'macOS'
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Enable Magic Nix Cache
+        if: runner.os == 'macOS'
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
       - name: Cache cargo registry and Rust dependencies
+        if: runner.os != 'macOS'
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: pr-build-${{ runner.os }}-desktop
+          shared-key: pr-build-${{ runner.os }}-desktop-v2
           workspaces: |
             . -> target
           cache-on-failure: "true"
@@ -213,7 +225,7 @@ jobs:
 
       - name: Run hunk-terminal tests
         if: runner.os == 'macOS'
-        run: cargo test -p hunk-terminal --tests
+        run: nix develop --accept-flake-config -c cargo test -p hunk-terminal --tests
         shell: bash
 
       - name: Run hunk-terminal tests
@@ -223,12 +235,12 @@ jobs:
 
       - name: Build hunk-desktop
         if: runner.os == 'macOS'
-        run: ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --locked
+        run: nix develop --accept-flake-config -c cargo build -p hunk-desktop --locked --profile ci
         shell: bash
 
       - name: Build hunk-desktop
         if: runner.os == 'Windows'
-        run: cargo build -p hunk-desktop --locked
+        run: cargo build -p hunk-desktop --locked --profile ci
         shell: pwsh
 
       # Temporarily disabled for PR builds; release packaging stays in release workflows.

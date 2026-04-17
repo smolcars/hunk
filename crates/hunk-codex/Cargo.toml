@@ -6,19 +6,20 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-fastwebsockets = { version = "0.10", features = ["upgrade"] }
-http-body-util = "0.1"
-hyper = "1.7"
-hyper-util = "0.1"
-libc = "0.2"
+codex-app-server.workspace = true
+codex-app-server-protocol.workspace = true
+codex-arg0.workspace = true
+codex-core.workspace = true
+codex-exec-server.workspace = true
+codex-feedback.workspace = true
+codex-protocol.workspace = true
+codex-utils-absolute-path.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
-tokio = { version = "1.50", features = ["net", "rt", "time"] }
+tokio = { version = "1.50", features = ["net", "rt", "rt-multi-thread", "sync", "time"] }
 tracing = "0.1"
-url = "2.5"
-codex-app-server-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
 
 [dev-dependencies]
 tempfile = "3.23"
-tungstenite = "0.29"
+wiremock = "0.6.5"

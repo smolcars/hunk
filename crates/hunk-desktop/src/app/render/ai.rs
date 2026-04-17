@@ -292,7 +292,7 @@ impl DiffViewer {
 
 fn render_ai_usage_row(
     label: &str,
-    window: Option<&codex_app_server_protocol::RateLimitWindow>,
+    window: Option<&hunk_codex::protocol::RateLimitWindow>,
     is_dark: bool,
     cx: &mut Context<DiffViewer>,
 ) -> AnyElement {

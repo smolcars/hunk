@@ -8,7 +8,8 @@ fn run_ai_worker(
     event_tx: &Sender<AiWorkerEvent>,
 ) -> Result<(), CodexIntegrationError> {
     let mut runtime = AiWorkerRuntime::bootstrap(config.clone())?;
-    runtime.sync_after_connect(event_tx, "Codex App Server connected over WebSocket", true)?;
+    let connected_message = runtime.connected_status_message();
+    runtime.sync_after_connect(event_tx, connected_message.as_str(), true)?;
     let mut rate_limit_refresh_deadline = Some(Instant::now() + INITIAL_RATE_LIMIT_REFRESH_DELAY);
 
     loop {
@@ -77,6 +78,7 @@ fn run_ai_worker(
                         return Err(error);
                     }
                 }
+                runtime.maybe_recover_stalled_turns(&config, event_tx)?;
             }
             Err(RecvTimeoutError::Disconnected) => break,
         }
@@ -142,6 +144,14 @@ impl AiWorkerRuntime {
         let mut last_error = None;
 
         for attempt in 1..=WORKER_RECONNECT_MAX_ATTEMPTS {
+            tracing::warn!(
+                transport = %self.transport_kind.status_label(),
+                context,
+                attempt,
+                max_attempts = WORKER_RECONNECT_MAX_ATTEMPTS,
+                active_thread_id = preferred_active_thread_id.as_deref().unwrap_or(""),
+                "attempting AI transport reconnect"
+            );
             self.send_event(
                 event_tx,
                 AiWorkerEventPayload::Reconnecting(format!(
@@ -150,14 +160,36 @@ impl AiWorkerRuntime {
             );
 
             match self.try_restore_transport(config, preferred_active_thread_id.as_deref()) {
-                Ok(()) => match self.sync_after_connect(event_tx, "AI connection restored.", false)
-                {
-                    Ok(()) => return Ok(()),
-                    Err(error) => {
-                        last_error = Some(error);
+                Ok(()) => {
+                    tracing::info!(
+                        transport = %self.transport_kind.status_label(),
+                        context,
+                        attempt,
+                        "AI transport reconnect succeeded"
+                    );
+                    let connected_message = self.reconnected_status_message();
+                    match self.sync_after_connect(event_tx, connected_message.as_str(), false) {
+                        Ok(()) => return Ok(()),
+                        Err(error) => {
+                            tracing::warn!(
+                                transport = %self.transport_kind.status_label(),
+                                context,
+                                attempt,
+                                error = %error,
+                                "AI reconnect succeeded but post-connect sync failed"
+                            );
+                            last_error = Some(error);
+                        }
                     }
-                },
+                }
                 Err(error) => {
+                    tracing::warn!(
+                        transport = %self.transport_kind.status_label(),
+                        context,
+                        attempt,
+                        error = %error,
+                        "AI transport reconnect attempt failed"
+                    );
                     last_error = Some(error);
                 }
             }
@@ -179,28 +211,12 @@ impl AiWorkerRuntime {
         config: &AiWorkerStartConfig,
         preferred_active_thread_id: Option<&str>,
     ) -> Result<(), CodexIntegrationError> {
-        let soft_reconnect = self.try_reconnect_existing_host_session();
-        if soft_reconnect.is_ok() {
-            self.restore_active_thread_preference(preferred_active_thread_id);
-            return Ok(());
-        }
-
-        if self.host.ensure_running(HOST_START_TIMEOUT).is_ok()
-            && self.try_reconnect_existing_host_session().is_ok()
-        {
-            self.restore_active_thread_preference(preferred_active_thread_id);
-            return Ok(());
-        }
-
+        tracing::warn!(
+            transport = %self.transport_kind.status_label(),
+            active_thread_id = preferred_active_thread_id.unwrap_or(""),
+            "rebootstrapping embedded AI runtime after reconnect failure"
+        );
         self.rebootstrap_runtime(config, preferred_active_thread_id)
-    }
-
-    fn try_reconnect_existing_host_session(&mut self) -> Result<(), CodexIntegrationError> {
-        let endpoint = WebSocketEndpoint::loopback(self.host.port());
-        let mut session = JsonRpcSession::connect(&endpoint)?;
-        session.initialize(InitializeOptions::default(), self.request_timeout)?;
-        self.session = session;
-        Ok(())
     }
 
     fn rebootstrap_runtime(
@@ -213,11 +229,19 @@ impl AiWorkerRuntime {
         replacement_config.include_hidden_models = self.include_hidden_models;
 
         let tool_registry = self.tool_registry.clone();
+        let pending_approvals = self.pending_approvals.clone();
+        let pending_user_inputs = self.pending_user_inputs.clone();
+        let next_approval_sequence = self.next_approval_sequence;
+        let next_user_input_sequence = self.next_user_input_sequence;
 
         let mut replacement = Self::bootstrap(replacement_config)?;
         replacement.tool_registry = tool_registry;
         replacement.mad_max_mode = self.mad_max_mode;
         replacement.include_hidden_models = self.include_hidden_models;
+        replacement.pending_approvals = pending_approvals;
+        replacement.pending_user_inputs = pending_user_inputs;
+        replacement.next_approval_sequence = next_approval_sequence;
+        replacement.next_user_input_sequence = next_user_input_sequence;
         replacement.restore_active_thread_preference(preferred_active_thread_id);
         *self = replacement;
         Ok(())

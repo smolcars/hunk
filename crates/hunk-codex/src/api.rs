@@ -1,9 +1,9 @@
-use codex_app_server_protocol::ClientInfo;
-use codex_app_server_protocol::InitializeCapabilities;
-use codex_app_server_protocol::InitializeParams;
+use crate::protocol::ClientInfo;
+use crate::protocol::InitializeCapabilities;
+use crate::protocol::InitializeParams;
 
-/// WebSocket transport only in Hunk's Codex integration.
-pub const SUPPORTED_TRANSPORT: &str = "websocket";
+/// Supported transport identifiers in Hunk's Codex integration.
+pub const SUPPORTED_TRANSPORTS: &[&str] = &["embedded", "websocket"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitializeOptions {

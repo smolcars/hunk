@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CODEX_TAG="${HUNK_CODEX_TAG:-$("$ROOT_DIR/scripts/resolve_codex_release_tag.sh")}"
+CODEX_RUNTIME_REPO="${HUNK_CODEX_RUNTIME_REPO:-openai/codex}"
 PLATFORM="${1:-}"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hunk-codex-runtime.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -34,7 +35,7 @@ case "$PLATFORM" in
 esac
 
 archive_path="$TMP_DIR/$asset_name"
-download_url="https://github.com/openai/codex/releases/download/$CODEX_TAG/$asset_name"
+download_url="https://github.com/$CODEX_RUNTIME_REPO/releases/download/$CODEX_TAG/$asset_name"
 
 echo "Downloading Codex runtime from $download_url" >&2
 curl --fail --location --silent --show-error "$download_url" --output "$archive_path"

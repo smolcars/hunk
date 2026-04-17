@@ -171,31 +171,31 @@ fn truncate_utf8_inline_for_display(input: String, max_bytes: usize) -> String {
 }
 
 fn command_execution_status_text(
-    status: &codex_app_server_protocol::CommandExecutionStatus,
+    status: &crate::protocol::CommandExecutionStatus,
 ) -> &'static str {
     match status {
-        codex_app_server_protocol::CommandExecutionStatus::InProgress => "inProgress",
-        codex_app_server_protocol::CommandExecutionStatus::Completed => "completed",
-        codex_app_server_protocol::CommandExecutionStatus::Failed => "failed",
-        codex_app_server_protocol::CommandExecutionStatus::Declined => "declined",
+        crate::protocol::CommandExecutionStatus::InProgress => "inProgress",
+        crate::protocol::CommandExecutionStatus::Completed => "completed",
+        crate::protocol::CommandExecutionStatus::Failed => "failed",
+        crate::protocol::CommandExecutionStatus::Declined => "declined",
     }
 }
 
-fn command_action_summary(action: &codex_app_server_protocol::CommandAction) -> String {
+fn command_action_summary(action: &crate::protocol::CommandAction) -> String {
     let summary = match action {
-        codex_app_server_protocol::CommandAction::Read { name, path, .. } => {
+        crate::protocol::CommandAction::Read { name, path, .. } => {
             format!("Read {name} from {}", path.display())
         }
-        codex_app_server_protocol::CommandAction::ListFiles { path, .. } => {
+        crate::protocol::CommandAction::ListFiles { path, .. } => {
             let scope = path.as_deref().unwrap_or(".");
             format!("List files in {scope}")
         }
-        codex_app_server_protocol::CommandAction::Search { query, path, .. } => {
+        crate::protocol::CommandAction::Search { query, path, .. } => {
             let query = query.as_deref().unwrap_or("<query>");
             let scope = path.as_deref().unwrap_or(".");
             format!("Search {query} in {scope}")
         }
-        codex_app_server_protocol::CommandAction::Unknown { command } => {
+        crate::protocol::CommandAction::Unknown { command } => {
             format!("Run {command}")
         }
     };
@@ -270,9 +270,9 @@ fn thread_item_seed_content(item: &ThreadItem) -> Option<String> {
     }
 }
 
-fn web_search_action_detail(action: &codex_app_server_protocol::WebSearchAction) -> String {
+fn web_search_action_detail(action: &crate::protocol::WebSearchAction) -> String {
     match action {
-        codex_app_server_protocol::WebSearchAction::Search { query, queries } => {
+        crate::protocol::WebSearchAction::Search { query, queries } => {
             query.clone().filter(|value| !value.is_empty()).unwrap_or_else(|| {
                 let first = queries
                     .as_ref()
@@ -286,10 +286,10 @@ fn web_search_action_detail(action: &codex_app_server_protocol::WebSearchAction)
                 }
             })
         }
-        codex_app_server_protocol::WebSearchAction::OpenPage { url } => {
+        crate::protocol::WebSearchAction::OpenPage { url } => {
             url.clone().unwrap_or_default()
         }
-        codex_app_server_protocol::WebSearchAction::FindInPage { url, pattern } => {
+        crate::protocol::WebSearchAction::FindInPage { url, pattern } => {
             match (pattern, url) {
                 (Some(pattern), Some(url)) => format!("'{pattern}' in {url}"),
                 (Some(pattern), None) => format!("'{pattern}'"),
@@ -297,12 +297,12 @@ fn web_search_action_detail(action: &codex_app_server_protocol::WebSearchAction)
                 (None, None) => String::new(),
             }
         }
-        codex_app_server_protocol::WebSearchAction::Other => String::new(),
+        crate::protocol::WebSearchAction::Other => String::new(),
     }
 }
 
 fn web_search_detail(
-    action: Option<&codex_app_server_protocol::WebSearchAction>,
+    action: Option<&crate::protocol::WebSearchAction>,
     query: &str,
 ) -> String {
     let detail = action.map(web_search_action_detail).unwrap_or_default();
@@ -436,7 +436,7 @@ mod tests {
         let item = ThreadItem::WebSearch {
             id: "ws_1".to_string(),
             query: "fallback".to_string(),
-            action: Some(codex_app_server_protocol::WebSearchAction::Search {
+            action: Some(crate::protocol::WebSearchAction::Search {
                 query: Some("weather: 30009".to_string()),
                 queries: None,
             }),
@@ -467,7 +467,7 @@ mod tests {
         let item = ThreadItem::WebSearch {
             id: "ws_3".to_string(),
             query: "fallback".to_string(),
-            action: Some(codex_app_server_protocol::WebSearchAction::FindInPage {
+            action: Some(crate::protocol::WebSearchAction::FindInPage {
                 pattern: Some("rain".to_string()),
                 url: Some("https://example.com/weather".to_string()),
             }),

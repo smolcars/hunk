@@ -138,9 +138,9 @@ mod ai_tests {
     use crate::app::AiWorkspaceState;
     use crate::app::DiffViewer;
     use crate::app::WorkspaceViewMode;
-    use codex_app_server_protocol::Model;
-    use codex_app_server_protocol::ReasoningEffortOption;
-    use codex_protocol::openai_models::ReasoningEffort;
+    use hunk_codex::protocol::Model;
+    use hunk_codex::protocol::ReasoningEffortOption;
+    use hunk_codex::protocol::ReasoningEffort;
     use gpui::Keystroke;
     use hunk_codex::state::AiState;
     use hunk_codex::state::ItemDisplayMetadata;
@@ -456,7 +456,9 @@ mod ai_tests {
     include!("tests/runtime_path_and_session.rs");
     include!("tests/followup_prompts.rs");
     include!("tests/composer_status_scope.rs");
+    include!("tests/background_runtime.rs");
     include!("tests/workspace_surface_plan_items.rs");
     include!("tests/workspace_streaming.rs");
+    include!("tests/thread_switching.rs");
     include!("tests/text_selection.rs");
 }

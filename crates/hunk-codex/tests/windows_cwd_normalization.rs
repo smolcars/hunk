@@ -2,11 +2,11 @@
 
 use std::path::PathBuf;
 
-use codex_app_server_protocol::ServerNotification;
-use codex_app_server_protocol::SessionSource;
-use codex_app_server_protocol::Thread;
-use codex_app_server_protocol::ThreadStartedNotification;
-use codex_app_server_protocol::ThreadStatus;
+use hunk_codex::protocol::ServerNotification;
+use hunk_codex::protocol::SessionSource;
+use hunk_codex::protocol::Thread;
+use hunk_codex::protocol::ThreadStartedNotification;
+use hunk_codex::protocol::ThreadStatus;
 use hunk_codex::threads::ThreadService;
 
 const WINDOWS_WORKSPACE_CWD: &str = r"C:\Users\nites\Documents\hunk";

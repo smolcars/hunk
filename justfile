@@ -20,13 +20,13 @@ fmt:
     cargo fmt --all
 
 build:
-    ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop
+    cargo build -p hunk-desktop
 
 build-worktree worktree:
     ./scripts/build_worktree.sh {{ worktree }}
 
 release:
-    ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --release
+    cargo build -p hunk-desktop --release
 
 build-linux:
     ./scripts/build_linux.sh
@@ -38,9 +38,9 @@ build-linux-icon:
     ./scripts/build_linux_icon.sh
 
 bundle:
-    ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --release --locked
+    cargo build -p hunk-desktop --release --locked
     cd crates/hunk-desktop && \
-        ../../scripts/run_with_macos_sdk_env.sh cargo packager \
+        cargo packager \
             -p hunk-desktop \
             --manifest-path Cargo.toml \
             --release \
@@ -92,4 +92,3 @@ phase12-macos-smoke:
     ./scripts/install_codex_runtime_macos.sh
     ./scripts/validate_codex_runtime_bundle.sh --strict --platform macos
     ./scripts/stage_codex_runtime_macos.sh
-    ./scripts/run_with_macos_sdk_env.sh cargo test -p hunk-codex --test real_runtime_smoke -- --ignored

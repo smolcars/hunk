@@ -58,7 +58,7 @@ fn render_ai_account_actions_for_view(
 }
 
 struct AiSessionControlsPanelView<'a> {
-    models: &'a [codex_app_server_protocol::Model],
+    models: &'a [hunk_codex::protocol::Model],
     selected_model: Option<&'a str>,
     selected_effort: Option<&'a str>,
     selected_thread_mode: AiNewThreadStartMode,
@@ -344,7 +344,7 @@ fn render_ai_session_controls_panel(
 }
 
 fn ai_account_summary(
-    account: Option<&codex_app_server_protocol::Account>,
+    account: Option<&hunk_codex::protocol::Account>,
     requires_openai_auth: bool,
     account_loading: bool,
 ) -> String {
@@ -353,10 +353,10 @@ fn ai_account_summary(
     }
 
     match account {
-        Some(codex_app_server_protocol::Account::ApiKey { .. }) => {
+        Some(hunk_codex::protocol::Account::ApiKey { .. }) => {
             "Signed in with API key.".to_string()
         }
-        Some(codex_app_server_protocol::Account::Chatgpt { email, plan_type }) => {
+        Some(hunk_codex::protocol::Account::Chatgpt { email, plan_type }) => {
             format!("ChatGPT: {email} ({plan_type:?})")
         }
         None if requires_openai_auth => {
@@ -367,10 +367,10 @@ fn ai_account_summary(
 }
 
 fn ai_rate_limit_windows(
-    snapshot: &codex_app_server_protocol::RateLimitSnapshot,
+    snapshot: &hunk_codex::protocol::RateLimitSnapshot,
 ) -> (
-    Option<codex_app_server_protocol::RateLimitWindow>,
-    Option<codex_app_server_protocol::RateLimitWindow>,
+    Option<hunk_codex::protocol::RateLimitWindow>,
+    Option<hunk_codex::protocol::RateLimitWindow>,
 ) {
     let primary = snapshot.primary.clone();
     let secondary = snapshot.secondary.clone();
@@ -430,7 +430,7 @@ fn ai_hour_and_meridiem(hour_24: u8) -> (u8, &'static str) {
 }
 
 fn ai_model_picker_label(
-    models: &[codex_app_server_protocol::Model],
+    models: &[hunk_codex::protocol::Model],
     selected_model: Option<&str>,
 ) -> String {
     match selected_model {
@@ -445,7 +445,7 @@ fn ai_model_picker_label(
 
 fn ai_effort_picker_label(
     selected_effort: Option<&str>,
-    selected_model: Option<&codex_app_server_protocol::Model>,
+    selected_model: Option<&hunk_codex::protocol::Model>,
 ) -> String {
     if selected_model.is_none() {
         return "No model selected".to_string();

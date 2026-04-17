@@ -149,8 +149,6 @@ fn install_process_signal_cleanup() -> Result<()> {
             return;
         }
 
-        hunk_codex::host::begin_host_shutdown();
-        hunk_codex::host::cleanup_tracked_hosts_for_shutdown();
         std::process::exit(130);
     })
     .context("failed to install process signal cleanup handler")

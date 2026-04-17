@@ -1064,7 +1064,7 @@ impl DiffViewer {
         self.ai_selected_effort = selected_effort;
     }
 
-    fn ai_model_by_id(&self, model_id: &str) -> Option<&codex_app_server_protocol::Model> {
+    fn ai_model_by_id(&self, model_id: &str) -> Option<&hunk_codex::protocol::Model> {
         self.ai_models.iter().find(|model| model.id == model_id)
     }
 
@@ -1082,11 +1082,11 @@ impl DiffViewer {
             .is_none_or(|model| {
                 model
                     .input_modalities
-                    .contains(&codex_protocol::openai_models::InputModality::Image)
+                    .contains(&hunk_codex::protocol::InputModality::Image)
             })
     }
 
-    fn current_ai_model_for_input_modalities(&self) -> Option<&codex_app_server_protocol::Model> {
+    fn current_ai_model_for_input_modalities(&self) -> Option<&hunk_codex::protocol::Model> {
         self.ai_selected_model
             .as_deref()
             .and_then(|model_id| self.ai_model_by_id(model_id))

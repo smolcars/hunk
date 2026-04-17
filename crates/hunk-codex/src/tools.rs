@@ -4,9 +4,9 @@ use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 
-use codex_app_server_protocol::DynamicToolCallOutputContentItem;
-use codex_app_server_protocol::DynamicToolCallParams;
-use codex_app_server_protocol::DynamicToolCallResponse;
+use crate::protocol::DynamicToolCallOutputContentItem;
+use crate::protocol::DynamicToolCallParams;
+use crate::protocol::DynamicToolCallResponse;
 use serde::Deserialize;
 use serde_json::Value;
 

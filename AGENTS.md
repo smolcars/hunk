@@ -16,9 +16,9 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - Use Cargo's default `target/` directory instead of overriding `CARGO_TARGET_DIR`.
 - For CARGO_HOME check this path /Volumes/hulk/dev/cache/cargo or the default CARGO_HOME path for rust, nowhere else on the machine.
 - Do not run clippy and tests over and over again, run them after you finished your work and make sure they pass at the end. Just once is enough.
-- When asked to update Codex, bump the pinned `rust-v...` tag in both `crates/hunk-codex/Cargo.toml` and `crates/hunk-desktop/Cargo.toml`, then refresh `Cargo.lock` with cargo update -p codex-app-server-protocol -p codex-protocol`.
-- Replace the bundled local macOS runtime with `./scripts/download_codex_runtime_unix.sh macos` so `assets/codex-runtime/macos/codex` matches the pinned release.
-- Update `docs/AI_CODEX_SPEC.md` to the new pinned tag and commit SHA, search for any stale Codex version strings in docs, and expect small protocol/API fixes in `hunk-desktop` or `hunk-codex` after the bump.
+- When asked to update Codex, follow `docs/AI_CODEX_UPGRADE_WORKFLOW.md`. Hunk now consumes a fork branch, so upgrades require rebasing the fork onto the target upstream `rust-v...` tag, reapplying Hunk patches there, pushing the fork branch, and then refreshing Hunk's lockfile against that fork commit.
+- Refresh the bundled runtimes after a Codex upgrade. The runtime download scripts pull official `openai/codex` release assets that match the locked Codex crate version unless explicitly overridden with `HUNK_CODEX_RUNTIME_REPO`.
+- Update `docs/AI_CODEX_SPEC.md` with the new upstream tag/SHA and current fork commit, search for stale Codex version strings in docs, and expect small protocol/API fixes in `hunk-desktop` or `hunk-codex` after the bump.
 - GPUI docs https://raw.githubusercontent.com/zed-industries/zed/refs/heads/main/crates/gpui/README.md
 - GPUI component library docs https://docs.rs/gpui-component/latest/gpui_component/
 - List of available prebuilt components https://longbridge.github.io/gpui-component/docs/components/
@@ -33,10 +33,14 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - Frames must take no more than 8ms (120fps)
 
 Important paths:
-- `crates/hunk-codex`: Codex host/process integration, thread service, and AI reducer/state logic.
-- `crates/hunk-git`: shared Git read/write behavior; keep production Git logic here instead of app crates.
-- `crates/hunk-domain`: shared config/state types, markdown preview, and SQLite comment storage/migrations.
+- `crates/hunk-terminal`: terminal integration, shell/session support, and terminal-facing workspace surfaces.
 - `crates/hunk-text`: headless rope-backed text buffer, positions/ranges, transactions, and undo/redo primitives.
 - `crates/hunk-language`: Tree-sitter language registry, queries, syntax highlighting, folding, preview highlighting, and language-intelligence seams.
 - `crates/hunk-editor`: headless editor state for selections, viewport/display rows, folds, overlays, and editor commands.
+- `crates/hunk-domain`: shared config/state types, markdown preview, and SQLite comment storage/migrations.
+- `crates/hunk-git`: shared Git read/write behavior; keep production Git logic here instead of app crates.
+- `crates/hunk-forge`: forge integration logic, remote/review workflows, and hosting-service coordination.
+- `crates/hunk-updater`: update/download/install logic for desktop releases.
+- `crates/hunk-desktop`: GPUI app binary, app lifecycle, controllers, and render surfaces.
+- `crates/hunk-codex`: embedded Codex app-server integration, thread service, protocol boundary, and AI reducer/state logic.
 - `crates/hunk-desktop/src/app`: GPUI app entry/types; `controller/` owns behavior, `render/` owns UI, `theme.rs` owns app colors.

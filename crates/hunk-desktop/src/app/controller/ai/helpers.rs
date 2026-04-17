@@ -285,7 +285,7 @@ pub(crate) const AI_AUTH_REQUIRED_MESSAGE: &str =
     "Codex sign-in expired. Sign in to talk to the AI Gods.";
 
 pub(crate) fn ai_auth_required_message(
-    account: Option<&codex_app_server_protocol::Account>,
+    account: Option<&hunk_codex::protocol::Account>,
     requires_openai_auth: bool,
     pending_chatgpt_login_id: Option<&str>,
 ) -> Option<String> {
@@ -529,7 +529,7 @@ fn ai_state_has_user_message_for_thread(
         .any(|item| item.thread_id == thread_id && item.kind == "userMessage")
 }
 
-fn reasoning_effort_key(effort: &codex_protocol::openai_models::ReasoningEffort) -> String {
+fn reasoning_effort_key(effort: &hunk_codex::protocol::ReasoningEffort) -> String {
     serde_json::to_value(effort)
         .ok()
         .and_then(|value| value.as_str().map(ToOwned::to_owned))
@@ -537,7 +537,7 @@ fn reasoning_effort_key(effort: &codex_protocol::openai_models::ReasoningEffort)
 }
 
 fn normalized_ai_session_selection(
-    models: &[codex_app_server_protocol::Model],
+    models: &[hunk_codex::protocol::Model],
     selected_model: Option<String>,
     selected_effort: Option<String>,
 ) -> (Option<String>, Option<String>) {
@@ -1081,7 +1081,7 @@ fn resolved_ai_thread_session_state(
 
 fn resolved_ai_turn_session_overrides(
     state: &AppState,
-    models: &[codex_app_server_protocol::Model],
+    models: &[hunk_codex::protocol::Model],
     thread_id: Option<&str>,
     workspace_key: Option<&str>,
 ) -> AiTurnSessionOverrides {

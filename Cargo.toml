@@ -17,6 +17,19 @@ resolver = "2"
 [workspace.package]
 license = "GPL-3.0-or-later"
 
+[workspace.dependencies]
+# Keep the Codex fork pin explicit and narrow. This is easier to audit than
+# patching the entire upstream workspace and makes eventual upstream removal
+# straightforward.
+codex-app-server = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+codex-app-server-protocol = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+codex-arg0 = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+codex-core = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+codex-exec-server = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+codex-feedback = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+codex-protocol = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+codex-utils-absolute-path = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+
 [profile.ci]
 inherits = "dev"
 debug = 0
@@ -26,3 +39,5 @@ debug = 0
 # aws-lc-rs by default, which pulls in aws-lc-sys and currently fails to
 # link on macOS arm64 in our environment.
 rama-tls-rustls = { path = "vendor/rama-tls-rustls" }
+tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "132f5b39c862e3a970f731d709608b3e6276d5f6" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }
