@@ -17,14 +17,14 @@
 
 ## Pinned Upstream Baseline
 - Codex repo: `https://github.com/openai/codex`
-- Pinned tag: `rust-v0.120.0`
-- Pinned commit SHA: `65319eb1400cbd2890c43d572263dabd25f18ba9`
-- Pin captured on: 2026-04-11
+- Pinned tag: `rust-v0.121.0`
+- Pinned commit SHA: `d65ed92a5e440972626965d0af9a6345179783bc`
+- Pin captured on: 2026-04-17
 
 ## Current Hunk Codex Source
 - Fork repo: `https://github.com/niteshbalusu11/codex`
 - Fork branch: `hunk/embedded-apply-patch-fix`
-- Current fork commit in `Cargo.lock`: `3554104fb4cc277b879bc1a0ae1c60cc4ece7caa`
+- Current fork commit in `Cargo.lock`: `3321bfc0eab2b6f5fab6763dcbaa7169067b0da8`
 - Hunk consumes the fork through root `workspace.dependencies`, not by pinning `tag = "rust-v..."` directly in crate manifests.
 - Bundled runtime binaries still come from the official `openai/codex` release assets for the locked Codex crate version unless `HUNK_CODEX_RUNTIME_REPO` is overridden.
 

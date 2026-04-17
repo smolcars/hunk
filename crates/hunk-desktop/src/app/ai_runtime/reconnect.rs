@@ -229,11 +229,19 @@ impl AiWorkerRuntime {
         replacement_config.include_hidden_models = self.include_hidden_models;
 
         let tool_registry = self.tool_registry.clone();
+        let pending_approvals = self.pending_approvals.clone();
+        let pending_user_inputs = self.pending_user_inputs.clone();
+        let next_approval_sequence = self.next_approval_sequence;
+        let next_user_input_sequence = self.next_user_input_sequence;
 
         let mut replacement = Self::bootstrap(replacement_config)?;
         replacement.tool_registry = tool_registry;
         replacement.mad_max_mode = self.mad_max_mode;
         replacement.include_hidden_models = self.include_hidden_models;
+        replacement.pending_approvals = pending_approvals;
+        replacement.pending_user_inputs = pending_user_inputs;
+        replacement.next_approval_sequence = next_approval_sequence;
+        replacement.next_user_input_sequence = next_user_input_sequence;
         replacement.restore_active_thread_preference(preferred_active_thread_id);
         *self = replacement;
         Ok(())

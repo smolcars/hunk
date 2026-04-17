@@ -450,7 +450,7 @@ impl AiWorkerRuntime {
                         kind: AiApprovalKind::CommandExecution,
                         reason: params.reason,
                         command: params.command,
-                        cwd: params.cwd,
+                        cwd: params.cwd.map(|cwd| cwd.to_path_buf()),
                         grant_root: None,
                     };
                     self.pending_approvals.insert(

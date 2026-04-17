@@ -8,9 +8,6 @@ use crate::protocol::ReasoningEffort;
 use crate::protocol::SandboxMode;
 use crate::protocol::SandboxPolicy;
 use crate::protocol::ServerNotification;
-use crate::protocol::ThreadItem;
-use crate::protocol::ThreadReadParams;
-use crate::protocol::ThreadReadResponse;
 use crate::protocol::ThreadStartParams;
 use crate::protocol::ThreadStartResponse;
 use crate::protocol::TurnStartParams;
@@ -120,20 +117,8 @@ fn generate_structured_output_with_client(
     )?;
 
     let turn_id = turn_response.turn.id;
-    let buffered_agent_message =
-        wait_for_turn_completion(client, &thread_id, &turn_id, request.timeout)?;
-
-    let read_response: ThreadReadResponse = client.request_typed(
-        api::method::THREAD_READ,
-        Some(&ThreadReadParams {
-            thread_id: thread_id.clone(),
-            include_turns: true,
-        }),
-        request.timeout,
-    )?;
-
-    let final_message = find_turn_agent_message(&read_response, &turn_id)
-        .or_else(|| (!buffered_agent_message.is_empty()).then_some(buffered_agent_message))
+    let final_message = wait_for_turn_completion(client, &thread_id, &turn_id, request.timeout)?
+        .filter(|message| !message.is_empty())
         .ok_or_else(|| CodexIntegrationError::WebSocketTransport(format!(
             "embedded structured output generation completed without an agent message for turn {turn_id}"
         )))?;
@@ -165,7 +150,7 @@ fn wait_for_turn_completion(
     thread_id: &str,
     turn_id: &str,
     timeout: Duration,
-) -> Result<String> {
+) -> Result<Option<String>> {
     let started_at = Instant::now();
     let mut buffered_agent_message = String::new();
     let mut terminal_error = None;
@@ -219,7 +204,10 @@ fn wait_for_turn_completion(
                     if payload.thread_id == thread_id && payload.turn.id == turn_id =>
                 {
                     match payload.turn.status {
-                        TurnStatus::Completed => return Ok(buffered_agent_message),
+                        TurnStatus::Completed => {
+                            return Ok((!buffered_agent_message.is_empty())
+                                .then_some(buffered_agent_message));
+                        }
                         TurnStatus::Failed | TurnStatus::Interrupted => {
                             let error = terminal_error.unwrap_or_else(|| {
                                 format!(
@@ -238,18 +226,4 @@ fn wait_for_turn_completion(
             },
         }
     }
-}
-
-fn find_turn_agent_message(response: &ThreadReadResponse, turn_id: &str) -> Option<String> {
-    response
-        .thread
-        .turns
-        .iter()
-        .find(|turn| turn.id == turn_id)
-        .and_then(|turn| {
-            turn.items.iter().rev().find_map(|item| match item {
-                ThreadItem::AgentMessage { text, .. } => Some(text.clone()),
-                _ => None,
-            })
-        })
 }

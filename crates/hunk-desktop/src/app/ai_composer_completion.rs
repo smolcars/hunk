@@ -283,7 +283,7 @@ pub(crate) fn selected_skills_from_bindings(
         if !skills.iter().any(|skill| {
             skill.enabled
                 && skill.name == binding.reference.name
-                && skill.path == binding.reference.path
+                && skill.path.as_path() == binding.reference.path.as_path()
         }) {
             continue;
         }
@@ -642,7 +642,7 @@ fn matched_skills(
             let description = skill_summary(&ranked.skill);
             AiComposerSkillCompletionItem {
                 name: ranked.skill.name,
-                path: ranked.skill.path,
+                path: ranked.skill.path.to_path_buf(),
                 display_name: ranked
                     .skill
                     .interface

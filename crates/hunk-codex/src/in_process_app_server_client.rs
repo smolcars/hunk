@@ -124,6 +124,7 @@ impl InProcessClientStartArgs {
             loader_overrides: LoaderOverrides::default(),
             cloud_requirements: CloudRequirementsLoader::default(),
             feedback: self.feedback,
+            log_db: None,
             environment_manager: self.environment_manager,
             config_warnings: self.config_warnings,
             session_source: self.session_source,
@@ -166,6 +167,7 @@ enum ForwardEventResult {
 
 fn event_requires_delivery(event: &InProcessServerEvent) -> bool {
     match event {
+        InProcessServerEvent::ServerRequest(_) => true,
         InProcessServerEvent::ServerNotification(notification) => {
             server_notification_requires_delivery(notification)
         }

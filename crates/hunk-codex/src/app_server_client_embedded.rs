@@ -177,7 +177,9 @@ impl AppServerClient for EmbeddedAppServerClient {
         match runtime.block_on(async { timeout(timeout_duration, client.next_event()).await }) {
             Err(_) => Ok(None),
             Ok(Some(event)) => Ok(Some(map_event(event))),
-            Ok(None) => Ok(None),
+            Ok(None) => Ok(Some(AppServerEvent::Disconnected {
+                message: "embedded app-server event stream closed".to_string(),
+            })),
         }
     }
 
