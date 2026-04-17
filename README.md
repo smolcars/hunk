@@ -32,13 +32,16 @@ Hunk is also has full codex integration so you can use Codex inside of Hunk inst
 
 ## Workspace Layout
 
-- `crates/hunk-domain`: config/state/db/diff/markdown domain logic
-- `crates/hunk-git`: Git backend for repo discovery, diffing, branches, commits, push, and sync
+- `crates/hunk-terminal`: terminal integration, shell/session support, and terminal-facing workspace surfaces
 - `crates/hunk-text`: rope-backed text model, positions/ranges, transactions, and undo/redo primitives
 - `crates/hunk-language`: Tree-sitter language registry, syntax highlighting, preview highlighting, folds, and language-intelligence seams
 - `crates/hunk-editor`: headless editor state, selections, display rows, folds, overlays, and editor commands
-- `crates/hunk-desktop`: GPUI desktop app binary
-- `crates/hunk-codex`: Codex Websocket Server handling logic
+- `crates/hunk-domain`: shared config/state types, SQLite-backed comment storage, markdown, and other app domain logic
+- `crates/hunk-git`: Git backend for repo discovery, diffing, branches, commits, push, publish, and sync
+- `crates/hunk-forge`: forge integration logic for GitHub and related remote/review workflows
+- `crates/hunk-updater`: app update/download/install logic
+- `crates/hunk-desktop`: GPUI desktop app binary, controllers, and rendering surface
+- `crates/hunk-codex`: embedded Codex app-server integration, thread service, AI reducers, and protocol boundary
 
 ## Requirements
 
@@ -179,7 +182,7 @@ Platform-specific download helpers:
 
 The Windows helper stages both `assets/codex-runtime/windows/codex.exe` and the bundled launcher `assets/codex-runtime/windows/codex.cmd`.
 
-These pull the pinned release assets directly from the Codex GitHub release for the tag in `crates/hunk-desktop/Cargo.toml`:
+These pull the pinned release assets directly from the official Codex GitHub release for the version locked in `Cargo.lock`:
 
 - macOS ARM64: `codex-aarch64-apple-darwin.tar.gz`
 - Linux x86_64: `codex-x86_64-unknown-linux-musl.tar.gz`
