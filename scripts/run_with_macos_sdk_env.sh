@@ -20,11 +20,13 @@ if [[ ! -e "$sdkroot/usr/lib/libiconv.tbd" ]]; then
 fi
 
 export SDKROOT="$sdkroot"
+deployment_target="${HUNK_MACOSX_DEPLOYMENT_TARGET:-12.0}"
+export MACOSX_DEPLOYMENT_TARGET="$deployment_target"
 export LIBRARY_PATH="$sdkroot/usr/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
 export CPATH="$sdkroot/usr/include${CPATH:+:$CPATH}"
 export CFLAGS="-isysroot $sdkroot${CFLAGS:+ $CFLAGS}"
 export CXXFLAGS="-isysroot $sdkroot${CXXFLAGS:+ $CXXFLAGS}"
 export LDFLAGS="-L$sdkroot/usr/lib${LDFLAGS:+ $LDFLAGS}"
-export RUSTFLAGS="-L native=$sdkroot/usr/lib${RUSTFLAGS:+ $RUSTFLAGS}"
+export RUSTFLAGS="-L native=$sdkroot/usr/lib -C link-arg=-mmacosx-version-min=$deployment_target${RUSTFLAGS:+ $RUSTFLAGS}"
 
 exec "$@"

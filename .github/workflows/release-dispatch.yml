@@ -197,6 +197,7 @@ jobs:
             clang \
             cmake \
             libasound2-dev \
+            libcap-dev \
             libdbus-1-dev \
             libegl1 \
             libffi-dev \

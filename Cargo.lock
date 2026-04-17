@@ -1671,7 +1671,7 @@ dependencies = [
 [[package]]
 name = "codex-analytics"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-app-server-protocol",
  "codex-git-utils",
@@ -1689,7 +1689,7 @@ dependencies = [
 [[package]]
 name = "codex-api"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1717,7 +1717,7 @@ dependencies = [
 [[package]]
 name = "codex-app-server"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1778,7 +1778,7 @@ dependencies = [
 [[package]]
 name = "codex-app-server-protocol"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "clap",
@@ -1803,7 +1803,7 @@ dependencies = [
 [[package]]
 name = "codex-apply-patch"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "codex-exec-server",
@@ -1818,7 +1818,7 @@ dependencies = [
 [[package]]
 name = "codex-arg0"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "codex-apply-patch",
@@ -1836,7 +1836,7 @@ dependencies = [
 [[package]]
 name = "codex-async-utils"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "async-trait",
  "tokio",
@@ -1846,7 +1846,7 @@ dependencies = [
 [[package]]
 name = "codex-backend-client"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "codex-backend-openapi-models",
@@ -1861,7 +1861,7 @@ dependencies = [
 [[package]]
 name = "codex-backend-openapi-models"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "serde",
  "serde_json",
@@ -1871,7 +1871,7 @@ dependencies = [
 [[package]]
 name = "codex-chatgpt"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "clap",
@@ -1888,7 +1888,7 @@ dependencies = [
 [[package]]
 name = "codex-client"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1914,7 +1914,7 @@ dependencies = [
 [[package]]
 name = "codex-cloud-requirements"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1938,7 +1938,7 @@ dependencies = [
 [[package]]
 name = "codex-code-mode"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "async-trait",
  "serde",
@@ -1952,12 +1952,12 @@ dependencies = [
 [[package]]
 name = "codex-collaboration-mode-templates"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 
 [[package]]
 name = "codex-config"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "codex-app-server-protocol",
@@ -1987,7 +1987,7 @@ dependencies = [
 [[package]]
 name = "codex-connectors"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "codex-app-server-protocol",
@@ -1998,7 +1998,7 @@ dependencies = [
 [[package]]
 name = "codex-core"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2099,7 +2099,7 @@ dependencies = [
 [[package]]
 name = "codex-core-skills"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "codex-analytics",
@@ -2127,7 +2127,7 @@ dependencies = [
 [[package]]
 name = "codex-exec-server"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -2150,7 +2150,7 @@ dependencies = [
 [[package]]
 name = "codex-execpolicy"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "clap",
@@ -2166,7 +2166,7 @@ dependencies = [
 [[package]]
 name = "codex-experimental-api-macros"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2176,7 +2176,7 @@ dependencies = [
 [[package]]
 name = "codex-features"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-otel",
  "codex-protocol",
@@ -2189,7 +2189,7 @@ dependencies = [
 [[package]]
 name = "codex-feedback"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "codex-login",
@@ -2202,7 +2202,7 @@ dependencies = [
 [[package]]
 name = "codex-file-search"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "clap",
@@ -2217,7 +2217,7 @@ dependencies = [
 [[package]]
 name = "codex-git-utils"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-utils-absolute-path",
  "futures",
@@ -2235,7 +2235,7 @@ dependencies = [
 [[package]]
 name = "codex-hooks"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2252,7 +2252,7 @@ dependencies = [
 [[package]]
 name = "codex-instructions"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-protocol",
  "serde",
@@ -2261,7 +2261,7 @@ dependencies = [
 [[package]]
 name = "codex-keyring-store"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "keyring",
  "tracing",
@@ -2270,7 +2270,7 @@ dependencies = [
 [[package]]
 name = "codex-linux-sandbox"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "cc",
  "clap",
@@ -2289,7 +2289,7 @@ dependencies = [
 [[package]]
 name = "codex-login"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2323,7 +2323,7 @@ dependencies = [
 [[package]]
 name = "codex-mcp"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
@@ -2351,7 +2351,7 @@ dependencies = [
 [[package]]
 name = "codex-model-provider-info"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-api",
  "codex-app-server-protocol",
@@ -2364,7 +2364,7 @@ dependencies = [
 [[package]]
 name = "codex-models-manager"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "chrono",
  "codex-api",
@@ -2389,7 +2389,7 @@ dependencies = [
 [[package]]
 name = "codex-network-proxy"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2419,7 +2419,7 @@ dependencies = [
 [[package]]
 name = "codex-otel"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "chrono",
  "codex-api",
@@ -2451,7 +2451,7 @@ dependencies = [
 [[package]]
 name = "codex-plugin"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-utils-absolute-path",
  "codex-utils-plugins",
@@ -2461,7 +2461,7 @@ dependencies = [
 [[package]]
 name = "codex-protocol"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "chardetng",
  "chrono",
@@ -2498,7 +2498,7 @@ dependencies = [
 [[package]]
 name = "codex-response-debug-context"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "base64 0.22.1",
  "codex-api",
@@ -2509,7 +2509,7 @@ dependencies = [
 [[package]]
 name = "codex-rmcp-client"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "axum",
@@ -2540,7 +2540,7 @@ dependencies = [
 [[package]]
 name = "codex-rollout"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2564,7 +2564,7 @@ dependencies = [
 [[package]]
 name = "codex-sandboxing"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-network-proxy",
  "codex-protocol",
@@ -2580,7 +2580,7 @@ dependencies = [
 [[package]]
 name = "codex-secrets"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "age",
  "anyhow",
@@ -2599,7 +2599,7 @@ dependencies = [
 [[package]]
 name = "codex-shell-command"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "base64 0.22.1",
  "codex-protocol",
@@ -2618,7 +2618,7 @@ dependencies = [
 [[package]]
 name = "codex-shell-escalation"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2638,7 +2638,7 @@ dependencies = [
 [[package]]
 name = "codex-skills"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-utils-absolute-path",
  "include_dir",
@@ -2648,7 +2648,7 @@ dependencies = [
 [[package]]
 name = "codex-state"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2670,7 +2670,7 @@ dependencies = [
 [[package]]
 name = "codex-terminal-detection"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "tracing",
 ]
@@ -2678,7 +2678,7 @@ dependencies = [
 [[package]]
 name = "codex-tools"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-app-server-protocol",
  "codex-code-mode",
@@ -2695,7 +2695,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-absolute-path"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "dirs 6.0.0",
  "dunce",
@@ -2707,7 +2707,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-cache"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "lru",
  "sha1",
@@ -2717,7 +2717,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-cli"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "clap",
  "codex-protocol",
@@ -2728,7 +2728,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-home-dir"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "dirs 6.0.0",
 ]
@@ -2736,7 +2736,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-image"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "base64 0.22.1",
  "codex-utils-cache",
@@ -2749,7 +2749,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-json-to-toml"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "serde_json",
  "toml 0.9.12+spec-1.1.0",
@@ -2758,7 +2758,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-output-truncation"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-protocol",
  "codex-utils-string",
@@ -2767,7 +2767,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-path"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-utils-absolute-path",
  "dunce",
@@ -2777,7 +2777,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-plugins"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "codex-login",
  "serde",
@@ -2787,7 +2787,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-pty"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "filedescriptor",
@@ -2803,7 +2803,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-readiness"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "async-trait",
  "thiserror 2.0.18",
@@ -2814,7 +2814,7 @@ dependencies = [
 [[package]]
 name = "codex-utils-rustls-provider"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "rustls",
 ]
@@ -2822,12 +2822,12 @@ dependencies = [
 [[package]]
 name = "codex-utils-stream-parser"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 
 [[package]]
 name = "codex-utils-string"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "regex-lite",
 ]
@@ -2835,12 +2835,12 @@ dependencies = [
 [[package]]
 name = "codex-utils-template"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 
 [[package]]
 name = "codex-windows-sandbox"
 version = "0.120.0"
-source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#78fb2ec82c1f642e81cae415da3b2a0fbc31321a"
+source = "git+https://github.com/niteshbalusu11/codex.git?branch=hunk%2Fembedded-apply-patch-fix#3554104fb4cc277b879bc1a0ae1c60cc4ece7caa"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

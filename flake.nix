@@ -34,6 +34,7 @@
               expat
               fontconfig
               glib
+              libcap
               libdrm
               libffi
               libglvnd
@@ -72,6 +73,7 @@
             buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
               pkgs.dbus.dev
               pkgs.dbus.lib
+              pkgs.libcap
             ];
             packages =
               with pkgs;
@@ -88,6 +90,7 @@
                 clang
                 cmake
                 alsa-lib
+                libcap
                 dbus
                 expat
                 fontconfig
