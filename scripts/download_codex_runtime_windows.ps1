@@ -17,22 +17,43 @@ function Get-CodexNativeBinary {
         Select-Object -First 1
 }
 
+function Resolve-CodexReleaseTag {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootDir
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($env:HUNK_CODEX_TAG)) {
+        return $env:HUNK_CODEX_TAG
+    }
+
+    $cargoLockPath = Join-Path $RootDir "Cargo.lock"
+    $cargoLock = Get-Content $cargoLockPath -Raw
+    $match = [regex]::Match(
+        $cargoLock,
+        '\[\[package\]\]\s+name = "codex-app-server"\s+version = "([^"]+)"',
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    if (-not $match.Success) {
+        throw "Failed to resolve Codex version from $cargoLockPath"
+    }
+
+    return "rust-v$($match.Groups[1].Value)"
+}
+
 $rootDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if ([string]::IsNullOrWhiteSpace($CodexTag)) {
-    if ($env:HUNK_CODEX_TAG) {
-        $CodexTag = $env:HUNK_CODEX_TAG
-    } else {
-        $cargoTomlPath = Join-Path $rootDir "crates/hunk-desktop/Cargo.toml"
-        $codexTagLine = Get-Content $cargoTomlPath | Select-String 'tag = "rust-v[^"]+"' | Select-Object -First 1
-        if (-not $codexTagLine) {
-            throw "Failed to resolve Codex release tag from $cargoTomlPath"
-        }
-        $CodexTag = [regex]::Match($codexTagLine.Line, 'tag = "(rust-v[^"]+)"').Groups[1].Value
-    }
+    $CodexTag = Resolve-CodexReleaseTag -RootDir $rootDir
+}
+
+$runtimeRepo = if ([string]::IsNullOrWhiteSpace($env:HUNK_CODEX_RUNTIME_REPO)) {
+    "openai/codex"
+} else {
+    $env:HUNK_CODEX_RUNTIME_REPO
 }
 
 $assetName = "codex-x86_64-pc-windows-msvc.exe.zip"
-$downloadUrl = "https://github.com/openai/codex/releases/download/$CodexTag/$assetName"
+$downloadUrl = "https://github.com/$runtimeRepo/releases/download/$CodexTag/$assetName"
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("hunk-codex-runtime-" + [System.Guid]::NewGuid().ToString("N"))
 $archivePath = Join-Path $tempDir $assetName
 $extractDir = Join-Path $tempDir "extract"

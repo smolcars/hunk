@@ -27,7 +27,7 @@ env:
 jobs:
   macos:
     name: macOS ARM64 DMG
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 90
     env:
       APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
@@ -43,25 +43,14 @@ jobs:
         with:
           clean: false
 
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/nix-installer-action@main
 
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          use-cache: false
-          version: 0.15.2
-
-      - name: Cache cargo registry and Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release-${{ runner.os }}-desktop-v2
-          workspaces: |
-            . -> target
-          cache-on-failure: "true"
+      - name: Enable Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Install cargo-packager
-        run: cargo install cargo-packager --locked --version 0.11.8
+        run: nix develop --accept-flake-config -c cargo install cargo-packager --locked --version 0.11.8
         shell: bash
 
       - name: Resolve release version
@@ -126,7 +115,7 @@ jobs:
       - name: Package macOS release artifact
         id: package
         run: |
-          artifact_path="$(./scripts/package_macos_release.sh | tail -n 1)"
+          artifact_path="$(nix develop --accept-flake-config -c ./scripts/package_macos_release.sh | tail -n 1)"
           echo "artifact_path=$artifact_path" >> "$GITHUB_OUTPUT"
         shell: bash
 
