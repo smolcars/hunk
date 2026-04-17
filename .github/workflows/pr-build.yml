@@ -224,7 +224,7 @@ jobs:
 
       - name: Build hunk-desktop
         if: runner.os == 'macOS'
-        run: ./scripts/run_with_macos_sdk_env.sh cargo build -p hunk-desktop --locked --profile ci
+        run: cargo build -p hunk-desktop --locked --profile ci
         shell: bash
 
       - name: Build hunk-desktop
