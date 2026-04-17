@@ -47,7 +47,7 @@ jobs:
       - name: Cache cargo registry and Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-${{ runner.os }}-desktop
+          shared-key: release-${{ runner.os }}-desktop-v2
           workspaces: |
             . -> target
           cache-on-failure: "true"
@@ -166,7 +166,7 @@ jobs:
       - name: Cache cargo registry and Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-${{ runner.os }}-desktop
+          shared-key: release-${{ runner.os }}-desktop-v2
           workspaces: |
             . -> target
           cache-on-failure: "true"
@@ -259,7 +259,7 @@ jobs:
       - name: Cache cargo registry and Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-${{ runner.os }}-desktop
+          shared-key: release-${{ runner.os }}-desktop-v2
           workspaces: |
             . -> target
           cache-on-failure: "true"

@@ -282,11 +282,20 @@ echo "Building macOS app bundle..." >&2
 (
   cd "$ROOT_DIR"
   export SDKROOT="$MACOS_SDKROOT"
+  export MACOSX_DEPLOYMENT_TARGET="${HUNK_MACOSX_DEPLOYMENT_TARGET:-12.0}"
+  export CMAKE_OSX_SYSROOT="$MACOS_SDKROOT"
+  export CMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET"
   export CC="$MACOS_CC"
   export CXX="$MACOS_CXX"
   export AR="$MACOS_AR"
   export RANLIB="$MACOS_RANLIB"
   export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$MACOS_LINKER"
+  export LIBRARY_PATH="$MACOS_SDKROOT/usr/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+  export CPATH="$MACOS_SDKROOT/usr/include${CPATH:+:$CPATH}"
+  export CFLAGS="-isysroot $MACOS_SDKROOT -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET${CFLAGS:+ $CFLAGS}"
+  export CXXFLAGS="-isysroot $MACOS_SDKROOT -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET${CXXFLAGS:+ $CXXFLAGS}"
+  export LDFLAGS="-L$MACOS_SDKROOT/usr/lib -Wl,-macosx_version_min,$MACOSX_DEPLOYMENT_TARGET${LDFLAGS:+ $LDFLAGS}"
+  export RUSTFLAGS="-L native=$MACOS_SDKROOT/usr/lib -C link-arg=-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET${RUSTFLAGS:+ $RUSTFLAGS}"
 
   rm -rf "$APP_PATH"
   cargo build -p hunk-desktop --release --target "$TARGET_TRIPLE" --locked

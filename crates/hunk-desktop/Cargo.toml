@@ -74,7 +74,7 @@ git2 = { version = "0.20", features = ["https", "ssh"] }
 tempfile = "3.21"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3.6.3", default-features = false, features = ["crypto-rust", "linux-native-sync-persistent"] }
+keyring = { version = "3.6.3", default-features = false, features = ["crypto-rust", "linux-native-async-persistent", "tokio"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
