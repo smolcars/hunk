@@ -6698,6 +6698,7 @@ dependencies = [
  "codex-exec-server",
  "codex-feedback",
  "codex-protocol",
+ "codex-utils-absolute-path",
  "serde",
  "serde_json",
  "tempfile",

@@ -8,3 +8,4 @@ pub use codex_app_server_protocol::*;
 pub use codex_protocol::config_types::{CollaborationMode, ModeKind, ServiceTier, Settings};
 pub use codex_protocol::openai_models::{InputModality, ReasoningEffort};
 pub use codex_protocol::protocol::SessionSource;
+pub use codex_utils_absolute_path::AbsolutePathBuf;

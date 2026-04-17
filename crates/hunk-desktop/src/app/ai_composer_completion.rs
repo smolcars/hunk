@@ -839,10 +839,10 @@ fn normalize_skill_match_key(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use crate::app::{AiComposerSkillBinding, AiPromptSkillReference};
-    use hunk_codex::protocol::{SkillInterface, SkillMetadata, SkillScope};
+    use hunk_codex::protocol::{AbsolutePathBuf, SkillInterface, SkillMetadata, SkillScope};
 
     use super::{
         ActivePrefixedToken, active_file_completion_token, active_skill_completion_token,
@@ -859,6 +859,11 @@ mod tests {
         active_skill_completion_token(text, cursor_offset)
     }
 
+    fn absolute_path(path: &str) -> AbsolutePathBuf {
+        AbsolutePathBuf::from_absolute_path(Path::new(path))
+            .expect("test skill path should be absolute")
+    }
+
     fn skill(name: &str) -> SkillMetadata {
         SkillMetadata {
             name: name.to_string(),
@@ -866,7 +871,7 @@ mod tests {
             short_description: None,
             interface: None,
             dependencies: None,
-            path: PathBuf::from(format!("/skills/{name}/SKILL.md")),
+            path: absolute_path(&format!("/skills/{name}/SKILL.md")),
             scope: SkillScope::Repo,
             enabled: true,
         }
@@ -1129,7 +1134,7 @@ mod tests {
     fn selected_skills_from_bindings_uses_only_matching_enabled_skills() {
         let mut repo_gpui = skill("gpui");
         repo_gpui.scope = SkillScope::Repo;
-        repo_gpui.path = PathBuf::from("/repo/.codex/skills/gpui/SKILL.md");
+        repo_gpui.path = absolute_path("/repo/.codex/skills/gpui/SKILL.md");
 
         let mut installer = skill("skill-installer");
         installer.enabled = false;
@@ -1140,7 +1145,7 @@ mod tests {
                 range: 0..5,
                 reference: AiPromptSkillReference {
                     name: "gpui".to_string(),
-                    path: repo_gpui.path.clone(),
+                    path: repo_gpui.path.to_path_buf(),
                 },
             },
             AiComposerSkillBinding {
@@ -1148,7 +1153,7 @@ mod tests {
                 range: 10..26,
                 reference: AiPromptSkillReference {
                     name: "skill-installer".to_string(),
-                    path: installer.path.clone(),
+                    path: installer.path.to_path_buf(),
                 },
             },
         ];
@@ -1160,7 +1165,7 @@ mod tests {
             selected,
             vec![AiPromptSkillReference {
                 name: "gpui".to_string(),
-                path: repo_gpui.path,
+                path: repo_gpui.path.to_path_buf(),
             }]
         );
     }
