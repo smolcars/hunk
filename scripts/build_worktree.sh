@@ -36,7 +36,7 @@ printf 'Building %s with its default Cargo target directory\n' "$WORKTREE"
 if [[ "$(uname -s)" == "Darwin" ]]; then
   (
     cd "$WORKTREE"
-    "$ROOT_DIR/scripts/run_with_macos_sdk_env.sh" cargo build -p hunk-desktop
+    cargo build -p hunk-desktop
   )
 else
   (

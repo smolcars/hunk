@@ -6,20 +6,20 @@ mod ai_tests {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use codex_app_server_protocol::AccountLoginCompletedNotification;
-    use codex_app_server_protocol::AskForApproval;
-    use codex_protocol::config_types::ModeKind;
-    use codex_app_server_protocol::RateLimitSnapshot;
-    use codex_app_server_protocol::RateLimitWindow;
-    use codex_app_server_protocol::RequestId;
-    use codex_app_server_protocol::SandboxMode;
-    use codex_app_server_protocol::SandboxPolicy;
-    use codex_app_server_protocol::ServerNotification;
-    use codex_app_server_protocol::SkillsChangedNotification;
-    use codex_app_server_protocol::ThreadStartParams;
-    use codex_app_server_protocol::TurnStartParams;
-    use codex_app_server_protocol::UserInput;
-    use codex_protocol::config_types::ServiceTier;
+    use hunk_codex::app_server_protocol::AccountLoginCompletedNotification;
+    use hunk_codex::app_server_protocol::AskForApproval;
+    use hunk_codex::codex_protocol::config_types::ModeKind;
+    use hunk_codex::app_server_protocol::RateLimitSnapshot;
+    use hunk_codex::app_server_protocol::RateLimitWindow;
+    use hunk_codex::app_server_protocol::RequestId;
+    use hunk_codex::app_server_protocol::SandboxMode;
+    use hunk_codex::app_server_protocol::SandboxPolicy;
+    use hunk_codex::app_server_protocol::ServerNotification;
+    use hunk_codex::app_server_protocol::SkillsChangedNotification;
+    use hunk_codex::app_server_protocol::ThreadStartParams;
+    use hunk_codex::app_server_protocol::TurnStartParams;
+    use hunk_codex::app_server_protocol::UserInput;
+    use hunk_codex::codex_protocol::config_types::ServiceTier;
     use hunk_codex::errors::CodexIntegrationError;
     use hunk_codex::state::AiState;
     use hunk_codex::state::ReducerEvent;
@@ -217,11 +217,11 @@ mod ai_tests {
     fn approval_decision_mapping_is_stable() {
         assert_eq!(
             map_command_approval_decision(AiApprovalDecision::Accept),
-            codex_app_server_protocol::CommandExecutionApprovalDecision::Accept
+            hunk_codex::app_server_protocol::CommandExecutionApprovalDecision::Accept
         );
         assert_eq!(
             map_file_change_approval_decision(AiApprovalDecision::Decline),
-            codex_app_server_protocol::FileChangeApprovalDecision::Decline
+            hunk_codex::app_server_protocol::FileChangeApprovalDecision::Decline
         );
     }
 
@@ -284,7 +284,7 @@ mod ai_tests {
         let mode = collaboration_mode_for_turn(
             ModeKind::Plan,
             Some("gpt-5.4".to_string()),
-            Some(codex_protocol::openai_models::ReasoningEffort::High),
+            Some(hunk_codex::codex_protocol::openai_models::ReasoningEffort::High),
             None,
         )
         .expect("collaboration mode should resolve");
@@ -293,7 +293,7 @@ mod ai_tests {
         assert_eq!(mode.settings.model, "gpt-5.4");
         assert_eq!(
             mode.settings.reasoning_effort,
-            Some(codex_protocol::openai_models::ReasoningEffort::High)
+            Some(hunk_codex::codex_protocol::openai_models::ReasoningEffort::High)
         );
     }
 

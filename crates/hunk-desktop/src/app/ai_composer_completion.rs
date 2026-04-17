@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::Result;
-use codex_app_server_protocol::{SkillMetadata, SkillScope};
 use gpui::{Context, Task, Window};
 use gpui_component::{
     Rope, RopeExt,
     input::{CompletionProvider, InputState},
 };
+use hunk_codex::app_server_protocol::{SkillMetadata, SkillScope};
 use lsp_types::{
     CompletionContext, CompletionItem, CompletionItemKind, CompletionResponse, CompletionTextEdit,
     InsertReplaceEdit, Range as LspRange,
@@ -842,7 +842,7 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::app::{AiComposerSkillBinding, AiPromptSkillReference};
-    use codex_app_server_protocol::{SkillInterface, SkillMetadata, SkillScope};
+    use hunk_codex::app_server_protocol::{SkillInterface, SkillMetadata, SkillScope};
 
     use super::{
         ActivePrefixedToken, active_file_completion_token, active_skill_completion_token,

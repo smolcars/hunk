@@ -270,7 +270,7 @@ fn map_user_input_answers(
 fn apply_login_completed_state(
     pending_chatgpt_login_id: &mut Option<String>,
     pending_chatgpt_auth_url: &mut Option<String>,
-    completed: &codex_app_server_protocol::AccountLoginCompletedNotification,
+    completed: &hunk_codex::app_server_protocol::AccountLoginCompletedNotification,
 ) -> String {
     *pending_chatgpt_login_id = None;
     *pending_chatgpt_auth_url = None;

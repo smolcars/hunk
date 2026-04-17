@@ -6,13 +6,13 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-codex-app-server = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
-codex-app-server-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
-codex-arg0 = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
-codex-core = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
-codex-exec-server = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
-codex-feedback = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
-codex-protocol = { git = "https://github.com/openai/codex.git", tag = "rust-v0.120.0" }
+codex-app-server.workspace = true
+codex-app-server-protocol.workspace = true
+codex-arg0.workspace = true
+codex-core.workspace = true
+codex-exec-server.workspace = true
+codex-feedback.workspace = true
+codex-protocol.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

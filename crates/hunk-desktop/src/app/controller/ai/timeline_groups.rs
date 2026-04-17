@@ -385,8 +385,8 @@ fn ai_strip_matching_outer_quotes(value: &str) -> &str {
 fn ai_exploration_tool_name_for_item(item: &hunk_codex::state::ItemSummary) -> Option<String> {
     let thread_item = ai_timeline_item_thread_item(item)?;
     match thread_item {
-        codex_app_server_protocol::ThreadItem::DynamicToolCall { tool, .. }
-        | codex_app_server_protocol::ThreadItem::McpToolCall { tool, .. } => Some(tool),
+        hunk_codex::app_server_protocol::ThreadItem::DynamicToolCall { tool, .. }
+        | hunk_codex::app_server_protocol::ThreadItem::McpToolCall { tool, .. } => Some(tool),
         _ => None,
     }
 }
@@ -423,7 +423,7 @@ fn ai_collaboration_group_summary_for_item(
     item: &hunk_codex::state::ItemSummary,
 ) -> Option<AiCollaborationGroupSummary> {
     let thread_item = ai_timeline_item_thread_item(item)?;
-    let codex_app_server_protocol::ThreadItem::CollabAgentToolCall {
+    let hunk_codex::app_server_protocol::ThreadItem::CollabAgentToolCall {
         tool,
         receiver_thread_ids,
         ..
@@ -434,11 +434,11 @@ fn ai_collaboration_group_summary_for_item(
 
     let mut summary = AiCollaborationGroupSummary::default();
     match tool {
-        codex_app_server_protocol::CollabAgentTool::SpawnAgent => summary.spawned = 1,
-        codex_app_server_protocol::CollabAgentTool::SendInput => summary.sent_inputs = 1,
-        codex_app_server_protocol::CollabAgentTool::ResumeAgent => summary.resumed = 1,
-        codex_app_server_protocol::CollabAgentTool::Wait => summary.waits = 1,
-        codex_app_server_protocol::CollabAgentTool::CloseAgent => summary.closed = 1,
+        hunk_codex::app_server_protocol::CollabAgentTool::SpawnAgent => summary.spawned = 1,
+        hunk_codex::app_server_protocol::CollabAgentTool::SendInput => summary.sent_inputs = 1,
+        hunk_codex::app_server_protocol::CollabAgentTool::ResumeAgent => summary.resumed = 1,
+        hunk_codex::app_server_protocol::CollabAgentTool::Wait => summary.waits = 1,
+        hunk_codex::app_server_protocol::CollabAgentTool::CloseAgent => summary.closed = 1,
     }
     summary
         .receiver_thread_ids
@@ -502,7 +502,7 @@ fn ai_file_change_batch_group_summary_for_item(
     }
 
     let thread_item = ai_timeline_item_thread_item(item)?;
-    let codex_app_server_protocol::ThreadItem::FileChange { changes, .. } = thread_item else {
+    let hunk_codex::app_server_protocol::ThreadItem::FileChange { changes, .. } = thread_item else {
         return None;
     };
     let preview_paths = changes
@@ -533,14 +533,14 @@ fn ai_timeline_item_details_value(
 
 fn ai_timeline_item_thread_item(
     item: &hunk_codex::state::ItemSummary,
-) -> Option<codex_app_server_protocol::ThreadItem> {
+) -> Option<hunk_codex::app_server_protocol::ThreadItem> {
     let details_json = item
         .display_metadata
         .as_ref()
         .and_then(|metadata| metadata.details_json.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
-    serde_json::from_str::<codex_app_server_protocol::ThreadItem>(details_json).ok()
+    serde_json::from_str::<hunk_codex::app_server_protocol::ThreadItem>(details_json).ok()
 }
 
 fn ai_merge_group_item_status(

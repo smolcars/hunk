@@ -67,7 +67,7 @@ Those helpers apply the macOS SDK wrapper when needed and stage the bundled Wind
 If you want the raw macOS cargo command, use:
 
 ```bash
-./scripts/run_with_macos_sdk_env.sh cargo run -p hunk-desktop
+cargo run -p hunk-desktop
 ```
 
 Launch from anywhere, then use `File > Open Project...` (or `Cmd/Ctrl+Shift+O`) to choose a Git repository.
@@ -89,9 +89,9 @@ Hunk treats the primary checkout and each linked Git worktree as separate worksp
 On macOS:
 
 ```bash
-./scripts/run_with_macos_sdk_env.sh cargo build --workspace
-./scripts/run_with_macos_sdk_env.sh cargo test --workspace
-./scripts/run_with_macos_sdk_env.sh cargo clippy --workspace --all-targets -- -D warnings
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 On Linux and Windows, run the same Cargo commands directly or use the `just` recipes so Cargo writes to its default `target/` directory.
@@ -196,7 +196,7 @@ Download and stage the pinned macOS runtime:
 ./scripts/install_codex_runtime_macos.sh
 ./scripts/validate_codex_runtime_bundle.sh --strict --platform macos
 ./scripts/stage_codex_runtime_macos.sh
-./scripts/run_with_macos_sdk_env.sh cargo test -p hunk-codex --test real_runtime_smoke -- --ignored
+cargo test -p hunk-codex --test real_runtime_smoke -- --ignored
 just bundle
 ```
 

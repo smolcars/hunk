@@ -1,11 +1,18 @@
-use std::fs;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
+#[cfg(not(test))]
+use crate::app::ai_paths::resolve_codex_home_path;
+use hunk_codex::codex_protocol::openai_models::ReasoningEffort;
 use hunk_codex::state::AiState;
+use hunk_codex::structured_generation::StructuredGenerationRequest;
+use hunk_codex::structured_generation::generate_structured_output;
 use hunk_git::branch::sanitize_branch_name;
+
+#[cfg(test)]
+fn resolve_codex_home_path() -> Option<PathBuf> {
+    None
+}
 
 const MAX_BRANCH_SLUG_TOKENS: usize = 6;
 const MAX_BRANCH_SLUG_LEN: usize = 48;
@@ -17,7 +24,6 @@ const MAX_PATCH_CONTEXT_LEN: usize = 40_000;
 const DEFAULT_AI_GIT_TEXT_MODEL: &str = "gpt-5.4-mini";
 const DEFAULT_AI_GIT_REASONING_EFFORT: &str = "low";
 const AI_GIT_TEXT_TIMEOUT: Duration = Duration::from_secs(20);
-const AI_GIT_TEXT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const BRANCH_STOP_WORDS: &[&str] = &[
     "a", "an", "and", "as", "at", "be", "for", "from", "in", "into", "is", "it", "of", "on", "or",
     "that", "the", "this", "to", "with",
@@ -395,64 +401,29 @@ fn run_codex_json_generation(
     schema: &serde_json::Value,
     image_paths: &[PathBuf],
 ) -> Option<serde_json::Value> {
-    let unique_suffix = format!(
-        "{}-{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()?
-            .as_nanos()
-    );
-    let schema_path = std::env::temp_dir().join(format!("hunk-codex-schema-{unique_suffix}.json"));
-    let output_path = std::env::temp_dir().join(format!("hunk-codex-output-{unique_suffix}.json"));
+    let codex_home = resolve_codex_home_path()?;
+    let reasoning_effort = match DEFAULT_AI_GIT_REASONING_EFFORT {
+        "low" => ReasoningEffort::Low,
+        "medium" => ReasoningEffort::Medium,
+        "high" => ReasoningEffort::High,
+        "minimal" => ReasoningEffort::Minimal,
+        _ => return None,
+    };
 
-    fs::write(&schema_path, serde_json::to_vec(schema).ok()?).ok()?;
-    fs::write(&output_path, b"").ok()?;
-
-    let mut command = std::process::Command::new(codex_executable);
-    command
-        .current_dir(repo_root)
-        .arg("exec")
-        .arg("--ephemeral")
-        .arg("-s")
-        .arg("read-only")
-        .arg("--skip-git-repo-check")
-        .arg("--output-schema")
-        .arg(schema_path.as_path())
-        .arg("--output-last-message")
-        .arg(output_path.as_path())
-        .arg("--model")
-        .arg(DEFAULT_AI_GIT_TEXT_MODEL);
-    for image_path in image_paths {
-        command.arg("--image").arg(image_path.as_path());
-    }
-    command
-        .arg("--config")
-        .arg(format!(
-            "model_reasoning_effort=\"{}\"",
-            DEFAULT_AI_GIT_REASONING_EFFORT
-        ))
-        .arg("-")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-
-    let output = (|| {
-        let mut child = command.spawn().ok()?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(prompt.as_bytes()).ok()?;
-        }
-        let status = wait_for_command_completion(&mut child, AI_GIT_TEXT_TIMEOUT)?;
-        if !status.success() {
-            return None;
-        }
-        let payload = fs::read_to_string(output_path.as_path()).ok()?;
-        serde_json::from_str::<serde_json::Value>(payload.as_str()).ok()
-    })();
-
-    let _ = fs::remove_file(schema_path.as_path());
-    let _ = fs::remove_file(output_path.as_path());
-    output
+    generate_structured_output(StructuredGenerationRequest {
+        codex_home: codex_home.as_path(),
+        cwd: repo_root,
+        codex_executable,
+        prompt,
+        output_schema: schema,
+        image_paths,
+        model: DEFAULT_AI_GIT_TEXT_MODEL,
+        reasoning_effort,
+        client_name: "hunk-desktop",
+        client_version: env!("CARGO_PKG_VERSION"),
+        timeout: AI_GIT_TEXT_TIMEOUT,
+    })
+    .ok()
 }
 
 fn normalize_commit_subject(subject: &str) -> Option<String> {
@@ -485,22 +456,4 @@ fn limit_text(text: &str, max_len: usize) -> String {
 
 fn truncate_text_chars(text: &str, max_chars: usize) -> String {
     text.chars().take(max_chars).collect()
-}
-
-pub(super) fn wait_for_command_completion(
-    child: &mut std::process::Child,
-    timeout: Duration,
-) -> Option<std::process::ExitStatus> {
-    let started_at = Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().ok()? {
-            return Some(status);
-        }
-        if started_at.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        std::thread::sleep(AI_GIT_TEXT_POLL_INTERVAL);
-    }
 }

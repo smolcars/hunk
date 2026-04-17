@@ -1,4 +1,4 @@
-fn ai_reasoning_effort_key(effort: &codex_protocol::openai_models::ReasoningEffort) -> String {
+fn ai_reasoning_effort_key(effort: &hunk_codex::codex_protocol::openai_models::ReasoningEffort) -> String {
     serde_json::to_value(effort)
         .ok()
         .and_then(|value| value.as_str().map(ToOwned::to_owned))
