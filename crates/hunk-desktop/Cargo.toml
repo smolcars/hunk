@@ -30,7 +30,7 @@ main = true
 
 [dependencies]
 anyhow = "1.0"
-arc-swap = "1.7.1"
+arc-swap = "1.9.1"
 ctrlc = "3.5"
 dirs = "6.0"
 futures = "0.3"
@@ -46,15 +46,15 @@ gpui-component = { git = "https://github.com/niteshbalusu11/gpui-component", rev
 ] }
 gpui-component-assets = { git = "https://github.com/niteshbalusu11/gpui-component", rev = "4640591715ae6732b6b2075f040672eeabdb5c87" }
 notify = "8.2.0"
-notify-rust = "4.14.0"
-toml = "0.9"
+notify-rust = "4.15.0"
+toml = "1.1.2"
 serde_json = "1.0"
 lsp-types = { version = "0.97.0", features = ["proposed"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 time = { version = "0.3", features = ["formatting", "local-offset"] }
-rust-embed = "8.5"
-webbrowser = "1.0"
+rust-embed = "8.11.0"
+webbrowser = "1.2.1"
 hunk-domain = { path = "../hunk-domain" }
 hunk-git = { path = "../hunk-git" }
 hunk-forge = { path = "../hunk-forge" }
@@ -67,11 +67,11 @@ hunk-updater = { path = "../hunk-updater" }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 git2 = { version = "0.20", features = ["https", "ssh", "vendored-libgit2", "vendored-openssl"] }
-tempfile = "3.21"
+tempfile = "3.27.0"
 
 [target.'cfg(not(target_os = "macos"))'.dev-dependencies]
 git2 = { version = "0.20", features = ["https", "ssh"] }
-tempfile = "3.21"
+tempfile = "3.27.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["crypto-rust", "linux-native-async-persistent", "tokio"] }
