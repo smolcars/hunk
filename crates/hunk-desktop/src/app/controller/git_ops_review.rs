@@ -268,6 +268,46 @@ impl DiffViewer {
             .map(GitHubTokenSource::Immediate)
     }
 
+    fn has_github_auth_for_repo(&mut self, repo: &ForgeRepoRef) -> bool {
+        if let Some(resolved) = self.resolved_github_credential_for_repo(repo) {
+            if self
+                .forge_token_for_credential(resolved.credential_id.as_str())
+                .is_some()
+            {
+                return true;
+            }
+
+            return self
+                .load_forge_token_for_credential(resolved.credential_id.as_str())
+                .ok()
+                .flatten()
+                .is_some();
+        }
+
+        if self.has_configured_github_credentials_for_host(repo.host.as_str()) {
+            return false;
+        }
+
+        GITHUB_TOKEN_ENV_KEYS.iter().any(|key| {
+            std::env::var(key)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .is_some()
+        })
+    }
+
+    pub(super) fn should_use_github_review_dialog_for_branch(
+        &mut self,
+        repo_root: &std::path::Path,
+        branch_name: &str,
+    ) -> bool {
+        let Ok(resolved_repos) = self.resolve_github_review_repos_for_branch(repo_root, branch_name) else {
+            return false;
+        };
+
+        self.has_github_auth_for_repo(&resolved_repos.base_repo)
+    }
+
     fn create_default_github_credential(&mut self, repo: &ForgeRepoRef) -> String {
         let credential_id = next_forge_credential_id(
             hunk_forge::ForgeProvider::GitHub,

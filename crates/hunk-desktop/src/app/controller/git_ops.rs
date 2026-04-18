@@ -1036,6 +1036,11 @@ impl DiffViewer {
         };
         let branch_name = self.git_workspace.branch_name.clone();
         let review_title = self.preferred_review_title_for_branch(branch_name.as_str());
+        if !self.should_use_github_review_dialog_for_branch(repo_root.as_path(), branch_name.as_str())
+        {
+            self.run_review_url_action_for_branch(branch_name, ReviewUrlAction::Open, cx);
+            return;
+        }
         match self.open_github_review_dialog_for_branch(
             GitHubReviewOpenDialogRequest {
                 repo_root,
