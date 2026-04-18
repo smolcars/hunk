@@ -5,7 +5,7 @@ license.workspace = true
 edition = "2024"
 
 [dependencies]
-ropey = "1.6"
+ropey = "1.6.1"
 
 [dev-dependencies]
-proptest = "1.7"
+proptest = "1.11.0"
