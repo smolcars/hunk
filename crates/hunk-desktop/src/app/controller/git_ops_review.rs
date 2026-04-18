@@ -5,11 +5,12 @@ enum ReviewUrlAction {
 }
 
 #[derive(Debug, Clone)]
-struct GitHubReviewDialogContext {
+struct ForgeReviewDialogContext {
     repo_root: PathBuf,
+    provider: hunk_forge::ForgeProvider,
     review_remote: ReviewRemote,
     base_repo: ForgeRepoRef,
-    source_head_owner: String,
+    head_repo: ForgeRepoRef,
     source_branch: String,
     target_branch: String,
     title: String,
@@ -18,14 +19,14 @@ struct GitHubReviewDialogContext {
 }
 
 #[derive(Debug, Clone)]
-struct GitHubReviewDialogValues {
+struct ForgeReviewDialogValues {
     target_branch: String,
     title: String,
     body: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct GitHubReviewOpenDialogRequest {
+struct ForgeReviewOpenDialogRequest {
     repo_root: PathBuf,
     branch_name: String,
     title: String,
@@ -34,7 +35,7 @@ struct GitHubReviewOpenDialogRequest {
 }
 
 #[derive(Debug, Clone)]
-struct GitHubReviewOperationResult {
+struct ForgeReviewOperationResult {
     review: OpenReviewSummary,
     repo_root: PathBuf,
     source_branch: String,
@@ -43,29 +44,32 @@ struct GitHubReviewOperationResult {
 }
 
 #[derive(Debug, Clone)]
-struct ResolvedGitHubReviewRepos {
+struct ResolvedForgeReviewRepos {
     review_remote: ReviewRemote,
     base_repo: ForgeRepoRef,
-    source_head_owner: String,
+    head_repo: ForgeRepoRef,
 }
 
 const GITHUB_TOKEN_ENV_KEYS: &[&str] = &["HUNK_GITHUB_TOKEN", "GITHUB_TOKEN"];
+const GITLAB_TOKEN_ENV_KEYS: &[&str] = &["HUNK_GITLAB_TOKEN", "GITLAB_TOKEN"];
 
 #[derive(Debug, Clone)]
-enum GitHubTokenSource {
+enum ForgeTokenSource {
     Immediate(String),
     StoredCredential(String),
 }
 
-fn resolve_github_token_source(
-    token_source: GitHubTokenSource,
+fn resolve_forge_token_source(
+    provider: hunk_forge::ForgeProvider,
+    token_source: ForgeTokenSource,
 ) -> anyhow::Result<(String, Option<(String, String)>)> {
     match token_source {
-        GitHubTokenSource::Immediate(token) => Ok((token, None)),
-        GitHubTokenSource::StoredCredential(credential_id) => {
+        ForgeTokenSource::Immediate(token) => Ok((token, None)),
+        ForgeTokenSource::StoredCredential(credential_id) => {
             let token = load_forge_secret(credential_id.as_str())?.ok_or_else(|| {
                 anyhow::anyhow!(
-                    "No saved GitHub token found for the selected credential. Enter a token to continue."
+                    "No saved {} token found for the selected credential. Enter a token to continue.",
+                    forge_provider_label(provider)
                 )
             })?;
             Ok((token.clone(), Some((credential_id, token))))
