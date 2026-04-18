@@ -1271,7 +1271,16 @@ impl DiffViewer {
                         cx.defer(move |cx| {
                             let result = cx.update_window(window_handle, |_, window, cx| {
                                 view.update(cx, |this, cx| {
-                                    if let Err(err) = this.open_github_review_dialog_for_branch(
+                                    if !this.should_use_github_review_dialog_for_branch(
+                                        repo_root.as_path(),
+                                        branch_name.as_str(),
+                                    ) {
+                                        this.run_review_url_action_for_branch(
+                                            branch_name.clone(),
+                                            ReviewUrlAction::Open,
+                                            cx,
+                                        );
+                                    } else if let Err(err) = this.open_github_review_dialog_for_branch(
                                         GitHubReviewOpenDialogRequest {
                                             repo_root: repo_root.clone(),
                                             branch_name: branch_name.clone(),
