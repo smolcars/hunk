@@ -627,6 +627,7 @@ impl DiffViewer {
     ) {
         let epoch = self.begin_git_action(context.action_label.clone(), cx);
         let started_at = Instant::now();
+        let provider = context.provider;
         self.git_action_task = cx.spawn(async move |this, cx| {
             let (execution_elapsed, result) = cx
                 .background_executor()
@@ -634,7 +635,7 @@ impl DiffViewer {
                     let execution_started_at = Instant::now();
                     let result = (|| -> anyhow::Result<ForgeReviewOperationResult> {
                         let (token, token_cache_entry) =
-                            resolve_forge_token_source(context.provider, token_source)?;
+                            resolve_forge_token_source(provider, token_source)?;
                         let client = ForgeReviewClient::new(&context.base_repo, token.as_str())?;
                         let existing = client.find_open_review(&OpenReviewQuery {
                             base_repo: context.base_repo.clone(),
@@ -723,17 +724,16 @@ impl DiffViewer {
                         Err(err) => {
                             error!(
                                 "forge review action failed: epoch={} provider={} err={err:#}",
-                                epoch
-                                ,
-                                forge_provider_log_label(context.provider)
+                                epoch,
+                                forge_provider_log_label(provider)
                             );
                             let summary = err.to_string();
                             this.git_status_message = Some(format!("Git error: {err:#}"));
                             Self::push_error_notification(
                                 format!(
                                     "{} {} failed: {summary}",
-                                    forge_provider_label(context.provider),
-                                    forge_review_kind_label(context.provider)
+                                    forge_provider_label(provider),
+                                    forge_review_kind_label(provider)
                                 ),
                                 cx,
                             );

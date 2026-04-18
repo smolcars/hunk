@@ -54,9 +54,11 @@ impl GitLabReviewClient {
         if let Some(target_branch) = normalized_target.as_deref() {
             endpoint.target_branch(target_branch);
         }
-        let endpoint = endpoint.build().context("failed to build GitLab merge request query")?;
-        let merge_requests = endpoint
-            .query::<Vec<GitLabMergeRequest>>(&self.client)
+        let endpoint = endpoint
+            .build()
+            .context("failed to build GitLab merge request query")?;
+        let merge_requests: Vec<GitLabMergeRequest> = endpoint
+            .query(&self.client)
             .context("failed to query GitLab merge requests")?;
 
         Ok(select_open_merge_request(
@@ -83,7 +85,12 @@ impl GitLabReviewClient {
                 input.title.as_str(),
                 input.draft,
             ));
-        if let Some(body) = input.body.as_deref().map(str::trim).filter(|body| !body.is_empty()) {
+        if let Some(body) = input
+            .body
+            .as_deref()
+            .map(str::trim)
+            .filter(|body| !body.is_empty())
+        {
             endpoint.description(body);
         }
         if head_project_id != base_project_id {
@@ -92,8 +99,8 @@ impl GitLabReviewClient {
         let endpoint = endpoint
             .build()
             .context("failed to build GitLab merge request create request")?;
-        let merge_request = endpoint
-            .query::<GitLabMergeRequest>(&self.client)
+        let merge_request: GitLabMergeRequest = endpoint
+            .query(&self.client)
             .context("failed to create GitLab merge request")?;
 
         Ok(CreateReviewResult {
@@ -106,8 +113,8 @@ impl GitLabReviewClient {
             .project(repo.path.as_str())
             .build()
             .context("failed to build GitLab project lookup")?;
-        let project = endpoint
-            .query::<GitLabProject>(&self.client)
+        let project: GitLabProject = endpoint
+            .query(&self.client)
             .with_context(|| format!("failed to load GitLab project '{}'", repo.path))?;
         Ok(project.id)
     }
@@ -156,22 +163,27 @@ fn select_open_merge_request(
     merge_requests.into_iter().next()
 }
 
-fn map_gitlab_merge_request(repo: &ForgeRepoRef, merge_request: GitLabMergeRequest) -> OpenReviewSummary {
+fn map_gitlab_merge_request(
+    repo: &ForgeRepoRef,
+    merge_request: GitLabMergeRequest,
+) -> OpenReviewSummary {
+    let draft = merge_request.is_draft();
+    let number = merge_request.iid;
     OpenReviewSummary {
         provider: ForgeProvider::GitLab,
-        number: merge_request.iid,
+        number,
         title: merge_request
             .title
-            .unwrap_or_else(|| format!("Merge Request !{}", merge_request.iid)),
+            .unwrap_or_else(|| format!("Merge Request !{number}")),
         url: merge_request
             .web_url
-            .unwrap_or_else(|| format!("{}/-/merge_requests/{}", repo.web_base_url, merge_request.iid)),
+            .unwrap_or_else(|| format!("{}/-/merge_requests/{number}", repo.web_base_url)),
         state: match merge_request.state.as_deref() {
             Some("merged") => ForgeReviewState::Merged,
             Some("closed") => ForgeReviewState::Closed,
             _ => ForgeReviewState::Open,
         },
-        draft: merge_request.is_draft(),
+        draft,
         source_branch: merge_request.source_branch,
         target_branch: merge_request.target_branch,
     }

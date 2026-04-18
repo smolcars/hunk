@@ -2,7 +2,10 @@ use anyhow::Result;
 
 use crate::github::GitHubReviewClient;
 use crate::gitlab::GitLabReviewClient;
-use crate::models::{CreateReviewInput, CreateReviewResult, ForgeProvider, ForgeRepoRef, OpenReviewQuery, OpenReviewSummary};
+use crate::models::{
+    CreateReviewInput, CreateReviewResult, ForgeProvider, ForgeRepoRef, OpenReviewQuery,
+    OpenReviewSummary,
+};
 
 #[derive(Debug)]
 pub enum ForgeReviewClient {

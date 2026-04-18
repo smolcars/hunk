@@ -28,7 +28,11 @@ impl GitHubReviewClient {
 
     pub fn for_repo(repo: &crate::models::ForgeRepoRef, token: &str) -> Result<Self> {
         validate_github_repo(repo.provider)?;
-        Self::new_with_scheme(scheme_from_web_base_url(repo.web_base_url.as_str()), repo.authority.as_str(), token)
+        Self::new_with_scheme(
+            scheme_from_web_base_url(repo.web_base_url.as_str()),
+            repo.authority.as_str(),
+            token,
+        )
     }
 
     fn new_with_scheme(scheme: &str, authority: &str, token: &str) -> Result<Self> {
@@ -84,8 +88,11 @@ impl GitHubReviewClient {
         let pull_request = self.run(async move {
             let octocrab = self.build_octocrab()?;
             let pulls = octocrab.pulls(owner, repo_name);
-            let head =
-                github_create_head(Some(source_head_owner.as_str()), owner, source_branch.as_str());
+            let head = github_create_head(
+                Some(source_head_owner.as_str()),
+                owner,
+                source_branch.as_str(),
+            );
             let mut request = pulls.create(title, head, target_branch);
             if let Some(body) = body.as_deref() {
                 request = request.body(body);
