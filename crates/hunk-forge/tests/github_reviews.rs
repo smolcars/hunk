@@ -4,13 +4,16 @@ use hunk_forge::{CreateReviewInput, ForgeProvider, ForgeRepoRef, GitHubReviewCli
 
 #[test]
 fn github_api_base_url_matches_host_type() {
-    assert_eq!(github_api_base_url("github.com"), "https://api.github.com");
     assert_eq!(
-        github_api_base_url("github.company.internal"),
+        github_api_base_url("https", "github.com"),
+        "https://api.github.com"
+    );
+    assert_eq!(
+        github_api_base_url("https", "github.company.internal"),
         "https://github.company.internal/api/v3"
     );
     assert_eq!(
-        github_api_base_url("github.company.internal:8443"),
+        github_api_base_url("https", "github.company.internal:8443"),
         "https://github.company.internal:8443/api/v3"
     );
 }
@@ -26,7 +29,7 @@ fn github_client_rejects_non_github_repo_requests() {
     let client = GitHubReviewClient::new("github.com", "token").expect("client");
     let err = client
         .create_review(&CreateReviewInput {
-            repo: ForgeRepoRef {
+            base_repo: ForgeRepoRef {
                 provider: ForgeProvider::GitLab,
                 host: "gitlab.com".to_string(),
                 authority: "gitlab.com".to_string(),
@@ -35,8 +38,8 @@ fn github_client_rejects_non_github_repo_requests() {
                 path: "example-group/hunk".to_string(),
                 web_base_url: "https://gitlab.com/example-group/hunk".to_string(),
             },
+            head_repo: github_repo(),
             source_branch: "feature/forge".to_string(),
-            source_head_owner: None,
             target_branch: "main".to_string(),
             title: "Forge PR".to_string(),
             body: Some("Body".to_string()),

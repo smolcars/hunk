@@ -182,6 +182,52 @@ impl DiffViewer {
             .into_any_element()
     }
 
+    fn render_forge_auth_header_controls(
+        &self,
+        view: Entity<Self>,
+        repo: &hunk_forge::ForgeRepoRef,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if repo.provider == hunk_forge::ForgeProvider::GitHub
+            && self.current_git_workspace_github_dot_com_repo() == Some(repo)
+        {
+            return self.render_github_auth_header_controls(view, repo, cx);
+        }
+
+        let button_label = match repo.provider {
+            hunk_forge::ForgeProvider::GitHub => "Enter GitHub Token",
+            hunk_forge::ForgeProvider::GitLab => "Enter GitLab Token",
+        };
+        let icon = match repo.provider {
+            hunk_forge::ForgeProvider::GitHub => IconName::Github,
+            hunk_forge::ForgeProvider::GitLab => IconName::GitBranch,
+        };
+
+        h_flex()
+            .items_center()
+            .justify_end()
+            .gap_1p5()
+            .flex_wrap()
+            .child({
+                let view = view.clone();
+                let repo = repo.clone();
+                Button::new("git-forge-token-open")
+                    .outline()
+                    .compact()
+                    .with_size(gpui_component::Size::Small)
+                    .rounded(px(8.0))
+                    .icon(Icon::new(icon).size(px(12.0)))
+                    .label(button_label)
+                    .disabled(self.git_rail_controls_busy())
+                    .on_click(move |_, window, cx| {
+                        view.update(cx, |this, cx| {
+                            this.open_forge_token_dialog_for_repo(repo.clone(), window, cx);
+                        });
+                    })
+            })
+            .into_any_element()
+    }
+
     fn render_github_auth_header_controls(
         &self,
         view: Entity<Self>,
@@ -388,7 +434,7 @@ impl DiffViewer {
                                     let repo = repo_for_menu.clone();
                                     move |_, window, cx| {
                                         view.update(cx, |this, cx| {
-                                            this.open_github_token_dialog_for_repo(
+                                            this.open_forge_token_dialog_for_repo(
                                                 repo.clone(),
                                                 window,
                                                 cx,
