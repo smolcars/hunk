@@ -70,6 +70,10 @@ impl DiffViewer {
             .then_some(repo)
     }
 
+    pub(super) fn current_git_workspace_forge_repo(&self) -> Option<&ForgeRepoRef> {
+        self.git_workspace_forge_repo.as_ref()
+    }
+
     pub(super) fn pending_github_device_flow_prompt_for_repo(
         &self,
         repo: &ForgeRepoRef,
@@ -83,7 +87,7 @@ impl DiffViewer {
         &self,
         repo: &ForgeRepoRef,
     ) -> Option<(String, String, Option<String>)> {
-        let resolved = self.resolved_github_credential_for_repo(repo)?;
+        let resolved = self.resolved_forge_credential_for_repo(repo)?;
         let credential = self
             .config
             .forge_credentials
@@ -98,14 +102,15 @@ impl DiffViewer {
         })
     }
 
-    pub(super) fn open_github_token_dialog_for_repo(
+    pub(super) fn open_forge_token_dialog_for_repo(
         &mut self,
         repo: ForgeRepoRef,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let token_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("GitHub personal access token")
+            InputState::new(window, cx)
+                .placeholder(format!("{} personal access token", forge_provider_label(repo.provider)))
         });
         let description = format!("Save a personal access token for {}.", repo.path);
         let host_hint = format!("Host: {}", repo.host);
@@ -114,7 +119,10 @@ impl DiffViewer {
         gpui_component::WindowExt::open_alert_dialog(window, cx, move |alert, _, cx| {
             alert
                 .width(px(520.0))
-                .title("GitHub Personal Access Token")
+                .title(format!(
+                    "{} Personal Access Token",
+                    forge_provider_label(repo.provider)
+                ))
                 .description(description.clone())
                 .child(
                     v_flex()
@@ -153,7 +161,7 @@ impl DiffViewer {
                             h_flex()
                                 .gap_2()
                                 .child(
-                                    Button::new("github-token-cancel")
+                                    Button::new("forge-token-cancel")
                                         .label("Cancel")
                                         .outline()
                                         .on_click(|_, window, cx| {
@@ -161,7 +169,7 @@ impl DiffViewer {
                                         }),
                                 )
                                 .child(
-                                    Button::new("github-token-save")
+                                    Button::new("forge-token-save")
                                         .label("Save Token")
                                         .primary()
                                         .on_click({
@@ -172,7 +180,7 @@ impl DiffViewer {
                                                 let token =
                                                     token_input.read(cx).value().to_string();
                                                 let result = view.update(cx, |this, cx| {
-                                                    this.save_github_token_for_repo(
+                                                    this.save_forge_token_for_repo(
                                                         &repo,
                                                         token.as_str(),
                                                         cx,
@@ -198,7 +206,7 @@ impl DiffViewer {
         });
     }
 
-    pub(super) fn save_github_token_for_repo(
+    pub(super) fn save_forge_token_for_repo(
         &mut self,
         repo: &ForgeRepoRef,
         token: &str,
@@ -206,25 +214,29 @@ impl DiffViewer {
     ) -> Result<(), String> {
         let token = token.trim();
         if token.is_empty() {
-            return Err("GitHub token is required.".to_string());
+            return Err(format!("{} token is required.", forge_provider_label(repo.provider)));
         }
 
         let credential_id = self
-            .remember_github_token_for_repo(repo, token)
-            .ok_or_else(|| "GitHub token is required.".to_string())?;
+            .remember_forge_token_for_repo(repo, token)
+            .ok_or_else(|| format!("{} token is required.", forge_provider_label(repo.provider)))?;
         if let Err(err) = save_forge_secret(credential_id.as_str(), token) {
             error!(
-                "failed to save GitHub token for credential {}: {err:#}",
+                "failed to save {} token for credential {}: {err:#}",
+                forge_provider_log_label(repo.provider),
                 credential_id
             );
             Self::push_warning_notification(
-                "GitHub token could not be saved to the system credential store. It will only be available in this Hunk session.".to_string(),
+                format!(
+                    "{} token could not be saved to the system credential store. It will only be available in this Hunk session.",
+                    forge_provider_label(repo.provider)
+                ),
                 None,
                 cx,
             );
         }
 
-        let message = format!("Saved GitHub token for {}", repo.path);
+        let message = format!("Saved {} token for {}", forge_provider_label(repo.provider), repo.path);
         self.git_status_message = Some(message.clone());
         Self::push_success_notification(message, cx);
         self.refresh_selected_git_workspace_review_summary_after_auth_change(repo, cx);
@@ -552,10 +564,7 @@ fn complete_github_device_sign_in(
                 sleep_until_next_poll(deadline, poll_interval_secs);
             }
             GitHubDeviceFlowPoll::Complete(token) => {
-                let client = GitHubReviewClient::new(
-                    repo.authority.as_str(),
-                    token.access_token.as_str(),
-                )?;
+                let client = GitHubReviewClient::for_repo(&repo, token.access_token.as_str())?;
                 let account = client.current_user()?;
                 return Ok(GitHubDeviceSignInResult {
                     repo,

@@ -23,7 +23,7 @@ struct AiGitProgressEvent {
 
 #[derive(Debug, Clone)]
 enum AiOpenPrOutcome {
-    GitHubDialog {
+    ForgeDialog {
         committed_subject: Option<String>,
         repo_root: PathBuf,
         branch_name: String,
@@ -1212,8 +1212,12 @@ impl DiffViewer {
                         Some(review_title.clone()),
                     );
 
-                    if review_remote.provider == hunk_git::config::ReviewProviderKind::GitHub {
-                        return Ok(AiOpenPrOutcome::GitHubDialog {
+                    if matches!(
+                        review_remote.provider,
+                        hunk_git::config::ReviewProviderKind::GitHub
+                            | hunk_git::config::ReviewProviderKind::GitLab
+                    ) {
+                        return Ok(AiOpenPrOutcome::ForgeDialog {
                             committed_subject,
                             repo_root: repo_root.clone(),
                             branch_name: review_branch_name,
@@ -1247,14 +1251,14 @@ impl DiffViewer {
 
                 this.finish_git_action();
                 match result {
-                    Ok(AiOpenPrOutcome::GitHubDialog {
+                    Ok(AiOpenPrOutcome::ForgeDialog {
                         committed_subject,
                         repo_root,
                         branch_name,
                         review_title,
                     }) => {
                         debug!(
-                            "git action complete: epoch={} action=Open PR exec_elapsed_ms={} total_elapsed_ms={} branch={} mode={:?} provider=github",
+                            "git action complete: epoch={} action=Open PR exec_elapsed_ms={} total_elapsed_ms={} branch={} mode={:?} provider=dialog",
                             epoch,
                             execution_elapsed.as_millis(),
                             total_elapsed.as_millis(),
@@ -1271,7 +1275,7 @@ impl DiffViewer {
                         cx.defer(move |cx| {
                             let result = cx.update_window(window_handle, |_, window, cx| {
                                 view.update(cx, |this, cx| {
-                                    if !this.should_use_github_review_dialog_for_branch(
+                                    if !this.should_use_forge_review_dialog_for_branch(
                                         repo_root.as_path(),
                                         branch_name.as_str(),
                                     ) {
@@ -1280,8 +1284,8 @@ impl DiffViewer {
                                             ReviewUrlAction::Open,
                                             cx,
                                         );
-                                    } else if let Err(err) = this.open_github_review_dialog_for_branch(
-                                        GitHubReviewOpenDialogRequest {
+                                    } else if let Err(err) = this.open_forge_review_dialog_for_branch(
+                                        ForgeReviewOpenDialogRequest {
                                             repo_root: repo_root.clone(),
                                             branch_name: branch_name.clone(),
                                             title: review_title.clone(),
@@ -1294,7 +1298,7 @@ impl DiffViewer {
                                         this.set_git_warning_message(err, Some(window), cx);
                                     } else {
                                         this.git_status_message = Some(format!(
-                                            "Ready to create GitHub PR for {}",
+                                            "Ready to create PR/MR for {}",
                                             branch_name
                                         ));
                                         cx.notify();
@@ -1302,7 +1306,7 @@ impl DiffViewer {
                                 });
                             });
                             if let Err(err) = result {
-                                error!("failed to open GitHub PR dialog: {err:#}");
+                                error!("failed to open forge review dialog: {err:#}");
                                 let summary = err.to_string();
                                 view.update(cx, |this, cx| {
                                     this.git_status_message =

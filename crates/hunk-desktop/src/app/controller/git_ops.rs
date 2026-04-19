@@ -1036,13 +1036,13 @@ impl DiffViewer {
         };
         let branch_name = self.git_workspace.branch_name.clone();
         let review_title = self.preferred_review_title_for_branch(branch_name.as_str());
-        if !self.should_use_github_review_dialog_for_branch(repo_root.as_path(), branch_name.as_str())
+        if !self.should_use_forge_review_dialog_for_branch(repo_root.as_path(), branch_name.as_str())
         {
             self.run_review_url_action_for_branch(branch_name, ReviewUrlAction::Open, cx);
             return;
         }
-        match self.open_github_review_dialog_for_branch(
-            GitHubReviewOpenDialogRequest {
+        match self.open_forge_review_dialog_for_branch(
+            ForgeReviewOpenDialogRequest {
                 repo_root,
                 branch_name: branch_name.clone(),
                 title: review_title,
@@ -1080,7 +1080,7 @@ impl DiffViewer {
                 self.cached_review_summary_for_branch(repo_root.as_path(), self.git_workspace.branch_name.as_str())
         {
             cx.write_to_clipboard(ClipboardItem::new_string(review.url.clone()));
-            let message = format!("Copied PR URL for {}", self.git_workspace.branch_name);
+            let message = format!("Copied PR/MR URL for {}", self.git_workspace.branch_name);
             self.git_status_message = Some(message.clone());
             Self::push_success_notification(message, cx);
             cx.notify();

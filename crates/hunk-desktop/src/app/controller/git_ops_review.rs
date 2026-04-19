@@ -5,11 +5,12 @@ enum ReviewUrlAction {
 }
 
 #[derive(Debug, Clone)]
-struct GitHubReviewDialogContext {
+struct ForgeReviewDialogContext {
     repo_root: PathBuf,
+    provider: hunk_forge::ForgeProvider,
     review_remote: ReviewRemote,
     base_repo: ForgeRepoRef,
-    source_head_owner: String,
+    head_repo: ForgeRepoRef,
     source_branch: String,
     target_branch: String,
     title: String,
@@ -18,14 +19,14 @@ struct GitHubReviewDialogContext {
 }
 
 #[derive(Debug, Clone)]
-struct GitHubReviewDialogValues {
+struct ForgeReviewDialogValues {
     target_branch: String,
     title: String,
     body: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct GitHubReviewOpenDialogRequest {
+struct ForgeReviewOpenDialogRequest {
     repo_root: PathBuf,
     branch_name: String,
     title: String,
@@ -34,7 +35,7 @@ struct GitHubReviewOpenDialogRequest {
 }
 
 #[derive(Debug, Clone)]
-struct GitHubReviewOperationResult {
+struct ForgeReviewOperationResult {
     review: OpenReviewSummary,
     repo_root: PathBuf,
     source_branch: String,
@@ -43,29 +44,32 @@ struct GitHubReviewOperationResult {
 }
 
 #[derive(Debug, Clone)]
-struct ResolvedGitHubReviewRepos {
+struct ResolvedForgeReviewRepos {
     review_remote: ReviewRemote,
     base_repo: ForgeRepoRef,
-    source_head_owner: String,
+    head_repo: ForgeRepoRef,
 }
 
 const GITHUB_TOKEN_ENV_KEYS: &[&str] = &["HUNK_GITHUB_TOKEN", "GITHUB_TOKEN"];
+const GITLAB_TOKEN_ENV_KEYS: &[&str] = &["HUNK_GITLAB_TOKEN", "GITLAB_TOKEN"];
 
 #[derive(Debug, Clone)]
-enum GitHubTokenSource {
+enum ForgeTokenSource {
     Immediate(String),
     StoredCredential(String),
 }
 
-fn resolve_github_token_source(
-    token_source: GitHubTokenSource,
+fn resolve_forge_token_source(
+    provider: hunk_forge::ForgeProvider,
+    token_source: ForgeTokenSource,
 ) -> anyhow::Result<(String, Option<(String, String)>)> {
     match token_source {
-        GitHubTokenSource::Immediate(token) => Ok((token, None)),
-        GitHubTokenSource::StoredCredential(credential_id) => {
+        ForgeTokenSource::Immediate(token) => Ok((token, None)),
+        ForgeTokenSource::StoredCredential(credential_id) => {
             let token = load_forge_secret(credential_id.as_str())?.ok_or_else(|| {
                 anyhow::anyhow!(
-                    "No saved GitHub token found for the selected credential. Enter a token to continue."
+                    "No saved {} token found for the selected credential. Enter a token to continue.",
+                    forge_provider_label(provider)
                 )
             })?;
             Ok((token.clone(), Some((credential_id, token))))
@@ -207,7 +211,7 @@ impl DiffViewer {
             .collect()
     }
 
-    fn resolved_github_credential_for_repo(
+    fn resolved_forge_credential_for_repo(
         &self,
         repo: &ForgeRepoRef,
     ) -> Option<hunk_forge::ResolvedForgeCredential> {
@@ -218,19 +222,26 @@ impl DiffViewer {
         )
     }
 
-    fn configured_github_credential_count_for_host(&self, host: &str) -> usize {
+    fn configured_forge_credential_count_for_host(
+        &self,
+        provider: hunk_forge::ForgeProvider,
+        host: &str,
+    ) -> usize {
         self.config
             .forge_credentials
             .iter()
             .filter(|credential| {
-                credential.provider == hunk_domain::config::ReviewProviderKind::GitHub
-                    && credential.host == host
+                credential.provider == review_provider_kind(provider) && credential.host == host
             })
             .count()
     }
 
-    fn has_configured_github_credentials_for_host(&self, host: &str) -> bool {
-        self.configured_github_credential_count_for_host(host) > 0
+    fn has_configured_forge_credentials_for_host(
+        &self,
+        provider: hunk_forge::ForgeProvider,
+        host: &str,
+    ) -> bool {
+        self.configured_forge_credential_count_for_host(provider, host) > 0
     }
 
     fn forge_token_for_credential(&self, credential_id: &str) -> Option<String> {
@@ -252,24 +263,24 @@ impl DiffViewer {
         Ok(token)
     }
 
-    fn github_token_source_for_repo(&self, repo: &ForgeRepoRef) -> Option<GitHubTokenSource> {
-        if let Some(resolved) = self.resolved_github_credential_for_repo(repo) {
+    fn forge_token_source_for_repo(&self, repo: &ForgeRepoRef) -> Option<ForgeTokenSource> {
+        if let Some(resolved) = self.resolved_forge_credential_for_repo(repo) {
             if let Some(token) = self.forge_token_for_credential(resolved.credential_id.as_str()) {
-                return Some(GitHubTokenSource::Immediate(token));
+                return Some(ForgeTokenSource::Immediate(token));
             }
-            return Some(GitHubTokenSource::StoredCredential(resolved.credential_id));
+            return Some(ForgeTokenSource::StoredCredential(resolved.credential_id));
         }
-        if self.has_configured_github_credentials_for_host(repo.host.as_str()) {
+        if self.has_configured_forge_credentials_for_host(repo.provider, repo.host.as_str()) {
             return None;
         }
-        GITHUB_TOKEN_ENV_KEYS
+        forge_token_env_keys(repo.provider)
             .iter()
             .find_map(|key| std::env::var(key).ok().filter(|value| !value.trim().is_empty()))
-            .map(GitHubTokenSource::Immediate)
+            .map(ForgeTokenSource::Immediate)
     }
 
-    fn has_github_auth_for_repo(&mut self, repo: &ForgeRepoRef) -> bool {
-        if let Some(resolved) = self.resolved_github_credential_for_repo(repo) {
+    fn has_forge_auth_for_repo(&mut self, repo: &ForgeRepoRef) -> bool {
+        if let Some(resolved) = self.resolved_forge_credential_for_repo(repo) {
             if self
                 .forge_token_for_credential(resolved.credential_id.as_str())
                 .is_some()
@@ -284,11 +295,11 @@ impl DiffViewer {
                 .is_some();
         }
 
-        if self.has_configured_github_credentials_for_host(repo.host.as_str()) {
+        if self.has_configured_forge_credentials_for_host(repo.provider, repo.host.as_str()) {
             return false;
         }
 
-        GITHUB_TOKEN_ENV_KEYS.iter().any(|key| {
+        forge_token_env_keys(repo.provider).iter().any(|key| {
             std::env::var(key)
                 .ok()
                 .filter(|value| !value.trim().is_empty())
@@ -296,29 +307,25 @@ impl DiffViewer {
         })
     }
 
-    pub(super) fn should_use_github_review_dialog_for_branch(
+    pub(super) fn should_use_forge_review_dialog_for_branch(
         &mut self,
         repo_root: &std::path::Path,
         branch_name: &str,
     ) -> bool {
-        let Ok(resolved_repos) = self.resolve_github_review_repos_for_branch(repo_root, branch_name) else {
+        let Ok(resolved_repos) = self.resolve_forge_review_repos_for_branch(repo_root, branch_name) else {
             return false;
         };
 
-        self.has_github_auth_for_repo(&resolved_repos.base_repo)
+        self.has_forge_auth_for_repo(&resolved_repos.base_repo)
     }
 
-    fn create_default_github_credential(&mut self, repo: &ForgeRepoRef) -> String {
-        let credential_id = next_forge_credential_id(
-            hunk_forge::ForgeProvider::GitHub,
-            repo.host.as_str(),
-            "default",
-        );
+    fn create_default_forge_credential(&mut self, repo: &ForgeRepoRef) -> String {
+        let credential_id = next_forge_credential_id(repo.provider, repo.host.as_str(), "default");
         self.config
             .forge_credentials
             .push(hunk_domain::config::ForgeCredentialConfig {
                 id: credential_id.clone(),
-                provider: hunk_domain::config::ReviewProviderKind::GitHub,
+                provider: review_provider_kind(repo.provider),
                 host: repo.host.clone(),
                 kind: hunk_domain::config::ForgeCredentialKind::PersonalAccessToken,
                 account_label: "default".to_string(),
@@ -329,17 +336,14 @@ impl DiffViewer {
         credential_id
     }
 
-    fn create_repo_bound_github_credential(&mut self, repo: &ForgeRepoRef) -> String {
-        let credential_id = next_forge_credential_id(
-            hunk_forge::ForgeProvider::GitHub,
-            repo.host.as_str(),
-            repo.path.as_str(),
-        );
+    fn create_repo_bound_forge_credential(&mut self, repo: &ForgeRepoRef) -> String {
+        let credential_id =
+            next_forge_credential_id(repo.provider, repo.host.as_str(), repo.path.as_str());
         self.config
             .forge_credentials
             .push(hunk_domain::config::ForgeCredentialConfig {
                 id: credential_id.clone(),
-                provider: hunk_domain::config::ReviewProviderKind::GitHub,
+                provider: review_provider_kind(repo.provider),
                 host: repo.host.clone(),
                 kind: hunk_domain::config::ForgeCredentialKind::PersonalAccessToken,
                 account_label: repo.path.clone(),
@@ -347,14 +351,14 @@ impl DiffViewer {
                 is_default_for_host: false,
             });
         self.config.forge_repo_credential_bindings.retain(|binding| {
-            !(binding.provider == hunk_domain::config::ReviewProviderKind::GitHub
+            !(binding.provider == review_provider_kind(repo.provider)
                 && binding.host == repo.host
                 && binding.repo_path == repo.path)
         });
         self.config
             .forge_repo_credential_bindings
             .push(hunk_domain::config::ForgeRepoCredentialBindingConfig {
-                provider: hunk_domain::config::ReviewProviderKind::GitHub,
+                provider: review_provider_kind(repo.provider),
                 host: repo.host.clone(),
                 repo_path: repo.path.clone(),
                 credential_id: credential_id.clone(),
@@ -363,14 +367,15 @@ impl DiffViewer {
         credential_id
     }
 
-    fn remember_github_token_for_repo(&mut self, repo: &ForgeRepoRef, token: &str) -> Option<String> {
+    fn remember_forge_token_for_repo(&mut self, repo: &ForgeRepoRef, token: &str) -> Option<String> {
         let token = token.trim();
         if token.is_empty() {
             return None;
         }
 
-        let resolved = self.resolved_github_credential_for_repo(repo);
-        let configured_credential_count = self.configured_github_credential_count_for_host(repo.host.as_str());
+        let resolved = self.resolved_forge_credential_for_repo(repo);
+        let configured_credential_count =
+            self.configured_forge_credential_count_for_host(repo.provider, repo.host.as_str());
         let credential_id = match resolved {
             Some(resolved) if resolved.resolution == ForgeCredentialResolution::RepoBinding => {
                 resolved.credential_id
@@ -395,11 +400,11 @@ impl DiffViewer {
                 if existing_token.is_none() || existing_token.as_deref() == Some(token) {
                     resolved.credential_id
                 } else {
-                    self.create_repo_bound_github_credential(repo)
+                    self.create_repo_bound_forge_credential(repo)
                 }
             }
-            None if configured_credential_count == 0 => self.create_default_github_credential(repo),
-            None => self.create_repo_bound_github_credential(repo),
+            None if configured_credential_count == 0 => self.create_default_forge_credential(repo),
+            None => self.create_repo_bound_forge_credential(repo),
         };
 
         self.forge_tokens_by_credential_id
@@ -429,11 +434,11 @@ impl DiffViewer {
         resolved
     }
 
-    fn resolve_github_review_repos_for_branch(
+    fn resolve_forge_review_repos_for_branch(
         &self,
         repo_root: &std::path::Path,
         branch_name: &str,
-    ) -> Result<ResolvedGitHubReviewRepos, String> {
+    ) -> Result<ResolvedForgeReviewRepos, String> {
         let provider_mappings = self.config.review_provider_mappings.clone();
         let review_remote = review_remote_for_branch_with_provider_map(
             repo_root,
@@ -443,10 +448,6 @@ impl DiffViewer {
         .map_err(|err| err.to_string())?
         .ok_or_else(|| "No review remote found for the active branch.".to_string())?;
 
-        if review_remote.provider != hunk_git::config::ReviewProviderKind::GitHub {
-            return Err("In-app PR creation is currently implemented for GitHub only.".to_string());
-        }
-
         let head_repo = ForgeRepoRef::try_from(&review_remote).map_err(|err| err.to_string())?;
         let base_remote = review_remote_for_named_remote_with_provider_map(
             repo_root,
@@ -455,17 +456,16 @@ impl DiffViewer {
         )
         .map_err(|err| err.to_string())?
         .filter(|candidate| {
-            candidate.provider == hunk_git::config::ReviewProviderKind::GitHub
+            candidate.provider == review_remote.provider
                 && candidate.repository_path != review_remote.repository_path
         })
         .unwrap_or_else(|| review_remote.clone());
         let base_repo = ForgeRepoRef::try_from(&base_remote).map_err(|err| err.to_string())?;
-        let source_head_owner = head_repo.github_owner().map_err(|err| err.to_string())?;
 
-        Ok(ResolvedGitHubReviewRepos {
+        Ok(ResolvedForgeReviewRepos {
             review_remote: base_remote,
             base_repo,
-            source_head_owner: source_head_owner.to_string(),
+            head_repo,
         })
     }
 
@@ -529,11 +529,11 @@ impl DiffViewer {
         }
 
         let Ok(resolved_repos) =
-            self.resolve_github_review_repos_for_branch(repo_root.as_path(), normalized_branch)
+            self.resolve_forge_review_repos_for_branch(repo_root.as_path(), normalized_branch)
         else {
             return;
         };
-        let Some(token_source) = self.github_token_source_for_repo(&resolved_repos.base_repo) else {
+        let Some(token_source) = self.forge_token_source_for_repo(&resolved_repos.base_repo) else {
             return;
         };
 
@@ -544,13 +544,13 @@ impl DiffViewer {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let (token, token_cache_entry) = resolve_github_token_source(token_source)?;
-                    let client =
-                        GitHubReviewClient::new(resolved_repos.base_repo.authority.as_str(), token.as_str())?;
+                    let (token, token_cache_entry) =
+                        resolve_forge_token_source(resolved_repos.base_repo.provider, token_source)?;
+                    let client = ForgeReviewClient::new(&resolved_repos.base_repo, token.as_str())?;
                     let review = client.find_open_review(&OpenReviewQuery {
-                        repo: resolved_repos.base_repo,
+                        base_repo: resolved_repos.base_repo,
+                        head_repo: resolved_repos.head_repo,
                         source_branch: source_branch.clone(),
-                        source_head_owner: Some(resolved_repos.source_head_owner),
                         target_branch: None,
                     })?;
                     Ok::<_, anyhow::Error>((review, token_cache_entry))
@@ -583,30 +583,31 @@ impl DiffViewer {
         });
     }
 
-    fn submit_github_review_dialog(
+    fn submit_forge_review_dialog(
         &mut self,
-        context: GitHubReviewDialogContext,
-        values: GitHubReviewDialogValues,
+        context: ForgeReviewDialogContext,
+        values: ForgeReviewDialogValues,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let token_source = self
-            .github_token_source_for_repo(&context.base_repo)
-            .ok_or_else(|| {
-                "GitHub auth is required. Use the GitHub control in the Git tab to sign in or enter a token first.".to_string()
-            })?;
+            .forge_token_source_for_repo(&context.base_repo)
+            .ok_or_else(|| forge_auth_required_message(context.provider))?;
         let target_branch = values.target_branch.trim();
         if target_branch.is_empty() {
             return Err("Base branch is required.".to_string());
         }
         let title = values.title.trim();
         if title.is_empty() {
-            return Err("Pull request title is required.".to_string());
+            return Err(format!(
+                "{} title is required.",
+                forge_review_kind_label(context.provider)
+            ));
         }
         if target_branch == context.source_branch {
             return Err("Base branch must differ from the source branch.".to_string());
         }
-        self.run_github_review_lookup_or_create(
-            GitHubReviewDialogContext {
+        self.run_forge_review_lookup_or_create(
+            ForgeReviewDialogContext {
                 target_branch: target_branch.to_string(),
                 title: title.to_string(),
                 body: values.body,
@@ -618,34 +619,32 @@ impl DiffViewer {
         Ok(())
     }
 
-    fn run_github_review_lookup_or_create(
+    fn run_forge_review_lookup_or_create(
         &mut self,
-        context: GitHubReviewDialogContext,
-        token_source: GitHubTokenSource,
+        context: ForgeReviewDialogContext,
+        token_source: ForgeTokenSource,
         cx: &mut Context<Self>,
     ) {
         let epoch = self.begin_git_action(context.action_label.clone(), cx);
         let started_at = Instant::now();
+        let provider = context.provider;
         self.git_action_task = cx.spawn(async move |this, cx| {
             let (execution_elapsed, result) = cx
                 .background_executor()
                 .spawn(async move {
                     let execution_started_at = Instant::now();
-                    let result = (|| -> anyhow::Result<GitHubReviewOperationResult> {
-                        let (token, token_cache_entry) = resolve_github_token_source(token_source)?;
-                        let client =
-                            GitHubReviewClient::new(
-                                context.base_repo.authority.as_str(),
-                                token.as_str(),
-                            )?;
+                    let result = (|| -> anyhow::Result<ForgeReviewOperationResult> {
+                        let (token, token_cache_entry) =
+                            resolve_forge_token_source(provider, token_source)?;
+                        let client = ForgeReviewClient::new(&context.base_repo, token.as_str())?;
                         let existing = client.find_open_review(&OpenReviewQuery {
-                            repo: context.base_repo.clone(),
+                            base_repo: context.base_repo.clone(),
+                            head_repo: context.head_repo.clone(),
                             source_branch: context.source_branch.clone(),
-                            source_head_owner: Some(context.source_head_owner.clone()),
                             target_branch: Some(context.target_branch.clone()),
                         })?;
                         if let Some(review) = existing {
-                            return Ok(GitHubReviewOperationResult {
+                            return Ok(ForgeReviewOperationResult {
                                 review,
                                 repo_root: context.repo_root.clone(),
                                 source_branch: context.source_branch.clone(),
@@ -655,15 +654,15 @@ impl DiffViewer {
                         }
 
                         let created = client.create_review(&CreateReviewInput {
-                            repo: context.base_repo,
+                            base_repo: context.base_repo,
+                            head_repo: context.head_repo,
                             source_branch: context.source_branch.clone(),
-                            source_head_owner: Some(context.source_head_owner),
                             target_branch: context.target_branch,
                             title: context.title,
                             body: context.body,
                             draft: false,
                         })?;
-                        Ok(GitHubReviewOperationResult {
+                        Ok(ForgeReviewOperationResult {
                             review: created.review,
                             repo_root: context.repo_root,
                             source_branch: context.source_branch,
@@ -689,8 +688,9 @@ impl DiffViewer {
                                 this.forge_tokens_by_credential_id.insert(credential_id, token);
                             }
                             debug!(
-                                "github review action complete: epoch={} branch={} existed={} lookup_elapsed_ms={} total_elapsed_ms={}",
+                                "forge review action complete: epoch={} provider={} branch={} existed={} lookup_elapsed_ms={} total_elapsed_ms={}",
                                 epoch,
+                                forge_provider_log_label(result.review.provider),
                                 result.source_branch,
                                 result.existed,
                                 execution_elapsed.as_millis(),
@@ -703,13 +703,19 @@ impl DiffViewer {
                             );
                             let message = if result.existed {
                                 format!(
-                                    "Using existing GitHub PR #{} for {}",
-                                    result.review.number, result.source_branch
+                                    "Using existing {} {} #{} for {}",
+                                    forge_provider_label(result.review.provider),
+                                    forge_review_short_label(result.review.provider),
+                                    result.review.number,
+                                    result.source_branch
                                 )
                             } else {
                                 format!(
-                                    "Created GitHub PR #{} for {}",
-                                    result.review.number, result.source_branch
+                                    "Created {} {} #{} for {}",
+                                    forge_provider_label(result.review.provider),
+                                    forge_review_short_label(result.review.provider),
+                                    result.review.number,
+                                    result.source_branch
                                 )
                             };
                             this.git_status_message = Some(message.clone());
@@ -717,13 +723,18 @@ impl DiffViewer {
                         }
                         Err(err) => {
                             error!(
-                                "github review action failed: epoch={} err={err:#}",
-                                epoch
+                                "forge review action failed: epoch={} provider={} err={err:#}",
+                                epoch,
+                                forge_provider_log_label(provider)
                             );
                             let summary = err.to_string();
                             this.git_status_message = Some(format!("Git error: {err:#}"));
                             Self::push_error_notification(
-                                format!("GitHub pull request failed: {summary}"),
+                                format!(
+                                    "{} {} failed: {summary}",
+                                    forge_provider_label(provider),
+                                    forge_review_kind_label(provider)
+                                ),
                                 cx,
                             );
                         }
@@ -734,13 +745,16 @@ impl DiffViewer {
         });
     }
 
-    fn open_github_review_dialog(
+    fn open_forge_review_dialog(
         &mut self,
         window: &mut Window,
-        context: GitHubReviewDialogContext,
+        context: ForgeReviewDialogContext,
         cx: &mut Context<Self>,
     ) {
-        let title_input = cx.new(|cx| InputState::new(window, cx).placeholder("Pull request title"));
+        let title_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(format!("{} title", forge_review_kind_label(context.provider)))
+        });
         let base_branch_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Base branch"));
         let body_input = cx.new(|cx| {
@@ -769,9 +783,15 @@ impl DiffViewer {
             )
             .is_some()
             {
-                "Review the current pull request"
+                format!(
+                    "Review the current {}",
+                    forge_review_kind_label(context.provider).to_ascii_lowercase()
+                )
             } else {
-                "Create or find a pull request"
+                format!(
+                    "Create or find a {}",
+                    forge_review_kind_label(context.provider).to_ascii_lowercase()
+                )
             },
             context.source_branch,
             context.target_branch,
@@ -783,7 +803,11 @@ impl DiffViewer {
         gpui_component::WindowExt::open_alert_dialog(window, cx, move |alert, _, cx| {
             alert
                 .width(px(620.0))
-                .title("GitHub Pull Request")
+                .title(format!(
+                    "{} {}",
+                    forge_provider_label(context.provider),
+                    forge_review_kind_label(context.provider)
+                ))
                 .description(description.clone())
                 .child(
                     v_flex()
@@ -857,7 +881,7 @@ impl DiffViewer {
                         .justify_end()
                         .child(
                             h_flex().gap_2().child(
-                                Button::new("github-review-cancel")
+                                Button::new("forge-review-cancel")
                                     .label("Cancel")
                                     .outline()
                                     .on_click(|_, window, cx| {
@@ -866,8 +890,11 @@ impl DiffViewer {
                             ),
                         )
                         .child(
-                            Button::new("github-review-submit")
-                                .label("Find / Create PR")
+                            Button::new("forge-review-submit")
+                                .label(format!(
+                                    "Find / Create {}",
+                                    forge_review_short_label(context.provider)
+                                ))
                                 .primary()
                                 .on_click({
                                     let view = view.clone();
@@ -876,7 +903,7 @@ impl DiffViewer {
                                     let base_branch_input = base_branch_input.clone();
                                     let body_input = body_input.clone();
                                     move |_, window, cx| {
-                                        let values = GitHubReviewDialogValues {
+                                        let values = ForgeReviewDialogValues {
                                             target_branch: base_branch_input
                                                 .read(cx)
                                                 .value()
@@ -889,7 +916,7 @@ impl DiffViewer {
                                             },
                                         };
                                         let result = view.update(cx, |this, cx| {
-                                            this.submit_github_review_dialog(
+                                            this.submit_forge_review_dialog(
                                                 context.clone(),
                                                 values,
                                                 cx,
@@ -914,33 +941,31 @@ impl DiffViewer {
         });
     }
 
-    fn open_github_review_dialog_for_branch(
+    fn open_forge_review_dialog_for_branch(
         &mut self,
-        request: GitHubReviewOpenDialogRequest,
+        request: ForgeReviewOpenDialogRequest,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let resolved_repos = self.resolve_github_review_repos_for_branch(
+        let resolved_repos = self.resolve_forge_review_repos_for_branch(
             request.repo_root.as_path(),
             request.branch_name.as_str(),
         )?;
-        if self.github_token_source_for_repo(&resolved_repos.base_repo).is_none() {
-            return Err(
-                "GitHub auth is required. Use the GitHub control in the Git tab to sign in or enter a token first."
-                    .to_string(),
-            );
+        if self.forge_token_source_for_repo(&resolved_repos.base_repo).is_none() {
+            return Err(forge_auth_required_message(resolved_repos.base_repo.provider));
         }
         let target_branch = self.preferred_review_base_branch(
             request.repo_root.as_path(),
             request.branch_name.as_str(),
         );
-        self.open_github_review_dialog(
+        self.open_forge_review_dialog(
             window,
-            GitHubReviewDialogContext {
+            ForgeReviewDialogContext {
                 repo_root: request.repo_root,
+                provider: resolved_repos.base_repo.provider,
                 review_remote: resolved_repos.review_remote,
                 base_repo: resolved_repos.base_repo,
-                source_head_owner: resolved_repos.source_head_owner,
+                head_repo: resolved_repos.head_repo,
                 source_branch: request.branch_name,
                 target_branch,
                 title: request.title,
@@ -950,6 +975,61 @@ impl DiffViewer {
             cx,
         );
         Ok(())
+    }
+}
+
+fn review_provider_kind(
+    provider: hunk_forge::ForgeProvider,
+) -> hunk_domain::config::ReviewProviderKind {
+    match provider {
+        hunk_forge::ForgeProvider::GitHub => hunk_domain::config::ReviewProviderKind::GitHub,
+        hunk_forge::ForgeProvider::GitLab => hunk_domain::config::ReviewProviderKind::GitLab,
+    }
+}
+
+fn forge_provider_label(provider: hunk_forge::ForgeProvider) -> &'static str {
+    match provider {
+        hunk_forge::ForgeProvider::GitHub => "GitHub",
+        hunk_forge::ForgeProvider::GitLab => "GitLab",
+    }
+}
+
+fn forge_provider_log_label(provider: hunk_forge::ForgeProvider) -> &'static str {
+    match provider {
+        hunk_forge::ForgeProvider::GitHub => "github",
+        hunk_forge::ForgeProvider::GitLab => "gitlab",
+    }
+}
+
+fn forge_review_short_label(provider: hunk_forge::ForgeProvider) -> &'static str {
+    match provider {
+        hunk_forge::ForgeProvider::GitHub => "PR",
+        hunk_forge::ForgeProvider::GitLab => "MR",
+    }
+}
+
+fn forge_review_kind_label(provider: hunk_forge::ForgeProvider) -> &'static str {
+    match provider {
+        hunk_forge::ForgeProvider::GitHub => "Pull Request",
+        hunk_forge::ForgeProvider::GitLab => "Merge Request",
+    }
+}
+
+fn forge_token_env_keys(provider: hunk_forge::ForgeProvider) -> &'static [&'static str] {
+    match provider {
+        hunk_forge::ForgeProvider::GitHub => GITHUB_TOKEN_ENV_KEYS,
+        hunk_forge::ForgeProvider::GitLab => GITLAB_TOKEN_ENV_KEYS,
+    }
+}
+
+fn forge_auth_required_message(provider: hunk_forge::ForgeProvider) -> String {
+    match provider {
+        hunk_forge::ForgeProvider::GitHub => {
+            "GitHub auth is required. Use the GitHub control in the Git tab to sign in or enter a token first.".to_string()
+        }
+        hunk_forge::ForgeProvider::GitLab => {
+            "GitLab auth is required. Enter a personal access token in the Git tab first.".to_string()
+        }
     }
 }
 

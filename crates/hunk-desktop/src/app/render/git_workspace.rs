@@ -9,7 +9,7 @@ impl DiffViewer {
         } else {
             self.render_git_workspace_operations_panel(cx)
         };
-        let github_auth_repo = self.current_git_workspace_github_dot_com_repo().cloned();
+        let forge_auth_repo = self.current_git_workspace_forge_repo().cloned();
         let active_branch_label = self
             .checked_out_branch_name()
             .map_or_else(|| "detached".to_string(), ToOwned::to_owned);
@@ -88,8 +88,8 @@ impl DiffViewer {
                                     ),
                             ),
                     )
-                    .when_some(github_auth_repo, |this, repo| {
-                        this.child(self.render_github_auth_header_controls(
+                    .when_some(forge_auth_repo, |this, repo| {
+                        this.child(self.render_forge_auth_header_controls(
                             view.clone(),
                             &repo,
                             cx,

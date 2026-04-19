@@ -23,6 +23,19 @@ pub struct GitHubReviewClient {
 
 impl GitHubReviewClient {
     pub fn new(authority: &str, token: &str) -> Result<Self> {
+        Self::new_with_scheme("https", authority, token)
+    }
+
+    pub fn for_repo(repo: &crate::models::ForgeRepoRef, token: &str) -> Result<Self> {
+        validate_github_repo(repo.provider)?;
+        Self::new_with_scheme(
+            scheme_from_web_base_url(repo.web_base_url.as_str()),
+            repo.authority.as_str(),
+            token,
+        )
+    }
+
+    fn new_with_scheme(scheme: &str, authority: &str, token: &str) -> Result<Self> {
         let authority = authority.trim().trim_end_matches('/').to_ascii_lowercase();
         if authority.is_empty() {
             return Err(anyhow!("github authority cannot be empty"));
@@ -34,20 +47,16 @@ impl GitHubReviewClient {
         }
 
         Ok(Self {
-            api_base_url: github_api_base_url(authority.as_str()),
+            api_base_url: github_api_base_url(scheme, authority.as_str()),
             token: token.to_string(),
         })
     }
 
     pub fn find_open_review(&self, query: &OpenReviewQuery) -> Result<Option<OpenReviewSummary>> {
-        let (owner, repo_name) = github_owner_and_name(&query.repo)?;
-        let head_owner = query
-            .source_head_owner
-            .as_deref()
-            .filter(|owner| !owner.trim().is_empty())
-            .unwrap_or(owner);
+        let (owner, repo_name) = github_owner_and_name(&query.base_repo)?;
+        let head_owner = query.head_repo.github_owner()?;
         let head = format!("{head_owner}:{}", query.source_branch);
-        let repo_web_base_url = query.repo.web_base_url.clone();
+        let repo_web_base_url = query.base_repo.web_base_url.clone();
         let target_branch = query.target_branch.clone();
         let pull_requests = self.run(async move {
             let octocrab = self.build_octocrab()?;
@@ -68,19 +77,22 @@ impl GitHubReviewClient {
     }
 
     pub fn create_review(&self, input: &CreateReviewInput) -> Result<CreateReviewResult> {
-        let (owner, repo_name) = github_owner_and_name(&input.repo)?;
-        let repo_web_base_url = input.repo.web_base_url.clone();
+        let (owner, repo_name) = github_owner_and_name(&input.base_repo)?;
+        let repo_web_base_url = input.base_repo.web_base_url.clone();
         let title = input.title.clone();
         let source_branch = input.source_branch.clone();
-        let source_head_owner = input.source_head_owner.clone();
+        let source_head_owner = input.head_repo.github_owner()?.to_string();
         let target_branch = input.target_branch.clone();
         let body = input.body.clone();
         let draft = input.draft;
         let pull_request = self.run(async move {
             let octocrab = self.build_octocrab()?;
             let pulls = octocrab.pulls(owner, repo_name);
-            let head =
-                github_create_head(source_head_owner.as_deref(), owner, source_branch.as_str());
+            let head = github_create_head(
+                Some(source_head_owner.as_str()),
+                owner,
+                source_branch.as_str(),
+            );
             let mut request = pulls.create(title, head, target_branch);
             if let Some(body) = body.as_deref() {
                 request = request.body(body);
@@ -154,11 +166,19 @@ fn validate_github_repo(provider: ForgeProvider) -> Result<()> {
 }
 
 #[doc(hidden)]
-pub fn github_api_base_url(host: &str) -> String {
+pub fn github_api_base_url(scheme: &str, host: &str) -> String {
     if host == "github.com" {
-        "https://api.github.com".to_string()
+        format!("{scheme}://api.github.com")
     } else {
-        format!("https://{host}/api/v3")
+        format!("{scheme}://{host}/api/v3")
+    }
+}
+
+fn scheme_from_web_base_url(web_base_url: &str) -> &str {
+    if web_base_url.starts_with("http://") {
+        "http"
+    } else {
+        "https"
     }
 }
 

@@ -107,17 +107,17 @@ pub struct OpenReviewSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenReviewQuery {
-    pub repo: ForgeRepoRef,
+    pub base_repo: ForgeRepoRef,
+    pub head_repo: ForgeRepoRef,
     pub source_branch: String,
-    pub source_head_owner: Option<String>,
     pub target_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateReviewInput {
-    pub repo: ForgeRepoRef,
+    pub base_repo: ForgeRepoRef,
+    pub head_repo: ForgeRepoRef,
     pub source_branch: String,
-    pub source_head_owner: Option<String>,
     pub target_branch: String,
     pub title: String,
     pub body: Option<String>,

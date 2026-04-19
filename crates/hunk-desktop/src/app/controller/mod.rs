@@ -30,8 +30,8 @@ use super::data::{
 use super::*;
 use hunk_forge::{
     CreateReviewInput, ForgeCredentialKind, ForgeCredentialMetadata, ForgeCredentialResolution,
-    ForgeRepoCredentialBinding, ForgeRepoRef, GitHubReviewClient, OpenReviewQuery,
-    OpenReviewSummary, resolve_credential_for_repo,
+    ForgeRepoCredentialBinding, ForgeRepoRef, ForgeReviewClient, GitHubReviewClient,
+    OpenReviewQuery, OpenReviewSummary, resolve_credential_for_repo,
 };
 use hunk_git::branch::{
     RenameBranchIfSafeOutcome, ReviewRemote, rename_branch_if_current_unpublished,
