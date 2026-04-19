@@ -1,4 +1,4 @@
-use hunk_forge::{CreateReviewInput, ForgeProvider, ForgeRepoRef, GitLabReviewClient};
+use hunk_forge::{ForgeProvider, ForgeRepoRef, GitLabReviewClient};
 
 #[test]
 fn gitlab_client_rejects_empty_token() {
@@ -9,17 +9,7 @@ fn gitlab_client_rejects_empty_token() {
 
 #[test]
 fn gitlab_client_rejects_non_gitlab_repo_requests() {
-    let client = GitLabReviewClient::new(&gitlab_repo(), "token").expect("client");
-    let err = client
-        .create_review(&CreateReviewInput {
-            base_repo: github_repo(),
-            head_repo: gitlab_repo(),
-            source_branch: "feature/forge".to_string(),
-            target_branch: "main".to_string(),
-            title: "Forge MR".to_string(),
-            body: Some("Body".to_string()),
-            draft: false,
-        })
+    let err = GitLabReviewClient::new(&github_repo(), "token")
         .expect_err("non-GitLab repos must be rejected");
     assert!(err.to_string().contains("GitLab"));
 }
