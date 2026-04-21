@@ -29,6 +29,7 @@ codex-exec-server = { git = "https://github.com/niteshbalusu11/codex.git", branc
 codex-feedback = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
 codex-protocol = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
 codex-utils-absolute-path = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+codex-utils-rustls-provider = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
 
 [profile.ci]
 inherits = "dev"
