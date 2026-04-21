@@ -198,6 +198,10 @@ impl DiffViewer {
             hunk_forge::ForgeProvider::GitHub => "Enter GitHub Token",
             hunk_forge::ForgeProvider::GitLab => "Enter GitLab Token",
         };
+        let button_icon = match repo.provider {
+            hunk_forge::ForgeProvider::GitHub => Icon::new(IconName::Github).size(px(12.0)),
+            hunk_forge::ForgeProvider::GitLab => Icon::new(HunkIconName::Gitlab).size(px(12.0)),
+        };
         h_flex()
             .items_center()
             .justify_end()
@@ -211,6 +215,7 @@ impl DiffViewer {
                     .compact()
                     .with_size(gpui_component::Size::Small)
                     .rounded(px(8.0))
+                    .icon(button_icon)
                     .label(button_label)
                     .disabled(self.git_rail_controls_busy())
                     .on_click(move |_, window, cx| {

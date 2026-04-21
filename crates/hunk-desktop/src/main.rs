@@ -16,6 +16,8 @@ use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 static SIGNAL_SHUTDOWN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<()> {
+    codex_utils_rustls_provider::ensure_rustls_crypto_provider();
+
     if terminal_env::maybe_handle_terminal_env_helper_mode()? {
         return Ok(());
     }
