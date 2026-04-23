@@ -38,6 +38,7 @@ use crate::protocol::ThreadCompactStartResponse;
 use crate::protocol::ThreadForkParams;
 use crate::protocol::ThreadForkResponse;
 use crate::protocol::ThreadItem;
+use crate::protocol::ThreadListCwdFilter;
 use crate::protocol::ThreadListParams;
 use crate::protocol::ThreadListResponse;
 use crate::protocol::ThreadLoadedListParams;
@@ -241,10 +242,12 @@ impl ThreadService {
             cursor,
             limit,
             sort_key: Some(ThreadSortKey::UpdatedAt),
+            sort_direction: None,
             model_providers: None,
             source_kinds: None,
             archived: Some(false),
-            cwd: Some(cwd),
+            cwd: Some(ThreadListCwdFilter::One(cwd)),
+            use_state_db_only: false,
             search_term: None,
         };
 

@@ -34,7 +34,7 @@ pub struct StructuredGenerationRequest<'a> {
     pub prompt: &'a str,
     pub output_schema: &'a Value,
     pub image_paths: &'a [PathBuf],
-    pub model: &'a str,
+    pub model: Option<&'a str>,
     pub reasoning_effort: ReasoningEffort,
     pub client_name: &'a str,
     pub client_version: &'a str,
@@ -69,7 +69,7 @@ fn generate_structured_output_with_client(
     let thread_response: ThreadStartResponse = client.request_typed(
         api::method::THREAD_START,
         Some(&ThreadStartParams {
-            model: Some(request.model.to_string()),
+            model: request.model.map(ToOwned::to_owned),
             model_provider: None,
             service_tier: None,
             cwd: Some(request.cwd.to_string_lossy().to_string()),
@@ -98,6 +98,7 @@ fn generate_structured_output_with_client(
             thread_id: thread_id.clone(),
             input: build_user_input(request.prompt, request.image_paths),
             responsesapi_client_metadata: None,
+            environments: None,
             cwd: Some(request.cwd.to_path_buf()),
             approval_policy: Some(AskForApproval::Never),
             approvals_reviewer: None,
@@ -105,6 +106,7 @@ fn generate_structured_output_with_client(
                 access: ReadOnlyAccess::default(),
                 network_access: false,
             }),
+            permission_profile: None,
             model: None,
             service_tier: None,
             effort: Some(request.reasoning_effort),

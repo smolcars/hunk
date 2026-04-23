@@ -46,7 +46,7 @@ pub struct AiThreadSessionState {
 impl AiThreadSessionState {
     pub fn preferred_defaults() -> Self {
         Self {
-            model: Some("gpt-5.4".to_string()),
+            model: Some("gpt-5.5".to_string()),
             effort: Some("high".to_string()),
             collaboration_mode: AiCollaborationModeSelection::Default,
             service_tier: None,

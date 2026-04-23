@@ -22,7 +22,7 @@ Hunk no longer consumes Codex by pinning upstream `tag = "rust-v..."` entries di
 
 ### 1. Pick the target upstream release
 
-Choose the upstream Codex release tag you want, for example `rust-v0.121.0`.
+Choose the upstream Codex release tag you want, for example `rust-v0.124.0`.
 
 Capture:
 - upstream tag
