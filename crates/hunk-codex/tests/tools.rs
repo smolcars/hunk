@@ -186,6 +186,7 @@ fn dynamic_tool_params(tool: &str, arguments: serde_json::Value) -> DynamicToolC
         thread_id: "thread-1".to_string(),
         turn_id: "turn-1".to_string(),
         call_id: "call-1".to_string(),
+        namespace: None,
         tool: tool.to_string(),
         arguments,
     }
