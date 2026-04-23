@@ -417,7 +417,7 @@ fn run_codex_json_generation(
         prompt,
         output_schema: schema,
         image_paths,
-        model: DEFAULT_AI_GIT_TEXT_MODEL,
+        model: Some(DEFAULT_AI_GIT_TEXT_MODEL),
         reasoning_effort,
         client_name: "hunk-desktop",
         client_version: env!("CARGO_PKG_VERSION"),

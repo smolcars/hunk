@@ -70,7 +70,7 @@ last_project_path = "/tmp/hunk-repo"
 fn ai_thread_session_state_preferred_defaults_pin_model_and_effort() {
     let defaults = AiThreadSessionState::preferred_defaults();
 
-    assert_eq!(defaults.model.as_deref(), Some("gpt-5.4"));
+    assert_eq!(defaults.model.as_deref(), Some("gpt-5.5"));
     assert_eq!(defaults.effort.as_deref(), Some("high"));
     assert_eq!(
         defaults.collaboration_mode,

@@ -24,6 +24,7 @@ license = "GPL-3.0-or-later"
 codex-app-server = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
 codex-app-server-protocol = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
 codex-arg0 = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
+codex-config = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
 codex-core = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
 codex-exec-server = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }
 codex-feedback = { git = "https://github.com/niteshbalusu11/codex.git", branch = "hunk/embedded-apply-patch-fix" }

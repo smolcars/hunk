@@ -1027,6 +1027,14 @@ impl DiffViewer {
             cx.notify();
             return;
         };
+        let Some(owner_key) = self.ai_current_terminal_owner_key() else {
+            self.ai_terminal_session.status_message =
+                Some("Select a thread before using the terminal.".to_string());
+            self.ai_terminal_session.status = AiTerminalSessionStatus::Failed;
+            self.ai_terminal_set_open(true, cx);
+            cx.notify();
+            return;
+        };
 
         self.ai_terminal_set_open(true, cx);
         self.ai_terminal_session.last_command = Some(command.clone());
@@ -1044,11 +1052,7 @@ impl DiffViewer {
             return;
         }
 
-        self.start_default_ai_terminal_session(
-            target_cwd.clone(),
-            target_cwd.to_string_lossy().to_string(),
-            cx,
-        );
+        self.start_default_ai_terminal_session(target_cwd.clone(), owner_key, cx);
     }
 
     fn start_default_ai_terminal_session(

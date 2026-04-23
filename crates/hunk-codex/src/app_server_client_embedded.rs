@@ -10,6 +10,8 @@ use codex_app_server::in_process::InProcessServerEvent;
 use codex_arg0::Arg0DispatchPaths;
 use codex_core::config::ConfigBuilder;
 use codex_exec_server::EnvironmentManager;
+use codex_exec_server::EnvironmentManagerArgs;
+use codex_exec_server::ExecServerRuntimePaths;
 use codex_feedback::CodexFeedback;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -96,7 +98,15 @@ impl EmbeddedAppServerClient {
                 },
                 config: std::sync::Arc::new(config),
                 feedback: CodexFeedback::new(),
-                environment_manager: std::sync::Arc::new(EnvironmentManager::from_env()),
+                environment_manager: std::sync::Arc::new(EnvironmentManager::new(
+                    EnvironmentManagerArgs::from_env(
+                        ExecServerRuntimePaths::from_optional_paths(
+                            Some(args.codex_executable.clone()),
+                            None,
+                        )
+                        .map_err(CodexIntegrationError::HostProcessIo)?,
+                    ),
+                )),
                 config_warnings,
                 session_source: SessionSource::Cli,
                 enable_codex_api_key_env: true,
