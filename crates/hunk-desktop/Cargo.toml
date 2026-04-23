@@ -1,6 +1,6 @@
 [package]
 name = "hunk-desktop"
-version = "0.0.4"
+version = "0.0.5"
 license.workspace = true
 edition = "2024"
 authors = ["Nitesh Balusu"]
