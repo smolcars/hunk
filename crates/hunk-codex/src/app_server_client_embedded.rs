@@ -98,7 +98,7 @@ impl EmbeddedAppServerClient {
                 feedback: CodexFeedback::new(),
                 environment_manager: std::sync::Arc::new(EnvironmentManager::from_env()),
                 config_warnings,
-                session_source: SessionSource::Custom(args.client_name.clone()),
+                session_source: SessionSource::Cli,
                 enable_codex_api_key_env: true,
                 client_name: args.client_name,
                 client_version: args.client_version,

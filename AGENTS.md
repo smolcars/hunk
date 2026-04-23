@@ -16,6 +16,7 @@ Hunk is a fast diff viewer that is extremely simple written in Rust.
 - Use Cargo's default `target/` directory instead of overriding `CARGO_TARGET_DIR`.
 - For CARGO_HOME check this path /Volumes/hulk/dev/cache/cargo or the default CARGO_HOME path for rust, nowhere else on the machine.
 - Do not run clippy and tests over and over again, run them after you finished your work and make sure they pass at the end. Just once is enough.
+- When building on MacOS use nix shell `nix develop -c ...`.
 - When asked to update Codex, follow `docs/AI_CODEX_UPGRADE_WORKFLOW.md`. Hunk now consumes a fork branch, so upgrades require rebasing the fork onto the target upstream `rust-v...` tag, reapplying Hunk patches there, pushing the fork branch, and then refreshing Hunk's lockfile against that fork commit.
 - Refresh the bundled runtimes after a Codex upgrade. The runtime download scripts pull official `openai/codex` release assets that match the locked Codex crate version unless explicitly overridden with `HUNK_CODEX_RUNTIME_REPO`.
 - Update `docs/AI_CODEX_SPEC.md` with the new upstream tag/SHA and current fork commit, search for stale Codex version strings in docs, and expect small protocol/API fixes in `hunk-desktop` or `hunk-codex` after the bump.
