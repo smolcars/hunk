@@ -101,7 +101,11 @@ impl AiWorkerRuntime {
             collaboration_modes: Vec::new(),
             skills: Vec::new(),
             include_hidden_models: config.include_hidden_models,
-            dynamic_tool_executor: AiDynamicToolExecutor::new(),
+            dynamic_tool_executor: if config.browser_tools_enabled {
+                AiDynamicToolExecutor::with_state_only_browser()
+            } else {
+                AiDynamicToolExecutor::new()
+            },
             pending_approvals: BTreeMap::new(),
             pending_user_inputs: BTreeMap::new(),
             next_approval_sequence: 1,

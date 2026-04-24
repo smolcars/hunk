@@ -84,8 +84,11 @@ Assert-Exists -Path (Join-Path $runtimeDir "codex.exe") -Description "Windows Co
 $cargoTomlPath = Join-Path $RootDir "crates/hunk-desktop/Cargo.toml"
 Assert-Exists -Path $cargoTomlPath -Description "desktop packager manifest"
 $cargoToml = Get-Content $cargoTomlPath -Raw
-if ($cargoToml -notmatch 'resources\s*=\s*\[\s*"../../assets/codex-runtime"\s*\]') {
+if ($cargoToml -notmatch '"../../assets/codex-runtime"') {
     throw "Desktop packager manifest no longer bundles ../../assets/codex-runtime"
+}
+if ($cargoToml -notmatch '"../../assets/browser-runtime"') {
+    throw "Desktop packager manifest no longer bundles ../../assets/browser-runtime"
 }
 
 if ($PackagerOutDir) {

@@ -33,11 +33,17 @@ require_executable() {
 
 validate_macos_app() {
   local app_path="$1"
+  local root_dir
+  root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
   require_executable "$app_path/Contents/MacOS/hunk_desktop" "macOS app binary"
   require_executable \
     "$app_path/Contents/Resources/codex-runtime/macos/codex" \
     "bundled macOS Codex runtime"
+  HUNK_CEF_HELPER_PREFIX="Hunk Browser" \
+    "$root_dir/scripts/validate_browser_cef_macos.sh" \
+      "$root_dir/assets/browser-runtime/cef/macos/runtime" \
+      "$app_path"
 }
 
 validate_linux_package() {

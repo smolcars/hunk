@@ -4,12 +4,14 @@ use hunk_domain::state::AiCollaborationModeSelection;
 use hunk_domain::state::AiServiceTierSelection;
 use hunk_domain::state::AiThreadSessionState;
 use hunk_domain::state::AppState;
+use hunk_domain::state::AppStateStore;
 use hunk_domain::state::CachedChangedFileState;
 use hunk_domain::state::CachedLocalBranchState;
 use hunk_domain::state::CachedRecentCommitState;
 use hunk_domain::state::CachedRecentCommitsState;
 use hunk_domain::state::CachedWorkflowState;
 use hunk_domain::state::ReviewCompareSelectionState;
+use hunk_domain::state::app_data_dir;
 
 #[test]
 fn app_state_defaults_workspace_state_to_empty() {
@@ -77,6 +79,14 @@ fn ai_thread_session_state_preferred_defaults_pin_model_and_effort() {
         AiCollaborationModeSelection::Default
     );
     assert_eq!(defaults.service_tier, None);
+}
+
+#[test]
+fn app_state_store_uses_shared_app_data_directory() {
+    let data_dir = app_data_dir().expect("app data dir should resolve in tests");
+    let store = AppStateStore::new().expect("app state store should resolve in tests");
+
+    assert_eq!(store.path(), data_dir.join("state.toml").as_path());
 }
 
 #[test]

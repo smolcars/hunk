@@ -329,6 +329,14 @@ impl AiWorkspaceRightPaneMode {
     }
 }
 
+struct AiBrowserRenderFrameCache {
+    thread_id: String,
+    frame_epoch: u64,
+    width: u32,
+    height: u32,
+    image: Arc<gpui::RenderImage>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiInlineReviewLoadedState {
     thread_id: String,

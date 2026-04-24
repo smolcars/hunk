@@ -47,6 +47,78 @@ impl DiffViewer {
         }
     }
 
+    fn load_ai_browser_runtime() -> hunk_browser::BrowserRuntime {
+        let app_data_dir = match hunk_domain::state::app_data_dir() {
+            Ok(app_data_dir) => app_data_dir,
+            Err(err) => {
+                error!("failed to resolve browser app data path: {err:#}");
+                return hunk_browser::BrowserRuntime::new_disabled();
+            }
+        };
+        let storage_paths = hunk_browser::BrowserStoragePaths::from_app_data_dir(app_data_dir);
+        if let Err(err) = storage_paths.ensure_directories() {
+            error!("failed to initialize browser storage directories: {err:#}");
+            return hunk_browser::BrowserRuntime::new_disabled();
+        }
+
+        hunk_browser::BrowserRuntime::new_configured(hunk_browser::BrowserRuntimeConfig::new(
+            Self::default_browser_cef_runtime_dir(),
+            Self::default_browser_helper_executable_path(),
+            storage_paths,
+        ))
+    }
+
+    fn default_browser_cef_runtime_dir() -> PathBuf {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(current_exe) = std::env::current_exe()
+                && let Some(contents_dir) = Self::macos_app_contents_dir(current_exe.as_path())
+            {
+                return contents_dir.join("Frameworks");
+            }
+        }
+
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("assets/browser-runtime/cef/macos/runtime")
+    }
+
+    fn default_browser_helper_executable_path() -> PathBuf {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(current_exe) = std::env::current_exe()
+                && let Some(contents_dir) = Self::macos_app_contents_dir(current_exe.as_path())
+            {
+                return contents_dir
+                    .join("Frameworks")
+                    .join(format!(
+                        "{}.app",
+                        hunk_browser_helper::MACOS_HELPER_BUNDLE_NAME
+                    ))
+                    .join("Contents/MacOS")
+                    .join(hunk_browser_helper::MACOS_HELPER_BUNDLE_NAME);
+            }
+        }
+
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("target/debug")
+            .join(hunk_browser_helper::HELPER_BINARY_NAME)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn macos_app_contents_dir(current_exe: &std::path::Path) -> Option<PathBuf> {
+        let macos_dir = current_exe.parent()?;
+        if macos_dir.file_name()? != "MacOS" {
+            return None;
+        }
+        let contents_dir = macos_dir.parent()?;
+        if contents_dir.file_name()? != "Contents" {
+            return None;
+        }
+        Some(contents_dir.to_path_buf())
+    }
+
     fn apply_theme_preference(&self, window: &mut Window, cx: &mut Context<Self>) {
         let mode = match self.config.theme {
             ThemePreference::System => ThemeMode::from(window.appearance()),
@@ -535,7 +607,8 @@ impl DiffViewer {
             ai_thread_catalog_task: Task::ready(()),
             ai_attachment_picker_task: Task::ready(()),
             ai_workspace_states: BTreeMap::new(),
-            ai_browser_runtime: hunk_browser::BrowserRuntime::new_disabled(),
+            ai_browser_runtime: Self::load_ai_browser_runtime(),
+            ai_browser_render_frame_cache: None,
             ai_desktop_notification_state_by_workspace: BTreeMap::new(),
             ai_pending_desktop_notification_events_by_workspace: BTreeMap::new(),
             #[cfg(target_os = "macos")]

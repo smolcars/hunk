@@ -1499,6 +1499,7 @@ struct DiffViewer {
     ai_attachment_picker_task: Task<()>,
     ai_workspace_states: BTreeMap<String, AiWorkspaceState>,
     ai_browser_runtime: hunk_browser::BrowserRuntime,
+    ai_browser_render_frame_cache: Option<AiBrowserRenderFrameCache>,
     ai_desktop_notification_state_by_workspace:
         BTreeMap<String, desktop_notifications::AiDesktopNotificationState>,
     ai_pending_desktop_notification_events_by_workspace:

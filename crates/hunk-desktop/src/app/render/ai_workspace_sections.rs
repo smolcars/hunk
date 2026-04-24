@@ -1774,17 +1774,22 @@ impl DiffViewer {
         let browser_status = self.ai_browser_runtime.status();
         let status_label = match browser_status {
             hunk_browser::BrowserRuntimeStatus::Disabled => "Runtime unavailable",
+            hunk_browser::BrowserRuntimeStatus::Configured => "Runtime configured",
             hunk_browser::BrowserRuntimeStatus::Ready => "Ready",
         };
-        let session_url = selected_thread_id
+        let session_snapshot = selected_thread_id
             .as_deref()
             .and_then(|thread_id| self.ai_browser_runtime.session(thread_id))
-            .and_then(|session| session.state().url.clone())
+            .map(|session| (session.state().clone(), session.latest_frame().cloned()));
+        let session_url = session_snapshot
+            .as_ref()
+            .and_then(|(state, _)| state.url.clone())
             .unwrap_or_else(|| "about:blank".to_string());
-        let session_state = selected_thread_id
+        let session_state = session_snapshot.as_ref().map(|(state, _)| state.clone());
+        let browser_render_image = selected_thread_id
             .as_deref()
-            .and_then(|thread_id| self.ai_browser_runtime.session(thread_id))
-            .map(|session| session.state().clone());
+            .zip(session_snapshot.as_ref().and_then(|(_, frame)| frame.as_ref()))
+            .and_then(|(thread_id, frame)| self.ai_browser_render_image(thread_id, frame));
         let runtime_ready = browser_status == hunk_browser::BrowserRuntimeStatus::Ready;
         let can_go_back = session_state
             .as_ref()
@@ -1795,6 +1800,17 @@ impl DiffViewer {
         let loading = session_state
             .as_ref()
             .is_some_and(|state| state.loading && runtime_ready);
+        let page_status = session_state
+            .as_ref()
+            .and_then(|state| state.load_error.as_ref())
+            .map(|error| (error.as_str(), cx.theme().danger))
+            .unwrap_or_else(|| {
+                if loading {
+                    ("Loading", cx.theme().warning)
+                } else {
+                    ("Idle", cx.theme().muted_foreground)
+                }
+            });
 
         v_flex()
             .size_full()
@@ -1940,6 +1956,21 @@ impl DiffViewer {
                             .child(session_url),
                     )
                     .child(
+                        div()
+                            .max_w(px(180.0))
+                            .min_w(px(44.0))
+                            .rounded(px(8.0))
+                            .border_1()
+                            .border_color(hunk_opacity(page_status.1, is_dark, 0.70, 0.52))
+                            .bg(hunk_opacity(page_status.1, is_dark, 0.12, 0.08))
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(page_status.1)
+                            .truncate()
+                            .child(page_status.0.to_string()),
+                    )
+                    .child(
                         h_flex()
                             .items_center()
                             .gap_1()
@@ -1967,7 +1998,12 @@ impl DiffViewer {
                     .flex_1()
                     .min_h_0()
                     .bg(hunk_opacity(cx.theme().muted, is_dark, 0.12, 0.20))
-                    .child(
+                    .child(if let Some(render_image) = browser_render_image {
+                        gpui::img(render_image)
+                            .id("ai-browser-frame")
+                            .size_full()
+                            .into_any_element()
+                    } else {
                         v_flex()
                             .size_full()
                             .items_center()
@@ -1989,9 +2025,41 @@ impl DiffViewer {
                                     .text_color(cx.theme().muted_foreground)
                                     .text_align(gpui::TextAlign::Center)
                                     .child("CEF offscreen rendering will attach here once the browser backend is available."),
-                            ),
-                    ),
+                            )
+                            .into_any_element()
+                    }),
             )
             .into_any_element()
+    }
+
+    fn ai_browser_render_image(
+        &mut self,
+        thread_id: &str,
+        frame: &hunk_browser::BrowserFrame,
+    ) -> Option<Arc<gpui::RenderImage>> {
+        let metadata = frame.metadata();
+        if let Some(cache) = &self.ai_browser_render_frame_cache
+            && cache.thread_id == thread_id
+            && cache.frame_epoch == metadata.frame_epoch
+            && cache.width == metadata.width
+            && cache.height == metadata.height
+        {
+            return Some(cache.image.clone());
+        }
+
+        let buffer = image::RgbaImage::from_raw(
+            metadata.width,
+            metadata.height,
+            frame.bgra().to_vec(),
+        )?;
+        let image = Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)]));
+        self.ai_browser_render_frame_cache = Some(AiBrowserRenderFrameCache {
+            thread_id: thread_id.to_string(),
+            frame_epoch: metadata.frame_epoch,
+            width: metadata.width,
+            height: metadata.height,
+            image: image.clone(),
+        });
+        Some(image)
     }
 }

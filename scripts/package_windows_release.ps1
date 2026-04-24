@@ -209,10 +209,11 @@ function Invoke-CargoPackagerWithManifestOverride {
         $windowsResourcesReplacement = @(
             "resources = [",
             '  "../../assets/codex-runtime",',
+            '  "../../assets/browser-runtime",',
             "  { src = ""$normalizedSidecarPath"", target = ""."" },",
             "]"
         ) -join "`n"
-        $resourcePattern = '(?m)^resources\s*=\s*\[\s*"../../assets/codex-runtime"\s*\]\s*$'
+        $resourcePattern = '(?ms)^resources\s*=\s*\[\s*"../../assets/codex-runtime"\s*,\s*"../../assets/browser-runtime"\s*,?\s*\]\s*$'
         $updatedCargoToml = [regex]::Replace($updatedCargoToml, $resourcePattern, $windowsResourcesReplacement, 1)
 
         if ($updatedCargoToml -eq $cargoTomlBeforeResourceRewrite) {

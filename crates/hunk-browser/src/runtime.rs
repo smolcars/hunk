@@ -1,15 +1,18 @@
 use std::collections::BTreeMap;
 
-use crate::session::{BrowserError, BrowserSession, BrowserSessionId};
+use crate::config::BrowserRuntimeConfig;
+use crate::session::{BrowserAction, BrowserError, BrowserSession, BrowserSessionId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserRuntimeStatus {
     Disabled,
+    Configured,
     Ready,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct BrowserRuntime {
+    config: Option<BrowserRuntimeConfig>,
     sessions: BTreeMap<BrowserSessionId, BrowserSession>,
     visible_session_id: Option<BrowserSessionId>,
 }
@@ -19,8 +22,23 @@ impl BrowserRuntime {
         Self::default()
     }
 
+    pub fn new_configured(config: BrowserRuntimeConfig) -> Self {
+        Self {
+            config: Some(config),
+            ..Default::default()
+        }
+    }
+
     pub fn status(&self) -> BrowserRuntimeStatus {
-        BrowserRuntimeStatus::Disabled
+        if self.config.is_some() {
+            BrowserRuntimeStatus::Configured
+        } else {
+            BrowserRuntimeStatus::Disabled
+        }
+    }
+
+    pub fn config(&self) -> Option<&BrowserRuntimeConfig> {
+        self.config.as_ref()
     }
 
     pub fn ensure_session(&mut self, thread_id: impl Into<String>) -> &mut BrowserSession {
@@ -65,6 +83,28 @@ impl BrowserRuntime {
             self.visible_session_id = None;
         }
         self.sessions.remove(&session_id)
+    }
+
+    pub fn apply_state_only_action(
+        &mut self,
+        thread_id: &str,
+        action: &BrowserAction,
+    ) -> Result<(), BrowserError> {
+        let session = self.ensure_session(thread_id.to_string());
+        session.preflight_action(action)?;
+
+        match action {
+            BrowserAction::Navigate { url } => {
+                session.navigate(url.clone());
+            }
+            BrowserAction::Click { .. }
+            | BrowserAction::Type { .. }
+            | BrowserAction::Press { .. }
+            | BrowserAction::Scroll { .. }
+            | BrowserAction::Screenshot => {}
+        }
+
+        Ok(())
     }
 
     pub fn session_count(&self) -> usize {

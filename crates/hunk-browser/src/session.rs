@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::frame::BrowserFrame;
 use crate::snapshot::{BrowserElement, BrowserPhysicalPoint, BrowserSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -31,6 +32,7 @@ pub struct BrowserSessionState {
     pub url: Option<String>,
     pub title: Option<String>,
     pub loading: bool,
+    pub load_error: Option<String>,
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub snapshot_epoch: u64,
@@ -41,6 +43,7 @@ pub struct BrowserSessionState {
 pub struct BrowserSession {
     state: BrowserSessionState,
     latest_snapshot: BrowserSnapshot,
+    latest_frame: Option<BrowserFrame>,
 }
 
 impl BrowserSession {
@@ -52,12 +55,14 @@ impl BrowserSession {
                 url: None,
                 title: None,
                 loading: false,
+                load_error: None,
                 can_go_back: false,
                 can_go_forward: false,
                 snapshot_epoch: latest_snapshot.epoch,
                 latest_frame: None,
             },
             latest_snapshot,
+            latest_frame: None,
         }
     }
 
@@ -69,6 +74,43 @@ impl BrowserSession {
         &self.latest_snapshot
     }
 
+    pub fn latest_frame(&self) -> Option<&BrowserFrame> {
+        self.latest_frame.as_ref()
+    }
+
+    pub fn navigate(&mut self, url: impl Into<String>) {
+        self.state.url = Some(url.into());
+        self.state.title = None;
+        self.state.loading = true;
+        self.state.load_error = None;
+        self.state.can_go_back = false;
+        self.state.can_go_forward = false;
+        self.latest_snapshot = BrowserSnapshot::empty(self.latest_snapshot.epoch + 1);
+        self.state.snapshot_epoch = self.latest_snapshot.epoch;
+    }
+
+    pub fn set_loading(&mut self, loading: bool) {
+        self.state.loading = loading;
+    }
+
+    pub fn set_load_error(&mut self, error: impl Into<String>) {
+        self.state.loading = false;
+        self.state.load_error = Some(error.into());
+    }
+
+    pub fn clear_load_error(&mut self) {
+        self.state.load_error = None;
+    }
+
+    pub fn set_title(&mut self, title: impl Into<String>) {
+        self.state.title = Some(title.into());
+    }
+
+    pub fn set_history_state(&mut self, can_go_back: bool, can_go_forward: bool) {
+        self.state.can_go_back = can_go_back;
+        self.state.can_go_forward = can_go_forward;
+    }
+
     pub fn replace_snapshot(&mut self, snapshot: BrowserSnapshot) {
         self.state.url = snapshot.url.clone();
         self.state.title = snapshot.title.clone();
@@ -76,8 +118,9 @@ impl BrowserSession {
         self.latest_snapshot = snapshot;
     }
 
-    pub fn set_latest_frame(&mut self, frame: BrowserFrameMetadata) {
-        self.state.latest_frame = Some(frame);
+    pub fn set_latest_frame(&mut self, frame: BrowserFrame) {
+        self.state.latest_frame = Some(frame.metadata().clone());
+        self.latest_frame = Some(frame);
     }
 
     pub fn validate_snapshot_element(

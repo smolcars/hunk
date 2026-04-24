@@ -4,4 +4,9 @@ version = "0.1.0"
 license.workspace = true
 edition = "2024"
 
+[features]
+default = []
+cef-subprocess = ["dep:cef"]
+
 [dependencies]
+cef = { git = "https://github.com/tauri-apps/cef-rs.git", rev = "f20249dd2e34afdc0102af347f30f0218dd67e7b", default-features = false, features = ["sandbox"], optional = true }

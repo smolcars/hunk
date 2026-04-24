@@ -1,4 +1,8 @@
-use hunk_browser::{BrowserFrame, BrowserFrameError};
+use std::time::{Duration, Instant};
+
+use hunk_browser::{
+    BROWSER_FRAME_TARGET_INTERVAL, BrowserFrame, BrowserFrameError, BrowserFrameRateLimiter,
+};
 
 #[test]
 fn bgra_frame_keeps_metadata_and_pixels() {
@@ -46,4 +50,30 @@ fn bgra_frame_rejects_zero_dimensions() {
             height: 1
         }
     );
+}
+
+#[test]
+fn frame_rate_limiter_allows_first_frame() {
+    let mut limiter = BrowserFrameRateLimiter::v1_60fps();
+
+    assert_eq!(limiter.min_interval(), BROWSER_FRAME_TARGET_INTERVAL);
+    assert!(limiter.should_notify(Instant::now()));
+}
+
+#[test]
+fn frame_rate_limiter_suppresses_frames_inside_interval() {
+    let mut limiter = BrowserFrameRateLimiter::with_min_interval(Duration::from_millis(16));
+    let start = Instant::now();
+
+    assert!(limiter.should_notify(start));
+    assert!(!limiter.should_notify(start + Duration::from_millis(15)));
+}
+
+#[test]
+fn frame_rate_limiter_allows_frames_after_interval() {
+    let mut limiter = BrowserFrameRateLimiter::with_min_interval(Duration::from_millis(16));
+    let start = Instant::now();
+
+    assert!(limiter.should_notify(start));
+    assert!(limiter.should_notify(start + Duration::from_millis(16)));
 }

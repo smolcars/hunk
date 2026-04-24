@@ -1,8 +1,11 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
 use crate::session::BrowserFrameMetadata;
+
+pub const BROWSER_FRAME_TARGET_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserFrame {
@@ -50,6 +53,44 @@ impl BrowserFrame {
 
     pub fn is_blank(&self) -> bool {
         self.bgra.iter().all(|channel| *channel == 0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BrowserFrameRateLimiter {
+    min_interval: Duration,
+    last_notification_at: Option<Instant>,
+}
+
+impl BrowserFrameRateLimiter {
+    pub fn v1_60fps() -> Self {
+        Self {
+            min_interval: BROWSER_FRAME_TARGET_INTERVAL,
+            last_notification_at: None,
+        }
+    }
+
+    pub fn with_min_interval(min_interval: Duration) -> Self {
+        Self {
+            min_interval,
+            last_notification_at: None,
+        }
+    }
+
+    pub fn should_notify(&mut self, now: Instant) -> bool {
+        if self
+            .last_notification_at
+            .is_none_or(|last| now.saturating_duration_since(last) >= self.min_interval)
+        {
+            self.last_notification_at = Some(now);
+            return true;
+        }
+
+        false
+    }
+
+    pub fn min_interval(&self) -> Duration {
+        self.min_interval
     }
 }
 

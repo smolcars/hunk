@@ -22,7 +22,7 @@ icons = [
   "../../assets/icons/hunk_new.png",
   "../../assets/icons/Hunk.ico",
 ]
-resources = ["../../assets/codex-runtime"]
+resources = ["../../assets/codex-runtime", "../../assets/browser-runtime"]
 
 [[package.metadata.packager.binaries]]
 path = "hunk_desktop"
@@ -31,6 +31,7 @@ main = true
 [dependencies]
 anyhow = "1.0"
 arc-swap = "1.9.1"
+base64 = "0.22"
 codex-utils-rustls-provider.workspace = true
 ctrlc = "3.5"
 dirs = "6.0"
@@ -46,6 +47,7 @@ gpui-component = { git = "https://github.com/niteshbalusu11/gpui-component", rev
   "tree-sitter-languages",
 ] }
 gpui-component-assets = { git = "https://github.com/niteshbalusu11/gpui-component", rev = "4640591715ae6732b6b2075f040672eeabdb5c87" }
+image = "0.25"
 notify = "8.2.0"
 notify-rust = "4.15.0"
 toml = "1.1.2"
@@ -58,6 +60,7 @@ rust-embed = "8.11.0"
 webbrowser = "1.2.1"
 hunk-domain = { path = "../hunk-domain" }
 hunk-browser = { path = "../hunk-browser" }
+hunk-browser-helper = { path = "../hunk-browser-helper" }
 hunk-git = { path = "../hunk-git" }
 hunk-forge = { path = "../hunk-forge" }
 hunk-codex = { path = "../hunk-codex" }

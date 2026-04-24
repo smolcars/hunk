@@ -1,6 +1,6 @@
 use hunk_browser::{
-    BrowserAction, BrowserElement, BrowserElementRect, BrowserRuntime, BrowserSessionId,
-    BrowserSnapshot, BrowserViewport,
+    BrowserAction, BrowserElement, BrowserElementRect, BrowserFrame, BrowserRuntime,
+    BrowserSessionId, BrowserSnapshot, BrowserViewport,
 };
 
 #[test]
@@ -92,6 +92,85 @@ fn preflight_action_accepts_navigation_without_snapshot() {
             url: "https://example.com".to_string(),
         })
         .expect("navigation should not require a snapshot");
+}
+
+#[test]
+fn navigate_updates_session_state_and_invalidates_snapshot_epoch() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.replace_snapshot(snapshot(7, "https://old.example.com", 4));
+
+    session.navigate("https://example.com");
+
+    assert_eq!(session.state().url.as_deref(), Some("https://example.com"));
+    assert_eq!(session.state().title, None);
+    assert!(session.state().loading);
+    assert_eq!(session.state().load_error, None);
+    assert_eq!(session.state().snapshot_epoch, 8);
+    assert!(session.latest_snapshot().elements.is_empty());
+}
+
+#[test]
+fn load_error_stops_loading_and_is_cleared_by_navigation() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    session.navigate("https://example.com");
+    session.set_load_error("network failed");
+
+    assert!(!session.state().loading);
+    assert_eq!(
+        session.state().load_error.as_deref(),
+        Some("network failed")
+    );
+
+    session.navigate("https://example.com/retry");
+
+    assert!(session.state().loading);
+    assert_eq!(session.state().load_error, None);
+}
+
+#[test]
+fn runtime_applies_navigation_state_only_action() {
+    let mut runtime = BrowserRuntime::new_disabled();
+
+    runtime
+        .apply_state_only_action(
+            "thread-a",
+            &BrowserAction::Navigate {
+                url: "https://example.com".to_string(),
+            },
+        )
+        .expect("navigation should update state");
+
+    let session = runtime
+        .session("thread-a")
+        .expect("navigation should create a session");
+    assert_eq!(session.state().url.as_deref(), Some("https://example.com"));
+    assert!(session.state().loading);
+}
+
+#[test]
+fn setting_latest_frame_updates_state_metadata_and_keeps_pixels() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    let frame = BrowserFrame::from_bgra(2, 1, 11, vec![0, 0, 255, 255, 0, 255, 0, 255])
+        .expect("valid frame should be accepted");
+
+    session.set_latest_frame(frame);
+
+    assert_eq!(
+        session.state().latest_frame.as_ref().map(|metadata| (
+            metadata.width,
+            metadata.height,
+            metadata.frame_epoch
+        )),
+        Some((2, 1, 11))
+    );
+    assert_eq!(
+        session
+            .latest_frame()
+            .expect("frame should be stored")
+            .bgra(),
+        &[0, 0, 255, 255, 0, 255, 0, 255]
+    );
 }
 
 fn snapshot(epoch: u64, url: &str, element_index: u32) -> BrowserSnapshot {

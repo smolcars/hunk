@@ -8,6 +8,14 @@ use serde::{Deserialize, Serialize};
 const APP_DATA_DIR_NAME: &str = "hunk";
 const STATE_FILE_NAME: &str = "state.toml";
 
+pub fn app_data_dir() -> Result<PathBuf> {
+    let base_dir = dirs::data_local_dir()
+        .or_else(dirs::data_dir)
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| anyhow!("failed to resolve app data directory"))?;
+    Ok(base_dir.join(APP_DATA_DIR_NAME))
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AiServiceTierSelection {
@@ -228,12 +236,8 @@ pub struct AppStateStore {
 
 impl AppStateStore {
     pub fn new() -> Result<Self> {
-        let base_dir = dirs::data_local_dir()
-            .or_else(dirs::data_dir)
-            .or_else(dirs::home_dir)
-            .ok_or_else(|| anyhow!("failed to resolve app data directory"))?;
         Ok(Self {
-            path: base_dir.join(APP_DATA_DIR_NAME).join(STATE_FILE_NAME),
+            path: app_data_dir()?.join(STATE_FILE_NAME),
         })
     }
 
