@@ -7607,6 +7607,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "hunk-browser"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "hunk-codex"
 version = "0.1.0"
 dependencies = [
@@ -7645,6 +7653,7 @@ dependencies = [
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
+ "hunk-browser",
  "hunk-codex",
  "hunk-domain",
  "hunk-editor",

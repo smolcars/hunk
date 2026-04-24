@@ -10,6 +10,7 @@ members = [
   "crates/hunk-updater",
   "crates/hunk-desktop",
   "crates/hunk-codex",
+  "crates/hunk-browser",
 ]
 default-members = ["crates/hunk-desktop"]
 resolver = "2"

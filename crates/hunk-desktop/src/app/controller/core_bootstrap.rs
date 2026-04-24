@@ -533,6 +533,7 @@ impl DiffViewer {
             ai_thread_catalog_task: Task::ready(()),
             ai_attachment_picker_task: Task::ready(()),
             ai_workspace_states: BTreeMap::new(),
+            ai_browser_runtime: hunk_browser::BrowserRuntime::new_disabled(),
             ai_desktop_notification_state_by_workspace: BTreeMap::new(),
             ai_pending_desktop_notification_events_by_workspace: BTreeMap::new(),
             #[cfg(target_os = "macos")]

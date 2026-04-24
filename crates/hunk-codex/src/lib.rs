@@ -1,5 +1,6 @@
 pub mod api;
 pub mod app_server_client;
+pub mod browser_tools;
 pub mod diff_stats;
 pub mod errors;
 mod in_process_app_server_client;
