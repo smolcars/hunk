@@ -81,6 +81,9 @@ Assert-Exists -Path $runtimeDir -Description "Windows Codex runtime directory"
 Assert-Exists -Path (Join-Path $runtimeDir "codex.cmd") -Description "Windows Codex launcher"
 Assert-Exists -Path (Join-Path $runtimeDir "codex.exe") -Description "Windows Codex binary"
 
+$browserCefRuntimeDir = Join-Path $RootDir "assets/browser-runtime/cef/windows/runtime"
+& (Join-Path $PSScriptRoot "validate_browser_cef_windows.ps1") -RuntimeDir $browserCefRuntimeDir
+
 $cargoTomlPath = Join-Path $RootDir "crates/hunk-desktop/Cargo.toml"
 Assert-Exists -Path $cargoTomlPath -Description "desktop packager manifest"
 $cargoToml = Get-Content $cargoTomlPath -Raw
@@ -100,7 +103,14 @@ if ($PackagerOutDir) {
         throw "Expected cargo-packager to produce an MSI under $PackagerOutDir"
     }
 
-    Assert-WindowsMsiContainsFiles -MsiPath $bundleMsi.FullName -ExpectedFileNames @("ghostty-vt.dll")
+    Assert-WindowsMsiContainsFiles -MsiPath $bundleMsi.FullName -ExpectedFileNames @(
+        "ghostty-vt.dll",
+        "hunk-browser-helper.exe",
+        "libcef.dll",
+        "chrome_elf.dll",
+        "icudtl.dat",
+        "resources.pak"
+    )
 }
 
 Write-Host "Validated Windows release bundle inputs."

@@ -231,6 +231,58 @@ fn browser_state_only_executor_returns_confirmation_required_for_sensitive_actio
 }
 
 #[test]
+fn browser_tool_confirmation_detects_sensitive_actions() {
+    let params = dynamic_tool_params(
+        "hunk.browser_navigate",
+        serde_json::json!({ "url": "mailto:support@example.com" }),
+    );
+
+    let confirmation = ai_dynamic_tools::browser_dynamic_tool_confirmation(&params)
+        .expect("external protocol navigation should need confirmation");
+
+    assert_eq!(
+        confirmation.kind,
+        hunk_browser::SensitiveBrowserAction::ExternalProtocol
+    );
+    assert!(confirmation.summary.contains("mailto:support@example.com"));
+}
+
+#[test]
+fn browser_confirmation_declined_response_is_structured() {
+    let response = ai_dynamic_tools::browser_confirmation_declined_response(&dynamic_tool_params(
+        "hunk.browser_navigate",
+        serde_json::json!({ "url": "mailto:support@example.com" }),
+    ));
+
+    assert!(!response.success);
+    let text = response_text(&response);
+    assert!(
+        text.contains("browserConfirmationDeclined"),
+        "unexpected response: {text}"
+    );
+}
+
+#[test]
+fn browser_safety_override_allows_confirmed_sensitive_action() {
+    let mut runtime = BrowserRuntime::new_disabled();
+
+    let response = ai_dynamic_tools::execute_browser_dynamic_tool_with_runtime_and_safety(
+        &mut runtime,
+        &dynamic_tool_params(
+            "hunk.browser_navigate",
+            serde_json::json!({ "url": "mailto:support@example.com" }),
+        ),
+        false,
+        ai_dynamic_tools::BrowserToolSafetyMode::AllowSensitiveOnce,
+    );
+
+    assert!(response.success);
+    let json = response_json(&response);
+    assert_eq!(json["action"], "navigate");
+    assert_eq!(json["url"], "mailto:support@example.com");
+}
+
+#[test]
 fn browser_state_only_executor_rejects_unknown_snapshot_elements() {
     let temp = tempdir().expect("temp dir should be created");
     let mut executor = AiDynamicToolExecutor::with_state_only_browser();

@@ -3,8 +3,8 @@ use std::path::Path;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use hunk_browser::{
-    BrowserAction, BrowserRuntime, BrowserSafetyDecision, classify_browser_action,
-    redact_browser_tool_text,
+    BrowserAction, BrowserRuntime, BrowserSafetyDecision, SensitiveBrowserAction,
+    classify_browser_action, redact_browser_tool_text,
 };
 use hunk_codex::browser_tools::{
     BrowserDynamicToolRequest, is_browser_dynamic_tool, parse_browser_dynamic_tool_request,
@@ -94,10 +94,36 @@ impl AiBrowserDynamicToolExecutor {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BrowserToolSafetyMode {
+    Enforce,
+    AllowSensitiveOnce,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BrowserToolConfirmation {
+    pub kind: SensitiveBrowserAction,
+    pub summary: String,
+}
+
 pub(crate) fn execute_browser_dynamic_tool_with_runtime(
     runtime: &mut BrowserRuntime,
     params: &DynamicToolCallParams,
     use_backend: bool,
+) -> DynamicToolCallResponse {
+    execute_browser_dynamic_tool_with_runtime_and_safety(
+        runtime,
+        params,
+        use_backend,
+        BrowserToolSafetyMode::Enforce,
+    )
+}
+
+pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
+    runtime: &mut BrowserRuntime,
+    params: &DynamicToolCallParams,
+    use_backend: bool,
+    safety_mode: BrowserToolSafetyMode,
 ) -> DynamicToolCallResponse {
     let request = match parse_browser_dynamic_tool_request(params) {
         Ok(request) => request,
@@ -162,7 +188,9 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime(
             )
         }
         BrowserDynamicToolRequest::Action(action) => {
-            if let BrowserSafetyDecision::Prompt(kind) = classify_browser_action(&action) {
+            if safety_mode == BrowserToolSafetyMode::Enforce
+                && let BrowserSafetyDecision::Prompt(kind) = classify_browser_action(&action)
+            {
                 return json_error_response(json!({
                     "error": "browserConfirmationRequired",
                     "message": "This browser action requires user confirmation before it can run.",
@@ -206,6 +234,23 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime(
     }
 }
 
+pub(crate) fn browser_dynamic_tool_confirmation(
+    params: &DynamicToolCallParams,
+) -> Option<BrowserToolConfirmation> {
+    let Ok(BrowserDynamicToolRequest::Action(action)) = parse_browser_dynamic_tool_request(params)
+    else {
+        return None;
+    };
+    let BrowserSafetyDecision::Prompt(kind) = classify_browser_action(&action) else {
+        return None;
+    };
+
+    Some(BrowserToolConfirmation {
+        kind,
+        summary: browser_action_summary(&action),
+    })
+}
+
 pub(crate) fn browser_unavailable_response(
     params: &DynamicToolCallParams,
     message: &str,
@@ -213,6 +258,18 @@ pub(crate) fn browser_unavailable_response(
     json_error_response(json!({
         "error": "browserUnavailable",
         "message": message,
+        "tool": params.tool,
+        "threadId": params.thread_id,
+        "turnId": params.turn_id,
+    }))
+}
+
+pub(crate) fn browser_confirmation_declined_response(
+    params: &DynamicToolCallParams,
+) -> DynamicToolCallResponse {
+    json_error_response(json!({
+        "error": "browserConfirmationDeclined",
+        "message": "The user declined this browser action.",
         "tool": params.tool,
         "threadId": params.thread_id,
         "turnId": params.turn_id,
@@ -285,6 +342,33 @@ fn snapshot_response(
         "visibleText": visible_text,
         "elements": elements,
     })
+}
+
+fn browser_action_summary(action: &BrowserAction) -> String {
+    match action {
+        BrowserAction::Navigate { url } => format!("Navigate to {url}"),
+        BrowserAction::Reload => "Reload the page".to_string(),
+        BrowserAction::Stop => "Stop loading the page".to_string(),
+        BrowserAction::Back => "Go back".to_string(),
+        BrowserAction::Forward => "Go forward".to_string(),
+        BrowserAction::Click { index, .. } => format!("Click element {index}"),
+        BrowserAction::Type { index, text, .. } => {
+            format!(
+                "Type {} characters into element {index}",
+                text.chars().count()
+            )
+        }
+        BrowserAction::Press { keys } => format!("Press {keys}"),
+        BrowserAction::Scroll { down, pages, index } => {
+            let direction = if *down { "down" } else { "up" };
+            if let Some(index) = index {
+                format!("Scroll {direction} {pages} page(s) near element {index}")
+            } else {
+                format!("Scroll {direction} {pages} page(s)")
+            }
+        }
+        BrowserAction::Screenshot => "Capture a screenshot".to_string(),
+    }
 }
 
 fn browser_action_label(action: &BrowserAction) -> &'static str {

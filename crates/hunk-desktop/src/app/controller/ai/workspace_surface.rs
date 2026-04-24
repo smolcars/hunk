@@ -768,6 +768,7 @@ impl DiffViewer {
                     match this.ai_browser_runtime.pump_backend() {
                         Ok(changed) => {
                             if changed {
+                                this.ai_refresh_browser_render_frame_cache_for_selected_thread();
                                 cx.notify();
                             }
                         }
@@ -783,6 +784,42 @@ impl DiffViewer {
                     return;
                 }
             }
+        });
+    }
+
+    fn ai_refresh_browser_render_frame_cache_for_selected_thread(&mut self) {
+        let Some(thread_id) = self.ai_selected_thread_id.as_deref() else {
+            return;
+        };
+        let Some(frame) = self
+            .ai_browser_runtime
+            .session(thread_id)
+            .and_then(|session| session.latest_frame())
+        else {
+            return;
+        };
+        let metadata = frame.metadata();
+        if let Some(cache) = &self.ai_browser_render_frame_cache
+            && cache.thread_id == thread_id
+            && cache.frame_epoch == metadata.frame_epoch
+            && cache.width == metadata.width
+            && cache.height == metadata.height
+        {
+            return;
+        }
+
+        let Some(buffer) =
+            image::RgbaImage::from_raw(metadata.width, metadata.height, frame.bgra().to_vec())
+        else {
+            return;
+        };
+        let image = std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)]));
+        self.ai_browser_render_frame_cache = Some(AiBrowserRenderFrameCache {
+            thread_id: thread_id.to_string(),
+            frame_epoch: metadata.frame_epoch,
+            width: metadata.width,
+            height: metadata.height,
+            image,
         });
     }
 
@@ -833,14 +870,114 @@ impl DiffViewer {
         );
     }
 
-    pub(super) fn ai_execute_browser_dynamic_tool(
+    pub(super) fn ai_handle_browser_dynamic_tool_call(
         &mut self,
         params: hunk_codex::protocol::DynamicToolCallParams,
+        response_tx: std::sync::mpsc::Sender<hunk_codex::protocol::DynamicToolCallResponse>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(confirmation) =
+            crate::app::ai_dynamic_tools::browser_dynamic_tool_confirmation(&params)
+        {
+            let request_id = params.call_id.clone();
+            if self
+                .ai_pending_browser_approvals
+                .iter()
+                .any(|approval| approval.request_id == request_id)
+            {
+                let response = crate::app::ai_dynamic_tools::browser_unavailable_response(
+                    &params,
+                    "This browser action is already waiting for user confirmation.",
+                );
+                if response_tx.send(response).is_err() {
+                    self.ai_status_message =
+                        Some("Embedded browser tool response receiver disconnected.".to_string());
+                }
+                return;
+            }
+
+            self.ai_select_browser_tool_thread(params.thread_id.clone(), cx);
+            self.ai_pending_browser_approvals
+                .push(AiPendingBrowserApproval {
+                    request_id,
+                    params,
+                    kind: confirmation.kind,
+                    summary: confirmation.summary,
+                    response_tx,
+                });
+            self.ai_status_message = Some("Browser action needs confirmation.".to_string());
+            self.invalidate_ai_visible_frame_state_with_reason("timeline");
+            cx.notify();
+            return;
+        }
+
+        let response = self.ai_execute_browser_dynamic_tool_with_safety(
+            params,
+            crate::app::ai_dynamic_tools::BrowserToolSafetyMode::Enforce,
+            cx,
+        );
+        if response_tx.send(response).is_err() {
+            self.ai_status_message =
+                Some("Embedded browser tool response receiver disconnected.".to_string());
+        }
+    }
+
+    pub(super) fn ai_resolve_pending_browser_approval_action(
+        &mut self,
+        request_id: String,
+        decision: AiApprovalDecision,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self
+            .ai_pending_browser_approvals
+            .iter()
+            .position(|approval| approval.request_id == request_id)
+        else {
+            return;
+        };
+        let pending = self.ai_pending_browser_approvals.remove(index);
+        let response = match decision {
+            AiApprovalDecision::Accept => self.ai_execute_browser_dynamic_tool_with_safety(
+                pending.params.clone(),
+                crate::app::ai_dynamic_tools::BrowserToolSafetyMode::AllowSensitiveOnce,
+                cx,
+            ),
+            AiApprovalDecision::Decline => {
+                crate::app::ai_dynamic_tools::browser_confirmation_declined_response(
+                    &pending.params,
+                )
+            }
+        };
+        if pending.response_tx.send(response).is_err() {
+            self.ai_status_message =
+                Some("Embedded browser tool response receiver disconnected.".to_string());
+        } else {
+            self.ai_status_message = Some(match decision {
+                AiApprovalDecision::Accept => "Browser action approved.".to_string(),
+                AiApprovalDecision::Decline => "Browser action declined.".to_string(),
+            });
+        }
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
+        cx.notify();
+    }
+
+    fn ai_select_browser_tool_thread(&mut self, thread_id: String, cx: &mut Context<Self>) {
+        if self.ai_selected_thread_id.as_deref() != Some(thread_id.as_str()) {
+            self.ai_selected_thread_id = Some(thread_id.clone());
+        }
+        self.ai_browser_open_thread_ids.insert(thread_id.clone());
+        self.ai_right_pane_mode_by_thread
+            .insert(thread_id, AiWorkspaceRightPaneMode::Browser);
+        self.ai_sync_browser_pump(cx);
+    }
+
+    fn ai_execute_browser_dynamic_tool_with_safety(
+        &mut self,
+        params: hunk_codex::protocol::DynamicToolCallParams,
+        safety_mode: crate::app::ai_dynamic_tools::BrowserToolSafetyMode,
         cx: &mut Context<Self>,
     ) -> hunk_codex::protocol::DynamicToolCallResponse {
-        if self.ai_selected_thread_id.as_deref() != Some(params.thread_id.as_str()) {
-            self.ai_selected_thread_id = Some(params.thread_id.clone());
-        }
+        self.ai_select_browser_tool_thread(params.thread_id.clone(), cx);
         if self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
             if let Err(err) = self
                 .ai_browser_runtime
@@ -859,18 +996,15 @@ impl DiffViewer {
                 .ensure_session(params.thread_id.clone());
         }
 
-        self.ai_browser_open_thread_ids.insert(params.thread_id.clone());
-        self.ai_right_pane_mode_by_thread
-            .insert(params.thread_id.clone(), AiWorkspaceRightPaneMode::Browser);
-        self.ai_sync_browser_pump(cx);
-
         let use_backend = self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready;
-        let response = crate::app::ai_dynamic_tools::execute_browser_dynamic_tool_with_runtime(
+        let response = crate::app::ai_dynamic_tools::execute_browser_dynamic_tool_with_runtime_and_safety(
             &mut self.ai_browser_runtime,
             &params,
             use_backend,
+            safety_mode,
         );
         self.ai_sync_browser_pump(cx);
+        self.ai_refresh_browser_render_frame_cache_for_selected_thread();
         self.invalidate_ai_visible_frame_state_with_reason("timeline");
         cx.notify();
         response

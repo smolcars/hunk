@@ -404,6 +404,7 @@ name = "hunk-browser-cef-smoke"
 version = "0.1.0"
 dependencies = [
  "cef",
+ "serde_json",
 ]
 
 [[package]]

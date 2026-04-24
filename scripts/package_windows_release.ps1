@@ -188,7 +188,9 @@ function Invoke-CargoPackagerWithManifestOverride {
         [string]$WorkingDirectory,
         [Parameter(Mandatory = $true)]
         [string]$PackagerOutDir,
-        [string]$WindowsSidecarResourcePath
+        [string]$WindowsSidecarResourcePath,
+        [string]$WindowsBrowserCefRuntimeResourcePath,
+        [string]$WindowsBrowserHelperResourcePath
     )
 
     $originalCargoToml = Get-Content $CargoTomlPath -Raw
@@ -203,16 +205,27 @@ function Invoke-CargoPackagerWithManifestOverride {
         }
     }
 
-    if ($WindowsSidecarResourcePath) {
-        $normalizedSidecarPath = $WindowsSidecarResourcePath.Replace('\', '/')
+    if ($WindowsSidecarResourcePath -or $WindowsBrowserCefRuntimeResourcePath -or $WindowsBrowserHelperResourcePath) {
         $cargoTomlBeforeResourceRewrite = $updatedCargoToml
-        $windowsResourcesReplacement = @(
+        $resourceLines = @(
             "resources = [",
             '  "../../assets/codex-runtime",',
-            '  "../../assets/browser-runtime",',
-            "  { src = ""$normalizedSidecarPath"", target = ""."" },",
-            "]"
-        ) -join "`n"
+            '  "../../assets/browser-runtime",'
+        )
+        if ($WindowsBrowserCefRuntimeResourcePath) {
+            $normalizedBrowserCefRuntimePath = $WindowsBrowserCefRuntimeResourcePath.Replace('\', '/')
+            $resourceLines += "  { src = ""$normalizedBrowserCefRuntimePath"", target = ""."" },"
+        }
+        if ($WindowsBrowserHelperResourcePath) {
+            $normalizedBrowserHelperPath = $WindowsBrowserHelperResourcePath.Replace('\', '/')
+            $resourceLines += "  { src = ""$normalizedBrowserHelperPath"", target = ""."" },"
+        }
+        if ($WindowsSidecarResourcePath) {
+            $normalizedSidecarPath = $WindowsSidecarResourcePath.Replace('\', '/')
+            $resourceLines += "  { src = ""$normalizedSidecarPath"", target = ""."" },"
+        }
+        $resourceLines += "]"
+        $windowsResourcesReplacement = $resourceLines -join "`n"
         $resourcePattern = '(?ms)^resources\s*=\s*\[\s*"../../assets/codex-runtime"\s*,\s*"../../assets/browser-runtime"\s*,?\s*\]\s*$'
         $updatedCargoToml = [regex]::Replace($updatedCargoToml, $resourcePattern, $windowsResourcesReplacement, 1)
 
@@ -262,6 +275,8 @@ $cargoLockPath = Join-Path $rootDir "Cargo.lock"
 $desktopCrateDir = Split-Path $cargoTomlPath -Parent
 $targetTriple = "x86_64-pc-windows-msvc"
 $targetDir = Join-Path $rootDir "target"
+$browserCefRuntimeDir = Join-Path $rootDir "assets/browser-runtime/cef/windows/runtime"
+$browserHelperPath = Join-Path $targetDir "$targetTriple/release/hunk-browser-helper.exe"
 $versionLabel = if ($env:HUNK_RELEASE_VERSION) {
     $env:HUNK_RELEASE_VERSION
 } else {
@@ -274,7 +289,10 @@ $versionLabel = if ($env:HUNK_RELEASE_VERSION) {
 $windowsPackagerVersion = Get-WindowsPackagerVersion -Version $versionLabel
 $windowsSidecarBundle = $null
 $windowsSidecarResourcePath = $null
+$windowsBrowserCefRuntimeResourcePath = $null
+$windowsBrowserHelperResourcePath = $null
 $windowsSidecarFileNames = @()
+$windowsBrowserCefFileNames = @("hunk-browser-helper.exe", "libcef.dll", "chrome_elf.dll", "icudtl.dat", "resources.pak")
 
 Push-Location $rootDir
 try {
@@ -284,13 +302,21 @@ try {
     Write-Host "Validating bundled Codex runtime for Windows..."
     Test-WindowsCodexRuntimeBundle -RootDir $rootDir
     & $validateBundleScript -RootDir $rootDir
+    Write-Host "Validating bundled CEF runtime for Windows..."
+    & (Join-Path $PSScriptRoot "validate_browser_cef_windows.ps1") -RuntimeDir $browserCefRuntimeDir
+    $env:CEF_PATH = $browserCefRuntimeDir
+    $env:PATH = "$env:PATH;$browserCefRuntimeDir"
+    Write-Host "Building Windows CEF helper..."
+    cargo build -p hunk-browser-helper --release --target $targetTriple --locked --features hunk-browser-helper/cef-subprocess
     Write-Host "Building Windows release binary..."
-    cargo build -p hunk-desktop --release --target $targetTriple --locked
+    cargo build -p hunk-desktop --release --target $targetTriple --locked --features hunk-desktop/cef-browser
     $windowsSidecarBundle = Stage-WindowsPackagerSidecars -TargetDir $targetDir -TargetTriple $targetTriple
     if ($windowsSidecarBundle.Directory) {
         $windowsSidecarResourcePath = [System.IO.Path]::GetRelativePath($desktopCrateDir, $windowsSidecarBundle.Directory)
         $windowsSidecarFileNames = @($windowsSidecarBundle.FileNames)
     }
+    $windowsBrowserCefRuntimeResourcePath = [System.IO.Path]::GetRelativePath($desktopCrateDir, $browserCefRuntimeDir)
+    $windowsBrowserHelperResourcePath = [System.IO.Path]::GetRelativePath($desktopCrateDir, $browserHelperPath)
     Write-Host "Building Windows MSI package..."
     Invoke-CargoPackagerWithManifestOverride `
         -CargoTomlPath $cargoTomlPath `
@@ -300,7 +326,9 @@ try {
         -TargetTriple $targetTriple `
         -WorkingDirectory $desktopCrateDir `
         -PackagerOutDir $packagerOutDir `
-        -WindowsSidecarResourcePath $windowsSidecarResourcePath
+        -WindowsSidecarResourcePath $windowsSidecarResourcePath `
+        -WindowsBrowserCefRuntimeResourcePath $windowsBrowserCefRuntimeResourcePath `
+        -WindowsBrowserHelperResourcePath $windowsBrowserHelperResourcePath
     & $validateBundleScript -RootDir $rootDir -PackagerOutDir $packagerOutDir
 } finally {
     Pop-Location
@@ -321,7 +349,7 @@ if (-not $bundleMsi) {
 }
 
 New-Item -ItemType Directory -Path $distDir -Force | Out-Null
-Assert-WindowsMsiContainsFiles -MsiPath $bundleMsi.FullName -ExpectedFileNames $windowsSidecarFileNames
+Assert-WindowsMsiContainsFiles -MsiPath $bundleMsi.FullName -ExpectedFileNames ($windowsSidecarFileNames + $windowsBrowserCefFileNames)
 Copy-Item -Path $bundleMsi.FullName -Destination $releaseMsiPath -Force
 
 Write-Host "Created Windows release artifact at $releaseMsiPath"

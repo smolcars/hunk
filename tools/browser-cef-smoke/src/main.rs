@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::rc::Rc;
@@ -7,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use cef::{args::Args, *};
 
-const DEFAULT_URL: &str = "https://example.com";
+const DEFAULT_URL: &str = "data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Chtml%3E%3Chead%3E%3Ctitle%3EHunk%20CEF%20Smoke%3C/title%3E%3C/head%3E%3Cbody%3E%3Cinput%20id%3D%22i%22%20aria-label%3D%22Smoke%20input%22%20style%3D%22position%3Afixed%3Bleft%3A40px%3Btop%3A40px%3Bwidth%3A180px%3Bheight%3A32px%3Bfont-size%3A18px%3B%22%3E%3Cbutton%20id%3D%22b%22%20style%3D%22position%3Afixed%3Bleft%3A40px%3Btop%3A90px%3Bwidth%3A120px%3Bheight%3A32px%3B%22%20onclick%3D%22document.title%3Ddocument.getElementById('i').value%22%3ESubmit%3C/button%3E%3C/body%3E%3C/html%3E";
 const WIDTH: i32 = 1024;
 const HEIGHT: i32 = 768;
 const TIMEOUT: Duration = Duration::from_secs(20);
@@ -19,6 +20,13 @@ struct SmokeState {
     last_frame_size: Option<(i32, i32)>,
     load_done: bool,
     load_error: Option<String>,
+    devtools_results: BTreeMap<i32, DevToolsResult>,
+}
+
+#[derive(Debug, Clone)]
+struct DevToolsResult {
+    success: bool,
+    result: Option<String>,
 }
 
 #[derive(Clone)]
@@ -198,6 +206,43 @@ impl SmokeLoadHandlerBuilder {
 }
 
 #[derive(Clone)]
+struct SmokeDevToolsMessageObserver {
+    state: Rc<RefCell<SmokeState>>,
+}
+
+wrap_dev_tools_message_observer! {
+    struct SmokeDevToolsMessageObserverBuilder {
+        observer: SmokeDevToolsMessageObserver,
+    }
+
+    impl DevToolsMessageObserver {
+        fn on_dev_tools_method_result(
+            &self,
+            _browser: Option<&mut Browser>,
+            message_id: ::std::os::raw::c_int,
+            success: ::std::os::raw::c_int,
+            result: Option<&[u8]>,
+        ) {
+            let result = result.and_then(|bytes| std::str::from_utf8(bytes).ok()).map(str::to_string);
+            self.observer
+                .state
+                .borrow_mut()
+                .devtools_results
+                .insert(message_id, DevToolsResult {
+                    success: success == 1,
+                    result,
+                });
+        }
+    }
+}
+
+impl SmokeDevToolsMessageObserverBuilder {
+    fn build(observer: SmokeDevToolsMessageObserver) -> DevToolsMessageObserver {
+        Self::new(observer)
+    }
+}
+
+#[derive(Clone)]
 struct SmokeClient {
     render_handler: RenderHandler,
     load_handler: LoadHandler,
@@ -304,6 +349,10 @@ fn run_browser() -> Result<(), String> {
     let load_handler = SmokeLoadHandlerBuilder::build(SmokeLoadHandler {
         state: state.clone(),
     });
+    let mut devtools_observer =
+        SmokeDevToolsMessageObserverBuilder::build(SmokeDevToolsMessageObserver {
+            state: state.clone(),
+        });
     let mut client = SmokeClientBuilder::build(SmokeClient {
         render_handler,
         load_handler,
@@ -327,6 +376,9 @@ fn run_browser() -> Result<(), String> {
         None,
     )
     .ok_or_else(|| "CEF browser creation failed".to_string())?;
+    let _devtools_registration = browser
+        .host()
+        .and_then(|host| host.add_dev_tools_message_observer(Some(&mut devtools_observer)));
 
     let start = Instant::now();
     while start.elapsed() < TIMEOUT {
@@ -342,7 +394,7 @@ fn run_browser() -> Result<(), String> {
                     "CEF smoke produced nonblank frame: {:?}, frames={}, load_done={}",
                     state.last_frame_size, state.frame_count, state.load_done
                 );
-                return Ok(());
+                break;
             }
             if let Some(error) = state.load_error.as_ref() {
                 return Err(error.clone());
@@ -352,11 +404,132 @@ fn run_browser() -> Result<(), String> {
         sleep(Duration::from_millis(16));
     }
 
-    let state = state.borrow();
-    Err(format!(
-        "timed out waiting for nonblank CEF frame; frames={}, last_frame_size={:?}, load_done={}",
-        state.frame_count, state.last_frame_size, state.load_done
-    ))
+    {
+        let state = state.borrow();
+        if !state.nonblank_frame {
+            return Err(format!(
+                "timed out waiting for nonblank CEF frame; frames={}, last_frame_size={:?}, load_done={}",
+                state.frame_count, state.last_frame_size, state.load_done
+            ));
+        }
+    }
+
+    verify_click_and_key_input(&browser, state.clone())?;
+    println!("CEF smoke forwarded click and key input");
+
+    verify_snapshot(&browser, state.clone())?;
+    println!("CEF smoke captured browser snapshot");
+
+    println!("CEF smoke captured screenshot frame");
+    Ok(())
+}
+
+fn verify_click_and_key_input(browser: &Browser, state: Rc<RefCell<SmokeState>>) -> Result<(), String> {
+    let host = browser
+        .host()
+        .ok_or_else(|| "CEF browser has no host".to_string())?;
+    host.set_focus(true as _);
+    send_mouse_click(&host, 60, 55);
+    send_text(&host, "ok");
+    send_mouse_click(&host, 60, 105);
+    let result = execute_devtools_boolean(
+        browser,
+        state,
+        1,
+        "document.title === 'ok' && document.getElementById('i').value === 'ok'",
+    )?;
+    if result {
+        Ok(())
+    } else {
+        Err("CEF smoke input verification failed".to_string())
+    }
+}
+
+fn verify_snapshot(browser: &Browser, state: Rc<RefCell<SmokeState>>) -> Result<(), String> {
+    execute_devtools_boolean(
+        browser,
+        state,
+        2,
+        "document.querySelectorAll('input,button').length === 2 && document.title === 'ok'",
+    )
+    .and_then(|result| {
+        if result {
+            Ok(())
+        } else {
+            Err("CEF smoke snapshot verification failed".to_string())
+        }
+    })
+}
+
+fn execute_devtools_boolean(
+    browser: &Browser,
+    state: Rc<RefCell<SmokeState>>,
+    message_id: i32,
+    expression: &str,
+) -> Result<bool, String> {
+    let host = browser
+        .host()
+        .ok_or_else(|| "CEF browser has no host".to_string())?;
+    let message = serde_json::json!({
+        "id": message_id,
+        "method": "Runtime.evaluate",
+        "params": {
+            "expression": expression,
+            "returnByValue": true,
+        },
+    })
+    .to_string();
+    if host.send_dev_tools_message(Some(message.as_bytes())) != 1 {
+        return Err("failed to submit CEF DevTools smoke request".to_string());
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        do_message_loop_work();
+        host.send_external_begin_frame();
+        if let Some(result) = state.borrow_mut().devtools_results.remove(&message_id) {
+            if !result.success {
+                return Err(format!(
+                    "CEF DevTools smoke request failed: {}",
+                    result.result.unwrap_or_default()
+                ));
+            }
+            let raw = result
+                .result
+                .ok_or_else(|| "CEF DevTools smoke result was empty".to_string())?;
+            let value: serde_json::Value = serde_json::from_str(raw.as_str())
+                .map_err(|error| format!("failed to parse CEF DevTools smoke result: {error}"))?;
+            return value
+                .get("result")
+                .and_then(|result| result.get("value"))
+                .and_then(serde_json::Value::as_bool)
+                .ok_or_else(|| format!("CEF DevTools smoke result was not boolean: {value}"));
+        }
+        if Instant::now() >= deadline {
+            return Err("timed out waiting for CEF DevTools smoke result".to_string());
+        }
+        sleep(Duration::from_millis(16));
+    }
+}
+
+fn send_mouse_click(host: &BrowserHost, x: i32, y: i32) {
+    let event = MouseEvent { x, y, modifiers: 0 };
+    host.send_mouse_move_event(Some(&event), false as _);
+    host.send_mouse_click_event(Some(&event), MouseButtonType::LEFT, false as _, 1);
+    host.send_mouse_click_event(Some(&event), MouseButtonType::LEFT, true as _, 1);
+}
+
+fn send_text(host: &BrowserHost, text: &str) {
+    for unit in text.encode_utf16() {
+        let event = KeyEvent {
+            type_: KeyEventType::CHAR,
+            windows_key_code: unit as i32,
+            native_key_code: unit as i32,
+            character: unit,
+            unmodified_character: unit,
+            ..Default::default()
+        };
+        host.send_key_event(Some(&event));
+    }
 }
 
 fn cache_root_path() -> Result<PathBuf, String> {

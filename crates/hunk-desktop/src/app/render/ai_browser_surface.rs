@@ -52,7 +52,7 @@ impl gpui::Element for AiBrowserSurfaceElement {
     ) -> Self::PrepaintState {
         let width = bounds.size.width.as_f32().round().max(1.0) as u32;
         let height = bounds.size.height.as_f32().round().max(1.0) as u32;
-        let scale = window.scale_factor() as f32;
+        let scale = window.scale_factor();
         let thread_id = self.thread_id.clone();
         self.view.update(cx, |this, cx| {
             this.ai_browser_surface_resize(thread_id.as_str(), width, height, scale, cx);

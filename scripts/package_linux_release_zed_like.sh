@@ -109,8 +109,10 @@ prepare_zed_like_linux_release_bundle() {
   mkdir -p "$PACKAGE_DIR/codex-runtime/linux" "$PACKAGE_LIB_DIR" "$DIST_DIR"
 
   cp "$BINARY_SOURCE_PATH" "$PACKAGED_BINARY_PATH"
+  cp "$BROWSER_HELPER_SOURCE_PATH" "$PACKAGED_BROWSER_HELPER_PATH"
   cp "$CODEX_SOURCE_PATH" "$PACKAGED_CODEX_PATH"
-  chmod +x "$PACKAGED_BINARY_PATH" "$PACKAGED_CODEX_PATH"
+  cp -R "$BROWSER_CEF_SOURCE_DIR"/. "$PACKAGE_LIB_DIR"/
+  chmod +x "$PACKAGED_BINARY_PATH" "$PACKAGED_BROWSER_HELPER_PATH" "$PACKAGED_CODEX_PATH"
 
   write_zed_like_linux_launcher
 
@@ -119,6 +121,7 @@ prepare_zed_like_linux_release_bundle() {
   patch_linux_runtime_paths "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR" '$ORIGIN/lib'
   validate_linux_runtime_bundle "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR"
   "$ROOT_DIR/scripts/validate_release_bundle_layout.sh" linux-package "$PACKAGE_DIR"
+  "$ROOT_DIR/scripts/validate_browser_cef_linux.sh" "$BROWSER_CEF_SOURCE_DIR" linux-package "$PACKAGE_DIR" >/dev/null
 }
 
 prepare_zed_like_linux_release_bundle

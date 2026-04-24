@@ -48,6 +48,8 @@ validate_macos_app() {
 
 validate_linux_package() {
   local package_path="$1"
+  local root_dir
+  root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
   require_executable "$package_path/hunk_desktop_bin" "Linux packaged binary"
   require_executable "$package_path/hunk-desktop" "Linux launcher"
@@ -55,10 +57,16 @@ validate_linux_package() {
     "$package_path/codex-runtime/linux/codex" \
     "bundled Linux Codex runtime"
   require_path "$package_path/lib" "Linux shared library directory"
+  "$root_dir/scripts/validate_browser_cef_linux.sh" \
+    "$root_dir/assets/browser-runtime/cef/linux/runtime" \
+    linux-package \
+    "$package_path"
 }
 
 validate_linux_install_root() {
   local install_root="$1"
+  local root_dir
+  root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
   require_executable "$install_root/usr/bin/hunk-desktop" "Linux installed launcher wrapper"
   require_executable "$install_root/usr/bin/hunk_desktop" "Linux installed launcher alias"
@@ -71,6 +79,10 @@ validate_linux_install_root() {
   require_path "$install_root/usr/share/applications/hunk-desktop.desktop" "Linux desktop entry"
   require_path "$install_root/usr/share/icons/hicolor/512x512/apps/hunk-desktop.png" "Linux desktop icon"
   require_path "$install_root/usr/share/pixmaps/hunk-desktop.png" "Linux desktop pixmap icon"
+  "$root_dir/scripts/validate_browser_cef_linux.sh" \
+    "$root_dir/assets/browser-runtime/cef/linux/runtime" \
+    linux-install-root \
+    "$install_root"
 }
 
 if [[ $# -ne 2 ]]; then

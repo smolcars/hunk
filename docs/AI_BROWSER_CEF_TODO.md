@@ -94,7 +94,7 @@ Implementation notes:
 - [x] Convert CEF BGRA frame buffers into a GPUI-paintable frame representation.
   - [x] Add a validated `BrowserFrame` BGRA representation with metadata and nonblank checks.
   - [x] Add a desktop GPUI adapter that paints `BrowserFrame` through `RenderImage`.
-- [ ] Keep frame conversion off the GPUI render path.
+- [x] Keep frame conversion off the GPUI render path.
   - [x] Store validated frame bytes in `BrowserSession`; UI state reads frame metadata separately.
 - [x] Add crate-level tests for snapshot indexing, stale index rejection, and safety classification.
 - [x] Add crate-level tests for input coordinate scaling.
@@ -163,6 +163,7 @@ Implementation notes:
 
 - The browser pane now converts the selected thread's latest `BrowserFrame` into a GPUI `RenderImage` and paints it in the right-side browser surface.
 - The desktop adapter caches the `RenderImage` by thread ID, frame epoch, and dimensions so normal re-renders reuse the current frame instead of rebuilding the GPUI image object.
+- Browser frame-to-`RenderImage` conversion now happens from the browser pump/controller path after CEF reports frame changes; the GPUI render path only reads the existing cache.
 - The optional production CEF adapter now feeds captured offscreen BGRA frames into `BrowserSession`; default builds remain CEF-free and continue to show the configured/runtime placeholder.
 - Browser dynamic tool calls now render as compact `Browser` timeline rows with action summaries for navigate, snapshot, click, type, press, scroll, screenshot, and confirmation-required results.
 - The browser surface now tracks GPUI focus, resizes CEF OSR view bounds from the pane, forwards mouse/down/wheel/key/text input, and suppresses mouse move forwarding outside the browser hitbox.
@@ -218,9 +219,9 @@ Exit criteria:
 ## Phase 4: Sensitive Action Policy
 
 - [x] Add a browser safety policy module.
-- [ ] Prompt before credential submission, purchases, payments, file upload/download, permission prompts, external protocol launches, and high-risk form submissions.
+- [x] Prompt before credential submission, purchases, payments, file upload/download, permission prompts, external protocol launches, and high-risk form submissions.
   - [x] Return confirmation-required tool responses for sensitive browser actions detected by the state-layer executor.
-- [ ] Route browser confirmations through the existing AI user-input or approval UI.
+- [x] Route browser confirmations through the existing AI user-input or approval UI.
 - [x] Redact secrets from tool results.
 - [x] Block external protocol launches unless the user confirms.
 - [x] Add tests for sensitive-action classification.
@@ -228,9 +229,15 @@ Exit criteria:
 
 Exit criteria:
 
-- [ ] Normal browsing is smooth.
+- [x] Normal browsing is smooth.
 - [x] Sensitive actions pause for user confirmation.
 - [x] Secret values are not echoed back to the model.
+
+Implementation notes:
+
+- Sensitive browser dynamic tool calls now pause in the visible AI workspace as pending browser approvals. Accepting runs the original tool call with a one-shot safety override; declining returns a structured `browserConfirmationDeclined` tool result.
+- The macOS CEF adapter installs a small `GPUIApplication` compatibility selector for Chromium's `isHandlingSendEvent` check, avoiding an Objective-C exception seen on sites that touch WebAuthn/FIDO paths.
+- Browser click dispatch now sends focus, move, mouse-down, then mouse-up. This fixes the inverted click sequence that made some page targets require a second click.
 
 ## Phase 5: Packaging
 
@@ -238,6 +245,7 @@ Exit criteria:
 - [x] Add CEF runtime validation scripts for macOS first.
   - [x] Add `scripts/smoke_browser_cef_macos.sh` to clone/pin cef-rs, export CEF, build the cef-rs OSR bundle, and optionally launch it.
   - [x] Extend the smoke script to build and run a Hunk-owned OSR app bundle with helper apps and a nonblank pixel assertion.
+  - [x] Extend the Hunk-owned smoke app to verify click/key input, DevTools snapshot evaluation, and screenshot frame capture.
   - [x] Add Hunk-specific runtime layout validation for release packaging.
 - [x] Update macOS packaging to include:
   - [x] CEF framework/runtime files
@@ -245,14 +253,14 @@ Exit criteria:
   - [x] resources
   - [x] helper app/binary
   - [x] codesigning and notarization coverage
-- [ ] Update Linux packaging after the macOS path is stable.
-- [ ] Update Windows packaging after the Linux path is stable.
+- [x] Update Linux packaging after the macOS path is stable.
+- [x] Update Windows packaging after the Linux path is stable.
 - [x] Extend release bundle validation to check browser runtime files.
 - [x] Document how to refresh the pinned CEF runtime.
 
 Exit criteria:
 
-- [ ] A packaged macOS build can open the in-app browser without a development checkout.
+- [x] A packaged macOS build can open the in-app browser without a development checkout.
 - [x] Bundle validation fails clearly when required CEF files are missing.
 
 Implementation notes:
@@ -264,15 +272,19 @@ Implementation notes:
 - `scripts/validate_release_bundle_layout.sh macos-app` now invokes the CEF app-bundle validator with the production `Hunk Browser` helper prefix.
 - Package layout smoke passed against `target/browser-cef-smoke/package-validation.app` after building `hunk-browser-helper` with `--features hunk-browser-helper/cef-subprocess`.
 - macOS release packaging now builds `hunk-desktop` with `--features hunk-desktop/cef-browser` so packaged apps include both the bundled CEF runtime and a CEF-enabled Hunk binary.
+- Local macOS release packaging passed and produced `target/dist/Hunk-0.0.6-macos-arm64.dmg`; a guarded launch of `target/packager/macos/Hunk.app/Contents/MacOS/hunk_desktop` started from the `.app` layout without CEF ICU/resource initialization errors.
+- Linux packaging now validates `assets/browser-runtime/cef/linux/runtime`, builds `hunk-browser-helper` with `cef-subprocess`, builds `hunk-desktop` with `cef-browser`, copies the flat CEF runtime into the packaged private `lib` directory, and validates both tarball and system install-root layouts.
+- Windows packaging now validates `assets/browser-runtime/cef/windows/runtime`, builds the CEF helper and CEF-enabled desktop binary, injects the CEF runtime and helper next to the MSI-installed executable, and validates the MSI payload includes the helper plus core CEF files.
+- Linux and Windows package scripts intentionally fail early until their platform CEF runtimes are staged under `assets/browser-runtime/cef/<platform>/runtime`.
 
 ## Phase 6: Final Verification
 
 - [x] Add ignored integration tests that run only when the CEF runtime is installed.
-- [x] Integration smoke test: load `https://example.com`.
+- [x] Integration smoke test: load a deterministic Hunk-owned smoke page.
 - [x] Integration smoke test: verify a nonblank painted frame.
-- [ ] Integration smoke test: forward click and key input.
-- [ ] Integration smoke test: call `hunk.browser_snapshot`.
-- [ ] Integration smoke test: capture a screenshot.
+- [x] Integration smoke test: forward click and key input.
+- [x] Integration smoke test: call `hunk.browser_snapshot`.
+- [x] Integration smoke test: capture a screenshot.
 - [x] Run `nix develop -c cargo build --workspace`.
 - [x] Run `nix develop -c cargo clippy --workspace --all-targets -- -D warnings`.
 - [x] Run targeted browser, Codex, and desktop tests.

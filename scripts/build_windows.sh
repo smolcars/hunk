@@ -6,18 +6,20 @@ TARGET_TRIPLE="${HUNK_WINDOWS_TARGET:-x86_64-pc-windows-msvc}"
 PROFILE="release"
 STAGE_RUNTIME=1
 TARGET_DIR="$ROOT_DIR/target"
+FEATURES="${HUNK_WINDOWS_FEATURES:-}"
 
 usage() {
   cat <<'EOF'
 Build hunk-desktop for Windows.
 
 Usage:
-  ./scripts/build_windows.sh [--target <triple>] [--debug] [--no-stage-runtime]
+  ./scripts/build_windows.sh [--target <triple>] [--debug] [--features <features>] [--no-stage-runtime]
 
 Options:
   --target <triple>   Override target triple (default: x86_64-pc-windows-msvc)
                       Must be a Windows target triple.
   --debug             Build debug profile instead of release
+  --features <list>   Pass a comma-separated feature list to cargo
   --no-stage-runtime  Skip staging assets/codex-runtime/windows
   -h, --help          Show this help
 EOF
@@ -36,6 +38,14 @@ while [[ $# -gt 0 ]]; do
     --debug)
       PROFILE="debug"
       shift
+      ;;
+    --features)
+      FEATURES="${2:-}"
+      if [[ -z "$FEATURES" ]]; then
+        echo "error: --features requires a value" >&2
+        exit 1
+      fi
+      shift 2
       ;;
     --no-stage-runtime)
       STAGE_RUNTIME=0
@@ -81,6 +91,9 @@ fi
 build_args=(build -p hunk-desktop --locked --target "$TARGET_TRIPLE")
 if [[ "$PROFILE" == "release" ]]; then
   build_args+=(--release)
+fi
+if [[ -n "$FEATURES" ]]; then
+  build_args+=(--features "$FEATURES")
 fi
 
 echo "Building hunk-desktop for Windows target '$TARGET_TRIPLE' ($PROFILE profile)..."

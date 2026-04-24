@@ -91,9 +91,42 @@ impl DiffViewer {
             }
         }
 
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(current_exe) = std::env::current_exe()
+                && let Some(exe_dir) = current_exe.parent()
+            {
+                let packaged_runtime = exe_dir.join("lib");
+                if packaged_runtime.join("libcef.so").is_file() {
+                    return packaged_runtime;
+                }
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(current_exe) = std::env::current_exe()
+                && let Some(exe_dir) = current_exe.parent()
+            {
+                if exe_dir.join("libcef.dll").is_file() {
+                    return exe_dir.to_path_buf();
+                }
+            }
+        }
+
+        let platform_runtime = if cfg!(target_os = "linux") {
+            "linux"
+        } else if cfg!(target_os = "windows") {
+            "windows"
+        } else {
+            "macos"
+        };
+
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("assets/browser-runtime/cef/macos/runtime")
+            .join("assets/browser-runtime/cef")
+            .join(platform_runtime)
+            .join("runtime")
     }
 
     fn default_browser_helper_executable_path() -> PathBuf {
@@ -116,13 +149,13 @@ impl DiffViewer {
         if let Ok(current_exe) = std::env::current_exe()
             && let Some(exe_dir) = current_exe.parent()
         {
-            return exe_dir.join(hunk_browser_helper::HELPER_BINARY_NAME);
+            return exe_dir.join(hunk_browser_helper::helper_executable_name());
         }
 
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("target/debug")
-            .join(hunk_browser_helper::HELPER_BINARY_NAME)
+            .join(hunk_browser_helper::helper_executable_name())
     }
 
     #[cfg(target_os = "macos")]
@@ -635,6 +668,7 @@ impl DiffViewer {
             ai_browser_pump_active: false,
             ai_browser_pump_task: Task::ready(()),
             ai_browser_render_frame_cache: None,
+            ai_pending_browser_approvals: Vec::new(),
             ai_browser_focus_handle: cx.focus_handle(),
             ai_browser_surface_focused: false,
             ai_desktop_notification_state_by_workspace: BTreeMap::new(),

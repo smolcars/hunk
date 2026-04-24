@@ -1555,6 +1555,7 @@ struct DiffViewer {
     ai_browser_pump_active: bool,
     ai_browser_pump_task: Task<()>,
     ai_browser_render_frame_cache: Option<AiBrowserRenderFrameCache>,
+    ai_pending_browser_approvals: Vec<AiPendingBrowserApproval>,
     ai_browser_focus_handle: FocusHandle,
     ai_browser_surface_focused: bool,
     ai_desktop_notification_state_by_workspace:

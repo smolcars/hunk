@@ -337,6 +337,14 @@ struct AiBrowserRenderFrameCache {
     image: Arc<gpui::RenderImage>,
 }
 
+struct AiPendingBrowserApproval {
+    request_id: String,
+    params: hunk_codex::protocol::DynamicToolCallParams,
+    kind: hunk_browser::SensitiveBrowserAction,
+    summary: String,
+    response_tx: std::sync::mpsc::Sender<hunk_codex::protocol::DynamicToolCallResponse>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiInlineReviewLoadedState {
     thread_id: String,

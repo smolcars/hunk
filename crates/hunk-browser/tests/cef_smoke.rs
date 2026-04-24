@@ -37,6 +37,21 @@ fn macos_cef_smoke_loads_example_and_paints_nonblank_frame() {
             || stderr.contains("CEF smoke produced nonblank frame"),
         "CEF smoke did not report a nonblank frame\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    assert!(
+        stdout.contains("CEF smoke forwarded click and key input")
+            || stderr.contains("CEF smoke forwarded click and key input"),
+        "CEF smoke did not report input forwarding\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("CEF smoke captured browser snapshot")
+            || stderr.contains("CEF smoke captured browser snapshot"),
+        "CEF smoke did not report snapshot capture\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("CEF smoke captured screenshot frame")
+            || stderr.contains("CEF smoke captured screenshot frame"),
+        "CEF smoke did not report screenshot capture\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
 }
 
 fn workspace_root() -> PathBuf {

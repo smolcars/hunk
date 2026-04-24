@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 #[cfg(target_os = "macos")]
 use std::os::unix::ffi::OsStrExt;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -40,6 +40,8 @@ impl CefBrowserBackend {
         stage_macos_cef_sidecars_for_bare_run(&cef_paths)?;
         #[cfg(target_os = "macos")]
         let loader = load_macos_cef_framework(&cef_paths)?;
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        let cef_runtime_dir = resolve_flat_cef_runtime_dir(config)?;
 
         let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
 
@@ -53,6 +55,8 @@ impl CefBrowserBackend {
         let mut app = HunkCefAppBuilder::build(HunkCefApp {
             #[cfg(target_os = "macos")]
             cef_paths: cef_paths.clone(),
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            cef_runtime_dir: cef_runtime_dir.clone(),
         });
 
         if !is_browser_process {
@@ -94,6 +98,13 @@ impl CefBrowserBackend {
                 CefString::from(cef_paths.resources_dir.to_string_lossy().as_ref());
             settings.locales_dir_path =
                 CefString::from(cef_paths.resources_dir.to_string_lossy().as_ref());
+        }
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            settings.resources_dir_path =
+                CefString::from(cef_runtime_dir.to_string_lossy().as_ref());
+            settings.locales_dir_path =
+                CefString::from(cef_runtime_dir.join("locales").to_string_lossy().as_ref());
         }
         if initialize(
             Some(args.as_main_args()),
@@ -558,6 +569,8 @@ enum CefLoadState {
 struct HunkCefApp {
     #[cfg(target_os = "macos")]
     cef_paths: MacCefPaths,
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    cef_runtime_dir: PathBuf,
 }
 
 wrap_app! {
@@ -582,6 +595,8 @@ wrap_app! {
             command_line.append_switch(Some(&"enable-logging=stderr".into()));
             #[cfg(target_os = "macos")]
             append_macos_cef_switches(command_line, &self.app.cef_paths);
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            append_flat_cef_switches(command_line, &self.app.cef_runtime_dir);
         }
 
         fn browser_process_handler(&self) -> Option<cef::BrowserProcessHandler> {
@@ -589,6 +604,8 @@ wrap_app! {
                 HunkCefBrowserProcessHandler {
                     #[cfg(target_os = "macos")]
                     cef_paths: self.app.cef_paths.clone(),
+                    #[cfg(any(target_os = "linux", target_os = "windows"))]
+                    cef_runtime_dir: self.app.cef_runtime_dir.clone(),
                 },
             ))
         }
@@ -605,6 +622,8 @@ impl HunkCefAppBuilder {
 struct HunkCefBrowserProcessHandler {
     #[cfg(target_os = "macos")]
     cef_paths: MacCefPaths,
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    cef_runtime_dir: PathBuf,
 }
 
 wrap_browser_process_handler! {
@@ -622,6 +641,8 @@ wrap_browser_process_handler! {
             command_line.append_switch(Some(&"enable-logging=stderr".into()));
             #[cfg(target_os = "macos")]
             append_macos_cef_switches(command_line, &self.handler.cef_paths);
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            append_flat_cef_switches(command_line, &self.handler.cef_runtime_dir);
         }
     }
 }
@@ -1209,6 +1230,59 @@ fn append_macos_cef_switches(command_line: &mut CommandLine, paths: &MacCefPaths
         Some(&"resources-dir-path".into()),
         Some(&CefString::from(
             paths.resources_dir.to_string_lossy().as_ref(),
+        )),
+    );
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn resolve_flat_cef_runtime_dir(config: &BrowserRuntimeConfig) -> Result<PathBuf, BrowserError> {
+    let runtime_dir = config.cef_runtime_dir.canonicalize().map_err(|error| {
+        backend_error(format!(
+            "failed to resolve Chromium Embedded Framework runtime from {}: {error}",
+            config.cef_runtime_dir.display()
+        ))
+    })?;
+
+    let icu_data = runtime_dir.join("icudtl.dat");
+    if !icu_data.is_file() {
+        return Err(backend_error(format!(
+            "Chromium Embedded Framework resources are missing {}",
+            icu_data.display()
+        )));
+    }
+
+    #[cfg(target_os = "linux")]
+    let cef_library = runtime_dir.join("libcef.so");
+    #[cfg(target_os = "windows")]
+    let cef_library = runtime_dir.join("libcef.dll");
+    if !cef_library.is_file() {
+        return Err(backend_error(format!(
+            "Chromium Embedded Framework library is missing {}",
+            cef_library.display()
+        )));
+    }
+
+    let locales_dir = runtime_dir.join("locales");
+    if !locales_dir.is_dir() {
+        return Err(backend_error(format!(
+            "Chromium Embedded Framework locales are missing {}",
+            locales_dir.display()
+        )));
+    }
+
+    Ok(runtime_dir)
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn append_flat_cef_switches(command_line: &mut CommandLine, runtime_dir: &PathBuf) {
+    command_line.append_switch_with_value(
+        Some(&"resources-dir-path".into()),
+        Some(&CefString::from(runtime_dir.to_string_lossy().as_ref())),
+    );
+    command_line.append_switch_with_value(
+        Some(&"locales-dir-path".into()),
+        Some(&CefString::from(
+            runtime_dir.join("locales").to_string_lossy().as_ref(),
         )),
     );
 }
