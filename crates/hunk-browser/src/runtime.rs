@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+#[cfg(feature = "cef")]
+use crate::cef_backend::CefBrowserBackend;
 use crate::config::BrowserRuntimeConfig;
 use crate::session::{BrowserAction, BrowserError, BrowserSession, BrowserSessionId};
 
@@ -13,6 +15,8 @@ pub enum BrowserRuntimeStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserRuntimeOperation {
     Initialize,
+    CreateSession,
+    Pump,
     Navigate,
     Reload,
     Stop,
@@ -32,6 +36,8 @@ impl BrowserRuntimeOperation {
     pub fn as_str(self) -> &'static str {
         match self {
             BrowserRuntimeOperation::Initialize => "initialize",
+            BrowserRuntimeOperation::CreateSession => "create session",
+            BrowserRuntimeOperation::Pump => "pump",
             BrowserRuntimeOperation::Navigate => "navigate",
             BrowserRuntimeOperation::Reload => "reload",
             BrowserRuntimeOperation::Stop => "stop",
@@ -66,12 +72,38 @@ impl std::fmt::Display for BrowserRuntimeStatus {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct BrowserRuntime {
     config: Option<BrowserRuntimeConfig>,
     backend_ready: bool,
     sessions: BTreeMap<BrowserSessionId, BrowserSession>,
     visible_session_id: Option<BrowserSessionId>,
+    #[cfg(feature = "cef")]
+    cef_backend: Option<CefBrowserBackend>,
+}
+
+impl Clone for BrowserRuntime {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            backend_ready: false,
+            sessions: self.sessions.clone(),
+            visible_session_id: self.visible_session_id.clone(),
+            #[cfg(feature = "cef")]
+            cef_backend: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for BrowserRuntime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrowserRuntime")
+            .field("config", &self.config)
+            .field("backend_ready", &self.backend_ready)
+            .field("sessions", &self.sessions)
+            .field("visible_session_id", &self.visible_session_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl BrowserRuntime {
@@ -203,6 +235,115 @@ impl BrowserRuntime {
         }
 
         Ok(())
+    }
+
+    pub fn initialize_backend(&mut self) -> Result<(), BrowserError> {
+        let Some(config) = self.config.clone() else {
+            return Err(BrowserError::RuntimeNotReady {
+                operation: BrowserRuntimeOperation::Initialize,
+                status: self.status(),
+            });
+        };
+
+        #[cfg(feature = "cef")]
+        {
+            if self.cef_backend.is_none() {
+                self.cef_backend = Some(CefBrowserBackend::initialize(&config)?);
+            }
+            self.mark_backend_ready()?;
+            Ok(())
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = config;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn shutdown_backend(&mut self) {
+        #[cfg(feature = "cef")]
+        if let Some(mut backend) = self.cef_backend.take() {
+            backend.shutdown();
+        }
+
+        self.mark_backend_stopped();
+    }
+
+    pub fn pump_backend(&mut self) -> Result<bool, BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Pump)?;
+
+        #[cfg(feature = "cef")]
+        {
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.pump(&mut self.sessions)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn ensure_backend_session(
+        &mut self,
+        thread_id: impl Into<String>,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::CreateSession)?;
+        let session_id = BrowserSessionId::new(thread_id);
+        self.visible_session_id = Some(session_id.clone());
+        self.sessions
+            .entry(session_id.clone())
+            .or_insert_with(|| BrowserSession::new(session_id.clone()));
+
+        #[cfg(feature = "cef")]
+        {
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_session(session_id)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn apply_backend_action(
+        &mut self,
+        thread_id: &str,
+        action: &BrowserAction,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(action.runtime_operation())?;
+        self.ensure_session(thread_id.to_string())
+            .preflight_action(action)?;
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_session(session_id.clone())?;
+            backend.apply_action(&session_id, action)?;
+        }
+
+        self.apply_state_only_action(thread_id, action)
     }
 
     pub fn session_count(&self) -> usize {

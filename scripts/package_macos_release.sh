@@ -312,7 +312,7 @@ echo "Building macOS app bundle..." >&2
   export RUSTFLAGS="-L native=$MACOS_SDKROOT/usr/lib -C link-arg=-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET${RUSTFLAGS:+ $RUSTFLAGS}"
 
   rm -rf "$APP_PATH"
-  cargo build -p hunk-desktop --release --target "$TARGET_TRIPLE" --locked
+  cargo build -p hunk-desktop --release --target "$TARGET_TRIPLE" --locked --features hunk-desktop/cef-browser
   cargo build -p hunk-browser-helper --release --target "$TARGET_TRIPLE" --locked --features hunk-browser-helper/cef-subprocess
   (
     cd "$ROOT_DIR/crates/hunk-desktop"

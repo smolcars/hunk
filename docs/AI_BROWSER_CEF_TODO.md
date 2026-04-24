@@ -1,6 +1,6 @@
 # AI Browser CEF TODO
 
-Status: Hunk-owned CEF macOS OSR smoke passed; browser timeline summaries and structured runtime errors added; production CEF adapter not connected yet.
+Status: Optional production CEF backend compiles and is wired into the GPUI browser pane behind `hunk-desktop/cef-browser`; UI input forwarding and AI-to-visible-browser bridge remain.
 
 This tracks the implementation of a true in-app browser for Hunk that can be controlled by the AI agent. The v1 direction is CEF offscreen rendering, embedded inside the GPUI AI workspace, with a single browser surface tied to the active AI session.
 
@@ -73,22 +73,22 @@ Implementation notes:
   - [x] `BrowserSnapshot`
   - [x] `BrowserAction`
   - [x] `SensitiveBrowserAction`
-- [ ] Initialize CEF once during desktop app startup.
-- [ ] Shut CEF down during desktop app exit.
-- [ ] Store browser profile, cache, cookies, and local storage under a Hunk-owned app data directory.
+- [x] Initialize CEF once during desktop app startup.
+- [x] Shut CEF down during desktop app exit.
+- [x] Store browser profile, cache, cookies, and local storage under a Hunk-owned app data directory.
   - [x] Add `BrowserStoragePaths` with isolated CEF root cache, profile, and downloads directories under `<app-data>/browser`.
   - [x] Add `BrowserRuntimeConfig` with CEF runtime path, helper executable path, and storage paths.
   - [x] Resolve the real app data directory during desktop startup and call `BrowserStoragePaths::ensure_directories`.
-  - [ ] Pass `root_cache_path` and `profile_path` into the production CEF settings.
-- [ ] Keep the browser profile isolated from the user's system browser profile.
+  - [x] Pass `root_cache_path` and `profile_path` into the production CEF settings.
+- [x] Keep the browser profile isolated from the user's system browser profile.
   - [x] Model the profile path as a child of the Hunk-owned CEF root cache path, which CEF requires.
 - [x] Key browser sessions by AI thread ID.
 - [x] Create a browser session lazily when a thread first opens or uses the browser.
 - [x] Keep each thread's URL, latest frame, latest snapshot index map, and navigation state separate.
-- [ ] Implement navigation, reload, stop, back, and forward.
+- [x] Implement navigation, reload, stop, back, and forward.
   - [x] Add state-only navigation helpers that invalidate stale snapshots.
   - [x] Add state-only reload, stop, back, and forward actions with isolated per-session history.
-  - [ ] Wire helpers to the CEF browser host.
+  - [x] Wire helpers to the CEF browser host.
 - [ ] Implement resize and device-scale handling.
 - [ ] Implement mouse, wheel, keyboard, and focus forwarding.
 - [x] Convert CEF BGRA frame buffers into a GPUI-paintable frame representation.
@@ -115,7 +115,16 @@ Implementation notes:
 - `hunk-browser-helper` now exposes a feature-gated `cef-subprocess` entrypoint that calls `cef::execute_process` through the pinned cef-rs dependency. The default build keeps the placeholder path so normal workspace builds do not compile or link CEF unless the feature is requested.
 - macOS release packaging builds `hunk-browser-helper` with `--features hunk-browser-helper/cef-subprocess` before copying it into the CEF helper app bundles.
 - `BrowserRuntime` now has a typed readiness guard for backend-required operations. Disabled or configured-but-not-started runtimes return `BrowserError::RuntimeNotReady` with the requested operation and current runtime status.
-- The state-only runtime now models navigation, reload, stop, back, and forward through `BrowserAction`, including per-session history and snapshot invalidation. The remaining work is dispatching those same actions to the live CEF browser host.
+- The state-only runtime models navigation, reload, stop, back, and forward through `BrowserAction`, including per-session history and snapshot invalidation; the optional CEF backend dispatches those same actions to the live CEF browser host.
+- `hunk-browser` now has an optional `cef` feature that embeds the smoke-proven CEF OSR path as a production backend: CEF startup/shutdown, helper subprocess path, isolated root/profile cache paths, one windowless browser per thread session, explicit message-loop pumping, BGRA frame capture, and CEF navigation/reload/stop/back/forward dispatch.
+- `hunk-desktop` exposes this through the `cef-browser` feature. With that feature enabled, desktop startup initializes the backend, opening the browser pane creates a CEF-backed session, a 16ms GPUI task pumps CEF while any browser pane is open, and app drop shuts CEF down.
+- Bare `target/{debug,release}` macOS runs now resolve CEF framework/resources paths before CEF initialization and pass them to CEF child processes, so `icudtl.dat` and framework `.pak` files do not require an `.app` bundle layout.
+- Bare macOS runs also resolve `hunk-browser-helper` next to the running Hunk binary. Build the helper with `--features hunk-browser-helper/cef-subprocess` in the same profile before launching a CEF-enabled bare desktop binary.
+- The macOS helper subprocess can load CEF from the packaged helper `.app` layout, `HUNK_CEF_RUNTIME_DIR`, `CEF_PATH`, or the repo-staged `assets/browser-runtime/cef/macos/runtime` path.
+- Bare macOS runs stage Chromium GPU sidecars (`libEGL.dylib`, `libGLESv2.dylib`, `libvk_swiftshader.dylib`, and `vk_swiftshader_icd.json`) from the CEF framework into the running binary directory when they are missing.
+- CEF is configured with `disable_signal_handlers` so Hunk owns process Ctrl+C handling. Hunk installs its signal handler after GPUI window startup, because earlier installation can be overwritten by platform/browser startup.
+- Ctrl+C now requests a normal GPUI quit on the first interrupt; a second interrupt force-exits with status 130.
+- Browser shutdown cancels the GPUI browser pump and shuts down the CEF backend before Codex/terminal teardown, so CEF helpers do not sit disconnected while slower app services drain.
 
 ## Phase 2: GPUI Browser Panel
 
@@ -152,7 +161,7 @@ Implementation notes:
 
 - The browser pane now converts the selected thread's latest `BrowserFrame` into a GPUI `RenderImage` and paints it in the right-side browser surface.
 - The desktop adapter caches the `RenderImage` by thread ID, frame epoch, and dimensions so normal re-renders reuse the current frame instead of rebuilding the GPUI image object.
-- This is still a UI paint path only; the production CEF adapter still needs to feed frames into `BrowserSession`.
+- The optional production CEF adapter now feeds captured offscreen BGRA frames into `BrowserSession`; default builds remain CEF-free and continue to show the configured/runtime placeholder.
 - Browser dynamic tool calls now render as compact `Browser` timeline rows with action summaries for navigate, snapshot, click, type, press, scroll, screenshot, and confirmation-required results.
 
 ## Phase 3: AI Dynamic Browser Tools
@@ -248,6 +257,7 @@ Implementation notes:
 - `scripts/package_macos_release.sh` signs nested CEF helper `.app` bundles and the CEF `.framework` before signing the top-level Hunk app and submitting the DMG to the existing notarization flow.
 - `scripts/validate_release_bundle_layout.sh macos-app` now invokes the CEF app-bundle validator with the production `Hunk Browser` helper prefix.
 - Package layout smoke passed against `target/browser-cef-smoke/package-validation.app` after building `hunk-browser-helper` with `--features hunk-browser-helper/cef-subprocess`.
+- macOS release packaging now builds `hunk-desktop` with `--features hunk-desktop/cef-browser` so packaged apps include both the bundled CEF runtime and a CEF-enabled Hunk binary.
 
 ## Phase 6: Final Verification
 
@@ -260,6 +270,8 @@ Implementation notes:
 - [x] Run `nix develop -c cargo build --workspace`.
 - [x] Run `nix develop -c cargo clippy --workspace --all-targets -- -D warnings`.
 - [x] Run targeted browser, Codex, and desktop tests.
+- [x] Run a guarded release-profile CEF desktop launch long enough to verify `icudtl.dat` startup and Chromium GPU sidecar lookup no longer fail.
+- [x] Run a foreground release-profile CEF desktop launch and verify Ctrl+C exits cleanly without leaving `hunk_desktop` or `hunk-browser-helper` processes.
 - [x] Run macOS package smoke once the CEF runtime is staged.
 
 Exit criteria:

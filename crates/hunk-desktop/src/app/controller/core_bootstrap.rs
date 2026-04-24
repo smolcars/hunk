@@ -61,11 +61,24 @@ impl DiffViewer {
             return hunk_browser::BrowserRuntime::new_disabled();
         }
 
-        hunk_browser::BrowserRuntime::new_configured(hunk_browser::BrowserRuntimeConfig::new(
+        let runtime =
+            hunk_browser::BrowserRuntime::new_configured(hunk_browser::BrowserRuntimeConfig::new(
             Self::default_browser_cef_runtime_dir(),
             Self::default_browser_helper_executable_path(),
             storage_paths,
-        ))
+        ));
+        #[cfg(feature = "cef-browser")]
+        {
+            let mut runtime = runtime;
+            if let Err(err) = runtime.initialize_backend() {
+                error!("failed to initialize embedded browser CEF backend: {err:#}");
+            }
+            runtime
+        }
+        #[cfg(not(feature = "cef-browser"))]
+        {
+            runtime
+        }
     }
 
     fn default_browser_cef_runtime_dir() -> PathBuf {
@@ -98,6 +111,12 @@ impl DiffViewer {
                     .join("Contents/MacOS")
                     .join(hunk_browser_helper::MACOS_HELPER_BUNDLE_NAME);
             }
+        }
+
+        if let Ok(current_exe) = std::env::current_exe()
+            && let Some(exe_dir) = current_exe.parent()
+        {
+            return exe_dir.join(hunk_browser_helper::HELPER_BINARY_NAME);
         }
 
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -474,6 +493,9 @@ impl DiffViewer {
         });
         let ai_terminal_input_state =
             cx.new(|cx| InputState::new(window, cx).placeholder("Run a command in this workspace"));
+        let ai_browser_address_input_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search or enter website address")
+        });
         let file_quick_open_input_state =
             cx.new(|cx| InputState::new(window, cx).placeholder("Type a file name or path"));
         let editor_search_input_state =
@@ -608,6 +630,10 @@ impl DiffViewer {
             ai_attachment_picker_task: Task::ready(()),
             ai_workspace_states: BTreeMap::new(),
             ai_browser_runtime: Self::load_ai_browser_runtime(),
+            ai_browser_address_input_state,
+            ai_browser_pump_generation: 0,
+            ai_browser_pump_active: false,
+            ai_browser_pump_task: Task::ready(()),
             ai_browser_render_frame_cache: None,
             ai_desktop_notification_state_by_workspace: BTreeMap::new(),
             ai_pending_desktop_notification_events_by_workspace: BTreeMap::new(),
@@ -860,6 +886,16 @@ impl DiffViewer {
             }
             if should_send_ai_prompt_from_input_event(event) {
                 this.ai_send_prompt_action_from_keyboard(cx);
+            }
+        })
+        .detach();
+
+        let ai_browser_address_state = view.ai_browser_address_input_state.clone();
+        cx.subscribe(&ai_browser_address_state, |this, _, event, cx| {
+            if let InputEvent::PressEnter { secondary } = event
+                && !secondary
+            {
+                this.ai_submit_browser_address(cx);
             }
         })
         .detach();

@@ -5,6 +5,10 @@ license.workspace = true
 edition = "2024"
 authors = ["Nitesh Balusu"]
 
+[features]
+default = []
+cef-browser = ["hunk-browser/cef"]
+
 [[bin]]
 name = "hunk_desktop"
 path = "src/main.rs"
@@ -48,6 +52,7 @@ gpui-component = { git = "https://github.com/niteshbalusu11/gpui-component", rev
 ] }
 gpui-component-assets = { git = "https://github.com/niteshbalusu11/gpui-component", rev = "4640591715ae6732b6b2075f040672eeabdb5c87" }
 image = "0.25"
+libc = "0.2"
 notify = "8.2.0"
 notify-rust = "4.15.0"
 toml = "1.1.2"

@@ -93,6 +93,25 @@ fn ai_historical_inline_review_loaded_state(
     }
 }
 
+fn normalize_ai_browser_address(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("://") || lower.starts_with("about:") || lower.starts_with("data:") {
+        return Some(trimmed.to_string());
+    }
+
+    let scheme = if lower.starts_with("localhost") || lower.starts_with("127.") {
+        "http://"
+    } else {
+        "https://"
+    };
+    Some(format!("{scheme}{trimmed}"))
+}
+
 impl DiffViewer {
     fn ai_workspace_message_block_config(
         item_kind: &str,
@@ -621,10 +640,20 @@ impl DiffViewer {
         if self.ai_selected_thread_id.as_deref() != Some(thread_id.as_str()) {
             self.ai_selected_thread_id = Some(thread_id.clone());
         }
-        self.ai_browser_runtime.ensure_session(thread_id.clone());
+        if self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+            if let Err(err) = self.ai_browser_runtime.ensure_backend_session(thread_id.clone()) {
+                error!("failed to create embedded browser session: {err:#}");
+                self.ai_browser_runtime
+                    .ensure_session(thread_id.clone())
+                    .set_load_error(err.to_string());
+            }
+        } else {
+            self.ai_browser_runtime.ensure_session(thread_id.clone());
+        }
         self.ai_browser_open_thread_ids.insert(thread_id.clone());
         self.ai_right_pane_mode_by_thread
             .insert(thread_id, AiWorkspaceRightPaneMode::Browser);
+        self.ai_sync_browser_pump(cx);
         self.invalidate_ai_visible_frame_state_with_reason("timeline");
         cx.notify();
     }
@@ -656,9 +685,116 @@ impl DiffViewer {
             }
         }
         if changed {
+            self.ai_sync_browser_pump(cx);
             self.invalidate_ai_visible_frame_state_with_reason("timeline");
             cx.notify();
         }
+    }
+
+    fn ai_sync_browser_pump(&mut self, cx: &mut Context<Self>) {
+        let should_run = self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready
+            && !self.ai_browser_open_thread_ids.is_empty();
+        if should_run {
+            self.ai_start_browser_pump(cx);
+        } else {
+            self.ai_stop_browser_pump();
+        }
+    }
+
+    fn ai_start_browser_pump(&mut self, cx: &mut Context<Self>) {
+        if self.ai_browser_pump_active {
+            return;
+        }
+        self.ai_browser_pump_generation = self.ai_browser_pump_generation.saturating_add(1);
+        let generation = self.ai_browser_pump_generation;
+        self.ai_browser_pump_active = true;
+        self.ai_browser_pump_task = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_millis(16)).await;
+
+                let Some(this) = this.upgrade() else {
+                    return;
+                };
+
+                let mut keep_running = true;
+                this.update(cx, |this, cx| {
+                    if this.ai_browser_pump_generation != generation
+                        || this.ai_browser_runtime.status()
+                            != hunk_browser::BrowserRuntimeStatus::Ready
+                        || this.ai_browser_open_thread_ids.is_empty()
+                    {
+                        this.ai_browser_pump_active = false;
+                        this.ai_browser_pump_task = Task::ready(());
+                        keep_running = false;
+                        return;
+                    }
+
+                    match this.ai_browser_runtime.pump_backend() {
+                        Ok(changed) => {
+                            if changed {
+                                cx.notify();
+                            }
+                        }
+                        Err(err) => {
+                            error!("embedded browser pump failed: {err:#}");
+                            this.ai_browser_pump_active = false;
+                            this.ai_browser_pump_task = Task::ready(());
+                            keep_running = false;
+                        }
+                    }
+                });
+                if !keep_running {
+                    return;
+                }
+            }
+        });
+    }
+
+    fn ai_stop_browser_pump(&mut self) {
+        self.ai_browser_pump_generation = self.ai_browser_pump_generation.saturating_add(1);
+        self.ai_browser_pump_active = false;
+        self.ai_browser_pump_task = Task::ready(());
+    }
+
+    pub(super) fn ai_apply_browser_action_for_current_thread(
+        &mut self,
+        action: hunk_browser::BrowserAction,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        if self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+            if let Err(err) = self
+                .ai_browser_runtime
+                .apply_backend_action(thread_id.as_str(), &action)
+            {
+                error!("embedded browser action failed: {err:#}");
+                self.ai_browser_runtime
+                    .ensure_session(thread_id)
+                    .set_load_error(err.to_string());
+            }
+            self.ai_sync_browser_pump(cx);
+        } else if let Err(err) = self
+            .ai_browser_runtime
+            .apply_state_only_action(thread_id.as_str(), &action)
+        {
+            self.ai_browser_runtime
+                .ensure_session(thread_id)
+                .set_load_error(err.to_string());
+        }
+        cx.notify();
+    }
+
+    pub(super) fn ai_submit_browser_address(&mut self, cx: &mut Context<Self>) {
+        let value = self.ai_browser_address_input_state.read(cx).value();
+        let Some(url) = normalize_ai_browser_address(value.as_ref()) else {
+            return;
+        };
+        self.ai_apply_browser_action_for_current_thread(
+            hunk_browser::BrowserAction::Navigate { url },
+            cx,
+        );
     }
 
     pub(super) fn ai_set_right_pane_mode(

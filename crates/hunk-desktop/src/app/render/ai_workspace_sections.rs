@@ -1781,10 +1781,6 @@ impl DiffViewer {
             .as_deref()
             .and_then(|thread_id| self.ai_browser_runtime.session(thread_id))
             .map(|session| (session.state().clone(), session.latest_frame().cloned()));
-        let session_url = session_snapshot
-            .as_ref()
-            .and_then(|(state, _)| state.url.clone())
-            .unwrap_or_else(|| "about:blank".to_string());
         let session_state = session_snapshot.as_ref().map(|(state, _)| state.clone());
         let browser_render_image = selected_thread_id
             .as_deref()
@@ -1901,59 +1897,101 @@ impl DiffViewer {
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .child(
-                        Button::new("ai-browser-back")
-                            .compact()
-                            .ghost()
-                            .with_size(gpui_component::Size::Small)
-                            .rounded(px(8.0))
-                            .icon(Icon::new(IconName::ArrowLeft).size(px(13.0)))
-                            .tooltip("Back")
-                            .disabled(!can_go_back),
+                        {
+                            let view = view.clone();
+                            Button::new("ai-browser-back")
+                                .compact()
+                                .ghost()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(IconName::ArrowLeft).size(px(13.0)))
+                                .tooltip("Back")
+                                .disabled(!can_go_back)
+                                .on_click(move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_apply_browser_action_for_current_thread(
+                                            hunk_browser::BrowserAction::Back,
+                                            cx,
+                                        );
+                                    });
+                                })
+                        },
                     )
                     .child(
-                        Button::new("ai-browser-forward")
-                            .compact()
-                            .ghost()
-                            .with_size(gpui_component::Size::Small)
-                            .rounded(px(8.0))
-                            .icon(Icon::new(IconName::ArrowRight).size(px(13.0)))
-                            .tooltip("Forward")
-                            .disabled(!can_go_forward),
+                        {
+                            let view = view.clone();
+                            Button::new("ai-browser-forward")
+                                .compact()
+                                .ghost()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(IconName::ArrowRight).size(px(13.0)))
+                                .tooltip("Forward")
+                                .disabled(!can_go_forward)
+                                .on_click(move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_apply_browser_action_for_current_thread(
+                                            hunk_browser::BrowserAction::Forward,
+                                            cx,
+                                        );
+                                    });
+                                })
+                        },
                     )
                     .child(
-                        Button::new("ai-browser-reload")
-                            .compact()
-                            .ghost()
-                            .with_size(gpui_component::Size::Small)
-                            .rounded(px(8.0))
-                            .icon(Icon::new(HunkIconName::RotateCcw).size(px(13.0)))
-                            .tooltip("Reload")
-                            .disabled(!runtime_ready || loading),
+                        {
+                            let view = view.clone();
+                            Button::new("ai-browser-reload")
+                                .compact()
+                                .ghost()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(HunkIconName::RotateCcw).size(px(13.0)))
+                                .tooltip("Reload")
+                                .disabled(!runtime_ready || loading)
+                                .on_click(move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_apply_browser_action_for_current_thread(
+                                            hunk_browser::BrowserAction::Reload,
+                                            cx,
+                                        );
+                                    });
+                                })
+                        },
                     )
                     .child(
-                        Button::new("ai-browser-stop")
-                            .compact()
-                            .ghost()
-                            .with_size(gpui_component::Size::Small)
-                            .rounded(px(8.0))
-                            .icon(Icon::new(IconName::CircleX).size(px(13.0)))
-                            .tooltip("Stop loading")
-                            .disabled(!loading),
+                        {
+                            let view = view.clone();
+                            Button::new("ai-browser-stop")
+                                .compact()
+                                .ghost()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(IconName::CircleX).size(px(13.0)))
+                                .tooltip("Stop loading")
+                                .disabled(!loading)
+                                .on_click(move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_apply_browser_action_for_current_thread(
+                                            hunk_browser::BrowserAction::Stop,
+                                            cx,
+                                        );
+                                    });
+                                })
+                        },
                     )
                     .child(
-                        div()
+                        Input::new(&self.ai_browser_address_input_state)
+                            .with_size(gpui_component::Size::Small)
+                            .appearance(true)
+                            .cleanable(true)
+                            .w_full()
                             .flex_1()
                             .min_w_0()
                             .rounded(px(8.0))
-                            .border_1()
                             .border_color(hunk_opacity(cx.theme().border, is_dark, 0.74, 0.60))
                             .bg(hunk_opacity(cx.theme().muted, is_dark, 0.22, 0.36))
-                            .px_2()
-                            .py_1()
-                            .text_xs()
-                            .font_family(cx.theme().mono_font_family.clone())
-                            .text_color(cx.theme().muted_foreground)
-                            .child(session_url),
+                            .disabled(selected_thread_id.is_none()),
                     )
                     .child(
                         div()

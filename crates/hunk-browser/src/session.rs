@@ -272,6 +272,23 @@ pub enum BrowserAction {
     Screenshot,
 }
 
+impl BrowserAction {
+    pub fn runtime_operation(&self) -> BrowserRuntimeOperation {
+        match self {
+            BrowserAction::Navigate { .. } => BrowserRuntimeOperation::Navigate,
+            BrowserAction::Reload => BrowserRuntimeOperation::Reload,
+            BrowserAction::Stop => BrowserRuntimeOperation::Stop,
+            BrowserAction::Back => BrowserRuntimeOperation::Back,
+            BrowserAction::Forward => BrowserRuntimeOperation::Forward,
+            BrowserAction::Click { .. } => BrowserRuntimeOperation::Click,
+            BrowserAction::Type { .. } => BrowserRuntimeOperation::Type,
+            BrowserAction::Press { .. } => BrowserRuntimeOperation::Press,
+            BrowserAction::Scroll { .. } => BrowserRuntimeOperation::Scroll,
+            BrowserAction::Screenshot => BrowserRuntimeOperation::Screenshot,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserToolAction {
     Navigate,

@@ -41,14 +41,56 @@ fn execute_cef_subprocess() -> Result<i32, String> {
 }
 
 #[cfg(all(feature = "cef-subprocess", target_os = "macos"))]
-fn load_macos_cef_framework() -> Result<cef::library_loader::LibraryLoader, String> {
-    let loader = cef::library_loader::LibraryLoader::new(
-        &std::env::current_exe().map_err(|error| error.to_string())?,
-        true,
+fn load_macos_cef_framework() -> Result<MacCefLoader, String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    const FRAMEWORK_BINARY: &str =
+        "Chromium Embedded Framework.framework/Chromium Embedded Framework";
+
+    let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut candidates = Vec::new();
+    if let Some(exe_dir) = current_exe.parent() {
+        candidates.push(exe_dir.join("../../..").join(FRAMEWORK_BINARY));
+    }
+    for env_var in ["HUNK_CEF_RUNTIME_DIR", "CEF_PATH"] {
+        if let Some(path) = std::env::var_os(env_var) {
+            candidates.push(std::path::PathBuf::from(path).join(FRAMEWORK_BINARY));
+        }
+    }
+    candidates.push(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("assets/browser-runtime/cef/macos/runtime")
+            .join(FRAMEWORK_BINARY),
     );
-    if loader.load() {
-        Ok(loader)
+
+    let framework_path = candidates
+        .into_iter()
+        .find_map(|path| path.canonicalize().ok())
+        .ok_or_else(|| "failed to resolve Chromium Embedded Framework".to_string())?;
+    let name = std::ffi::CString::new(framework_path.as_os_str().as_bytes())
+        .map_err(|error| format!("invalid CEF framework path: {error}"))?;
+
+    let library_path = unsafe { &*name.as_ptr().cast() };
+    if cef::load_library(Some(library_path)) == 1 {
+        Ok(MacCefLoader {
+            path: framework_path,
+        })
     } else {
         Err("failed to load Chromium Embedded Framework".to_string())
+    }
+}
+
+#[cfg(all(feature = "cef-subprocess", target_os = "macos"))]
+struct MacCefLoader {
+    path: std::path::PathBuf,
+}
+
+#[cfg(all(feature = "cef-subprocess", target_os = "macos"))]
+impl Drop for MacCefLoader {
+    fn drop(&mut self) {
+        if cef::unload_library() != 1 {
+            eprintln!("cannot unload framework {}", self.path.display());
+        }
     }
 }

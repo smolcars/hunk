@@ -669,6 +669,7 @@ mod tests {
     ) -> hunk_codex::state::ItemSummary {
         let thread_item = hunk_codex::protocol::ThreadItem::DynamicToolCall {
             id: "call-1".to_string(),
+            namespace: None,
             tool: tool.to_string(),
             arguments,
             status: hunk_codex::protocol::DynamicToolCallStatus::Completed,
