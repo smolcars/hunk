@@ -124,6 +124,66 @@ fn browser_state_only_executor_routes_navigation_and_snapshot() {
 }
 
 #[test]
+fn browser_state_only_executor_routes_navigation_controls() {
+    let temp = tempdir().expect("temp dir should be created");
+    let mut executor = AiDynamicToolExecutor::with_state_only_browser();
+
+    let first = executor.execute(
+        temp.path(),
+        &dynamic_tool_params(
+            "hunk.browser_navigate",
+            serde_json::json!({ "url": "https://example.com/a" }),
+        ),
+    );
+    assert!(first.success);
+
+    let second = executor.execute(
+        temp.path(),
+        &dynamic_tool_params(
+            "hunk.browser_navigate",
+            serde_json::json!({ "url": "https://example.com/b" }),
+        ),
+    );
+    assert!(second.success);
+
+    let back = executor.execute(
+        temp.path(),
+        &dynamic_tool_params("hunk.browser_back", serde_json::json!({})),
+    );
+    assert!(back.success);
+    let back_json = response_json(&back);
+    assert_eq!(back_json["action"], "back");
+    assert_eq!(back_json["url"], "https://example.com/a");
+
+    let forward = executor.execute(
+        temp.path(),
+        &dynamic_tool_params("hunk.browser_forward", serde_json::json!({})),
+    );
+    assert!(forward.success);
+    let forward_json = response_json(&forward);
+    assert_eq!(forward_json["action"], "forward");
+    assert_eq!(forward_json["url"], "https://example.com/b");
+
+    let reload = executor.execute(
+        temp.path(),
+        &dynamic_tool_params("hunk.browser_reload", serde_json::json!({})),
+    );
+    assert!(reload.success);
+    let reload_json = response_json(&reload);
+    assert_eq!(reload_json["action"], "reload");
+    assert_eq!(reload_json["loading"], true);
+
+    let stop = executor.execute(
+        temp.path(),
+        &dynamic_tool_params("hunk.browser_stop", serde_json::json!({})),
+    );
+    assert!(stop.success);
+    let stop_json = response_json(&stop);
+    assert_eq!(stop_json["action"], "stop");
+    assert_eq!(stop_json["loading"], false);
+}
+
+#[test]
 fn browser_state_only_executor_returns_confirmation_required_for_sensitive_actions() {
     let temp = tempdir().expect("temp dir should be created");
     let mut executor = AiDynamicToolExecutor::with_state_only_browser();

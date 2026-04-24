@@ -10,9 +10,66 @@ pub enum BrowserRuntimeStatus {
     Ready,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserRuntimeOperation {
+    Initialize,
+    Navigate,
+    Reload,
+    Stop,
+    Back,
+    Forward,
+    Click,
+    Type,
+    Press,
+    Scroll,
+    Resize,
+    Focus,
+    Snapshot,
+    Screenshot,
+}
+
+impl BrowserRuntimeOperation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BrowserRuntimeOperation::Initialize => "initialize",
+            BrowserRuntimeOperation::Navigate => "navigate",
+            BrowserRuntimeOperation::Reload => "reload",
+            BrowserRuntimeOperation::Stop => "stop",
+            BrowserRuntimeOperation::Back => "back",
+            BrowserRuntimeOperation::Forward => "forward",
+            BrowserRuntimeOperation::Click => "click",
+            BrowserRuntimeOperation::Type => "type",
+            BrowserRuntimeOperation::Press => "press",
+            BrowserRuntimeOperation::Scroll => "scroll",
+            BrowserRuntimeOperation::Resize => "resize",
+            BrowserRuntimeOperation::Focus => "focus",
+            BrowserRuntimeOperation::Snapshot => "snapshot",
+            BrowserRuntimeOperation::Screenshot => "screenshot",
+        }
+    }
+}
+
+impl std::fmt::Display for BrowserRuntimeOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::fmt::Display for BrowserRuntimeStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            BrowserRuntimeStatus::Disabled => "disabled",
+            BrowserRuntimeStatus::Configured => "configured",
+            BrowserRuntimeStatus::Ready => "ready",
+        };
+        f.write_str(label)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BrowserRuntime {
     config: Option<BrowserRuntimeConfig>,
+    backend_ready: bool,
     sessions: BTreeMap<BrowserSessionId, BrowserSession>,
     visible_session_id: Option<BrowserSessionId>,
 }
@@ -30,7 +87,9 @@ impl BrowserRuntime {
     }
 
     pub fn status(&self) -> BrowserRuntimeStatus {
-        if self.config.is_some() {
+        if self.config.is_some() && self.backend_ready {
+            BrowserRuntimeStatus::Ready
+        } else if self.config.is_some() {
             BrowserRuntimeStatus::Configured
         } else {
             BrowserRuntimeStatus::Disabled
@@ -39,6 +98,33 @@ impl BrowserRuntime {
 
     pub fn config(&self) -> Option<&BrowserRuntimeConfig> {
         self.config.as_ref()
+    }
+
+    pub fn mark_backend_ready(&mut self) -> Result<(), BrowserError> {
+        if self.config.is_none() {
+            return Err(BrowserError::RuntimeNotReady {
+                operation: BrowserRuntimeOperation::Initialize,
+                status: self.status(),
+            });
+        }
+        self.backend_ready = true;
+        Ok(())
+    }
+
+    pub fn mark_backend_stopped(&mut self) {
+        self.backend_ready = false;
+    }
+
+    pub fn require_ready_for_operation(
+        &self,
+        operation: BrowserRuntimeOperation,
+    ) -> Result<(), BrowserError> {
+        let status = self.status();
+        if status == BrowserRuntimeStatus::Ready {
+            Ok(())
+        } else {
+            Err(BrowserError::RuntimeNotReady { operation, status })
+        }
     }
 
     pub fn ensure_session(&mut self, thread_id: impl Into<String>) -> &mut BrowserSession {
@@ -96,6 +182,18 @@ impl BrowserRuntime {
         match action {
             BrowserAction::Navigate { url } => {
                 session.navigate(url.clone());
+            }
+            BrowserAction::Reload => {
+                session.reload()?;
+            }
+            BrowserAction::Stop => {
+                session.stop();
+            }
+            BrowserAction::Back => {
+                session.go_back()?;
+            }
+            BrowserAction::Forward => {
+                session.go_forward()?;
             }
             BrowserAction::Click { .. }
             | BrowserAction::Type { .. }

@@ -7,6 +7,10 @@ use serde_json::Value;
 use serde_json::json;
 
 pub const BROWSER_NAVIGATE_TOOL: &str = "hunk.browser_navigate";
+pub const BROWSER_RELOAD_TOOL: &str = "hunk.browser_reload";
+pub const BROWSER_STOP_TOOL: &str = "hunk.browser_stop";
+pub const BROWSER_BACK_TOOL: &str = "hunk.browser_back";
+pub const BROWSER_FORWARD_TOOL: &str = "hunk.browser_forward";
 pub const BROWSER_SNAPSHOT_TOOL: &str = "hunk.browser_snapshot";
 pub const BROWSER_CLICK_TOOL: &str = "hunk.browser_click";
 pub const BROWSER_TYPE_TOOL: &str = "hunk.browser_type";
@@ -16,6 +20,7 @@ pub const BROWSER_SCREENSHOT_TOOL: &str = "hunk.browser_screenshot";
 
 pub const BROWSER_DEVELOPER_INSTRUCTIONS: &str = r#"When the embedded Hunk browser is available, use it through the hunk.browser_* tools instead of trying to launch an external browser.
 Use hunk.browser_snapshot before clicking or typing. The snapshot returns a snapshotEpoch and indexed visible elements; pass that same snapshotEpoch and element index to hunk.browser_click or hunk.browser_type.
+Use hunk.browser_reload, hunk.browser_stop, hunk.browser_back, and hunk.browser_forward for browser-level navigation controls.
 If a browser action reports that confirmation is required, stop and wait for the user decision before continuing."#;
 
 pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
@@ -36,6 +41,26 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
         spec(
             BROWSER_SNAPSHOT_TOOL,
             "Read the embedded browser page state and visible interactive element index map.",
+            object_schema(json!({}), &[]),
+        ),
+        spec(
+            BROWSER_RELOAD_TOOL,
+            "Reload the current embedded browser page.",
+            object_schema(json!({}), &[]),
+        ),
+        spec(
+            BROWSER_STOP_TOOL,
+            "Stop loading the current embedded browser page.",
+            object_schema(json!({}), &[]),
+        ),
+        spec(
+            BROWSER_BACK_TOOL,
+            "Navigate the embedded browser back in its history.",
+            object_schema(json!({}), &[]),
+        ),
+        spec(
+            BROWSER_FORWARD_TOOL,
+            "Navigate the embedded browser forward in its history.",
             object_schema(json!({}), &[]),
         ),
         spec(
@@ -126,6 +151,10 @@ pub fn is_browser_dynamic_tool(tool: &str) -> bool {
     matches!(
         tool,
         BROWSER_NAVIGATE_TOOL
+            | BROWSER_RELOAD_TOOL
+            | BROWSER_STOP_TOOL
+            | BROWSER_BACK_TOOL
+            | BROWSER_FORWARD_TOOL
             | BROWSER_SNAPSHOT_TOOL
             | BROWSER_CLICK_TOOL
             | BROWSER_TYPE_TOOL
@@ -168,6 +197,10 @@ pub fn parse_browser_dynamic_tool_request(
             }))
         }
         BROWSER_SNAPSHOT_TOOL => Ok(BrowserDynamicToolRequest::Snapshot),
+        BROWSER_RELOAD_TOOL => Ok(BrowserDynamicToolRequest::Action(BrowserAction::Reload)),
+        BROWSER_STOP_TOOL => Ok(BrowserDynamicToolRequest::Action(BrowserAction::Stop)),
+        BROWSER_BACK_TOOL => Ok(BrowserDynamicToolRequest::Action(BrowserAction::Back)),
+        BROWSER_FORWARD_TOOL => Ok(BrowserDynamicToolRequest::Action(BrowserAction::Forward)),
         BROWSER_CLICK_TOOL => {
             let args = parse_args::<IndexedElementArgs>(&params.arguments)?;
             Ok(BrowserDynamicToolRequest::Action(BrowserAction::Click {

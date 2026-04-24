@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::frame::BrowserFrame;
+use crate::runtime::{BrowserRuntimeOperation, BrowserRuntimeStatus};
 use crate::snapshot::{BrowserElement, BrowserPhysicalPoint, BrowserSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -44,6 +45,8 @@ pub struct BrowserSession {
     state: BrowserSessionState,
     latest_snapshot: BrowserSnapshot,
     latest_frame: Option<BrowserFrame>,
+    back_history: Vec<String>,
+    forward_history: Vec<String>,
 }
 
 impl BrowserSession {
@@ -63,6 +66,8 @@ impl BrowserSession {
             },
             latest_snapshot,
             latest_frame: None,
+            back_history: Vec::new(),
+            forward_history: Vec::new(),
         }
     }
 
@@ -79,14 +84,73 @@ impl BrowserSession {
     }
 
     pub fn navigate(&mut self, url: impl Into<String>) {
-        self.state.url = Some(url.into());
+        let url = url.into();
+        if self.state.url.as_deref() != Some(url.as_str()) {
+            if let Some(current_url) = self.state.url.clone() {
+                self.back_history.push(current_url);
+            }
+            self.forward_history.clear();
+        }
+        self.start_navigation_to(url);
+    }
+
+    pub fn reload(&mut self) -> Result<(), BrowserError> {
+        if self.state.url.is_none() {
+            return Err(BrowserError::NoPageLoaded);
+        }
+        self.state.loading = true;
+        self.state.load_error = None;
+        self.invalidate_snapshot();
+        Ok(())
+    }
+
+    pub fn stop(&mut self) {
+        self.state.loading = false;
+    }
+
+    pub fn go_back(&mut self) -> Result<(), BrowserError> {
+        let Some(url) = self.back_history.pop() else {
+            return Err(BrowserError::HistoryUnavailable(
+                BrowserHistoryDirection::Back,
+            ));
+        };
+        if let Some(current_url) = self.state.url.clone() {
+            self.forward_history.push(current_url);
+        }
+        self.start_navigation_to(url);
+        Ok(())
+    }
+
+    pub fn go_forward(&mut self) -> Result<(), BrowserError> {
+        let Some(url) = self.forward_history.pop() else {
+            return Err(BrowserError::HistoryUnavailable(
+                BrowserHistoryDirection::Forward,
+            ));
+        };
+        if let Some(current_url) = self.state.url.clone() {
+            self.back_history.push(current_url);
+        }
+        self.start_navigation_to(url);
+        Ok(())
+    }
+
+    fn start_navigation_to(&mut self, url: String) {
+        self.state.url = Some(url);
         self.state.title = None;
         self.state.loading = true;
         self.state.load_error = None;
-        self.state.can_go_back = false;
-        self.state.can_go_forward = false;
+        self.refresh_history_state();
+        self.invalidate_snapshot();
+    }
+
+    fn invalidate_snapshot(&mut self) {
         self.latest_snapshot = BrowserSnapshot::empty(self.latest_snapshot.epoch + 1);
         self.state.snapshot_epoch = self.latest_snapshot.epoch;
+    }
+
+    fn refresh_history_state(&mut self) {
+        self.state.can_go_back = !self.back_history.is_empty();
+        self.state.can_go_forward = !self.forward_history.is_empty();
     }
 
     pub fn set_loading(&mut self, loading: bool) {
@@ -166,6 +230,10 @@ impl BrowserSession {
                 Ok(())
             }
             BrowserAction::Navigate { .. }
+            | BrowserAction::Reload
+            | BrowserAction::Stop
+            | BrowserAction::Back
+            | BrowserAction::Forward
             | BrowserAction::Press { .. }
             | BrowserAction::Scroll { .. }
             | BrowserAction::Screenshot => Ok(()),
@@ -179,6 +247,10 @@ pub enum BrowserAction {
     Navigate {
         url: String,
     },
+    Reload,
+    Stop,
+    Back,
+    Forward,
     Click {
         snapshot_epoch: u64,
         index: u32,
@@ -203,6 +275,10 @@ pub enum BrowserAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserToolAction {
     Navigate,
+    Reload,
+    Stop,
+    Back,
+    Forward,
     Snapshot,
     Click,
     Type,
@@ -215,10 +291,35 @@ pub enum BrowserToolAction {
 pub enum BrowserError {
     #[error("browser backend is not available: {0}")]
     BackendUnavailable(String),
+    #[error("browser runtime is not ready for {operation}; current status is {status}")]
+    RuntimeNotReady {
+        operation: BrowserRuntimeOperation,
+        status: BrowserRuntimeStatus,
+    },
     #[error("browser session '{0}' was not found")]
     MissingSession(String),
+    #[error("browser has no loaded page")]
+    NoPageLoaded,
+    #[error("browser cannot go {0}; no history entry is available")]
+    HistoryUnavailable(BrowserHistoryDirection),
     #[error("browser snapshot is stale; expected epoch {expected}, received {received}")]
     StaleSnapshot { expected: u64, received: u64 },
     #[error("browser snapshot does not contain element index {0}")]
     UnknownElementIndex(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserHistoryDirection {
+    Back,
+    Forward,
+}
+
+impl std::fmt::Display for BrowserHistoryDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            BrowserHistoryDirection::Back => "back",
+            BrowserHistoryDirection::Forward => "forward",
+        };
+        f.write_str(label)
+    }
 }

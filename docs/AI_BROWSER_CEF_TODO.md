@@ -1,6 +1,6 @@
 # AI Browser CEF TODO
 
-Status: Hunk-owned CEF macOS OSR smoke passed; production CEF adapter not connected yet.
+Status: Hunk-owned CEF macOS OSR smoke passed; browser timeline summaries and structured runtime errors added; production CEF adapter not connected yet.
 
 This tracks the implementation of a true in-app browser for Hunk that can be controlled by the AI agent. The v1 direction is CEF offscreen rendering, embedded inside the GPUI AI workspace, with a single browser surface tied to the active AI session.
 
@@ -87,6 +87,7 @@ Implementation notes:
 - [x] Keep each thread's URL, latest frame, latest snapshot index map, and navigation state separate.
 - [ ] Implement navigation, reload, stop, back, and forward.
   - [x] Add state-only navigation helpers that invalidate stale snapshots.
+  - [x] Add state-only reload, stop, back, and forward actions with isolated per-session history.
   - [ ] Wire helpers to the CEF browser host.
 - [ ] Implement resize and device-scale handling.
 - [ ] Implement mouse, wheel, keyboard, and focus forwarding.
@@ -103,7 +104,7 @@ Exit criteria:
 - [ ] `hunk-browser` can drive a single CEF browser session independently from the UI.
 - [x] Multiple AI threads can have separate browser session state without sharing the active page.
 - [x] Browser state is testable without requiring GPUI.
-- [ ] Runtime failures return structured errors instead of panicking.
+- [x] Runtime failures return structured errors instead of panicking.
 
 Implementation notes:
 
@@ -113,6 +114,8 @@ Implementation notes:
 - Keeping this contract CEF-free lets normal workspace builds stay fast while packaging/runtime validation matures behind opt-in smoke scripts.
 - `hunk-browser-helper` now exposes a feature-gated `cef-subprocess` entrypoint that calls `cef::execute_process` through the pinned cef-rs dependency. The default build keeps the placeholder path so normal workspace builds do not compile or link CEF unless the feature is requested.
 - macOS release packaging builds `hunk-browser-helper` with `--features hunk-browser-helper/cef-subprocess` before copying it into the CEF helper app bundles.
+- `BrowserRuntime` now has a typed readiness guard for backend-required operations. Disabled or configured-but-not-started runtimes return `BrowserError::RuntimeNotReady` with the requested operation and current runtime status.
+- The state-only runtime now models navigation, reload, stop, back, and forward through `BrowserAction`, including per-session history and snapshot invalidation. The remaining work is dispatching those same actions to the live CEF browser host.
 
 ## Phase 2: GPUI Browser Panel
 
@@ -136,20 +139,21 @@ Implementation notes:
   - [x] Add a tested `BrowserFrameRateLimiter` primitive with a 60fps v1 target interval.
   - [ ] Wire the limiter into the production CEF `on_paint` adapter before notifying GPUI.
 - [ ] Keep browser rendering work within the 8ms frame budget.
-- [ ] Add compact AI timeline rows for browser activity such as navigation, click, type, scroll, screenshot, and confirmation-required events.
+- [x] Add compact AI timeline rows for browser activity such as navigation, click, type, scroll, screenshot, and confirmation-required events.
 
 Exit criteria:
 
 - [ ] The AI workspace displays a live in-app browser.
 - [ ] Manual navigation works through the Hunk UI.
 - [ ] The browser does not launch the user's default browser for normal web navigation.
-- [ ] Browser activity is visible in the timeline without embedding the browser viewport inside timeline rows.
+- [x] Browser activity is visible in the timeline without embedding the browser viewport inside timeline rows.
 
 Implementation notes:
 
 - The browser pane now converts the selected thread's latest `BrowserFrame` into a GPUI `RenderImage` and paints it in the right-side browser surface.
 - The desktop adapter caches the `RenderImage` by thread ID, frame epoch, and dimensions so normal re-renders reuse the current frame instead of rebuilding the GPUI image object.
 - This is still a UI paint path only; the production CEF adapter still needs to feed frames into `BrowserSession`.
+- Browser dynamic tool calls now render as compact `Browser` timeline rows with action summaries for navigate, snapshot, click, type, press, scroll, screenshot, and confirmation-required results.
 
 ## Phase 3: AI Dynamic Browser Tools
 
@@ -166,6 +170,10 @@ Implementation notes:
   - [ ] Replace the state-only route with a UI/CEF bridge so calls operate on the visible embedded browser session.
 - [x] Add browser tools:
   - [x] `hunk.browser_navigate`
+  - [x] `hunk.browser_reload`
+  - [x] `hunk.browser_stop`
+  - [x] `hunk.browser_back`
+  - [x] `hunk.browser_forward`
   - [x] `hunk.browser_snapshot`
   - [x] `hunk.browser_click`
   - [x] `hunk.browser_type`
@@ -184,6 +192,7 @@ Implementation notes:
 
 - Browser dynamic tools now validate arguments, classify sensitive actions, and route allowed calls into a persistent worker-owned `BrowserRuntime` when browser tools are enabled for the AI worker.
 - `hunk.browser_navigate` updates the thread session state, `hunk.browser_snapshot` returns the latest state-layer snapshot shape, and click/type calls reject stale or unknown snapshot elements before any backend dispatch.
+- Browser-level navigation controls are exposed as `hunk.browser_reload`, `hunk.browser_stop`, `hunk.browser_back`, and `hunk.browser_forward`, currently routed through the state-only runtime until the UI/CEF bridge is connected.
 - This is intentionally not the final bridge: the worker-owned state runtime must be replaced by a UI/CEF-backed bridge before tool calls can control the live GPUI browser pane.
 
 Exit criteria:

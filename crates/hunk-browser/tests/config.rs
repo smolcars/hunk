@@ -2,7 +2,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hunk_browser::{
-    BrowserRuntime, BrowserRuntimeConfig, BrowserRuntimeStatus, BrowserStoragePaths,
+    BrowserError, BrowserRuntime, BrowserRuntimeConfig, BrowserRuntimeOperation,
+    BrowserRuntimeStatus, BrowserStoragePaths,
 };
 
 #[test]
@@ -37,12 +38,7 @@ fn storage_paths_create_required_directories() {
 
 #[test]
 fn configured_runtime_reports_configured_without_starting_cef() {
-    let storage_paths = BrowserStoragePaths::from_app_data_dir("/tmp/hunk-browser-ready");
-    let config = BrowserRuntimeConfig::new(
-        "/Applications/Hunk.app/Contents/Frameworks/Chromium Embedded Framework.framework",
-        "/Applications/Hunk.app/Contents/Frameworks/Hunk Browser Helper.app/Contents/MacOS/Hunk Browser Helper",
-        storage_paths.clone(),
-    );
+    let config = browser_runtime_config("ready");
     let runtime = BrowserRuntime::new_configured(config.clone());
 
     assert_eq!(runtime.status(), BrowserRuntimeStatus::Configured);
@@ -56,6 +52,83 @@ fn disabled_runtime_has_no_config() {
 
     assert_eq!(runtime.status(), BrowserRuntimeStatus::Disabled);
     assert_eq!(runtime.config(), None);
+}
+
+#[test]
+fn disabled_runtime_reports_structured_not_ready_errors() {
+    let runtime = BrowserRuntime::new_disabled();
+
+    let error = runtime
+        .require_ready_for_operation(BrowserRuntimeOperation::Navigate)
+        .expect_err("disabled runtime should reject backend operations");
+
+    assert_eq!(
+        error,
+        BrowserError::RuntimeNotReady {
+            operation: BrowserRuntimeOperation::Navigate,
+            status: BrowserRuntimeStatus::Disabled,
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "browser runtime is not ready for navigate; current status is disabled"
+    );
+}
+
+#[test]
+fn configured_runtime_reports_structured_not_ready_errors_until_backend_is_ready() {
+    let config = browser_runtime_config("configured");
+    let mut runtime = BrowserRuntime::new_configured(config);
+
+    let error = runtime
+        .require_ready_for_operation(BrowserRuntimeOperation::Screenshot)
+        .expect_err("configured runtime should reject backend operations before CEF is ready");
+
+    assert_eq!(
+        error,
+        BrowserError::RuntimeNotReady {
+            operation: BrowserRuntimeOperation::Screenshot,
+            status: BrowserRuntimeStatus::Configured,
+        }
+    );
+
+    runtime
+        .mark_backend_ready()
+        .expect("configured runtime can become ready");
+
+    assert_eq!(runtime.status(), BrowserRuntimeStatus::Ready);
+    runtime
+        .require_ready_for_operation(BrowserRuntimeOperation::Screenshot)
+        .expect("ready runtime should accept backend operations");
+
+    runtime.mark_backend_stopped();
+    assert_eq!(runtime.status(), BrowserRuntimeStatus::Configured);
+}
+
+#[test]
+fn disabled_runtime_cannot_be_marked_ready() {
+    let mut runtime = BrowserRuntime::new_disabled();
+
+    let error = runtime
+        .mark_backend_ready()
+        .expect_err("disabled runtime has no backend config to start");
+
+    assert_eq!(
+        error,
+        BrowserError::RuntimeNotReady {
+            operation: BrowserRuntimeOperation::Initialize,
+            status: BrowserRuntimeStatus::Disabled,
+        }
+    );
+}
+
+fn browser_runtime_config(name: &str) -> BrowserRuntimeConfig {
+    let storage_paths = BrowserStoragePaths::from_app_data_dir(format!("/tmp/hunk-browser-{name}"));
+    BrowserRuntimeConfig::new(
+        "/Applications/Hunk.app/Contents/Frameworks/Chromium Embedded Framework.framework",
+        "/Applications/Hunk.app/Contents/Frameworks/Hunk Browser Helper.app/Contents/MacOS/Hunk Browser Helper",
+        storage_paths,
+    )
 }
 
 fn unique_temp_dir(name: &str) -> PathBuf {

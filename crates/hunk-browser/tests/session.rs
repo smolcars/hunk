@@ -1,6 +1,6 @@
 use hunk_browser::{
-    BrowserAction, BrowserElement, BrowserElementRect, BrowserFrame, BrowserRuntime,
-    BrowserSessionId, BrowserSnapshot, BrowserViewport,
+    BrowserAction, BrowserElement, BrowserElementRect, BrowserError, BrowserFrame,
+    BrowserHistoryDirection, BrowserRuntime, BrowserSessionId, BrowserSnapshot, BrowserViewport,
 };
 
 #[test]
@@ -105,6 +105,8 @@ fn navigate_updates_session_state_and_invalidates_snapshot_epoch() {
     assert_eq!(session.state().title, None);
     assert!(session.state().loading);
     assert_eq!(session.state().load_error, None);
+    assert!(session.state().can_go_back);
+    assert!(!session.state().can_go_forward);
     assert_eq!(session.state().snapshot_epoch, 8);
     assert!(session.latest_snapshot().elements.is_empty());
 }
@@ -146,6 +148,149 @@ fn runtime_applies_navigation_state_only_action() {
         .expect("navigation should create a session");
     assert_eq!(session.state().url.as_deref(), Some("https://example.com"));
     assert!(session.state().loading);
+}
+
+#[test]
+fn reload_requires_loaded_page_and_invalidates_snapshot() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    assert_eq!(session.reload(), Err(BrowserError::NoPageLoaded));
+
+    session.replace_snapshot(snapshot(7, "https://example.com", 4));
+    session.set_load_error("network failed");
+
+    session.reload().expect("loaded page should reload");
+
+    assert_eq!(session.state().url.as_deref(), Some("https://example.com"));
+    assert!(session.state().loading);
+    assert_eq!(session.state().load_error, None);
+    assert_eq!(session.state().snapshot_epoch, 8);
+    assert!(session.latest_snapshot().elements.is_empty());
+}
+
+#[test]
+fn stop_clears_loading_without_changing_page() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    session.navigate("https://example.com");
+    session.stop();
+
+    assert_eq!(session.state().url.as_deref(), Some("https://example.com"));
+    assert!(!session.state().loading);
+}
+
+#[test]
+fn state_only_history_supports_back_and_forward() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    session.navigate("https://example.com/a");
+    session.set_loading(false);
+    session.navigate("https://example.com/b");
+
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/b")
+    );
+    assert!(session.state().can_go_back);
+    assert!(!session.state().can_go_forward);
+
+    session.go_back().expect("back history should exist");
+
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/a")
+    );
+    assert!(!session.state().can_go_back);
+    assert!(session.state().can_go_forward);
+    assert!(session.state().loading);
+
+    session.go_forward().expect("forward history should exist");
+
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/b")
+    );
+    assert!(session.state().can_go_back);
+    assert!(!session.state().can_go_forward);
+}
+
+#[test]
+fn state_only_history_reports_missing_entries() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    assert_eq!(
+        session.go_back(),
+        Err(BrowserError::HistoryUnavailable(
+            BrowserHistoryDirection::Back
+        ))
+    );
+    assert_eq!(
+        session.go_forward(),
+        Err(BrowserError::HistoryUnavailable(
+            BrowserHistoryDirection::Forward
+        ))
+    );
+}
+
+#[test]
+fn runtime_applies_state_only_navigation_controls() {
+    let mut runtime = BrowserRuntime::new_disabled();
+
+    runtime
+        .apply_state_only_action(
+            "thread-a",
+            &BrowserAction::Navigate {
+                url: "https://example.com/a".to_string(),
+            },
+        )
+        .expect("first navigation should update state");
+    runtime
+        .session_mut("thread-a")
+        .expect("session should exist")
+        .set_loading(false);
+    runtime
+        .apply_state_only_action(
+            "thread-a",
+            &BrowserAction::Navigate {
+                url: "https://example.com/b".to_string(),
+            },
+        )
+        .expect("second navigation should update state");
+
+    runtime
+        .apply_state_only_action("thread-a", &BrowserAction::Back)
+        .expect("back navigation should update state");
+    assert_eq!(
+        runtime
+            .session("thread-a")
+            .and_then(|session| session.state().url.as_deref()),
+        Some("https://example.com/a")
+    );
+
+    runtime
+        .apply_state_only_action("thread-a", &BrowserAction::Forward)
+        .expect("forward navigation should update state");
+    runtime
+        .apply_state_only_action("thread-a", &BrowserAction::Reload)
+        .expect("reload should update state");
+    assert!(
+        runtime
+            .session("thread-a")
+            .expect("session should exist")
+            .state()
+            .loading
+    );
+
+    runtime
+        .apply_state_only_action("thread-a", &BrowserAction::Stop)
+        .expect("stop should update state");
+    assert!(
+        !runtime
+            .session("thread-a")
+            .expect("session should exist")
+            .state()
+            .loading
+    );
 }
 
 #[test]

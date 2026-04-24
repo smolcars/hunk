@@ -1,7 +1,8 @@
 use hunk_browser::BrowserAction;
 use hunk_codex::browser_tools::{
-    BROWSER_CLICK_TOOL, BROWSER_DEVELOPER_INSTRUCTIONS, BROWSER_NAVIGATE_TOOL,
-    BROWSER_SCREENSHOT_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_TYPE_TOOL, BrowserDynamicToolRequest,
+    BROWSER_BACK_TOOL, BROWSER_CLICK_TOOL, BROWSER_DEVELOPER_INSTRUCTIONS, BROWSER_FORWARD_TOOL,
+    BROWSER_NAVIGATE_TOOL, BROWSER_RELOAD_TOOL, BROWSER_SCREENSHOT_TOOL, BROWSER_SNAPSHOT_TOOL,
+    BROWSER_STOP_TOOL, BROWSER_TYPE_TOOL, BrowserDynamicToolRequest,
     apply_browser_thread_start_context, browser_dynamic_tool_specs, is_browser_dynamic_tool,
     parse_browser_dynamic_tool_request,
 };
@@ -16,6 +17,10 @@ fn browser_tool_specs_include_core_controls() {
         .collect::<Vec<_>>();
 
     assert!(names.contains(&BROWSER_NAVIGATE_TOOL));
+    assert!(names.contains(&BROWSER_RELOAD_TOOL));
+    assert!(names.contains(&BROWSER_STOP_TOOL));
+    assert!(names.contains(&BROWSER_BACK_TOOL));
+    assert!(names.contains(&BROWSER_FORWARD_TOOL));
     assert!(names.contains(&BROWSER_SNAPSHOT_TOOL));
     assert!(names.contains(&BROWSER_CLICK_TOOL));
     assert!(names.contains(&BROWSER_TYPE_TOOL));
@@ -45,6 +50,7 @@ fn browser_developer_instructions_describe_snapshot_index_flow() {
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk.browser_snapshot"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("snapshotEpoch"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("element index"));
+    assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk.browser_back"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("external browser"));
 }
 
@@ -72,6 +78,7 @@ fn apply_browser_thread_start_context_adds_tools_and_instructions() {
         .map(|spec| spec.name.as_str())
         .collect::<Vec<_>>();
     assert!(tool_names.contains(&BROWSER_NAVIGATE_TOOL));
+    assert!(tool_names.contains(&BROWSER_RELOAD_TOOL));
     assert!(tool_names.contains(&BROWSER_SNAPSHOT_TOOL));
 }
 
@@ -160,6 +167,22 @@ fn parse_browser_scroll_request_applies_defaults() {
             index: None,
         })
     );
+}
+
+#[test]
+fn parse_browser_navigation_control_requests() {
+    for (tool, expected) in [
+        (BROWSER_RELOAD_TOOL, BrowserAction::Reload),
+        (BROWSER_STOP_TOOL, BrowserAction::Stop),
+        (BROWSER_BACK_TOOL, BrowserAction::Back),
+        (BROWSER_FORWARD_TOOL, BrowserAction::Forward),
+    ] {
+        let request =
+            parse_browser_dynamic_tool_request(&dynamic_tool_params(tool, serde_json::json!({})))
+                .expect("browser navigation control args should parse");
+
+        assert_eq!(request, BrowserDynamicToolRequest::Action(expected));
+    }
 }
 
 #[test]

@@ -244,6 +244,10 @@ fn snapshot_response(
 fn browser_action_label(action: &BrowserAction) -> &'static str {
     match action {
         BrowserAction::Navigate { .. } => "navigate",
+        BrowserAction::Reload => "reload",
+        BrowserAction::Stop => "stop",
+        BrowserAction::Back => "back",
+        BrowserAction::Forward => "forward",
         BrowserAction::Click { .. } => "click",
         BrowserAction::Type { .. } => "type",
         BrowserAction::Press { .. } => "press",
@@ -255,6 +259,10 @@ fn browser_action_label(action: &BrowserAction) -> &'static str {
 fn browser_action_message(action: &BrowserAction) -> &'static str {
     match action {
         BrowserAction::Navigate { .. } => "Navigation was accepted by the browser state layer.",
+        BrowserAction::Reload => "Reload was accepted by the browser state layer.",
+        BrowserAction::Stop => "Stop was accepted by the browser state layer.",
+        BrowserAction::Back => "Back navigation was accepted by the browser state layer.",
+        BrowserAction::Forward => "Forward navigation was accepted by the browser state layer.",
         BrowserAction::Click { .. } => "Click was accepted by the browser state layer.",
         BrowserAction::Type { .. } => "Type was accepted by the browser state layer.",
         BrowserAction::Press { .. } => "Key press was accepted by the browser state layer.",
