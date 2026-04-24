@@ -91,13 +91,13 @@ Exit criteria:
 - [x] If inline review and browser are both available, show them as switchable right-pane modes instead of creating three crowded columns.
 - [x] Keep the browser outside the scrollable timeline so page rendering, focus, and input are independent from timeline scrolling.
 - [ ] Add browser controls:
-  - [ ] address bar
-  - [ ] back
-  - [ ] forward
-  - [ ] reload
-  - [ ] stop
+  - [x] address bar
+  - [x] back
+  - [x] forward
+  - [x] reload
+  - [x] stop
   - [ ] page loading/error status
-  - [ ] agent-control indicator
+  - [x] agent-control indicator
 - [x] Use colors from `crates/hunk-desktop/src/app/theme.rs`.
 - [ ] Paint the latest browser frame into the GPUI surface.
 - [ ] Forward panel mouse, wheel, keyboard, focus, resize, and scale changes to `hunk-browser`.

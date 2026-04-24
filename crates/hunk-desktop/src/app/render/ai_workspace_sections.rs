@@ -1781,6 +1781,20 @@ impl DiffViewer {
             .and_then(|thread_id| self.ai_browser_runtime.session(thread_id))
             .and_then(|session| session.state().url.clone())
             .unwrap_or_else(|| "about:blank".to_string());
+        let session_state = selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.ai_browser_runtime.session(thread_id))
+            .map(|session| session.state().clone());
+        let runtime_ready = browser_status == hunk_browser::BrowserRuntimeStatus::Ready;
+        let can_go_back = session_state
+            .as_ref()
+            .is_some_and(|state| state.can_go_back && runtime_ready);
+        let can_go_forward = session_state
+            .as_ref()
+            .is_some_and(|state| state.can_go_forward && runtime_ready);
+        let loading = session_state
+            .as_ref()
+            .is_some_and(|state| state.loading && runtime_ready);
 
         v_flex()
             .size_full()
@@ -1865,11 +1879,51 @@ impl DiffViewer {
                 h_flex()
                     .w_full()
                     .items_center()
-                    .gap_2()
+                    .gap_1p5()
                     .px_3()
                     .py_2()
                     .border_b_1()
                     .border_color(cx.theme().border)
+                    .child(
+                        Button::new("ai-browser-back")
+                            .compact()
+                            .ghost()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .icon(Icon::new(IconName::ArrowLeft).size(px(13.0)))
+                            .tooltip("Back")
+                            .disabled(!can_go_back),
+                    )
+                    .child(
+                        Button::new("ai-browser-forward")
+                            .compact()
+                            .ghost()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .icon(Icon::new(IconName::ArrowRight).size(px(13.0)))
+                            .tooltip("Forward")
+                            .disabled(!can_go_forward),
+                    )
+                    .child(
+                        Button::new("ai-browser-reload")
+                            .compact()
+                            .ghost()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .icon(Icon::new(HunkIconName::RotateCcw).size(px(13.0)))
+                            .tooltip("Reload")
+                            .disabled(!runtime_ready || loading),
+                    )
+                    .child(
+                        Button::new("ai-browser-stop")
+                            .compact()
+                            .ghost()
+                            .with_size(gpui_component::Size::Small)
+                            .rounded(px(8.0))
+                            .icon(Icon::new(IconName::CircleX).size(px(13.0)))
+                            .tooltip("Stop loading")
+                            .disabled(!loading),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -1884,6 +1938,28 @@ impl DiffViewer {
                             .font_family(cx.theme().mono_font_family.clone())
                             .text_color(cx.theme().muted_foreground)
                             .child(session_url),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .rounded(px(8.0))
+                            .border_1()
+                            .border_color(hunk_opacity(cx.theme().border, is_dark, 0.74, 0.60))
+                            .bg(hunk_opacity(cx.theme().muted, is_dark, 0.16, 0.28))
+                            .px_2()
+                            .py_1()
+                            .child(Icon::new(HunkIconName::BotMessageSquare).size(px(12.0)))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(if runtime_ready {
+                                        "Agent ready"
+                                    } else {
+                                        "Agent paused"
+                                    }),
+                            ),
                     ),
             )
             .child(
