@@ -112,6 +112,42 @@ fn normalize_ai_browser_address(input: &str) -> Option<String> {
     Some(format!("{scheme}{trimmed}"))
 }
 
+fn ai_browser_modifiers(modifiers: gpui::Modifiers) -> hunk_browser::BrowserInputModifiers {
+    hunk_browser::BrowserInputModifiers {
+        shift: modifiers.shift,
+        control: modifiers.control,
+        alt: modifiers.alt,
+        meta: modifiers.platform,
+    }
+}
+
+fn ai_browser_mouse_button(button: MouseButton) -> Option<hunk_browser::BrowserMouseButton> {
+    match button {
+        MouseButton::Left => Some(hunk_browser::BrowserMouseButton::Left),
+        MouseButton::Middle => Some(hunk_browser::BrowserMouseButton::Middle),
+        MouseButton::Right => Some(hunk_browser::BrowserMouseButton::Right),
+        _ => None,
+    }
+}
+
+fn ai_browser_key_press_string(keystroke: &gpui::Keystroke) -> String {
+    let mut parts = Vec::new();
+    if keystroke.modifiers.control {
+        parts.push("Control");
+    }
+    if keystroke.modifiers.alt {
+        parts.push("Alt");
+    }
+    if keystroke.modifiers.shift {
+        parts.push("Shift");
+    }
+    if keystroke.modifiers.platform {
+        parts.push("Meta");
+    }
+    parts.push(keystroke.key.as_str());
+    parts.join("+")
+}
+
 impl DiffViewer {
     fn ai_workspace_message_block_config(
         item_kind: &str,
@@ -795,6 +831,235 @@ impl DiffViewer {
             hunk_browser::BrowserAction::Navigate { url },
             cx,
         );
+    }
+
+    pub(super) fn ai_execute_browser_dynamic_tool(
+        &mut self,
+        params: hunk_codex::protocol::DynamicToolCallParams,
+        cx: &mut Context<Self>,
+    ) -> hunk_codex::protocol::DynamicToolCallResponse {
+        if self.ai_selected_thread_id.as_deref() != Some(params.thread_id.as_str()) {
+            self.ai_selected_thread_id = Some(params.thread_id.clone());
+        }
+        if self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+            if let Err(err) = self
+                .ai_browser_runtime
+                .ensure_backend_session(params.thread_id.clone())
+            {
+                self.ai_browser_runtime
+                    .ensure_session(params.thread_id.clone())
+                    .set_load_error(err.to_string());
+                return crate::app::ai_dynamic_tools::browser_unavailable_response(
+                    &params,
+                    "The embedded browser backend could not create a session for this thread.",
+                );
+            }
+        } else {
+            self.ai_browser_runtime
+                .ensure_session(params.thread_id.clone());
+        }
+
+        self.ai_browser_open_thread_ids.insert(params.thread_id.clone());
+        self.ai_right_pane_mode_by_thread
+            .insert(params.thread_id.clone(), AiWorkspaceRightPaneMode::Browser);
+        self.ai_sync_browser_pump(cx);
+
+        let use_backend = self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready;
+        let response = crate::app::ai_dynamic_tools::execute_browser_dynamic_tool_with_runtime(
+            &mut self.ai_browser_runtime,
+            &params,
+            use_backend,
+        );
+        self.ai_sync_browser_pump(cx);
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
+        cx.notify();
+        response
+    }
+
+    pub(super) fn ai_browser_surface_focus_in(&mut self, cx: &mut Context<Self>) {
+        if self.ai_browser_surface_focused {
+            return;
+        }
+        self.ai_browser_surface_focused = true;
+        self.ai_focus_browser_session(true);
+        cx.notify();
+    }
+
+    pub(super) fn ai_browser_surface_focus_out(&mut self, cx: &mut Context<Self>) {
+        if !self.ai_browser_surface_focused {
+            return;
+        }
+        self.ai_browser_surface_focused = false;
+        self.ai_focus_browser_session(false);
+        cx.notify();
+    }
+
+    pub(super) fn ai_browser_surface_resize(
+        &mut self,
+        thread_id: &str,
+        width: u32,
+        height: u32,
+        device_scale_factor: f32,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ai_browser_runtime.status() != hunk_browser::BrowserRuntimeStatus::Ready {
+            return;
+        }
+        let Ok(viewport) =
+            hunk_browser::BrowserViewportSize::new(width, height, device_scale_factor)
+        else {
+            return;
+        };
+        let already_current = self
+            .ai_browser_runtime
+            .session(thread_id)
+            .is_some_and(|session| {
+                let viewport_state = &session.latest_snapshot().viewport;
+                viewport_state.width == viewport.width
+                    && viewport_state.height == viewport.height
+                    && (viewport_state.device_scale_factor - viewport.device_scale_factor).abs()
+                        < f32::EPSILON
+            });
+        if already_current {
+            return;
+        }
+        if let Err(err) = self
+            .ai_browser_runtime
+            .resize_backend_session(thread_id, viewport)
+        {
+            error!("embedded browser resize failed: {err:#}");
+            self.ai_browser_runtime
+                .ensure_session(thread_id.to_string())
+                .set_load_error(err.to_string());
+        }
+        self.ai_sync_browser_pump(cx);
+    }
+
+    pub(super) fn ai_browser_surface_mouse_down(
+        &mut self,
+        thread_id: &str,
+        point: hunk_browser::BrowserPhysicalPoint,
+        button: MouseButton,
+        modifiers: gpui::Modifiers,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(button) = ai_browser_mouse_button(button) else {
+            return false;
+        };
+        self.ai_browser_focus_handle.focus(window, cx);
+        self.ai_focus_browser_session(true);
+        let input = hunk_browser::BrowserMouseInput {
+            point,
+            modifiers: ai_browser_modifiers(modifiers),
+        };
+        if let Err(err) = self
+            .ai_browser_runtime
+            .send_backend_mouse_click(thread_id, input, button)
+        {
+            error!("embedded browser mouse click failed: {err:#}");
+            return false;
+        }
+        self.ai_sync_browser_pump(cx);
+        true
+    }
+
+    pub(super) fn ai_browser_surface_mouse_move(
+        &mut self,
+        thread_id: &str,
+        point: hunk_browser::BrowserPhysicalPoint,
+        modifiers: gpui::Modifiers,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let input = hunk_browser::BrowserMouseInput {
+            point,
+            modifiers: ai_browser_modifiers(modifiers),
+        };
+        if let Err(err) = self
+            .ai_browser_runtime
+            .send_backend_mouse_move(thread_id, input)
+        {
+            error!("embedded browser mouse move failed: {err:#}");
+            return false;
+        }
+        self.ai_sync_browser_pump(cx);
+        true
+    }
+
+    pub(super) fn ai_browser_surface_scroll_wheel(
+        &mut self,
+        thread_id: &str,
+        point: hunk_browser::BrowserPhysicalPoint,
+        event: &gpui::ScrollWheelEvent,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let delta = event.delta.pixel_delta(px(16.0));
+        if delta.x.abs() < px(0.5) && delta.y.abs() < px(0.5) {
+            return false;
+        }
+        let input = hunk_browser::BrowserMouseInput {
+            point,
+            modifiers: ai_browser_modifiers(event.modifiers),
+        };
+        if let Err(err) = self.ai_browser_runtime.send_backend_mouse_wheel(
+            thread_id,
+            input,
+            delta.x.as_f32().round() as i32,
+            delta.y.as_f32().round() as i32,
+        ) {
+            error!("embedded browser wheel failed: {err:#}");
+            return false;
+        }
+        self.ai_sync_browser_pump(cx);
+        true
+    }
+
+    pub(super) fn ai_browser_surface_key_down(
+        &mut self,
+        keystroke: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.ai_browser_focus_handle.is_focused(window) {
+            return false;
+        }
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return false;
+        };
+
+        let result = if !keystroke.modifiers.control
+            && !keystroke.modifiers.alt
+            && !keystroke.modifiers.platform
+            && let Some(text) = keystroke.key_char.as_deref()
+        {
+            self.ai_browser_runtime
+                .send_backend_text(thread_id.as_str(), text)
+        } else {
+            self.ai_browser_runtime
+                .send_backend_key_press(thread_id.as_str(), &ai_browser_key_press_string(keystroke))
+        };
+
+        if let Err(err) = result {
+            error!("embedded browser key press failed: {err:#}");
+            return false;
+        }
+        self.ai_sync_browser_pump(cx);
+        true
+    }
+
+    fn ai_focus_browser_session(&mut self, focused: bool) {
+        if self.ai_browser_runtime.status() != hunk_browser::BrowserRuntimeStatus::Ready {
+            return;
+        }
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        if let Err(err) = self
+            .ai_browser_runtime
+            .focus_backend_session(thread_id.as_str(), focused)
+        {
+            error!("embedded browser focus failed: {err:#}");
+        }
     }
 
     pub(super) fn ai_set_right_pane_mode(

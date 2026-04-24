@@ -635,6 +635,8 @@ impl DiffViewer {
             ai_browser_pump_active: false,
             ai_browser_pump_task: Task::ready(()),
             ai_browser_render_frame_cache: None,
+            ai_browser_focus_handle: cx.focus_handle(),
+            ai_browser_surface_focused: false,
             ai_desktop_notification_state_by_workspace: BTreeMap::new(),
             ai_pending_desktop_notification_events_by_workspace: BTreeMap::new(),
             #[cfg(target_os = "macos")]
@@ -897,6 +899,16 @@ impl DiffViewer {
             {
                 this.ai_submit_browser_address(cx);
             }
+        })
+        .detach();
+
+        let ai_browser_focus_handle = view.ai_browser_focus_handle.clone();
+        cx.on_focus_in(&ai_browser_focus_handle, window, |this, _, cx| {
+            this.ai_browser_surface_focus_in(cx);
+        })
+        .detach();
+        cx.on_focus_out(&ai_browser_focus_handle, window, |this, _, _, cx| {
+            this.ai_browser_surface_focus_out(cx);
         })
         .detach();
 

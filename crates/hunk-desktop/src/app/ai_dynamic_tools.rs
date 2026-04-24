@@ -84,100 +84,146 @@ impl AiBrowserDynamicToolExecutor {
     }
 
     fn execute(&mut self, params: &DynamicToolCallParams) -> DynamicToolCallResponse {
-        let request = match parse_browser_dynamic_tool_request(params) {
-            Ok(request) => request,
-            Err(error) => {
-                return json_error_response(json!({
-                "error": "invalidBrowserToolArguments",
-                "message": error,
-                "tool": params.tool,
-                "threadId": params.thread_id,
-                "turnId": params.turn_id,
-                }));
-            }
-        };
-
         let Some(runtime) = self.runtime.as_mut() else {
-            return json_error_response(json!({
-                "error": "browserUnavailable",
-                "message": "The embedded browser executor is not connected yet.",
-                "tool": params.tool,
-                "threadId": params.thread_id,
-                "turnId": params.turn_id,
-            }));
+            return browser_unavailable_response(
+                params,
+                "The embedded browser executor is not connected yet.",
+            );
         };
+        execute_browser_dynamic_tool_with_runtime(runtime, params, false)
+    }
+}
 
-        match request {
-            BrowserDynamicToolRequest::Snapshot => {
-                let session = runtime.ensure_session(params.thread_id.clone());
-                json_success_response(snapshot_response(params, session))
-            }
-            BrowserDynamicToolRequest::Screenshot => {
-                let session = runtime.ensure_session(params.thread_id.clone());
-                let Some(frame) = session.latest_frame() else {
-                    return json_error_response(json!({
-                        "error": "browserScreenshotUnavailable",
-                        "message": "No browser frame has been captured yet.",
-                        "tool": params.tool,
-                        "threadId": params.thread_id,
-                        "turnId": params.turn_id,
-                    }));
-                };
-                let Some(image_url) = browser_frame_png_data_url(frame) else {
-                    return json_error_response(json!({
-                        "error": "browserScreenshotEncodingFailed",
-                        "message": "The latest browser frame could not be encoded as a PNG image.",
-                        "tool": params.tool,
-                        "threadId": params.thread_id,
-                        "turnId": params.turn_id,
-                    }));
-                };
-                json_success_response_with_items(
-                    json!({
-                        "ok": true,
-                        "tool": params.tool,
-                        "threadId": params.thread_id,
-                        "turnId": params.turn_id,
-                        "frame": frame.metadata(),
-                        "message": "Screenshot frame is attached as an input image.",
-                    }),
-                    vec![DynamicToolCallOutputContentItem::InputImage { image_url }],
-                )
-            }
-            BrowserDynamicToolRequest::Action(action) => {
-                if let BrowserSafetyDecision::Prompt(kind) = classify_browser_action(&action) {
-                    return json_error_response(json!({
-                        "error": "browserConfirmationRequired",
-                        "message": "This browser action requires user confirmation before it can run.",
-                        "tool": params.tool,
-                        "threadId": params.thread_id,
-                        "turnId": params.turn_id,
-                        "sensitiveAction": format!("{kind:?}"),
-                    }));
-                }
+pub(crate) fn execute_browser_dynamic_tool_with_runtime(
+    runtime: &mut BrowserRuntime,
+    params: &DynamicToolCallParams,
+    use_backend: bool,
+) -> DynamicToolCallResponse {
+    let request = match parse_browser_dynamic_tool_request(params) {
+        Ok(request) => request,
+        Err(error) => {
+            return json_error_response(json!({
+            "error": "invalidBrowserToolArguments",
+            "message": error,
+            "tool": params.tool,
+            "threadId": params.thread_id,
+            "turnId": params.turn_id,
+            }));
+        }
+    };
 
-                match runtime.apply_state_only_action(params.thread_id.as_str(), &action) {
-                    Ok(()) => {
-                        let session = runtime.ensure_session(params.thread_id.clone());
-                        json_success_response(action_response(params, &action, session.state()))
-                    }
-                    Err(error) => json_error_response(json!({
-                        "error": "browserActionRejected",
+    match request {
+        BrowserDynamicToolRequest::Snapshot => {
+            if use_backend {
+                if let Err(error) = runtime.capture_backend_snapshot(params.thread_id.as_str()) {
+                    return json_error_response(json!({
+                        "error": "browserSnapshotFailed",
                         "message": error.to_string(),
                         "tool": params.tool,
                         "threadId": params.thread_id,
                         "turnId": params.turn_id,
-                    })),
+                    }));
                 }
+                let _ = runtime.pump_backend();
+            }
+            let session = runtime.ensure_session(params.thread_id.clone());
+            json_success_response(snapshot_response(params, session))
+        }
+        BrowserDynamicToolRequest::Screenshot => {
+            let session = runtime.ensure_session(params.thread_id.clone());
+            let Some(frame) = session.latest_frame() else {
+                return json_error_response(json!({
+                    "error": "browserScreenshotUnavailable",
+                    "message": "No browser frame has been captured yet.",
+                    "tool": params.tool,
+                    "threadId": params.thread_id,
+                    "turnId": params.turn_id,
+                }));
+            };
+            let Some(image_url) = browser_frame_png_data_url(frame) else {
+                return json_error_response(json!({
+                    "error": "browserScreenshotEncodingFailed",
+                    "message": "The latest browser frame could not be encoded as a PNG image.",
+                    "tool": params.tool,
+                    "threadId": params.thread_id,
+                    "turnId": params.turn_id,
+                }));
+            };
+            json_success_response_with_items(
+                json!({
+                    "ok": true,
+                    "tool": params.tool,
+                    "threadId": params.thread_id,
+                    "turnId": params.turn_id,
+                    "frame": frame.metadata(),
+                    "message": "Screenshot frame is attached as an input image.",
+                }),
+                vec![DynamicToolCallOutputContentItem::InputImage { image_url }],
+            )
+        }
+        BrowserDynamicToolRequest::Action(action) => {
+            if let BrowserSafetyDecision::Prompt(kind) = classify_browser_action(&action) {
+                return json_error_response(json!({
+                    "error": "browserConfirmationRequired",
+                    "message": "This browser action requires user confirmation before it can run.",
+                    "tool": params.tool,
+                    "threadId": params.thread_id,
+                    "turnId": params.turn_id,
+                    "sensitiveAction": format!("{kind:?}"),
+                }));
+            }
+
+            let action_result =
+                if use_backend && runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+                    runtime.apply_backend_action(params.thread_id.as_str(), &action)
+                } else {
+                    runtime.apply_state_only_action(params.thread_id.as_str(), &action)
+                };
+
+            if use_backend {
+                let _ = runtime.pump_backend();
+            }
+
+            match action_result {
+                Ok(()) => {
+                    let session = runtime.ensure_session(params.thread_id.clone());
+                    json_success_response(action_response(
+                        params,
+                        &action,
+                        session.state(),
+                        use_backend,
+                    ))
+                }
+                Err(error) => json_error_response(json!({
+                    "error": "browserActionRejected",
+                    "message": error.to_string(),
+                    "tool": params.tool,
+                    "threadId": params.thread_id,
+                    "turnId": params.turn_id,
+                })),
             }
         }
     }
+}
+
+pub(crate) fn browser_unavailable_response(
+    params: &DynamicToolCallParams,
+    message: &str,
+) -> DynamicToolCallResponse {
+    json_error_response(json!({
+        "error": "browserUnavailable",
+        "message": message,
+        "tool": params.tool,
+        "threadId": params.thread_id,
+        "turnId": params.turn_id,
+    }))
 }
 
 fn action_response(
     params: &DynamicToolCallParams,
     action: &BrowserAction,
     state: &hunk_browser::BrowserSessionState,
+    use_backend: bool,
 ) -> serde_json::Value {
     json!({
         "ok": true,
@@ -189,7 +235,7 @@ fn action_response(
         "title": state.title,
         "loading": state.loading,
         "snapshotEpoch": state.snapshot_epoch,
-        "message": browser_action_message(action),
+        "message": browser_action_message(action, use_backend),
     })
 }
 
@@ -256,7 +302,22 @@ fn browser_action_label(action: &BrowserAction) -> &'static str {
     }
 }
 
-fn browser_action_message(action: &BrowserAction) -> &'static str {
+fn browser_action_message(action: &BrowserAction, use_backend: bool) -> &'static str {
+    if use_backend {
+        return match action {
+            BrowserAction::Navigate { .. } => "Navigation was sent to the embedded browser.",
+            BrowserAction::Reload => "Reload was sent to the embedded browser.",
+            BrowserAction::Stop => "Stop was sent to the embedded browser.",
+            BrowserAction::Back => "Back navigation was sent to the embedded browser.",
+            BrowserAction::Forward => "Forward navigation was sent to the embedded browser.",
+            BrowserAction::Click { .. } => "Click was sent to the embedded browser.",
+            BrowserAction::Type { .. } => "Text input was sent to the embedded browser.",
+            BrowserAction::Press { .. } => "Key press was sent to the embedded browser.",
+            BrowserAction::Scroll { .. } => "Scroll was sent to the embedded browser.",
+            BrowserAction::Screenshot => "Screenshot was read from the embedded browser.",
+        };
+    }
+
     match action {
         BrowserAction::Navigate { .. } => "Navigation was accepted by the browser state layer.",
         BrowserAction::Reload => "Reload was accepted by the browser state layer.",

@@ -51,7 +51,7 @@ fn browser_tool_calls_return_disabled_browser_response() {
 #[test]
 fn browser_tool_calls_validate_arguments_before_backend_routing() {
     let temp = tempdir().expect("temp dir should be created");
-    let mut executor = AiDynamicToolExecutor::new();
+    let mut executor = AiDynamicToolExecutor::with_state_only_browser();
 
     let response = executor.execute(
         temp.path(),
@@ -120,6 +120,28 @@ fn browser_state_only_executor_routes_navigation_and_snapshot() {
         snapshot_json["elements"]
             .as_array()
             .is_some_and(Vec::is_empty)
+    );
+}
+
+#[test]
+fn browser_backend_snapshot_reports_structured_failure_when_runtime_is_not_ready() {
+    let mut runtime = BrowserRuntime::new_disabled();
+
+    let response = ai_dynamic_tools::execute_browser_dynamic_tool_with_runtime(
+        &mut runtime,
+        &dynamic_tool_params("hunk.browser_snapshot", serde_json::json!({})),
+        true,
+    );
+
+    assert!(!response.success);
+    let text = response_text(&response);
+    assert!(
+        text.contains("browserSnapshotFailed"),
+        "unexpected response: {text}"
+    );
+    assert!(
+        text.contains("current status is disabled"),
+        "unexpected response: {text}"
     );
 }
 

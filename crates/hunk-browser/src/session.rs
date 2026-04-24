@@ -175,6 +175,12 @@ impl BrowserSession {
         self.state.can_go_forward = can_go_forward;
     }
 
+    pub fn set_viewport(&mut self, viewport: BrowserViewportSize) {
+        self.latest_snapshot.viewport.width = viewport.width;
+        self.latest_snapshot.viewport.height = viewport.height;
+        self.latest_snapshot.viewport.device_scale_factor = viewport.device_scale_factor;
+    }
+
     pub fn replace_snapshot(&mut self, snapshot: BrowserSnapshot) {
         self.state.url = snapshot.url.clone();
         self.state.title = snapshot.title.clone();
@@ -272,6 +278,77 @@ pub enum BrowserAction {
     Screenshot,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserViewportSize {
+    pub width: u32,
+    pub height: u32,
+    pub device_scale_factor: f32,
+}
+
+impl BrowserViewportSize {
+    pub fn new(width: u32, height: u32, device_scale_factor: f32) -> Result<Self, BrowserError> {
+        if width == 0 || height == 0 {
+            return Err(BrowserError::InvalidViewportSize { width, height });
+        }
+
+        let device_scale_factor = if device_scale_factor.is_finite() {
+            device_scale_factor.max(f32::EPSILON)
+        } else {
+            1.0
+        };
+
+        Ok(Self {
+            width,
+            height,
+            device_scale_factor,
+        })
+    }
+}
+
+impl Default for BrowserViewportSize {
+    fn default() -> Self {
+        Self {
+            width: 1024,
+            height: 768,
+            device_scale_factor: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserMouseButton {
+    Left,
+    Middle,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserInputModifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserMouseInput {
+    pub point: BrowserPhysicalPoint,
+    pub modifiers: BrowserInputModifiers,
+}
+
+impl BrowserMouseInput {
+    pub fn new(point: BrowserPhysicalPoint) -> Self {
+        Self {
+            point,
+            modifiers: BrowserInputModifiers::default(),
+        }
+    }
+}
+
 impl BrowserAction {
     pub fn runtime_operation(&self) -> BrowserRuntimeOperation {
         match self {
@@ -323,6 +400,8 @@ pub enum BrowserError {
     StaleSnapshot { expected: u64, received: u64 },
     #[error("browser snapshot does not contain element index {0}")]
     UnknownElementIndex(u32),
+    #[error("browser viewport dimensions must be non-zero, received {width}x{height}")]
+    InvalidViewportSize { width: u32, height: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

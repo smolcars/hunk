@@ -1,6 +1,6 @@
 use hunk_browser::{
     BrowserElement, BrowserElementRect, BrowserPhysicalPoint, BrowserSession, BrowserSessionId,
-    BrowserSnapshot, BrowserViewport,
+    BrowserSnapshot, BrowserViewport, BrowserViewportSize,
 };
 
 #[test]
@@ -51,6 +51,38 @@ fn element_click_target_uses_rect_center_and_device_scale() {
         .expect("current element should have a click target");
 
     assert_eq!(target, BrowserPhysicalPoint { x: 101, y: 71 });
+}
+
+#[test]
+fn session_viewport_size_updates_snapshot_viewport() {
+    let mut session = BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    session.set_viewport(BrowserViewportSize::new(1440, 900, 2.0).unwrap());
+
+    let viewport = &session.latest_snapshot().viewport;
+    assert_eq!(viewport.width, 1440);
+    assert_eq!(viewport.height, 900);
+    assert_eq!(viewport.device_scale_factor, 2.0);
+}
+
+#[test]
+fn viewport_size_rejects_zero_dimensions() {
+    let error = BrowserViewportSize::new(0, 900, 1.0).unwrap_err();
+
+    assert_eq!(
+        error,
+        hunk_browser::BrowserError::InvalidViewportSize {
+            width: 0,
+            height: 900
+        }
+    );
+}
+
+#[test]
+fn viewport_size_sanitizes_invalid_scale() {
+    let viewport = BrowserViewportSize::new(800, 600, f32::NAN).unwrap();
+
+    assert_eq!(viewport.device_scale_factor, 1.0);
 }
 
 fn viewport(device_scale_factor: f32) -> BrowserViewport {

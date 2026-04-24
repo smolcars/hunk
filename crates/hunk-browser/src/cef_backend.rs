@@ -5,17 +5,21 @@ use std::os::unix::ffi::OsStrExt;
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cef::{args::Args, *};
+use serde_json::json;
 
 use crate::config::BrowserRuntimeConfig;
-use crate::frame::BrowserFrame;
-use crate::session::{BrowserAction, BrowserError, BrowserSession, BrowserSessionId};
+use crate::frame::{BrowserFrame, BrowserFrameRateLimiter};
+use crate::session::{
+    BrowserAction, BrowserError, BrowserInputModifiers, BrowserMouseButton, BrowserMouseInput,
+    BrowserSession, BrowserSessionId, BrowserViewportSize,
+};
+use crate::snapshot::BrowserSnapshot;
 
-const DEFAULT_WIDTH: i32 = 1024;
-const DEFAULT_HEIGHT: i32 = 768;
 const DEFAULT_URL: &str = "about:blank";
+const DEVTOOLS_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(crate) struct CefBrowserBackend {
     _app: cef::App,
@@ -27,6 +31,9 @@ pub(crate) struct CefBrowserBackend {
 
 impl CefBrowserBackend {
     pub(crate) fn initialize(config: &BrowserRuntimeConfig) -> Result<Self, BrowserError> {
+        #[cfg(target_os = "macos")]
+        install_macos_nsapplication_compatibility();
+
         #[cfg(target_os = "macos")]
         let cef_paths = resolve_macos_cef_paths(config)?;
         #[cfg(target_os = "macos")]
@@ -123,6 +130,10 @@ impl CefBrowserBackend {
             session_id: session_id.clone(),
             shared: self.shared.clone(),
         });
+        let mut devtools_observer =
+            HunkCefDevToolsMessageObserverBuilder::build(HunkCefDevToolsMessageObserver {
+                shared: self.shared.clone(),
+            });
         let mut client = HunkCefClientBuilder::build(HunkCefClient {
             render_handler,
             load_handler,
@@ -146,15 +157,71 @@ impl CefBrowserBackend {
             None,
         )
         .ok_or_else(|| backend_error("CEF browser creation failed"))?;
+        let devtools_registration = browser
+            .host()
+            .and_then(|host| host.add_dev_tools_message_observer(Some(&mut devtools_observer)));
 
         self.browsers.insert(
-            session_id,
+            session_id.clone(),
             CefBrowserHandle {
                 browser,
                 _client: client,
+                _devtools_observer: devtools_observer,
+                _devtools_registration: devtools_registration,
             },
         );
+        self.shared
+            .borrow_mut()
+            .set_viewport(session_id, BrowserViewportSize::default());
         Ok(())
+    }
+
+    pub(crate) fn capture_snapshot(
+        &mut self,
+        session_id: &BrowserSessionId,
+        epoch: u64,
+    ) -> Result<BrowserSnapshot, BrowserError> {
+        let handle = self
+            .browsers
+            .get(session_id)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        let host = handle
+            .browser
+            .host()
+            .ok_or_else(|| backend_error("CEF browser has no host"))?;
+        let message_id = self.shared.borrow_mut().next_devtools_message_id();
+        let expression = browser_snapshot_expression(epoch);
+        let message = json!({
+            "id": message_id,
+            "method": "Runtime.evaluate",
+            "params": {
+                "expression": expression,
+                "returnByValue": true,
+                "awaitPromise": true,
+            },
+        })
+        .to_string();
+
+        if host.send_dev_tools_message(Some(message.as_bytes())) != 1 {
+            return Err(backend_error(
+                "failed to submit CEF DevTools snapshot request",
+            ));
+        }
+
+        let deadline = Instant::now() + DEVTOOLS_SNAPSHOT_TIMEOUT;
+        loop {
+            do_message_loop_work();
+            if let Some(host) = handle.browser.host() {
+                host.send_external_begin_frame();
+            }
+            if let Some(result) = self.shared.borrow_mut().take_devtools_result(message_id) {
+                return parse_devtools_snapshot_result(result);
+            }
+            if Instant::now() >= deadline {
+                return Err(backend_error("timed out waiting for CEF DevTools snapshot"));
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     pub(crate) fn apply_action(
@@ -183,13 +250,151 @@ impl CefBrowserBackend {
             BrowserAction::Click { .. }
             | BrowserAction::Type { .. }
             | BrowserAction::Press { .. }
-            | BrowserAction::Scroll { .. } => {
-                return Err(backend_error(
-                    "CEF input forwarding is not wired for this browser action yet",
-                ));
-            }
+            | BrowserAction::Scroll { .. } => {}
         }
 
+        Ok(())
+    }
+
+    pub(crate) fn resize_session(
+        &mut self,
+        session_id: &BrowserSessionId,
+        viewport: BrowserViewportSize,
+    ) -> Result<(), BrowserError> {
+        let handle = self
+            .browsers
+            .get(session_id)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        self.shared
+            .borrow_mut()
+            .set_viewport(session_id.clone(), viewport);
+        if let Some(host) = handle.browser.host() {
+            host.was_resized();
+            host.send_external_begin_frame();
+        }
+        Ok(())
+    }
+
+    pub(crate) fn focus_session(
+        &mut self,
+        session_id: &BrowserSessionId,
+        focused: bool,
+    ) -> Result<(), BrowserError> {
+        let handle = self
+            .browsers
+            .get(session_id)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        if let Some(host) = handle.browser.host() {
+            host.set_focus(focused as _);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn send_mouse_move(
+        &mut self,
+        session_id: &BrowserSessionId,
+        input: BrowserMouseInput,
+    ) -> Result<(), BrowserError> {
+        let handle = self
+            .browsers
+            .get(session_id)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        if let Some(host) = handle.browser.host() {
+            let event = cef_mouse_event(input);
+            host.send_mouse_move_event(Some(&event), false as _);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn send_mouse_click(
+        &mut self,
+        session_id: &BrowserSessionId,
+        input: BrowserMouseInput,
+        button: BrowserMouseButton,
+    ) -> Result<(), BrowserError> {
+        let handle = self
+            .browsers
+            .get(session_id)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        if let Some(host) = handle.browser.host() {
+            let event = cef_mouse_event(input);
+            let button = cef_mouse_button(button);
+            host.set_focus(true as _);
+            host.send_mouse_move_event(Some(&event), false as _);
+            host.send_mouse_click_event(Some(&event), button, false as _, 1);
+            host.send_mouse_click_event(Some(&event), button, true as _, 1);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn send_mouse_wheel(
+        &mut self,
+        session_id: &BrowserSessionId,
+        input: BrowserMouseInput,
+        delta_x: i32,
+        delta_y: i32,
+    ) -> Result<(), BrowserError> {
+        let handle = self
+            .browsers
+            .get(session_id)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        if let Some(host) = handle.browser.host() {
+            let event = cef_mouse_event(input);
+            host.send_mouse_wheel_event(Some(&event), delta_x, delta_y);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn send_text(
+        &mut self,
+        session_id: &BrowserSessionId,
+        text: &str,
+    ) -> Result<(), BrowserError> {
+        let handle = self
+            .browsers
+            .get(session_id)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        if let Some(host) = handle.browser.host() {
+            for unit in text.encode_utf16() {
+                let event = cef_key_event(KeyEventType::CHAR, unit as i32, unit, 0);
+                host.send_key_event(Some(&event));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn send_key_press(
+        &mut self,
+        session_id: &BrowserSessionId,
+        keys: &str,
+    ) -> Result<(), BrowserError> {
+        let handle = self
+            .browsers
+            .get(session_id)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        let Some(host) = handle.browser.host() else {
+            return Ok(());
+        };
+        let Some(key) = parse_key_press(keys) else {
+            return Err(backend_error(format!(
+                "unsupported browser key press '{keys}'"
+            )));
+        };
+
+        let down = cef_key_event(
+            KeyEventType::RAWKEYDOWN,
+            key.key_code,
+            key.character,
+            key.flags,
+        );
+        host.send_key_event(Some(&down));
+        if key.character != 0 {
+            let char_event =
+                cef_key_event(KeyEventType::CHAR, key.key_code, key.character, key.flags);
+            host.send_key_event(Some(&char_event));
+        }
+        let up = cef_key_event(KeyEventType::KEYUP, key.key_code, key.character, key.flags);
+        host.send_key_event(Some(&up));
         Ok(())
     }
 
@@ -206,7 +411,8 @@ impl CefBrowserBackend {
         }
 
         let events = self.shared.borrow_mut().drain();
-        let changed = !events.frames.is_empty() || !events.loads.is_empty();
+        let changed =
+            !events.frames.is_empty() || !events.loads.is_empty() || !events.viewports.is_empty();
         for frame in events.frames {
             if let Some(session) = sessions.get_mut(&frame.session_id) {
                 session.set_latest_frame(frame.frame);
@@ -219,6 +425,11 @@ impl CefBrowserBackend {
                     CefLoadState::Ended => session.set_loading(false),
                     CefLoadState::Failed(error) => session.set_load_error(error),
                 }
+            }
+        }
+        for (session_id, viewport) in events.viewports {
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.set_viewport(viewport);
             }
         }
 
@@ -243,17 +454,34 @@ impl CefBrowserBackend {
 struct CefBrowserHandle {
     browser: Browser,
     _client: Client,
+    _devtools_observer: DevToolsMessageObserver,
+    _devtools_registration: Option<Registration>,
 }
 
 #[derive(Default)]
 struct CefSharedState {
     next_frame_epoch: u64,
+    next_devtools_message_id: i32,
+    frame_limiters: BTreeMap<BrowserSessionId, BrowserFrameRateLimiter>,
     frames: Vec<CefFrameEvent>,
     loads: Vec<CefLoadEvent>,
+    viewports: BTreeMap<BrowserSessionId, BrowserViewportSize>,
+    viewport_events: Vec<(BrowserSessionId, BrowserViewportSize)>,
+    devtools_results: BTreeMap<i32, CefDevToolsResult>,
 }
 
 impl CefSharedState {
     fn push_frame(&mut self, session_id: BrowserSessionId, width: i32, height: i32, bgra: Vec<u8>) {
+        let now = Instant::now();
+        if !self
+            .frame_limiters
+            .entry(session_id.clone())
+            .or_insert_with(BrowserFrameRateLimiter::v1_60fps)
+            .should_notify(now)
+        {
+            return;
+        }
+
         self.next_frame_epoch = self.next_frame_epoch.saturating_add(1);
         let Ok(frame) =
             BrowserFrame::from_bgra(width as u32, height as u32, self.next_frame_epoch, bgra)
@@ -267,10 +495,33 @@ impl CefSharedState {
         self.loads.push(CefLoadEvent { session_id, state });
     }
 
+    fn set_viewport(&mut self, session_id: BrowserSessionId, viewport: BrowserViewportSize) {
+        self.viewports.insert(session_id.clone(), viewport);
+        self.viewport_events.push((session_id, viewport));
+    }
+
+    fn next_devtools_message_id(&mut self) -> i32 {
+        self.next_devtools_message_id = self.next_devtools_message_id.saturating_add(1).max(1);
+        self.next_devtools_message_id
+    }
+
+    fn push_devtools_result(&mut self, result: CefDevToolsResult) {
+        self.devtools_results.insert(result.message_id, result);
+    }
+
+    fn take_devtools_result(&mut self, message_id: i32) -> Option<CefDevToolsResult> {
+        self.devtools_results.remove(&message_id)
+    }
+
+    fn viewport(&self, session_id: &BrowserSessionId) -> BrowserViewportSize {
+        self.viewports.get(session_id).copied().unwrap_or_default()
+    }
+
     fn drain(&mut self) -> CefSharedDrain {
         CefSharedDrain {
             frames: std::mem::take(&mut self.frames),
             loads: std::mem::take(&mut self.loads),
+            viewports: std::mem::take(&mut self.viewport_events),
         }
     }
 }
@@ -278,6 +529,7 @@ impl CefSharedState {
 struct CefSharedDrain {
     frames: Vec<CefFrameEvent>,
     loads: Vec<CefLoadEvent>,
+    viewports: Vec<(BrowserSessionId, BrowserViewportSize)>,
 }
 
 struct CefFrameEvent {
@@ -288,6 +540,12 @@ struct CefFrameEvent {
 struct CefLoadEvent {
     session_id: BrowserSessionId,
     state: CefLoadState,
+}
+
+struct CefDevToolsResult {
+    message_id: i32,
+    success: bool,
+    result: Option<String>,
 }
 
 enum CefLoadState {
@@ -388,8 +646,13 @@ wrap_render_handler! {
     impl RenderHandler {
         fn view_rect(&self, _browser: Option<&mut Browser>, rect: Option<&mut Rect>) {
             if let Some(rect) = rect {
-                rect.width = DEFAULT_WIDTH;
-                rect.height = DEFAULT_HEIGHT;
+                let viewport = self
+                    .handler
+                    .shared
+                    .borrow()
+                    .viewport(&self.handler.session_id);
+                rect.width = viewport.width.min(i32::MAX as u32) as i32;
+                rect.height = viewport.height.min(i32::MAX as u32) as i32;
             }
         }
 
@@ -399,7 +662,12 @@ wrap_render_handler! {
             screen_info: Option<&mut ScreenInfo>,
         ) -> ::std::os::raw::c_int {
             if let Some(screen_info) = screen_info {
-                screen_info.device_scale_factor = 1.0;
+                screen_info.device_scale_factor = self
+                    .handler
+                    .shared
+                    .borrow()
+                    .viewport(&self.handler.session_id)
+                    .device_scale_factor;
                 return true as _;
             }
             false as _
@@ -496,6 +764,43 @@ impl HunkCefLoadHandlerBuilder {
 }
 
 #[derive(Clone)]
+struct HunkCefDevToolsMessageObserver {
+    shared: Rc<RefCell<CefSharedState>>,
+}
+
+wrap_dev_tools_message_observer! {
+    struct HunkCefDevToolsMessageObserverBuilder {
+        observer: HunkCefDevToolsMessageObserver,
+    }
+
+    impl DevToolsMessageObserver {
+        fn on_dev_tools_method_result(
+            &self,
+            _browser: Option<&mut Browser>,
+            message_id: ::std::os::raw::c_int,
+            success: ::std::os::raw::c_int,
+            result: Option<&[u8]>,
+        ) {
+            let result = result.and_then(|bytes| std::str::from_utf8(bytes).ok()).map(str::to_string);
+            self.observer
+                .shared
+                .borrow_mut()
+                .push_devtools_result(CefDevToolsResult {
+                    message_id,
+                    success: success == 1,
+                    result,
+                });
+        }
+    }
+}
+
+impl HunkCefDevToolsMessageObserverBuilder {
+    fn build(observer: HunkCefDevToolsMessageObserver) -> DevToolsMessageObserver {
+        Self::new(observer)
+    }
+}
+
+#[derive(Clone)]
 struct HunkCefClient {
     render_handler: RenderHandler,
     load_handler: LoadHandler,
@@ -521,6 +826,295 @@ impl HunkCefClientBuilder {
     fn build(client: HunkCefClient) -> Client {
         Self::new(client)
     }
+}
+
+const EVENTFLAG_SHIFT_DOWN: u32 = 2;
+const EVENTFLAG_CONTROL_DOWN: u32 = 4;
+const EVENTFLAG_ALT_DOWN: u32 = 8;
+const EVENTFLAG_COMMAND_DOWN: u32 = 128;
+
+struct ParsedKeyPress {
+    key_code: i32,
+    character: u16,
+    flags: u32,
+}
+
+fn cef_mouse_event(input: BrowserMouseInput) -> MouseEvent {
+    MouseEvent {
+        x: input.point.x,
+        y: input.point.y,
+        modifiers: cef_input_modifiers(input.modifiers),
+    }
+}
+
+fn cef_mouse_button(button: BrowserMouseButton) -> MouseButtonType {
+    match button {
+        BrowserMouseButton::Left => MouseButtonType::LEFT,
+        BrowserMouseButton::Middle => MouseButtonType::MIDDLE,
+        BrowserMouseButton::Right => MouseButtonType::RIGHT,
+    }
+}
+
+fn cef_input_modifiers(modifiers: BrowserInputModifiers) -> u32 {
+    let mut flags = 0;
+    if modifiers.shift {
+        flags |= EVENTFLAG_SHIFT_DOWN;
+    }
+    if modifiers.control {
+        flags |= EVENTFLAG_CONTROL_DOWN;
+    }
+    if modifiers.alt {
+        flags |= EVENTFLAG_ALT_DOWN;
+    }
+    if modifiers.meta {
+        flags |= EVENTFLAG_COMMAND_DOWN;
+    }
+    flags
+}
+
+fn cef_key_event(type_: KeyEventType, key_code: i32, character: u16, flags: u32) -> KeyEvent {
+    KeyEvent {
+        type_,
+        modifiers: flags,
+        windows_key_code: key_code,
+        native_key_code: key_code,
+        character,
+        unmodified_character: character,
+        ..Default::default()
+    }
+}
+
+fn parse_key_press(keys: &str) -> Option<ParsedKeyPress> {
+    let mut flags = 0;
+    let mut key = None;
+    for part in keys
+        .split('+')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+    {
+        match part.to_ascii_lowercase().as_str() {
+            "shift" => flags |= EVENTFLAG_SHIFT_DOWN,
+            "ctrl" | "control" => flags |= EVENTFLAG_CONTROL_DOWN,
+            "alt" | "option" => flags |= EVENTFLAG_ALT_DOWN,
+            "cmd" | "command" | "meta" | "super" => flags |= EVENTFLAG_COMMAND_DOWN,
+            _ => key = Some(part),
+        }
+    }
+
+    let key = key?;
+    let (key_code, character) = match key.to_ascii_lowercase().as_str() {
+        "enter" | "return" => (13, 0),
+        "tab" => (9, 0),
+        "escape" | "esc" => (27, 0),
+        "backspace" => (8, 0),
+        "delete" | "del" => (46, 0),
+        "arrowleft" | "left" => (37, 0),
+        "arrowup" | "up" => (38, 0),
+        "arrowright" | "right" => (39, 0),
+        "arrowdown" | "down" => (40, 0),
+        "home" => (36, 0),
+        "end" => (35, 0),
+        "pageup" => (33, 0),
+        "pagedown" => (34, 0),
+        "space" => (32, b' ' as u16),
+        _ => parse_printable_key(key, flags)?,
+    };
+
+    Some(ParsedKeyPress {
+        key_code,
+        character,
+        flags,
+    })
+}
+
+fn parse_printable_key(key: &str, flags: u32) -> Option<(i32, u16)> {
+    let mut chars = key.chars();
+    let ch = chars.next()?;
+    if chars.next().is_some() {
+        return None;
+    }
+    if !ch.is_ascii() {
+        return None;
+    }
+
+    let ascii = ch as u8;
+    let key_code = if ascii.is_ascii_alphabetic() {
+        ascii.to_ascii_uppercase() as i32
+    } else {
+        ascii as i32
+    };
+    let character = if flags == 0 { ascii as u16 } else { 0 };
+    Some((key_code, character))
+}
+
+fn browser_snapshot_expression(epoch: u64) -> String {
+    const EXPRESSION: &str = r#"
+(() => {
+  const trim = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  const viewportWidth = Math.max(0, Math.round(window.innerWidth || document.documentElement.clientWidth || 0));
+  const viewportHeight = Math.max(0, Math.round(window.innerHeight || document.documentElement.clientHeight || 0));
+  const visible = element => {
+    const style = window.getComputedStyle(element);
+    if (!style || style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && rect.bottom >= 0 && rect.right >= 0 &&
+      rect.top <= viewportHeight && rect.left <= viewportWidth;
+  };
+  const roleFor = element => {
+    const explicit = element.getAttribute('role');
+    if (explicit) return explicit;
+    const tag = element.tagName.toLowerCase();
+    if (tag === 'a') return 'link';
+    if (tag === 'button') return 'button';
+    if (tag === 'textarea') return 'textbox';
+    if (tag === 'select') return 'combobox';
+    if (tag === 'summary') return 'button';
+    if (tag === 'input') {
+      const type = (element.getAttribute('type') || 'text').toLowerCase();
+      if (type === 'checkbox') return 'checkbox';
+      if (type === 'radio') return 'radio';
+      if (type === 'submit' || type === 'button' || type === 'reset') return 'button';
+      return 'textbox';
+    }
+    return 'generic';
+  };
+  const labelFor = element => {
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const labelledText = labelledBy
+        .split(/\s+/)
+        .map(id => document.getElementById(id))
+        .filter(Boolean)
+        .map(node => node.innerText || node.textContent || '')
+        .join(' ');
+      if (trim(labelledText)) return trim(labelledText);
+    }
+    if (element.labels && element.labels.length) {
+      const labelText = Array.from(element.labels).map(label => label.innerText || label.textContent || '').join(' ');
+      if (trim(labelText)) return trim(labelText);
+    }
+    return trim(
+      element.getAttribute('aria-label') ||
+      element.getAttribute('alt') ||
+      element.getAttribute('title') ||
+      element.getAttribute('placeholder') ||
+      element.getAttribute('value') ||
+      element.innerText ||
+      element.textContent
+    );
+  };
+  const selectorFor = element => {
+    if (element.id) return `#${CSS.escape(element.id)}`;
+    const parts = [];
+    let current = element;
+    while (current && current.nodeType === Node.ELEMENT_NODE && current !== document.documentElement && parts.length < 4) {
+      let part = current.tagName.toLowerCase();
+      const name = current.getAttribute('name');
+      if (name) part += `[name="${CSS.escape(name)}"]`;
+      const parent = current.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter(child => child.tagName === current.tagName);
+        if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
+      }
+      parts.unshift(part);
+      current = parent;
+    }
+    return parts.length ? parts.join(' > ') : null;
+  };
+  const candidates = Array.from(document.querySelectorAll([
+    'a[href]',
+    'button',
+    'input',
+    'textarea',
+    'select',
+    'summary',
+    '[contenteditable="true"]',
+    '[role="button"]',
+    '[role="link"]',
+    '[role="textbox"]',
+    '[role="checkbox"]',
+    '[role="radio"]',
+    '[role="combobox"]',
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(',')));
+  const elements = [];
+  for (const element of candidates) {
+    if (!visible(element) || element.disabled || element.getAttribute('aria-hidden') === 'true') continue;
+    const rect = element.getBoundingClientRect();
+    const label = labelFor(element);
+    const text = trim(element.value || element.innerText || element.textContent);
+    if (!label && !text && roleFor(element) === 'generic') continue;
+    elements.push({
+      index: elements.length,
+      role: roleFor(element),
+      label,
+      text,
+      rect: {
+        x: rect.x + window.scrollX,
+        y: rect.y + window.scrollY,
+        width: rect.width,
+        height: rect.height
+      },
+      selector: selectorFor(element)
+    });
+    if (elements.length >= 200) break;
+  }
+  return {
+    epoch: __HUNK_EPOCH__,
+    url: window.location.href || null,
+    title: document.title || null,
+    viewport: {
+      width: viewportWidth,
+      height: viewportHeight,
+      deviceScaleFactor: window.devicePixelRatio || 1,
+      scrollX: window.scrollX || 0,
+      scrollY: window.scrollY || 0
+    },
+    elements
+  };
+})()
+"#;
+
+    EXPRESSION.replace("__HUNK_EPOCH__", &epoch.to_string())
+}
+
+fn parse_devtools_snapshot_result(
+    result: CefDevToolsResult,
+) -> Result<BrowserSnapshot, BrowserError> {
+    if !result.success {
+        return Err(backend_error(format!(
+            "CEF DevTools snapshot failed: {}",
+            result
+                .result
+                .unwrap_or_else(|| "missing error payload".to_string())
+        )));
+    }
+
+    let raw = result
+        .result
+        .ok_or_else(|| backend_error("CEF DevTools snapshot returned no result"))?;
+    let value: serde_json::Value = serde_json::from_str(raw.as_str()).map_err(|error| {
+        backend_error(format!(
+            "failed to parse CEF DevTools snapshot result: {error}"
+        ))
+    })?;
+    if let Some(exception) = value.get("exceptionDetails") {
+        return Err(backend_error(format!(
+            "CEF DevTools snapshot JavaScript failed: {exception}"
+        )));
+    }
+    let Some(snapshot) = value.get("result").and_then(|result| result.get("value")) else {
+        return Err(backend_error(format!(
+            "CEF DevTools snapshot missing result.value: {value}"
+        )));
+    };
+    serde_json::from_value(snapshot.clone()).map_err(|error| {
+        backend_error(format!(
+            "failed to decode CEF DevTools browser snapshot: {error}"
+        ))
+    })
 }
 
 fn backend_error(message: impl Into<String>) -> BrowserError {
@@ -617,6 +1211,60 @@ fn append_macos_cef_switches(command_line: &mut CommandLine, paths: &MacCefPaths
             paths.resources_dir.to_string_lossy().as_ref(),
         )),
     );
+}
+
+#[cfg(target_os = "macos")]
+fn install_macos_nsapplication_compatibility() {
+    use std::ffi::c_void;
+    use std::os::raw::{c_char, c_schar};
+    use std::sync::OnceLock;
+
+    static INSTALLED: OnceLock<()> = OnceLock::new();
+
+    INSTALLED.get_or_init(|| {
+        unsafe extern "C" {
+            fn objc_getClass(name: *const c_char) -> *mut c_void;
+            fn sel_registerName(name: *const c_char) -> *mut c_void;
+            fn class_getInstanceMethod(cls: *mut c_void, name: *mut c_void) -> *mut c_void;
+            fn class_addMethod(
+                cls: *mut c_void,
+                name: *mut c_void,
+                imp: *const c_void,
+                types: *const c_char,
+            ) -> bool;
+        }
+
+        extern "C" fn is_handling_send_event(
+            _this: *mut c_void,
+            _selector: *mut c_void,
+        ) -> c_schar {
+            0
+        }
+
+        let class_name = c"GPUIApplication";
+        let selector_name = c"isHandlingSendEvent";
+        let type_encoding = c"c@:";
+
+        // Some Chromium macOS paths ask NSApp whether it is inside sendEvent:.
+        // GPUI's custom NSApplication subclass does not currently implement
+        // that private selector, so add a conservative false response.
+        unsafe {
+            let class = objc_getClass(class_name.as_ptr());
+            if class.is_null() {
+                return;
+            }
+            let selector = sel_registerName(selector_name.as_ptr());
+            if selector.is_null() || !class_getInstanceMethod(class, selector).is_null() {
+                return;
+            }
+            class_addMethod(
+                class,
+                selector,
+                is_handling_send_event as *const c_void,
+                type_encoding.as_ptr(),
+            );
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]

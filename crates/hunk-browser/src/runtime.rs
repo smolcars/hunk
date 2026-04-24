@@ -3,7 +3,12 @@ use std::collections::BTreeMap;
 #[cfg(feature = "cef")]
 use crate::cef_backend::CefBrowserBackend;
 use crate::config::BrowserRuntimeConfig;
-use crate::session::{BrowserAction, BrowserError, BrowserSession, BrowserSessionId};
+use crate::session::{
+    BrowserAction, BrowserError, BrowserMouseButton, BrowserMouseInput, BrowserSession,
+    BrowserSessionId, BrowserViewportSize,
+};
+#[cfg(feature = "cef")]
+use crate::snapshot::BrowserPhysicalPoint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserRuntimeStatus {
@@ -237,6 +242,209 @@ impl BrowserRuntime {
         Ok(())
     }
 
+    pub fn resize_backend_session(
+        &mut self,
+        thread_id: &str,
+        viewport: BrowserViewportSize,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Resize)?;
+        let session = self.ensure_session(thread_id.to_string());
+        session.set_viewport(viewport);
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_session(session_id.clone())?;
+            backend.resize_session(&session_id, viewport)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = viewport;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn focus_backend_session(
+        &mut self,
+        thread_id: &str,
+        focused: bool,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Focus)?;
+        self.ensure_session(thread_id.to_string());
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_session(session_id.clone())?;
+            backend.focus_session(&session_id, focused)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = focused;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn send_backend_mouse_move(
+        &mut self,
+        thread_id: &str,
+        input: BrowserMouseInput,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Click)?;
+        self.ensure_session(thread_id.to_string());
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_session(session_id.clone())?;
+            backend.send_mouse_move(&session_id, input)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = input;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn send_backend_mouse_click(
+        &mut self,
+        thread_id: &str,
+        input: BrowserMouseInput,
+        button: BrowserMouseButton,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Click)?;
+        self.ensure_session(thread_id.to_string());
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_session(session_id.clone())?;
+            backend.send_mouse_click(&session_id, input, button)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = (input, button);
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn send_backend_mouse_wheel(
+        &mut self,
+        thread_id: &str,
+        input: BrowserMouseInput,
+        delta_x: i32,
+        delta_y: i32,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Scroll)?;
+        self.ensure_session(thread_id.to_string());
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_session(session_id.clone())?;
+            backend.send_mouse_wheel(&session_id, input, delta_x, delta_y)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = (input, delta_x, delta_y);
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn send_backend_key_press(
+        &mut self,
+        thread_id: &str,
+        keys: &str,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Press)?;
+        self.ensure_session(thread_id.to_string());
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_session(session_id.clone())?;
+            backend.send_key_press(&session_id, keys)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = keys;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn send_backend_text(&mut self, thread_id: &str, text: &str) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Type)?;
+        self.ensure_session(thread_id.to_string());
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_session(session_id.clone())?;
+            backend.send_text(&session_id, text)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = text;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
     pub fn initialize_backend(&mut self) -> Result<(), BrowserError> {
         let Some(config) = self.config.clone() else {
             return Err(BrowserError::RuntimeNotReady {
@@ -283,6 +491,42 @@ impl BrowserRuntime {
                 ));
             };
             backend.pump(&mut self.sessions)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn capture_backend_snapshot(&mut self, thread_id: &str) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Snapshot)?;
+        self.ensure_backend_session(thread_id.to_string())?;
+        #[cfg(feature = "cef")]
+        let session_id = BrowserSessionId::new(thread_id);
+        #[cfg(feature = "cef")]
+        let epoch = self
+            .sessions
+            .get(&session_id)
+            .map(|session| session.latest_snapshot().epoch.saturating_add(1))
+            .unwrap_or(1);
+
+        #[cfg(feature = "cef")]
+        {
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            let snapshot = backend.capture_snapshot(&session_id, epoch)?;
+            let session = self
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| BrowserError::MissingSession(thread_id.to_string()))?;
+            session.replace_snapshot(snapshot);
+            Ok(())
         }
 
         #[cfg(not(feature = "cef"))]
@@ -340,7 +584,65 @@ impl BrowserRuntime {
                 ));
             };
             backend.ensure_session(session_id.clone())?;
-            backend.apply_action(&session_id, action)?;
+            match action {
+                BrowserAction::Click {
+                    snapshot_epoch,
+                    index,
+                } => {
+                    let point = self
+                        .sessions
+                        .get(&session_id)
+                        .ok_or_else(|| BrowserError::MissingSession(thread_id.to_string()))?
+                        .element_click_target(*snapshot_epoch, *index)?;
+                    backend.send_mouse_click(
+                        &session_id,
+                        BrowserMouseInput::new(point),
+                        BrowserMouseButton::Left,
+                    )?;
+                }
+                BrowserAction::Type {
+                    snapshot_epoch,
+                    index,
+                    text,
+                    clear,
+                } => {
+                    let point = self
+                        .sessions
+                        .get(&session_id)
+                        .ok_or_else(|| BrowserError::MissingSession(thread_id.to_string()))?
+                        .element_click_target(*snapshot_epoch, *index)?;
+                    backend.send_mouse_click(
+                        &session_id,
+                        BrowserMouseInput::new(point),
+                        BrowserMouseButton::Left,
+                    )?;
+                    if *clear {
+                        backend.send_key_press(&session_id, platform_select_all_keys())?;
+                        backend.send_key_press(&session_id, "Backspace")?;
+                    }
+                    backend.send_text(&session_id, text)?;
+                }
+                BrowserAction::Press { keys } => {
+                    backend.send_key_press(&session_id, keys)?;
+                }
+                BrowserAction::Scroll { down, pages, .. } => {
+                    let delta_y = scroll_pages_to_wheel_delta(*down, *pages);
+                    backend.send_mouse_wheel(
+                        &session_id,
+                        BrowserMouseInput::new(BrowserPhysicalPoint { x: 0, y: 0 }),
+                        0,
+                        delta_y,
+                    )?;
+                }
+                BrowserAction::Navigate { .. }
+                | BrowserAction::Reload
+                | BrowserAction::Stop
+                | BrowserAction::Back
+                | BrowserAction::Forward
+                | BrowserAction::Screenshot => {
+                    backend.apply_action(&session_id, action)?;
+                }
+            }
         }
 
         self.apply_state_only_action(thread_id, action)
@@ -348,5 +650,20 @@ impl BrowserRuntime {
 
     pub fn session_count(&self) -> usize {
         self.sessions.len()
+    }
+}
+
+#[cfg(feature = "cef")]
+fn scroll_pages_to_wheel_delta(down: bool, pages: f64) -> i32 {
+    let magnitude = (pages.abs().max(0.25) * 800.0).round().min(i32::MAX as f64) as i32;
+    if down { -magnitude } else { magnitude }
+}
+
+#[cfg(feature = "cef")]
+fn platform_select_all_keys() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Meta+A"
+    } else {
+        "Control+A"
     }
 }

@@ -17,8 +17,9 @@ pub use safety::{
     classify_browser_action, redact_browser_tool_text,
 };
 pub use session::{
-    BrowserAction, BrowserError, BrowserFrameMetadata, BrowserHistoryDirection, BrowserSession,
-    BrowserSessionId, BrowserSessionState, BrowserToolAction,
+    BrowserAction, BrowserError, BrowserFrameMetadata, BrowserHistoryDirection,
+    BrowserInputModifiers, BrowserMouseButton, BrowserMouseInput, BrowserSession, BrowserSessionId,
+    BrowserSessionState, BrowserToolAction, BrowserViewportSize,
 };
 pub use snapshot::{
     BrowserElement, BrowserElementRect, BrowserPhysicalPoint, BrowserPoint, BrowserSnapshot,

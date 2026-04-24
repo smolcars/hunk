@@ -1042,6 +1042,19 @@ impl DiffViewer {
                 Self::apply_background_ai_workspace_fatal(state, message);
                 clear_desktop_notification_state = true;
             }
+            AiWorkerEventPayload::BrowserToolCall {
+                params,
+                response_tx,
+            } => {
+                let response = crate::app::ai_dynamic_tools::browser_unavailable_response(
+                    &params,
+                    "The embedded browser is only available in the visible AI workspace.",
+                );
+                if response_tx.send(response).is_err() {
+                    state.status_message =
+                        Some("Embedded browser tool response receiver disconnected.".to_string());
+                }
+            }
         });
         if clear_desktop_notification_state {
             self.clear_ai_desktop_notification_state(Some(workspace_key));

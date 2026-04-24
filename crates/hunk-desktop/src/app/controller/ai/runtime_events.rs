@@ -224,6 +224,17 @@ impl DiffViewer {
                     self.ai_scroll_timeline_to_bottom = true;
                 }
             }
+            AiWorkerEventPayload::BrowserToolCall {
+                params,
+                response_tx,
+            } => {
+                invalidate_visible_frame = false;
+                let response = self.ai_execute_browser_dynamic_tool(params, cx);
+                if response_tx.send(response).is_err() {
+                    self.ai_status_message =
+                        Some("Embedded browser tool response receiver disconnected.".to_string());
+                }
+            }
             AiWorkerEventPayload::Reconnecting(message) => {
                 self.ai_connection_state = AiConnectionState::Reconnecting;
                 self.ai_bootstrap_loading = false;

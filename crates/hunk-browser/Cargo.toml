@@ -11,4 +11,5 @@ cef = ["dep:cef"]
 [dependencies]
 cef = { git = "https://github.com/tauri-apps/cef-rs.git", rev = "f20249dd2e34afdc0102af347f30f0218dd67e7b", default-features = false, features = ["sandbox"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 thiserror = "2.0"

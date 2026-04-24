@@ -2036,11 +2036,29 @@ impl DiffViewer {
                     .flex_1()
                     .min_h_0()
                     .bg(hunk_opacity(cx.theme().muted, is_dark, 0.12, 0.20))
+                    .track_focus(&self.ai_browser_focus_handle)
+                    .on_key_down({
+                        let view = view.clone();
+                        move |event, window, cx| {
+                            let handled = view.update(cx, |this, cx| {
+                                this.ai_browser_surface_key_down(&event.keystroke, window, cx)
+                            });
+                            if handled {
+                                cx.stop_propagation();
+                            }
+                        }
+                    })
                     .child(if let Some(render_image) = browser_render_image {
-                        gpui::img(render_image)
-                            .id("ai-browser-frame")
-                            .size_full()
+                        if let Some(thread_id) = selected_thread_id.clone() {
+                            AiBrowserSurfaceElement {
+                                view: view.clone(),
+                                thread_id,
+                                image: render_image,
+                            }
                             .into_any_element()
+                        } else {
+                            div().size_full().into_any_element()
+                        }
                     } else {
                         v_flex()
                             .size_full()

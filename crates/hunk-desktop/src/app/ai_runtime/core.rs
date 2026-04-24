@@ -41,6 +41,8 @@ use hunk_codex::protocol::TurnInterruptParams;
 use hunk_codex::protocol::TurnStartParams;
 use hunk_codex::protocol::TurnSteerParams;
 use hunk_codex::protocol::UserInput;
+use hunk_codex::protocol::DynamicToolCallParams;
+use hunk_codex::protocol::DynamicToolCallResponse;
 use hunk_codex::protocol::CollaborationMode;
 use hunk_codex::protocol::ModeKind;
 use hunk_codex::protocol::Settings;
@@ -174,6 +176,10 @@ pub enum AiWorkerEventPayload {
     BootstrapCompleted,
     ThreadStarted { thread_id: String },
     SteerAccepted(AiPendingSteer),
+    BrowserToolCall {
+        params: DynamicToolCallParams,
+        response_tx: Sender<DynamicToolCallResponse>,
+    },
     Reconnecting(String),
     Status(String),
     Error(String),
