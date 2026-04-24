@@ -480,6 +480,7 @@ struct AiVisibleFrameState {
     composer_interrupt_available: bool,
     queued_message_count: usize,
     model_supports_image_inputs: bool,
+    browser_runtime_status: hunk_browser::BrowserRuntimeStatus,
     review_action_blocker: Option<String>,
     ai_publish_blocker: Option<String>,
     ai_publish_disabled: bool,

@@ -7628,6 +7628,7 @@ dependencies = [
  "codex-feedback",
  "codex-protocol",
  "codex-utils-absolute-path",
+ "hunk-browser",
  "serde",
  "serde_json",
  "tempfile",

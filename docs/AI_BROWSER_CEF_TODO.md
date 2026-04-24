@@ -1,6 +1,6 @@
 # AI Browser CEF TODO
 
-Status: planned.
+Status: first runtime/tooling slice started.
 
 This tracks the implementation of a true in-app browser for Hunk that can be controlled by the AI agent. The v1 direction is CEF offscreen rendering, embedded inside the GPUI AI workspace, with a single browser surface tied to the active AI session.
 
@@ -42,28 +42,29 @@ Exit criteria:
 
 ## Phase 1: Browser Runtime Crates
 
-- [ ] Add `crates/hunk-browser` for browser runtime logic.
+- [x] Add `crates/hunk-browser` for browser runtime logic.
 - [ ] Add `crates/hunk-browser-helper` for the CEF subprocess entrypoint.
-- [ ] Add browser runtime types:
-  - [ ] `BrowserRuntime`
-  - [ ] `BrowserSession`
-  - [ ] `BrowserFrame`
-  - [ ] `BrowserSnapshot`
-  - [ ] `BrowserAction`
-  - [ ] `SensitiveBrowserAction`
+- [x] Add browser runtime types:
+  - [x] `BrowserRuntime`
+  - [x] `BrowserSession`
+  - [x] `BrowserFrameMetadata`
+  - [x] `BrowserSnapshot`
+  - [x] `BrowserAction`
+  - [x] `SensitiveBrowserAction`
 - [ ] Initialize CEF once during desktop app startup.
 - [ ] Shut CEF down during desktop app exit.
 - [ ] Store browser profile, cache, cookies, and local storage under a Hunk-owned app data directory.
 - [ ] Keep the browser profile isolated from the user's system browser profile.
-- [ ] Key browser sessions by AI thread ID.
-- [ ] Create a browser session lazily when a thread first opens or uses the browser.
-- [ ] Keep each thread's URL, history, latest frame, latest snapshot index map, and navigation state separate.
+- [x] Key browser sessions by AI thread ID.
+- [x] Create a browser session lazily when a thread first opens or uses the browser.
+- [x] Keep each thread's URL, latest frame, latest snapshot index map, and navigation state separate.
 - [ ] Implement navigation, reload, stop, back, and forward.
 - [ ] Implement resize and device-scale handling.
 - [ ] Implement mouse, wheel, keyboard, and focus forwarding.
 - [ ] Convert CEF BGRA frame buffers into a GPUI-paintable frame representation.
 - [ ] Keep frame conversion off the GPUI render path.
-- [ ] Add crate-level tests for snapshot indexing, stale index rejection, input coordinate scaling, and safety classification.
+- [x] Add crate-level tests for snapshot indexing, stale index rejection, and safety classification.
+- [ ] Add crate-level tests for input coordinate scaling.
 
 Exit criteria:
 
@@ -104,25 +105,29 @@ Exit criteria:
 ## Phase 3: AI Dynamic Browser Tools
 
 - [ ] Register browser tools through `ThreadStartParams.dynamic_tools` for browser-enabled AI threads.
-- [ ] Inject browser-specific developer instructions for browser-enabled threads.
-- [ ] Tell the agent to use `hunk.browser_snapshot` before click/type actions and then act by `snapshotEpoch` plus element index.
-- [ ] Tell the agent to use embedded `hunk.browser_*` tools instead of launching an external browser.
-- [ ] Add a desktop-side dynamic tool executor that can route browser tool calls asynchronously to `hunk-browser`.
-- [ ] Preserve the existing workspace dynamic tools.
-- [ ] Add browser tools:
-  - [ ] `hunk.browser_navigate`
-  - [ ] `hunk.browser_snapshot`
-  - [ ] `hunk.browser_click`
-  - [ ] `hunk.browser_type`
-  - [ ] `hunk.browser_press`
-  - [ ] `hunk.browser_scroll`
-  - [ ] `hunk.browser_screenshot`
+- [x] Add helper to apply browser tool specs to `ThreadStartParams.dynamic_tools`.
+- [x] Add helper to inject browser-specific developer instructions for browser-enabled threads.
+- [x] Tell the agent to use `hunk.browser_snapshot` before click/type actions and then act by `snapshotEpoch` plus element index.
+- [x] Tell the agent to use embedded `hunk.browser_*` tools instead of launching an external browser.
+- [x] Add typed parsing from Codex browser dynamic tool arguments into `hunk-browser` actions.
+- [x] Add a desktop-side dynamic tool executor seam for browser tool calls.
+- [x] Preserve the existing workspace dynamic tools.
+- [ ] Route browser tool calls asynchronously to `hunk-browser`.
+- [x] Add browser tools:
+  - [x] `hunk.browser_navigate`
+  - [x] `hunk.browser_snapshot`
+  - [x] `hunk.browser_click`
+  - [x] `hunk.browser_type`
+  - [x] `hunk.browser_press`
+  - [x] `hunk.browser_scroll`
+  - [x] `hunk.browser_screenshot`
 - [ ] Make `hunk.browser_snapshot` return URL, title, viewport, scroll position, visible text, and indexed interactive elements.
 - [ ] Store the latest element index map in the browser session.
-- [ ] Reject click/type actions when the index map is stale after navigation or page mutation.
+- [x] Reject click/type actions when the index map is stale after navigation or page mutation.
 - [ ] Return concise action results to the model.
 - [ ] Return screenshots through the richest image-capable result format available in the current Codex protocol.
-- [ ] Add tests for tool schema generation, tool routing, missing-browser errors, and stale snapshot behavior.
+- [x] Add tests for tool schema generation, tool routing, and missing-browser errors.
+- [x] Add tests for stale snapshot behavior in routed browser tool calls.
 
 Exit criteria:
 

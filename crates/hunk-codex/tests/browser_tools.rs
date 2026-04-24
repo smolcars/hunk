@@ -1,9 +1,11 @@
+use hunk_browser::BrowserAction;
 use hunk_codex::browser_tools::{
     BROWSER_CLICK_TOOL, BROWSER_DEVELOPER_INSTRUCTIONS, BROWSER_NAVIGATE_TOOL,
-    BROWSER_SCREENSHOT_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_TYPE_TOOL, browser_dynamic_tool_specs,
-    is_browser_dynamic_tool,
+    BROWSER_SCREENSHOT_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_TYPE_TOOL, BrowserDynamicToolRequest,
+    apply_browser_thread_start_context, browser_dynamic_tool_specs, is_browser_dynamic_tool,
+    parse_browser_dynamic_tool_request,
 };
-use hunk_codex::protocol::DynamicToolSpec;
+use hunk_codex::protocol::{DynamicToolCallParams, DynamicToolSpec, ThreadStartParams};
 
 #[test]
 fn browser_tool_specs_include_core_controls() {
@@ -44,4 +46,142 @@ fn browser_developer_instructions_describe_snapshot_index_flow() {
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("snapshotEpoch"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("element index"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("external browser"));
+}
+
+#[test]
+fn apply_browser_thread_start_context_adds_tools_and_instructions() {
+    let mut params = ThreadStartParams {
+        developer_instructions: Some("Existing instructions.".to_string()),
+        ..ThreadStartParams::default()
+    };
+
+    apply_browser_thread_start_context(&mut params);
+
+    let instructions = params
+        .developer_instructions
+        .as_deref()
+        .expect("developer instructions should be set");
+    assert!(instructions.contains("Existing instructions."));
+    assert!(instructions.contains(BROWSER_DEVELOPER_INSTRUCTIONS));
+
+    let tool_names = params
+        .dynamic_tools
+        .as_ref()
+        .expect("dynamic tools should be set")
+        .iter()
+        .map(|spec| spec.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(tool_names.contains(&BROWSER_NAVIGATE_TOOL));
+    assert!(tool_names.contains(&BROWSER_SNAPSHOT_TOOL));
+}
+
+#[test]
+fn apply_browser_thread_start_context_is_idempotent() {
+    let mut params = ThreadStartParams::default();
+
+    apply_browser_thread_start_context(&mut params);
+    apply_browser_thread_start_context(&mut params);
+
+    let instructions = params
+        .developer_instructions
+        .as_deref()
+        .expect("developer instructions should be set");
+    assert_eq!(
+        instructions.matches(BROWSER_DEVELOPER_INSTRUCTIONS).count(),
+        1
+    );
+
+    let navigate_count = params
+        .dynamic_tools
+        .as_ref()
+        .expect("dynamic tools should be set")
+        .iter()
+        .filter(|spec| spec.name == BROWSER_NAVIGATE_TOOL)
+        .count();
+    assert_eq!(navigate_count, 1);
+}
+
+#[test]
+fn parse_browser_click_request_uses_snapshot_epoch_and_index() {
+    let request = parse_browser_dynamic_tool_request(&dynamic_tool_params(
+        BROWSER_CLICK_TOOL,
+        serde_json::json!({
+            "snapshotEpoch": 7,
+            "index": 42
+        }),
+    ))
+    .expect("browser click args should parse");
+
+    assert_eq!(
+        request,
+        BrowserDynamicToolRequest::Action(BrowserAction::Click {
+            snapshot_epoch: 7,
+            index: 42,
+        })
+    );
+}
+
+#[test]
+fn parse_browser_type_request_defaults_to_clear_first() {
+    let request = parse_browser_dynamic_tool_request(&dynamic_tool_params(
+        BROWSER_TYPE_TOOL,
+        serde_json::json!({
+            "snapshotEpoch": 7,
+            "index": 42,
+            "text": "hello"
+        }),
+    ))
+    .expect("browser type args should parse");
+
+    assert_eq!(
+        request,
+        BrowserDynamicToolRequest::Action(BrowserAction::Type {
+            snapshot_epoch: 7,
+            index: 42,
+            text: "hello".to_string(),
+            clear: true,
+        })
+    );
+}
+
+#[test]
+fn parse_browser_scroll_request_applies_defaults() {
+    let request = parse_browser_dynamic_tool_request(&dynamic_tool_params(
+        "hunk.browser_scroll",
+        serde_json::json!({}),
+    ))
+    .expect("browser scroll args should parse");
+
+    assert_eq!(
+        request,
+        BrowserDynamicToolRequest::Action(BrowserAction::Scroll {
+            down: true,
+            pages: 1.0,
+            index: None,
+        })
+    );
+}
+
+#[test]
+fn parse_browser_request_returns_argument_errors() {
+    let error = parse_browser_dynamic_tool_request(&dynamic_tool_params(
+        BROWSER_CLICK_TOOL,
+        serde_json::json!({
+            "index": 42
+        }),
+    ))
+    .expect_err("missing snapshot epoch should fail");
+
+    assert!(error.contains("invalid browser dynamic tool arguments"));
+}
+
+fn dynamic_tool_params(tool: &str, arguments: serde_json::Value) -> DynamicToolCallParams {
+    DynamicToolCallParams {
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        call_id: "call-1".to_string(),
+        namespace: None,
+        tool: tool.to_string(),
+        arguments,
+    }
 }

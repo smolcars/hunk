@@ -556,7 +556,9 @@ impl AiWorkerRuntime {
                         params.turn_id.as_str(),
                         Instant::now(),
                     );
-                    let response = self.tool_registry.execute(self.service.cwd(), &params);
+                    let response = self
+                        .dynamic_tool_executor
+                        .execute(self.service.cwd(), &params);
                     self.session.respond_typed(request_id, &response)?;
                     changed = true;
                 }

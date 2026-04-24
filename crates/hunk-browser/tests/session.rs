@@ -1,5 +1,6 @@
 use hunk_browser::{
-    BrowserElement, BrowserRuntime, BrowserSessionId, BrowserSnapshot, BrowserViewport,
+    BrowserAction, BrowserElement, BrowserRuntime, BrowserSessionId, BrowserSnapshot,
+    BrowserViewport,
 };
 
 #[test]
@@ -50,6 +51,47 @@ fn snapshot_element_validation_rejects_missing_index() {
         .expect_err("missing element index should be rejected");
 
     assert!(error.to_string().contains("element index 99"));
+}
+
+#[test]
+fn preflight_action_accepts_current_indexed_action() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.replace_snapshot(snapshot(7, "https://example.com", 4));
+
+    session
+        .preflight_action(&BrowserAction::Click {
+            snapshot_epoch: 7,
+            index: 4,
+        })
+        .expect("current indexed action should pass preflight");
+}
+
+#[test]
+fn preflight_action_rejects_stale_indexed_action() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.replace_snapshot(snapshot(7, "https://example.com", 4));
+
+    let error = session
+        .preflight_action(&BrowserAction::Type {
+            snapshot_epoch: 6,
+            index: 4,
+            text: "hello".to_string(),
+            clear: true,
+        })
+        .expect_err("stale indexed action should fail");
+
+    assert!(error.to_string().contains("snapshot is stale"));
+}
+
+#[test]
+fn preflight_action_accepts_navigation_without_snapshot() {
+    let session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    session
+        .preflight_action(&BrowserAction::Navigate {
+            url: "https://example.com".to_string(),
+        })
+        .expect("navigation should not require a snapshot");
 }
 
 fn snapshot(epoch: u64, url: &str, element_index: u32) -> BrowserSnapshot {

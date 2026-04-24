@@ -95,6 +95,27 @@ impl BrowserSession {
             .element(index)
             .ok_or(BrowserError::UnknownElementIndex(index))
     }
+
+    pub fn preflight_action(&self, action: &BrowserAction) -> Result<(), BrowserError> {
+        match action {
+            BrowserAction::Click {
+                snapshot_epoch,
+                index,
+            }
+            | BrowserAction::Type {
+                snapshot_epoch,
+                index,
+                ..
+            } => {
+                self.validate_snapshot_element(*snapshot_epoch, *index)?;
+                Ok(())
+            }
+            BrowserAction::Navigate { .. }
+            | BrowserAction::Press { .. }
+            | BrowserAction::Scroll { .. }
+            | BrowserAction::Screenshot => Ok(()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

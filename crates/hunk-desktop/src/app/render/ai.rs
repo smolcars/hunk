@@ -54,6 +54,7 @@ impl DiffViewer {
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
         let ai_view_state = ai_view_state.unwrap_or_else(|| self.visible_ai_frame_state());
+        let _browser_runtime_status = ai_view_state.browser_runtime_status;
         let selected_thread_id = ai_view_state.selected_thread_id.clone();
         self.sync_ai_followup_prompt_state_for_selected_thread(selected_thread_id.as_deref());
         let show_global_loading_overlay = self.ai_bootstrap_loading;

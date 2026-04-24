@@ -542,6 +542,7 @@ impl DiffViewer {
             composer_interrupt_available,
             queued_message_count,
             model_supports_image_inputs,
+            browser_runtime_status: self.ai_browser_runtime.status(),
             review_action_blocker,
             ai_publish_blocker,
             ai_publish_disabled,

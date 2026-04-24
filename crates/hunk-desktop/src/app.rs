@@ -172,6 +172,7 @@ mod ai_bookmarks;
 mod ai_composer_clipboard;
 mod ai_composer_commands;
 mod ai_composer_completion;
+mod ai_dynamic_tools;
 mod ai_inline_review;
 mod ai_inline_review_snapshot;
 mod ai_paths;

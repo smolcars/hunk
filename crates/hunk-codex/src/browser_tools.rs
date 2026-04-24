@@ -1,4 +1,8 @@
+use crate::protocol::DynamicToolCallParams;
 use crate::protocol::DynamicToolSpec;
+use crate::protocol::ThreadStartParams;
+use hunk_browser::BrowserAction;
+use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
 
@@ -129,6 +133,141 @@ pub fn is_browser_dynamic_tool(tool: &str) -> bool {
             | BROWSER_SCROLL_TOOL
             | BROWSER_SCREENSHOT_TOOL
     )
+}
+
+pub fn apply_browser_thread_start_context(params: &mut ThreadStartParams) {
+    append_browser_developer_instructions(&mut params.developer_instructions);
+
+    let mut dynamic_tools = params.dynamic_tools.take().unwrap_or_default();
+    for spec in browser_dynamic_tool_specs() {
+        if !dynamic_tools
+            .iter()
+            .any(|existing| existing.name == spec.name && existing.namespace == spec.namespace)
+        {
+            dynamic_tools.push(spec);
+        }
+    }
+    params.dynamic_tools = Some(dynamic_tools);
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BrowserDynamicToolRequest {
+    Snapshot,
+    Screenshot,
+    Action(BrowserAction),
+}
+
+pub fn parse_browser_dynamic_tool_request(
+    params: &DynamicToolCallParams,
+) -> Result<BrowserDynamicToolRequest, String> {
+    match params.tool.as_str() {
+        BROWSER_NAVIGATE_TOOL => {
+            let args = parse_args::<NavigateArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Navigate {
+                url: args.url,
+            }))
+        }
+        BROWSER_SNAPSHOT_TOOL => Ok(BrowserDynamicToolRequest::Snapshot),
+        BROWSER_CLICK_TOOL => {
+            let args = parse_args::<IndexedElementArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Click {
+                snapshot_epoch: args.snapshot_epoch,
+                index: args.index,
+            }))
+        }
+        BROWSER_TYPE_TOOL => {
+            let args = parse_args::<TypeArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Type {
+                snapshot_epoch: args.snapshot_epoch,
+                index: args.index,
+                text: args.text,
+                clear: args.clear.unwrap_or(true),
+            }))
+        }
+        BROWSER_PRESS_TOOL => {
+            let args = parse_args::<PressArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Press {
+                keys: args.keys,
+            }))
+        }
+        BROWSER_SCROLL_TOOL => {
+            let args = parse_args::<ScrollArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Scroll {
+                down: args.down.unwrap_or(true),
+                pages: args.pages.unwrap_or(1.0),
+                index: args.index,
+            }))
+        }
+        BROWSER_SCREENSHOT_TOOL => Ok(BrowserDynamicToolRequest::Screenshot),
+        _ => Err(format!(
+            "unsupported browser dynamic tool '{}'",
+            params.tool
+        )),
+    }
+}
+
+fn append_browser_developer_instructions(instructions: &mut Option<String>) {
+    match instructions {
+        Some(existing) if existing.contains(BROWSER_DEVELOPER_INSTRUCTIONS) => {}
+        Some(existing) if existing.trim().is_empty() => {
+            *existing = BROWSER_DEVELOPER_INSTRUCTIONS.to_string();
+        }
+        Some(existing) => {
+            existing.push_str("\n\n");
+            existing.push_str(BROWSER_DEVELOPER_INSTRUCTIONS);
+        }
+        None => {
+            *instructions = Some(BROWSER_DEVELOPER_INSTRUCTIONS.to_string());
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NavigateArgs {
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IndexedElementArgs {
+    snapshot_epoch: u64,
+    index: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TypeArgs {
+    snapshot_epoch: u64,
+    index: u32,
+    text: String,
+    #[serde(default)]
+    clear: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PressArgs {
+    keys: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrollArgs {
+    #[serde(default)]
+    down: Option<bool>,
+    #[serde(default)]
+    pages: Option<f64>,
+    #[serde(default)]
+    index: Option<u32>,
+}
+
+fn parse_args<T>(arguments: &Value) -> Result<T, String>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    serde_json::from_value(arguments.clone())
+        .map_err(|error| format!("invalid browser dynamic tool arguments: {error}"))
 }
 
 fn spec(name: &str, description: &str, input_schema: Value) -> DynamicToolSpec {

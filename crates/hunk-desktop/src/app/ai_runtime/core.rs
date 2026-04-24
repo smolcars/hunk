@@ -53,6 +53,7 @@ use hunk_codex::app_server_client::AppServerEvent;
 use hunk_codex::app_server_client::AppServerClient;
 use hunk_codex::app_server_client::EmbeddedAppServerClient;
 use hunk_codex::app_server_client::EmbeddedAppServerClientStartArgs;
+use hunk_codex::browser_tools::apply_browser_thread_start_context;
 use hunk_codex::errors::CodexIntegrationError;
 use hunk_codex::state::AiState;
 use hunk_codex::state::ServerRequestDecision;
@@ -62,8 +63,8 @@ use hunk_codex::state::TurnStatus as StateTurnStatus;
 use hunk_codex::threads::RolloutFallbackItem;
 use hunk_codex::threads::RolloutFallbackTurn;
 use hunk_codex::threads::ThreadService;
-use hunk_codex::tools::DynamicToolRegistry;
 
+use crate::app::ai_dynamic_tools::AiDynamicToolExecutor;
 use crate::app::ai_paths::default_codex_home_path;
 use crate::app::ai_rollout_fallback::find_rollout_path_for_thread;
 use crate::app::ai_rollout_fallback::parse_rollout_fallback;
@@ -257,6 +258,7 @@ struct AiWorkerRuntime {
     workspace_key: String,
     request_timeout: Duration,
     mad_max_mode: bool,
+    browser_tools_enabled: bool,
     account: Option<Account>,
     requires_openai_auth: bool,
     pending_chatgpt_login_id: Option<String>,
@@ -268,7 +270,7 @@ struct AiWorkerRuntime {
     collaboration_modes: Vec<CollaborationModeMask>,
     skills: Vec<SkillMetadata>,
     include_hidden_models: bool,
-    tool_registry: DynamicToolRegistry,
+    dynamic_tool_executor: AiDynamicToolExecutor,
     pending_approvals: BTreeMap<String, PendingApproval>,
     pending_user_inputs: BTreeMap<String, PendingUserInput>,
     next_approval_sequence: u64,
@@ -331,6 +333,9 @@ impl AiWorkerRuntime {
                 };
                 apply_thread_start_policy(self.mad_max_mode, &mut params);
                 apply_thread_start_session_overrides(&session_overrides, &mut params);
+                if self.browser_tools_enabled {
+                    apply_browser_thread_start_context(&mut params);
+                }
                 let response =
                     self.service
                         .start_thread(&mut self.session, params, self.request_timeout)?;
