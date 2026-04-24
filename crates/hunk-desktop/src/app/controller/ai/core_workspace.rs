@@ -539,6 +539,8 @@ impl DiffViewer {
                 .ai_inline_review_selected_row_id_by_thread
                 .clone(),
             inline_review_mode_by_thread: self.ai_inline_review_mode_by_thread.clone(),
+            browser_open_thread_ids: self.ai_browser_open_thread_ids.clone(),
+            right_pane_mode_by_thread: self.ai_right_pane_mode_by_thread.clone(),
             thread_title_refresh_state_by_thread: self
                 .ai_thread_title_refresh_state_by_thread
                 .clone(),
@@ -604,6 +606,8 @@ impl DiffViewer {
         self.ai_inline_review_selected_row_id_by_thread =
             state.inline_review_selected_row_id_by_thread;
         self.ai_inline_review_mode_by_thread = state.inline_review_mode_by_thread;
+        self.ai_browser_open_thread_ids = state.browser_open_thread_ids;
+        self.ai_right_pane_mode_by_thread = state.right_pane_mode_by_thread;
         self.ai_inline_review_session = None;
         self.ai_inline_review_loaded_state = None;
         self.ai_inline_review_error = None;

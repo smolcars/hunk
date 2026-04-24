@@ -474,6 +474,8 @@ impl DiffViewer {
             ai_timeline_follow_output: true,
             ai_inline_review_selected_row_id_by_thread: BTreeMap::new(),
             ai_inline_review_mode_by_thread: BTreeMap::new(),
+            ai_browser_open_thread_ids: BTreeSet::new(),
+            ai_right_pane_mode_by_thread: BTreeMap::new(),
             ai_inline_review_session: None,
             ai_inline_review_loaded_state: None,
             ai_inline_review_error: None,

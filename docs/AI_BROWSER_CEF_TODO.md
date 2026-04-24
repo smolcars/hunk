@@ -75,11 +75,11 @@ Exit criteria:
 
 ## Phase 2: GPUI Browser Panel
 
-- [ ] Add browser state to the AI workspace state model.
-- [ ] Extend the AI workspace layout so the main timeline/composer column can open a right-side companion pane that switches between inline review/diff preview and browser modes.
-- [ ] Reuse the existing AI workspace split-pane pattern used for inline review.
-- [ ] If inline review and browser are both available, show them as switchable right-pane modes instead of creating three crowded columns.
-- [ ] Keep the browser outside the scrollable timeline so page rendering, focus, and input are independent from timeline scrolling.
+- [x] Add browser state to the AI workspace state model.
+- [x] Extend the AI workspace layout so the main timeline/composer column can open a right-side companion pane that switches between inline review/diff preview and browser modes.
+- [x] Reuse the existing AI workspace split-pane pattern used for inline review.
+- [x] If inline review and browser are both available, show them as switchable right-pane modes instead of creating three crowded columns.
+- [x] Keep the browser outside the scrollable timeline so page rendering, focus, and input are independent from timeline scrolling.
 - [ ] Add browser controls:
   - [ ] address bar
   - [ ] back
@@ -88,7 +88,7 @@ Exit criteria:
   - [ ] stop
   - [ ] page loading/error status
   - [ ] agent-control indicator
-- [ ] Use colors from `crates/hunk-desktop/src/app/theme.rs`.
+- [x] Use colors from `crates/hunk-desktop/src/app/theme.rs`.
 - [ ] Paint the latest browser frame into the GPUI surface.
 - [ ] Forward panel mouse, wheel, keyboard, focus, resize, and scale changes to `hunk-browser`.
 - [ ] Throttle frame notifications to 60fps for v1.
@@ -104,7 +104,7 @@ Exit criteria:
 
 ## Phase 3: AI Dynamic Browser Tools
 
-- [ ] Register browser tools through `ThreadStartParams.dynamic_tools` for browser-enabled AI threads.
+- [x] Register browser tools through `ThreadStartParams.dynamic_tools` for browser-enabled AI threads.
 - [x] Add helper to apply browser tool specs to `ThreadStartParams.dynamic_tools`.
 - [x] Add helper to inject browser-specific developer instructions for browser-enabled threads.
 - [x] Tell the agent to use `hunk.browser_snapshot` before click/type actions and then act by `snapshotEpoch` plus element index.

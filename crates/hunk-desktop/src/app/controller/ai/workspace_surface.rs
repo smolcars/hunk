@@ -580,6 +580,114 @@ impl DiffViewer {
             .is_some()
     }
 
+    pub(super) fn current_ai_right_pane_mode_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Option<AiWorkspaceRightPaneMode> {
+        let inline_review_open = self
+            .current_ai_inline_review_row_id_for_thread(thread_id)
+            .is_some();
+        let browser_open = self.ai_browser_open_thread_ids.contains(thread_id);
+
+        match self.ai_right_pane_mode_by_thread.get(thread_id).copied() {
+            Some(AiWorkspaceRightPaneMode::InlineReview) if inline_review_open => {
+                Some(AiWorkspaceRightPaneMode::InlineReview)
+            }
+            Some(AiWorkspaceRightPaneMode::Browser) if browser_open => {
+                Some(AiWorkspaceRightPaneMode::Browser)
+            }
+            _ if inline_review_open => Some(AiWorkspaceRightPaneMode::InlineReview),
+            _ if browser_open => Some(AiWorkspaceRightPaneMode::Browser),
+            _ => None,
+        }
+    }
+
+    pub(super) fn current_ai_right_pane_mode(&self) -> Option<AiWorkspaceRightPaneMode> {
+        self.ai_selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.current_ai_right_pane_mode_for_thread(thread_id))
+    }
+
+    pub(super) fn ai_browser_is_open(&self) -> bool {
+        self.ai_selected_thread_id
+            .as_deref()
+            .is_some_and(|thread_id| self.ai_browser_open_thread_ids.contains(thread_id))
+    }
+
+    pub(super) fn ai_open_browser_for_current_thread(&mut self, cx: &mut Context<Self>) {
+        let Some(thread_id) = self.current_ai_thread_id() else {
+            return;
+        };
+        if self.ai_selected_thread_id.as_deref() != Some(thread_id.as_str()) {
+            self.ai_selected_thread_id = Some(thread_id.clone());
+        }
+        self.ai_browser_runtime.ensure_session(thread_id.clone());
+        self.ai_browser_open_thread_ids.insert(thread_id.clone());
+        self.ai_right_pane_mode_by_thread
+            .insert(thread_id, AiWorkspaceRightPaneMode::Browser);
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
+        cx.notify();
+    }
+
+    pub(super) fn ai_toggle_browser_for_current_thread(&mut self, cx: &mut Context<Self>) {
+        if self.current_ai_right_pane_mode() == Some(AiWorkspaceRightPaneMode::Browser) {
+            self.ai_close_browser_action(cx);
+        } else {
+            self.ai_open_browser_for_current_thread(cx);
+        }
+    }
+
+    pub(super) fn ai_close_browser_action(&mut self, cx: &mut Context<Self>) {
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        let changed = self.ai_browser_open_thread_ids.remove(thread_id.as_str());
+        if self.ai_right_pane_mode_by_thread.get(thread_id.as_str()).copied()
+            == Some(AiWorkspaceRightPaneMode::Browser)
+        {
+            if self
+                .current_ai_inline_review_row_id_for_thread(thread_id.as_str())
+                .is_some()
+            {
+                self.ai_right_pane_mode_by_thread
+                    .insert(thread_id.clone(), AiWorkspaceRightPaneMode::InlineReview);
+            } else {
+                self.ai_right_pane_mode_by_thread.remove(thread_id.as_str());
+            }
+        }
+        if changed {
+            self.invalidate_ai_visible_frame_state_with_reason("timeline");
+            cx.notify();
+        }
+    }
+
+    pub(super) fn ai_set_right_pane_mode(
+        &mut self,
+        mode: AiWorkspaceRightPaneMode,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        let mode_available = match mode {
+            AiWorkspaceRightPaneMode::InlineReview => self
+                .current_ai_inline_review_row_id_for_thread(thread_id.as_str())
+                .is_some(),
+            AiWorkspaceRightPaneMode::Browser => self.ai_browser_open_thread_ids.contains(&thread_id),
+        };
+        if !mode_available {
+            return;
+        }
+        if self
+            .ai_right_pane_mode_by_thread
+            .insert(thread_id, mode)
+            != Some(mode)
+        {
+            self.invalidate_ai_visible_frame_state_with_reason("timeline");
+            cx.notify();
+        }
+    }
+
     pub(super) fn ai_row_supports_inline_review(&self, row: &AiTimelineRow) -> bool {
         let item_kind = match &row.source {
             AiTimelineRowSource::Item { item_key } => self
@@ -628,6 +736,8 @@ impl DiffViewer {
             .insert(thread_id.clone(), row_id.clone());
         self.ai_inline_review_mode_by_thread
             .insert(thread_id.clone(), mode);
+        self.ai_right_pane_mode_by_thread
+            .insert(thread_id.clone(), AiWorkspaceRightPaneMode::InlineReview);
         if changed_row || changed_mode {
             self.ai_inline_review_surface.clear_runtime_state();
         }
@@ -687,6 +797,10 @@ impl DiffViewer {
         }
         self.ai_inline_review_mode_by_thread
             .insert(thread_id, mode);
+        if let Some(thread_id) = self.ai_selected_thread_id.clone() {
+            self.ai_right_pane_mode_by_thread
+                .insert(thread_id, AiWorkspaceRightPaneMode::InlineReview);
+        }
         self.ai_inline_review_surface.clear_runtime_state();
         self.ai_clear_inline_review_loaded_state();
         self.ai_sync_review_compare_to_selected_thread(cx);
@@ -704,6 +818,16 @@ impl DiffViewer {
             .remove(thread_id)
             .is_some()
         {
+            if self.ai_right_pane_mode_by_thread.get(thread_id).copied()
+                == Some(AiWorkspaceRightPaneMode::InlineReview)
+            {
+                if self.ai_browser_open_thread_ids.contains(thread_id) {
+                    self.ai_right_pane_mode_by_thread
+                        .insert(thread_id.to_string(), AiWorkspaceRightPaneMode::Browser);
+                } else {
+                    self.ai_right_pane_mode_by_thread.remove(thread_id);
+                }
+            }
             self.ai_clear_inline_review_loaded_state();
             self.ai_inline_review_surface.clear_runtime_state();
             self.invalidate_ai_visible_frame_state_with_reason("timeline");

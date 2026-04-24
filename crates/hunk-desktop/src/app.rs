@@ -1437,6 +1437,8 @@ struct DiffViewer {
     ai_timeline_follow_output: bool,
     ai_inline_review_selected_row_id_by_thread: BTreeMap<String, String>,
     ai_inline_review_mode_by_thread: BTreeMap<String, AiInlineReviewMode>,
+    ai_browser_open_thread_ids: BTreeSet<String>,
+    ai_right_pane_mode_by_thread: BTreeMap<String, AiWorkspaceRightPaneMode>,
     ai_inline_review_session: Option<review_workspace_session::ReviewWorkspaceSession>,
     ai_inline_review_loaded_state: Option<AiInlineReviewLoadedState>,
     ai_inline_review_error: Option<String>,

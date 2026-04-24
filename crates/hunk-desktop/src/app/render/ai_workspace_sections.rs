@@ -12,7 +12,6 @@ struct AiTimelinePanelState {
     show_worktree_base_branch_picker: bool,
     selected_worktree_base_branch: String,
     selected_thread_id: Option<String>,
-    inline_review_selected_row_id: Option<String>,
     selected_thread_start_mode: Option<AiNewThreadStartMode>,
     pending_approvals: Arc<[AiPendingApproval]>,
     pending_user_inputs: Arc<[AiPendingUserInputRequest]>,
@@ -22,6 +21,7 @@ struct AiTimelinePanelState {
     timeline_hidden_turn_count: usize,
     timeline_visible_row_ids: Arc<[String]>,
     timeline_loading: bool,
+    right_pane_mode: Option<AiWorkspaceRightPaneMode>,
     show_select_thread_empty_state: bool,
     show_no_turns_empty_state: bool,
     ai_publish_blocker: Option<String>,
@@ -155,7 +155,8 @@ impl DiffViewer {
         is_dark: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let inline_review_open = sections.timeline.inline_review_selected_row_id.is_some();
+        let right_pane_mode = sections.timeline.right_pane_mode;
+        let right_pane_open = right_pane_mode.is_some();
         let main_content_column = v_flex()
             .size_full()
             .min_h_0()
@@ -169,7 +170,7 @@ impl DiffViewer {
             .when_some(sections.terminal_panel, |this, terminal_panel| {
                 this.child(terminal_panel)
             });
-        let workspace_content = if inline_review_open {
+        let workspace_content = if right_pane_open {
             h_resizable("hunk-ai-workspace-content-split")
                 .child(
                     resizable_panel()
@@ -192,7 +193,12 @@ impl DiffViewer {
                                 .size_full()
                                 .min_h_0()
                                 .min_w_0()
-                                .child(self.render_ai_inline_review_pane(view.clone(), is_dark, cx)),
+                                .child(self.render_ai_right_pane(
+                                    view.clone(),
+                                    right_pane_mode,
+                                    is_dark,
+                                    cx,
+                                )),
                         ),
                 )
                 .into_any_element()
@@ -962,9 +968,10 @@ impl DiffViewer {
                 .child({
                     let view = view.clone();
                     let diff_button_enabled = self.ai_can_open_inline_review_for_current_thread();
-                    let diff_button_active = self.ai_inline_review_is_open()
-                        && self.current_ai_inline_review_mode()
-                            == AiInlineReviewMode::WorkingTree;
+                    let diff_button_active =
+                        state.right_pane_mode == Some(AiWorkspaceRightPaneMode::InlineReview)
+                            && self.current_ai_inline_review_mode()
+                                == AiInlineReviewMode::WorkingTree;
                     Button::new("ai-open-working-tree-diff")
                         .compact()
                         .outline()
@@ -989,6 +996,31 @@ impl DiffViewer {
                                 );
                             });
                         })
+                })
+                .child({
+                    let view = view.clone();
+                    let active = state.right_pane_mode == Some(AiWorkspaceRightPaneMode::Browser);
+                    let button = Button::new("ai-open-browser")
+                        .compact()
+                        .outline()
+                        .with_size(gpui_component::Size::Small)
+                        .rounded(px(8.0))
+                        .icon(Icon::new(IconName::Globe).size(px(14.0)))
+                        .tooltip(if active {
+                            "Close browser"
+                        } else {
+                            "Open browser"
+                        });
+                    if active {
+                        button.primary()
+                    } else {
+                        button
+                    }
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            this.ai_toggle_browser_for_current_thread(cx);
+                        });
+                    })
                 })
                 .child({
                     let view_for_primary = view.clone();
@@ -1584,6 +1616,54 @@ impl DiffViewer {
                             .items_center()
                             .gap_2()
                             .child({
+                                let view = view.clone();
+                                let active = self.current_ai_right_pane_mode()
+                                    == Some(AiWorkspaceRightPaneMode::InlineReview);
+                                let button = Button::new("ai-right-pane-mode-diff")
+                                    .compact()
+                                    .with_size(gpui_component::Size::Small)
+                                    .rounded(px(8.0))
+                                    .label(AiWorkspaceRightPaneMode::InlineReview.label());
+                                if active {
+                                    button.outline()
+                                } else {
+                                    button.ghost()
+                                }
+                                .on_click(move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_set_right_pane_mode(
+                                            AiWorkspaceRightPaneMode::InlineReview,
+                                            cx,
+                                        );
+                                    });
+                                })
+                            })
+                            .when(self.ai_browser_is_open(), |this| {
+                                this.child({
+                                    let view = view.clone();
+                                    let active = self.current_ai_right_pane_mode()
+                                        == Some(AiWorkspaceRightPaneMode::Browser);
+                                    let button = Button::new("ai-right-pane-mode-browser")
+                                        .compact()
+                                        .with_size(gpui_component::Size::Small)
+                                        .rounded(px(8.0))
+                                        .label(AiWorkspaceRightPaneMode::Browser.label());
+                                    if active {
+                                        button.outline()
+                                    } else {
+                                        button.ghost()
+                                    }
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_set_right_pane_mode(
+                                                AiWorkspaceRightPaneMode::Browser,
+                                                cx,
+                                            );
+                                        });
+                                    })
+                                })
+                            })
+                            .child({
                                 let active = current_mode == AiInlineReviewMode::Historical;
                                 let view = view.clone();
                                 let button = Button::new("ai-inline-review-mode-historical")
@@ -1662,6 +1742,179 @@ impl DiffViewer {
                     .flex_1()
                     .min_h_0()
                     .child(self.render_ai_inline_review_surface(cx)),
+            )
+            .into_any_element()
+    }
+
+    fn render_ai_right_pane(
+        &mut self,
+        view: Entity<Self>,
+        mode: Option<AiWorkspaceRightPaneMode>,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match mode {
+            Some(AiWorkspaceRightPaneMode::InlineReview) => {
+                self.render_ai_inline_review_pane(view, is_dark, cx)
+            }
+            Some(AiWorkspaceRightPaneMode::Browser) => {
+                self.render_ai_browser_pane(view, is_dark, cx)
+            }
+            None => div().size_full().into_any_element(),
+        }
+    }
+
+    fn render_ai_browser_pane(
+        &mut self,
+        view: Entity<Self>,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let selected_thread_id = self.ai_selected_thread_id.clone();
+        let browser_status = self.ai_browser_runtime.status();
+        let status_label = match browser_status {
+            hunk_browser::BrowserRuntimeStatus::Disabled => "Runtime unavailable",
+            hunk_browser::BrowserRuntimeStatus::Ready => "Ready",
+        };
+        let session_url = selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.ai_browser_runtime.session(thread_id))
+            .and_then(|session| session.state().url.clone())
+            .unwrap_or_else(|| "about:blank".to_string());
+
+        v_flex()
+            .size_full()
+            .min_h_0()
+            .rounded_lg()
+            .border_1()
+            .border_color(hunk_opacity(cx.theme().border, is_dark, 0.86, 0.74))
+            .bg(hunk_opacity(cx.theme().background, is_dark, 0.96, 1.0))
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        v_flex()
+                            .gap_0p5()
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap_1p5()
+                                    .child(Icon::new(IconName::Globe).size(px(14.0)))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_semibold()
+                                            .text_color(cx.theme().foreground)
+                                            .child("Browser"),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(status_label),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .when(self.ai_inline_review_is_open(), |this| {
+                                this.child({
+                                    let view = view.clone();
+                                    Button::new("ai-browser-pane-mode-diff")
+                                        .compact()
+                                        .ghost()
+                                        .with_size(gpui_component::Size::Small)
+                                        .rounded(px(8.0))
+                                        .label(AiWorkspaceRightPaneMode::InlineReview.label())
+                                        .on_click(move |_, _, cx| {
+                                            view.update(cx, |this, cx| {
+                                                this.ai_set_right_pane_mode(
+                                                    AiWorkspaceRightPaneMode::InlineReview,
+                                                    cx,
+                                                );
+                                            });
+                                        })
+                                })
+                            })
+                            .child({
+                                let view = view.clone();
+                                Button::new("ai-browser-close")
+                                    .compact()
+                                    .ghost()
+                                    .with_size(gpui_component::Size::Small)
+                                    .rounded(px(8.0))
+                                    .label("Close")
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_close_browser_action(cx);
+                                        });
+                                    })
+                            }),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .rounded(px(8.0))
+                            .border_1()
+                            .border_color(hunk_opacity(cx.theme().border, is_dark, 0.74, 0.60))
+                            .bg(hunk_opacity(cx.theme().muted, is_dark, 0.22, 0.36))
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_color(cx.theme().muted_foreground)
+                            .child(session_url),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .bg(hunk_opacity(cx.theme().muted, is_dark, 0.12, 0.20))
+                    .child(
+                        v_flex()
+                            .size_full()
+                            .items_center()
+                            .justify_center()
+                            .gap_2()
+                            .px_4()
+                            .child(Icon::new(IconName::Globe).size(px(32.0)))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child("Browser runtime not connected"),
+                            )
+                            .child(
+                                div()
+                                    .max_w(px(360.0))
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .text_align(gpui::TextAlign::Center)
+                                    .child("CEF offscreen rendering will attach here once the browser backend is available."),
+                            ),
+                    ),
             )
             .into_any_element()
     }
