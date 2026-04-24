@@ -7615,6 +7615,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hunk-browser-helper"
+version = "0.1.0"
+
+[[package]]
 name = "hunk-codex"
 version = "0.1.0"
 dependencies = [

@@ -1,6 +1,6 @@
 use hunk_browser::{
-    BrowserAction, BrowserElement, BrowserRuntime, BrowserSessionId, BrowserSnapshot,
-    BrowserViewport,
+    BrowserAction, BrowserElement, BrowserElementRect, BrowserRuntime, BrowserSessionId,
+    BrowserSnapshot, BrowserViewport,
 };
 
 #[test]
@@ -111,6 +111,12 @@ fn snapshot(epoch: u64, url: &str, element_index: u32) -> BrowserSnapshot {
             role: "button".to_string(),
             label: "Continue".to_string(),
             text: "Continue".to_string(),
+            rect: BrowserElementRect {
+                x: 10.0,
+                y: 20.0,
+                width: 80.0,
+                height: 30.0,
+            },
             selector: Some("#continue".to_string()),
         }],
     }

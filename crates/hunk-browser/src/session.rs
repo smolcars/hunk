@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::snapshot::{BrowserElement, BrowserSnapshot};
+use crate::snapshot::{BrowserElement, BrowserPhysicalPoint, BrowserSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct BrowserSessionId(String);
@@ -94,6 +94,18 @@ impl BrowserSession {
         self.latest_snapshot
             .element(index)
             .ok_or(BrowserError::UnknownElementIndex(index))
+    }
+
+    pub fn element_click_target(
+        &self,
+        snapshot_epoch: u64,
+        index: u32,
+    ) -> Result<BrowserPhysicalPoint, BrowserError> {
+        let element = self.validate_snapshot_element(snapshot_epoch, index)?;
+        Ok(self
+            .latest_snapshot
+            .viewport
+            .logical_to_physical_point(element.rect.center()))
     }
 
     pub fn preflight_action(&self, action: &BrowserAction) -> Result<(), BrowserError> {

@@ -1,6 +1,6 @@
 # AI Browser CEF TODO
 
-Status: first runtime/tooling slice started.
+Status: first runtime/tooling/UI slice started.
 
 This tracks the implementation of a true in-app browser for Hunk that can be controlled by the AI agent. The v1 direction is CEF offscreen rendering, embedded inside the GPUI AI workspace, with a single browser surface tied to the active AI session.
 
@@ -20,18 +20,18 @@ This tracks the implementation of a true in-app browser for Hunk that can be con
 
 ## Phase 0: CEF Runtime Spike
 
-- [ ] Pick the exact CEF build and architecture for the first spike: macOS arm64.
-- [ ] Pick the Rust CEF binding version that matches the selected CEF build.
-- [ ] Verify that the binding supports the required CEF APIs:
-  - [ ] app/browser-process startup
-  - [ ] subprocess path configuration
-  - [ ] offscreen rendering callbacks
-  - [ ] mouse, wheel, keyboard, focus, resize, and scale input
-  - [ ] JavaScript execution or DevTools/CDP access
-  - [ ] screenshot or frame capture
+- [x] Pick the exact CEF build and architecture for the first spike: macOS arm64.
+- [x] Pick the Rust CEF binding version that matches the selected CEF build.
+- [x] Verify that the binding supports the required CEF APIs:
+  - [x] app/browser-process startup
+  - [x] subprocess path configuration
+  - [x] offscreen rendering callbacks
+  - [x] mouse, wheel, keyboard, focus, resize, and scale input
+  - [x] JavaScript execution or DevTools/CDP access
+  - [x] screenshot or frame capture
 - [ ] If the Rust binding is missing a required callback, add a small local native shim only for that missing API.
-- [ ] Add a local-only CEF asset layout under `assets/browser-runtime/cef/macos`.
-- [ ] Add a README in the runtime asset folder with the pinned CEF version, download source, expected files, and checksum process.
+- [x] Add a local-only CEF asset layout under `assets/browser-runtime/cef/macos`.
+- [x] Add a README in the runtime asset folder with the pinned CEF version, download source, expected files, and checksum process.
 - [ ] Build a minimal offscreen CEF smoke path that loads `https://example.com` and produces a nonblank frame buffer.
 
 Exit criteria:
@@ -40,10 +40,20 @@ Exit criteria:
 - [ ] A helper subprocess launches correctly.
 - [ ] An offscreen page produces pixels without opening the system browser.
 
+Implementation notes:
+
+- Candidate binding: `tauri-apps/cef-rs` version `146.7.0+146.0.12`, backed by CEF `146.0.12+g6214c8e+chromium-146.0.7680.179`.
+- First spike target: `aarch64-apple-darwin`, using cef-rs' prebuilt CEF download/export flow.
+- The cef-rs OSR example uses `cef::execute_process` for subprocess dispatch, `cef::initialize` with `Settings { windowless_rendering_enabled: true, external_message_pump: true, .. }`, `WindowInfo { windowless_rendering_enabled: true, .. }`, and `browser_host_create_browser_sync`.
+- The example provides the exact callback shape we need: `wrap_render_handler!` implements `view_rect`, `screen_info`, `on_paint`, and optional `on_accelerated_paint`. For Hunk v1, start with CPU BGRA `on_paint`; accelerated OSR can follow after the basic GPUI texture path is stable.
+- Required browser controls exist in the generated bindings: `load_url`, `go_back`, `go_forward`, `reload`, `stop_load`, `was_resized`, `set_focus`, `send_key_event`, `send_mouse_click_event`, `send_mouse_move_event`, `send_mouse_wheel_event`, `execute_dev_tools_method`, and `add_dev_tools_message_observer`.
+- cef-rs includes `bundle-cef-app`, helper naming metadata, and platform bundle support. We should adapt the packaging behavior rather than inventing a parallel CEF layout once the smoke path works.
+
 ## Phase 1: Browser Runtime Crates
 
 - [x] Add `crates/hunk-browser` for browser runtime logic.
-- [ ] Add `crates/hunk-browser-helper` for the CEF subprocess entrypoint.
+- [x] Add `crates/hunk-browser-helper` for the CEF subprocess entrypoint.
+  - [ ] Replace the placeholder main with `cef::execute_process` once the cef-rs dependency is pinned in-tree.
 - [x] Add browser runtime types:
   - [x] `BrowserRuntime`
   - [x] `BrowserSession`
@@ -64,7 +74,7 @@ Exit criteria:
 - [ ] Convert CEF BGRA frame buffers into a GPUI-paintable frame representation.
 - [ ] Keep frame conversion off the GPUI render path.
 - [x] Add crate-level tests for snapshot indexing, stale index rejection, and safety classification.
-- [ ] Add crate-level tests for input coordinate scaling.
+- [x] Add crate-level tests for input coordinate scaling.
 
 Exit criteria:
 

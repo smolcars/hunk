@@ -22,6 +22,37 @@ impl Default for BrowserViewport {
     }
 }
 
+impl BrowserViewport {
+    pub fn logical_to_physical_point(&self, point: BrowserPoint) -> BrowserPhysicalPoint {
+        BrowserPhysicalPoint {
+            x: scale_coordinate(point.x, self.device_scale_factor),
+            y: scale_coordinate(point.y, self.device_scale_factor),
+        }
+    }
+
+    pub fn physical_to_logical_point(&self, point: BrowserPhysicalPoint) -> BrowserPoint {
+        let scale = self.device_scale_factor.max(f32::EPSILON) as f64;
+        BrowserPoint {
+            x: point.x as f64 / scale,
+            y: point.y as f64 / scale,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserPhysicalPoint {
+    pub x: i32,
+    pub y: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserElementRect {
@@ -31,13 +62,23 @@ pub struct BrowserElementRect {
     pub height: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl BrowserElementRect {
+    pub fn center(&self) -> BrowserPoint {
+        BrowserPoint {
+            x: self.x + self.width / 2.0,
+            y: self.y + self.height / 2.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserElement {
     pub index: u32,
     pub role: String,
     pub label: String,
     pub text: String,
+    pub rect: BrowserElementRect,
     pub selector: Option<String>,
 }
 
@@ -65,4 +106,9 @@ impl BrowserSnapshot {
     pub fn element(&self, index: u32) -> Option<&BrowserElement> {
         self.elements.iter().find(|element| element.index == index)
     }
+}
+
+fn scale_coordinate(value: f64, device_scale_factor: f32) -> i32 {
+    let scaled = value * device_scale_factor.max(f32::EPSILON) as f64;
+    scaled.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32
 }

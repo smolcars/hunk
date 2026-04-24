@@ -9,4 +9,7 @@ pub use session::{
     BrowserAction, BrowserError, BrowserFrameMetadata, BrowserSession, BrowserSessionId,
     BrowserSessionState, BrowserToolAction,
 };
-pub use snapshot::{BrowserElement, BrowserElementRect, BrowserSnapshot, BrowserViewport};
+pub use snapshot::{
+    BrowserElement, BrowserElementRect, BrowserPhysicalPoint, BrowserPoint, BrowserSnapshot,
+    BrowserViewport,
+};
