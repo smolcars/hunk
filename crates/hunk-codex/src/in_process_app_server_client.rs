@@ -92,6 +92,7 @@ pub struct InProcessClientStartArgs {
     pub client_version: String,
     pub experimental_api: bool,
     pub opt_out_notification_methods: Vec<String>,
+    pub loader_overrides: LoaderOverrides,
     pub channel_capacity: usize,
 }
 
@@ -122,7 +123,7 @@ impl InProcessClientStartArgs {
             arg0_paths: self.arg0_paths,
             config: self.config,
             cli_overrides: Vec::new(),
-            loader_overrides: LoaderOverrides::default(),
+            loader_overrides: self.loader_overrides,
             cloud_requirements: CloudRequirementsLoader::default(),
             thread_config_loader: Arc::new(NoopThreadConfigLoader),
             feedback: self.feedback,

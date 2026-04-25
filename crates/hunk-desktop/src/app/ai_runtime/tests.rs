@@ -35,6 +35,7 @@ mod ai_tests {
     use super::AiTurnSessionOverrides;
     use super::apply_login_completed_state;
     use super::apply_thread_start_policy;
+    use super::apply_browser_thread_start_context;
     use super::apply_thread_start_session_overrides;
     use super::apply_turn_start_policy;
     use super::collaboration_mode_for_turn;
@@ -93,6 +94,32 @@ mod ai_tests {
         apply_thread_start_policy(true, &mut params);
         assert_eq!(params.approval_policy, Some(AskForApproval::Never));
         assert_eq!(params.sandbox, Some(SandboxMode::DangerFullAccess));
+    }
+
+    #[test]
+    fn browser_thread_start_context_adds_browser_tools_when_enabled() {
+        let mut params = ThreadStartParams::default();
+        apply_browser_thread_start_context(&mut params);
+
+        let tools = params
+            .dynamic_tools
+            .as_ref()
+            .expect("browser tools should be present");
+        assert!(
+            tools
+                .iter()
+                .any(|tool| {
+                    tool.namespace.as_deref()
+                        == Some(hunk_codex::browser_tools::BROWSER_TOOL_NAMESPACE)
+                        && tool.name == hunk_codex::browser_tools::BROWSER_SNAPSHOT_TOOL
+                })
+        );
+        assert!(
+            params
+                .developer_instructions
+                .as_deref()
+                .is_some_and(|instructions| instructions.contains("hunk_browser.snapshot"))
+        );
     }
 
     #[test]

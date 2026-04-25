@@ -172,6 +172,7 @@ mod ai_bookmarks;
 mod ai_composer_clipboard;
 mod ai_composer_commands;
 mod ai_composer_completion;
+mod ai_dynamic_tools;
 mod ai_inline_review;
 mod ai_inline_review_snapshot;
 mod ai_paths;
@@ -960,6 +961,7 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
 pub fn run() -> Result<()> {
     let app = gpui_platform::application().with_assets(HunkAssets);
     let keyboard_shortcuts = load_keyboard_shortcuts();
+    let startup_parent_process_id = parent_process_id();
     app.on_reopen(|cx: &mut App| {
         if cx.windows().is_empty() {
             open_main_window(cx);
@@ -974,10 +976,60 @@ pub fn run() -> Result<()> {
         bind_keyboard_shortcuts(cx, &keyboard_shortcuts);
         install_application_menus(cx);
         cx.activate(true);
+        install_process_signal_quit_watcher(cx);
+        install_parent_process_quit_watcher(cx, startup_parent_process_id);
         open_main_window(cx);
+        if let Err(error) = crate::install_process_signal_cleanup() {
+            eprintln!("failed to install process signal cleanup handler: {error:#}");
+        }
     });
 
     Ok(())
+}
+
+#[cfg(unix)]
+fn parent_process_id() -> u32 {
+    unsafe { libc::getppid() as u32 }
+}
+
+#[cfg(not(unix))]
+fn parent_process_id() -> u32 {
+    0
+}
+
+fn install_process_signal_quit_watcher(cx: &mut App) {
+    cx.spawn(async |cx| {
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(50))
+                .await;
+            if crate::process_signal_shutdown_requested() {
+                cx.update(|cx| cx.quit());
+                return;
+            }
+        }
+    })
+    .detach();
+}
+
+fn install_parent_process_quit_watcher(cx: &mut App, startup_parent_process_id: u32) {
+    if startup_parent_process_id <= 1 {
+        return;
+    }
+
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(250))
+                .await;
+            if parent_process_id() == 1 {
+                eprintln!("parent process exited, shutting down Hunk...");
+                cx.update(|cx| cx.quit());
+                return;
+            }
+        }
+    })
+    .detach();
 }
 
 fn open_main_window(cx: &mut App) {
@@ -1436,6 +1488,8 @@ struct DiffViewer {
     ai_timeline_follow_output: bool,
     ai_inline_review_selected_row_id_by_thread: BTreeMap<String, String>,
     ai_inline_review_mode_by_thread: BTreeMap<String, AiInlineReviewMode>,
+    ai_browser_open_thread_ids: BTreeSet<String>,
+    ai_right_pane_mode_by_thread: BTreeMap<String, AiWorkspaceRightPaneMode>,
     ai_inline_review_session: Option<review_workspace_session::ReviewWorkspaceSession>,
     ai_inline_review_loaded_state: Option<AiInlineReviewLoadedState>,
     ai_inline_review_error: Option<String>,
@@ -1495,6 +1549,15 @@ struct DiffViewer {
     ai_thread_catalog_task: Task<()>,
     ai_attachment_picker_task: Task<()>,
     ai_workspace_states: BTreeMap<String, AiWorkspaceState>,
+    ai_browser_runtime: hunk_browser::BrowserRuntime,
+    ai_browser_address_input_state: Entity<InputState>,
+    ai_browser_pump_generation: usize,
+    ai_browser_pump_active: bool,
+    ai_browser_pump_task: Task<()>,
+    ai_browser_render_frame_cache: Option<AiBrowserRenderFrameCache>,
+    ai_pending_browser_approvals: Vec<AiPendingBrowserApproval>,
+    ai_browser_focus_handle: FocusHandle,
+    ai_browser_surface_focused: bool,
     ai_desktop_notification_state_by_workspace:
         BTreeMap<String, desktop_notifications::AiDesktopNotificationState>,
     ai_pending_desktop_notification_events_by_workspace:
@@ -1726,6 +1789,10 @@ impl Drop for DiffViewer {
             tab.files_editor.borrow_mut().shutdown();
         }
         self.files_editor.borrow_mut().shutdown();
+        self.ai_browser_pump_generation = self.ai_browser_pump_generation.saturating_add(1);
+        self.ai_browser_pump_active = false;
+        self.ai_browser_pump_task = Task::ready(());
+        self.ai_browser_runtime.shutdown_backend();
         self.stop_all_ai_terminal_runtimes("dropping app");
         self.stop_all_files_terminal_runtimes("dropping app");
         self.shutdown_ai_worker_blocking();

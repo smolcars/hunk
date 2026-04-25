@@ -10,6 +10,7 @@ PACKAGER_OUT_DIR="$TARGET_DIR/packager/macos"
 APP_PATH="$PACKAGER_OUT_DIR/Hunk.app"
 APP_EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/hunk_desktop"
 APP_FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
+BROWSER_CEF_RUNTIME_DIR="${HUNK_CEF_RUNTIME_DIR:-$ROOT_DIR/assets/browser-runtime/cef/macos/runtime}"
 APP_BUNDLE_IDENTIFIER="com.niteshbalusu.hunk"
 DMG_PATH="$DIST_DIR/Hunk-$VERSION_LABEL-macos-arm64.dmg"
 DMG_STAGE_DIR="$TARGET_DIR/dmg-stage"
@@ -173,6 +174,13 @@ sign_macos_app_bundle() {
     find "$APP_PATH/Contents" -type f \( -name '*.dylib' -o -perm -111 \) | sort
   )
 
+  while IFS= read -r sign_target; do
+    [[ -n "$sign_target" ]] || continue
+    codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$sign_target"
+  done < <(
+    find "$APP_PATH/Contents/Frameworks" -type d \( -name '*.framework' -o -name '*.app' \) | sort -r
+  )
+
   codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$APP_EXECUTABLE_PATH"
   codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
 }
@@ -188,6 +196,13 @@ adhoc_sign_macos_app_bundle() {
     codesign --force --timestamp=none --sign - "$sign_target"
   done < <(
     find "$APP_PATH/Contents" -type f \( -name '*.dylib' -o -perm -111 \) | sort
+  )
+
+  while IFS= read -r sign_target; do
+    [[ -n "$sign_target" ]] || continue
+    codesign --force --timestamp=none --sign - "$sign_target"
+  done < <(
+    find "$APP_PATH/Contents/Frameworks" -type d \( -name '*.framework' -o -name '*.app' \) | sort -r
   )
 
   codesign --force --timestamp=none --sign - --identifier "$APP_BUNDLE_IDENTIFIER" "$APP_EXECUTABLE_PATH"
@@ -273,6 +288,11 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
+echo "Preparing bundled CEF runtime for macOS..." >&2
+"$ROOT_DIR/scripts/prepare_browser_cef_runtime.sh" "$TARGET_TRIPLE" "$BROWSER_CEF_RUNTIME_DIR" >/dev/null
+export CEF_PATH="$BROWSER_CEF_RUNTIME_DIR"
+export DYLD_FALLBACK_LIBRARY_PATH="${DYLD_FALLBACK_LIBRARY_PATH:-}:$BROWSER_CEF_RUNTIME_DIR:$BROWSER_CEF_RUNTIME_DIR/Chromium Embedded Framework.framework/Libraries"
+
 echo "Downloading bundled Codex runtime for macOS..." >&2
 "$ROOT_DIR/scripts/download_codex_runtime_unix.sh" macos >/dev/null
 echo "Validating bundled Codex runtime for macOS..." >&2
@@ -298,7 +318,8 @@ echo "Building macOS app bundle..." >&2
   export RUSTFLAGS="-L native=$MACOS_SDKROOT/usr/lib -C link-arg=-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET${RUSTFLAGS:+ $RUSTFLAGS}"
 
   rm -rf "$APP_PATH"
-  cargo build -p hunk-desktop --release --target "$TARGET_TRIPLE" --locked
+  cargo build -p hunk-desktop --release --target "$TARGET_TRIPLE" --locked --features hunk-desktop/cef-browser
+  cargo build -p hunk-browser-helper --release --target "$TARGET_TRIPLE" --locked --features hunk-browser-helper/cef-subprocess
   (
     cd "$ROOT_DIR/crates/hunk-desktop"
     cargo packager \
@@ -317,6 +338,10 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
+"$ROOT_DIR/scripts/package_browser_cef_macos.sh" \
+  "$APP_PATH" \
+  "$BROWSER_CEF_RUNTIME_DIR" \
+  "$TARGET_DIR/$TARGET_TRIPLE/release/hunk-browser-helper"
 "$ROOT_DIR/scripts/validate_release_bundle_layout.sh" macos-app "$APP_PATH"
 bundle_macos_non_system_dylibs "$APP_EXECUTABLE_PATH"
 echo "Validating macOS app binary dependencies..." >&2

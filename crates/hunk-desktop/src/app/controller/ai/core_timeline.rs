@@ -318,6 +318,9 @@ impl DiffViewer {
         } else {
             None
         };
+        let right_pane_mode = selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.current_ai_right_pane_mode_for_thread(thread_id));
         self.sync_ai_workspace_session_for_timeline(
             selected_thread_id.as_deref(),
             timeline_visible_row_ids.as_slice(),
@@ -532,6 +535,7 @@ impl DiffViewer {
             timeline_hidden_turn_count,
             timeline_visible_row_ids: timeline_visible_row_ids.into(),
             inline_review_selected_row_id,
+            right_pane_mode,
             timeline_loading,
             show_select_thread_empty_state,
             show_no_turns_empty_state,
@@ -542,6 +546,7 @@ impl DiffViewer {
             composer_interrupt_available,
             queued_message_count,
             model_supports_image_inputs,
+            browser_runtime_status: self.ai_browser_runtime.status(),
             review_action_blocker,
             ai_publish_blocker,
             ai_publish_disabled,

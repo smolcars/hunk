@@ -254,7 +254,7 @@ impl AiWorkerRuntime {
             self.drain_transport_events(NOTIFICATION_POLL_TIMEOUT, MAX_NOTIFICATIONS_PER_POLL, event_tx)?;
         let session_changed =
             self.sync_session_notifications(drained.notifications.as_slice(), event_tx)?;
-        let approvals_changed = self.sync_server_requests(drained.server_requests)?;
+        let approvals_changed = self.sync_server_requests(drained.server_requests, event_tx)?;
         if drained.received == 0 && drained.lagged == 0 && !approvals_changed && !session_changed {
             return Ok(());
         }
@@ -270,7 +270,7 @@ impl AiWorkerRuntime {
         let drained =
             self.drain_transport_events(Duration::ZERO, MAX_NOTIFICATIONS_PER_POLL, event_tx)?;
         self.sync_session_notifications(drained.notifications.as_slice(), event_tx)?;
-        self.sync_server_requests(drained.server_requests)?;
+        self.sync_server_requests(drained.server_requests, event_tx)?;
         self.emit_snapshot(event_tx);
         Ok(())
     }
@@ -394,6 +394,7 @@ impl AiWorkerRuntime {
     fn sync_server_requests(
         &mut self,
         requests: Vec<ServerRequest>,
+        event_tx: &Sender<AiWorkerEvent>,
     ) -> Result<bool, CodexIntegrationError> {
         let mut changed = false;
         if self.mad_max_mode && !self.pending_approvals.is_empty() {
@@ -556,7 +557,29 @@ impl AiWorkerRuntime {
                         params.turn_id.as_str(),
                         Instant::now(),
                     );
-                    let response = self.tool_registry.execute(self.service.cwd(), &params);
+                    let response = if hunk_codex::browser_tools::is_browser_dynamic_tool_call(
+                        params.namespace.as_deref(),
+                        params.tool.as_str(),
+                    ) {
+                        tracing::debug!(
+                            thread_id = %params.thread_id,
+                            turn_id = %params.turn_id,
+                            call_id = %params.call_id,
+                            tool = %params.tool,
+                            "routing browser dynamic tool through embedded browser UI bridge"
+                        );
+                        self.execute_browser_dynamic_tool_via_ui(event_tx, params.clone())
+                    } else {
+                        tracing::debug!(
+                            thread_id = %params.thread_id,
+                            turn_id = %params.turn_id,
+                            call_id = %params.call_id,
+                            tool = %params.tool,
+                            "routing dynamic tool through workspace executor"
+                        );
+                        self.dynamic_tool_executor
+                            .execute(self.service.cwd(), &params)
+                    };
                     self.session.respond_typed(request_id, &response)?;
                     changed = true;
                 }
@@ -568,6 +591,36 @@ impl AiWorkerRuntime {
             changed = true;
         }
         Ok(changed)
+    }
+
+    fn execute_browser_dynamic_tool_via_ui(
+        &mut self,
+        event_tx: &Sender<AiWorkerEvent>,
+        params: DynamicToolCallParams,
+    ) -> DynamicToolCallResponse {
+        let (response_tx, response_rx) = std::sync::mpsc::channel();
+        if event_tx
+            .send(AiWorkerEvent::new(
+                self.workspace_key.clone(),
+                AiWorkerEventPayload::BrowserToolCall {
+                    params: params.clone(),
+                    response_tx,
+                },
+            ))
+            .is_err()
+        {
+            return crate::app::ai_dynamic_tools::browser_unavailable_response(
+                &params,
+                "The embedded browser UI bridge is not connected.",
+            );
+        }
+
+        response_rx.recv_timeout(self.request_timeout).unwrap_or_else(|_| {
+            crate::app::ai_dynamic_tools::browser_unavailable_response(
+                &params,
+                "The embedded browser UI bridge did not respond before the request timed out.",
+            )
+        })
     }
 
     fn resolve_pending_approval(

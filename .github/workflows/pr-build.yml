@@ -16,6 +16,8 @@ on:
       - "justfile"
       - "crates/**"
       - "scripts/**"
+      - "tools/**"
+      - "assets/browser-runtime/**"
       - "assets/icons/**"
       - "README.md"
 
@@ -86,6 +88,7 @@ jobs:
             libx11-xcb-dev \
             libxkbcommon-x11-dev \
             libzstd-dev \
+            ninja-build \
             patchelf \
             pkg-config \
             rpm
@@ -112,6 +115,26 @@ jobs:
 
       - name: Build hunk-desktop
         run: cargo build -p hunk-desktop --locked
+        shell: bash
+
+      - name: Test and build hunk-desktop with embedded browser
+        run: |
+          ./scripts/prepare_browser_cef_runtime.sh \
+            x86_64-unknown-linux-gnu \
+            "$PWD/assets/browser-runtime/cef/linux/runtime"
+          CEF_PATH="$PWD/assets/browser-runtime/cef/linux/runtime" \
+          LD_LIBRARY_PATH="$PWD/assets/browser-runtime/cef/linux/runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            cargo test \
+              -p hunk-browser \
+              --locked \
+              --features cef
+          CEF_PATH="$PWD/assets/browser-runtime/cef/linux/runtime" \
+          LD_LIBRARY_PATH="$PWD/assets/browser-runtime/cef/linux/runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            cargo build \
+              -p hunk-browser-helper \
+              -p hunk-desktop \
+              --locked \
+              --features hunk-browser-helper/cef-subprocess,hunk-desktop/cef-browser
         shell: bash
 
       # Temporarily disabled for PR builds; release packaging stays in release workflows.
@@ -238,9 +261,42 @@ jobs:
         run: nix develop --accept-flake-config -c cargo build -p hunk-desktop --locked --profile ci
         shell: bash
 
+      - name: Build hunk-desktop with embedded browser
+        if: runner.os == 'macOS'
+        run: |
+          HUNK_CEF_TARGET="$(nix develop --accept-flake-config -c rustc -vV | sed -n 's/^host: //p')"
+          nix develop --accept-flake-config -c ./scripts/prepare_browser_cef_runtime.sh \
+            "$HUNK_CEF_TARGET" \
+            "$PWD/assets/browser-runtime/cef/macos/runtime"
+          CEF_PATH="$PWD/assets/browser-runtime/cef/macos/runtime" \
+            nix develop --accept-flake-config -c cargo build \
+              -p hunk-browser-helper \
+              -p hunk-desktop \
+              --locked \
+              --profile ci \
+              --features hunk-browser-helper/cef-subprocess,hunk-desktop/cef-browser
+        shell: bash
+
       - name: Build hunk-desktop
         if: runner.os == 'Windows'
         run: cargo build -p hunk-desktop --locked --profile ci
+        shell: pwsh
+
+      - name: Build hunk-desktop with embedded browser
+        if: runner.os == 'Windows'
+        run: |
+          $runtimeDir = Join-Path $PWD "assets/browser-runtime/cef/windows/runtime"
+          ./scripts/prepare_browser_cef_runtime_windows.ps1 `
+            -TargetTriple "x86_64-pc-windows-msvc" `
+            -RuntimeDir $runtimeDir
+          $env:CEF_PATH = $runtimeDir
+          $env:PATH = "$env:PATH;$runtimeDir"
+          cargo build `
+            -p hunk-browser-helper `
+            -p hunk-desktop `
+            --locked `
+            --profile ci `
+            --features "hunk-browser-helper/cef-subprocess,hunk-desktop/cef-browser"
         shell: pwsh
 
       # Temporarily disabled for PR builds; release packaging stays in release workflows.

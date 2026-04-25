@@ -54,6 +54,7 @@ impl DiffViewer {
         let is_dark = cx.theme().mode.is_dark();
         let view = cx.entity();
         let ai_view_state = ai_view_state.unwrap_or_else(|| self.visible_ai_frame_state());
+        let _browser_runtime_status = ai_view_state.browser_runtime_status;
         let selected_thread_id = ai_view_state.selected_thread_id.clone();
         self.sync_ai_followup_prompt_state_for_selected_thread(selected_thread_id.as_deref());
         let show_global_loading_overlay = self.ai_bootstrap_loading;
@@ -93,7 +94,6 @@ impl DiffViewer {
             show_worktree_base_branch_picker: ai_view_state.show_worktree_base_branch_picker,
             selected_worktree_base_branch: ai_view_state.selected_worktree_base_branch.clone(),
             selected_thread_id: selected_thread_id.clone(),
-            inline_review_selected_row_id: ai_view_state.inline_review_selected_row_id.clone(),
             selected_thread_start_mode: ai_view_state.selected_thread_start_mode,
             pending_approvals: ai_view_state.pending_approvals.clone(),
             pending_user_inputs: ai_view_state.pending_user_inputs.clone(),
@@ -103,6 +103,7 @@ impl DiffViewer {
             timeline_hidden_turn_count: ai_view_state.timeline_hidden_turn_count,
             timeline_visible_row_ids: ai_view_state.timeline_visible_row_ids.clone(),
             timeline_loading: ai_view_state.timeline_loading,
+            right_pane_mode: ai_view_state.right_pane_mode,
             show_select_thread_empty_state: ai_view_state.show_select_thread_empty_state,
             show_no_turns_empty_state: ai_view_state.show_no_turns_empty_state,
             ai_publish_blocker: ai_view_state.ai_publish_blocker.clone(),

@@ -7,13 +7,17 @@ mod app;
 mod terminal_env;
 mod updater_helper;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use anyhow::{Context, Result};
 use hunk_domain::config::{AppConfig, ConfigStore};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
-static SIGNAL_SHUTDOWN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+const SIGNAL_SHUTDOWN_IDLE: u8 = 0;
+const SIGNAL_SHUTDOWN_REQUESTED: u8 = 1;
+const SIGNAL_SHUTDOWN_FORCED: u8 = 2;
+
+static SIGNAL_SHUTDOWN_STATE: AtomicU8 = AtomicU8::new(SIGNAL_SHUTDOWN_IDLE);
 
 fn main() -> Result<()> {
     codex_utils_rustls_provider::ensure_rustls_crypto_provider();
@@ -74,9 +78,12 @@ fn run_app() -> Result<()> {
         .init();
 
     log_linux_compositor_selection();
-    install_process_signal_cleanup()?;
 
-    app::run()
+    app::run()?;
+    if process_signal_shutdown_requested() {
+        std::process::exit(130);
+    }
+    Ok(())
 }
 
 fn ensure_valid_process_current_dir() {
@@ -145,15 +152,30 @@ fn load_startup_config() -> AppConfig {
         .unwrap_or_default()
 }
 
-fn install_process_signal_cleanup() -> Result<()> {
+pub(crate) fn install_process_signal_cleanup() -> Result<()> {
     ctrlc::set_handler(|| {
-        if SIGNAL_SHUTDOWN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-            return;
+        match SIGNAL_SHUTDOWN_STATE.compare_exchange(
+            SIGNAL_SHUTDOWN_IDLE,
+            SIGNAL_SHUTDOWN_REQUESTED,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => {
+                eprintln!("received interrupt, shutting down Hunk...");
+            }
+            Err(SIGNAL_SHUTDOWN_REQUESTED) => {
+                eprintln!("received second interrupt, forcing Hunk to exit");
+                SIGNAL_SHUTDOWN_STATE.store(SIGNAL_SHUTDOWN_FORCED, Ordering::SeqCst);
+                std::process::exit(130);
+            }
+            Err(_) => {}
         }
-
-        std::process::exit(130);
     })
     .context("failed to install process signal cleanup handler")
+}
+
+pub(crate) fn process_signal_shutdown_requested() -> bool {
+    SIGNAL_SHUTDOWN_STATE.load(Ordering::SeqCst) >= SIGNAL_SHUTDOWN_REQUESTED
 }
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]

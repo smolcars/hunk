@@ -134,6 +134,13 @@ impl DiffViewer {
         self.ai_thread_title_refresh_state_by_thread.clear();
         self.ai_pending_approvals.clear();
         self.ai_pending_user_inputs.clear();
+        for pending in self.ai_pending_browser_approvals.drain(..) {
+            let response = crate::app::ai_dynamic_tools::browser_unavailable_response(
+                &pending.params,
+                "The embedded browser confirmation was cancelled because the AI runtime stopped.",
+            );
+            let _ = pending.response_tx.send(response);
+        }
         self.ai_pending_user_input_answers.clear();
         self.ai_in_progress_turn_started_at.clear();
         self.ai_composer_activity_elapsed_second = None;
@@ -223,6 +230,13 @@ impl DiffViewer {
                     self.ai_timeline_follow_output = true;
                     self.ai_scroll_timeline_to_bottom = true;
                 }
+            }
+            AiWorkerEventPayload::BrowserToolCall {
+                params,
+                response_tx,
+            } => {
+                invalidate_visible_frame = false;
+                self.ai_handle_browser_dynamic_tool_call(params, response_tx, cx);
             }
             AiWorkerEventPayload::Reconnecting(message) => {
                 self.ai_connection_state = AiConnectionState::Reconnecting;

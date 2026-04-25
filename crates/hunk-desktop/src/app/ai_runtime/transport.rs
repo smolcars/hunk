@@ -7,6 +7,7 @@ pub struct AiWorkerStartConfig {
     pub request_timeout: std::time::Duration,
     pub mad_max_mode: bool,
     pub include_hidden_models: bool,
+    pub browser_tools_enabled: bool,
 }
 
 impl AiWorkerStartConfig {
@@ -24,6 +25,7 @@ impl AiWorkerStartConfig {
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             mad_max_mode: false,
             include_hidden_models: true,
+            browser_tools_enabled: false,
         }
     }
 
@@ -58,5 +60,16 @@ mod transport_tests {
             config.starting_status_message(),
             "Starting embedded Codex App Server..."
         );
+    }
+
+    #[test]
+    fn worker_start_config_disables_browser_tools_by_default() {
+        let config = AiWorkerStartConfig::new(
+            std::path::PathBuf::from("/repo/worktrees/task-a"),
+            std::path::PathBuf::from("/bin/codex"),
+            std::path::PathBuf::from("/tmp/codex-home"),
+        );
+
+        assert!(!config.browser_tools_enabled);
     }
 }

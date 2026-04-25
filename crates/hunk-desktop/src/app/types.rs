@@ -314,6 +314,37 @@ impl AiInlineReviewMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiWorkspaceRightPaneMode {
+    InlineReview,
+    Browser,
+}
+
+impl AiWorkspaceRightPaneMode {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::InlineReview => "Diff",
+            Self::Browser => "Browser",
+        }
+    }
+}
+
+struct AiBrowserRenderFrameCache {
+    thread_id: String,
+    frame_epoch: u64,
+    width: u32,
+    height: u32,
+    image: Arc<gpui::RenderImage>,
+}
+
+struct AiPendingBrowserApproval {
+    request_id: String,
+    params: hunk_codex::protocol::DynamicToolCallParams,
+    kind: hunk_browser::SensitiveBrowserAction,
+    summary: String,
+    response_tx: std::sync::mpsc::Sender<hunk_codex::protocol::DynamicToolCallResponse>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiInlineReviewLoadedState {
     thread_id: String,
@@ -470,6 +501,7 @@ struct AiVisibleFrameState {
     timeline_hidden_turn_count: usize,
     timeline_visible_row_ids: Arc<[String]>,
     inline_review_selected_row_id: Option<String>,
+    right_pane_mode: Option<AiWorkspaceRightPaneMode>,
     timeline_loading: bool,
     show_select_thread_empty_state: bool,
     show_no_turns_empty_state: bool,
@@ -480,6 +512,7 @@ struct AiVisibleFrameState {
     composer_interrupt_available: bool,
     queued_message_count: usize,
     model_supports_image_inputs: bool,
+    browser_runtime_status: hunk_browser::BrowserRuntimeStatus,
     review_action_blocker: Option<String>,
     ai_publish_blocker: Option<String>,
     ai_publish_disabled: bool,
@@ -640,6 +673,8 @@ struct AiWorkspaceState {
     timeline_follow_output: bool,
     inline_review_selected_row_id_by_thread: BTreeMap<String, String>,
     inline_review_mode_by_thread: BTreeMap<String, AiInlineReviewMode>,
+    browser_open_thread_ids: BTreeSet<String>,
+    right_pane_mode_by_thread: BTreeMap<String, AiWorkspaceRightPaneMode>,
     thread_title_refresh_state_by_thread: BTreeMap<String, AiThreadTitleRefreshState>,
     timeline_visible_turn_limit_by_thread: BTreeMap<String, usize>,
     in_progress_turn_started_at: BTreeMap<String, Instant>,
@@ -692,6 +727,8 @@ impl Default for AiWorkspaceState {
             timeline_follow_output: true,
             inline_review_selected_row_id_by_thread: BTreeMap::new(),
             inline_review_mode_by_thread: BTreeMap::new(),
+            browser_open_thread_ids: BTreeSet::new(),
+            right_pane_mode_by_thread: BTreeMap::new(),
             thread_title_refresh_state_by_thread: BTreeMap::new(),
             timeline_visible_turn_limit_by_thread: BTreeMap::new(),
             in_progress_turn_started_at: BTreeMap::new(),

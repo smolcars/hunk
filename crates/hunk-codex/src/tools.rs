@@ -4,6 +4,7 @@ use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::browser_tools::is_browser_dynamic_tool_call;
 use crate::protocol::DynamicToolCallOutputContentItem;
 use crate::protocol::DynamicToolCallParams;
 use crate::protocol::DynamicToolCallResponse;
@@ -48,6 +49,12 @@ impl DynamicToolRegistry {
 
     pub fn execute(&self, cwd: &Path, params: &DynamicToolCallParams) -> DynamicToolCallResponse {
         let Some(tool) = self.handlers.get(params.tool.as_str()) else {
+            if is_browser_dynamic_tool_call(params.namespace.as_deref(), params.tool.as_str()) {
+                return error_response(format!(
+                    "browser dynamic tool '{}' is registered but no embedded browser executor is connected yet",
+                    params.tool
+                ));
+            }
             return error_response(format!("unsupported dynamic tool '{}'", params.tool));
         };
 

@@ -77,6 +77,8 @@ impl DiffViewer {
         let mut start_config = AiWorkerStartConfig::new(cwd, codex_executable, codex_home);
         start_config.mad_max_mode = self.ai_mad_max_mode;
         start_config.include_hidden_models = self.ai_include_hidden_models;
+        start_config.browser_tools_enabled =
+            self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready;
         let starting_status_message = start_config.starting_status_message();
 
         let worker = spawn_ai_worker(start_config, command_rx, event_tx);

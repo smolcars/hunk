@@ -40,6 +40,8 @@ Hunk is also has full codex integration so you can use Codex inside of Hunk inst
 - `crates/hunk-git`: Git backend for repo discovery, diffing, branches, commits, push, publish, and sync
 - `crates/hunk-forge`: forge integration logic for GitHub and related remote/review workflows
 - `crates/hunk-updater`: app update/download/install logic
+- `crates/hunk-browser`: embedded browser runtime state, CEF backend integration, offscreen frames, input routing, snapshots, console logs, and safety checks
+- `crates/hunk-browser-helper`: CEF subprocess helper binary used by the embedded browser runtime
 - `crates/hunk-desktop`: GPUI desktop app binary, controllers, and rendering surface
 - `crates/hunk-codex`: embedded Codex app-server integration, thread service, AI reducers, and protocol boundary
 

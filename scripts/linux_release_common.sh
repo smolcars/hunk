@@ -56,6 +56,9 @@ PACKAGED_LAUNCHER_PATH=""
 PACKAGE_LIB_DIR=""
 CODEX_SOURCE_PATH=""
 PACKAGED_CODEX_PATH=""
+BROWSER_CEF_SOURCE_DIR=""
+BROWSER_HELPER_SOURCE_PATH=""
+PACKAGED_BROWSER_HELPER_PATH=""
 
 linux_target_arch() {
   printf '%s\n' "${TARGET_TRIPLE%%-*}"
@@ -160,6 +163,9 @@ init_linux_release_paths() {
   PACKAGE_LIB_DIR="$PACKAGE_DIR/lib"
   CODEX_SOURCE_PATH="$TARGET_DIR/$TARGET_TRIPLE/release/codex-runtime/linux/codex"
   PACKAGED_CODEX_PATH="$PACKAGE_DIR/codex-runtime/linux/codex"
+  BROWSER_CEF_SOURCE_DIR="${HUNK_BROWSER_CEF_LINUX_RUNTIME_DIR:-$ROOT_DIR/assets/browser-runtime/cef/linux/runtime}"
+  BROWSER_HELPER_SOURCE_PATH="$TARGET_DIR/$TARGET_TRIPLE/release/hunk-browser-helper"
+  PACKAGED_BROWSER_HELPER_PATH="$PACKAGE_DIR/hunk-browser-helper"
 }
 
 require_linux_tool() {
@@ -311,14 +317,24 @@ validate_linux_runtime_bundle() {
 prepare_linux_release_build_inputs() {
   require_linux_tool patchelf
 
+  "$ROOT_DIR/scripts/prepare_browser_cef_runtime.sh" "$TARGET_TRIPLE" "$BROWSER_CEF_SOURCE_DIR" >/dev/null
+  export CEF_PATH="$BROWSER_CEF_SOURCE_DIR"
+  export LD_LIBRARY_PATH="$BROWSER_CEF_SOURCE_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export HUNK_LINUX_EXTRA_LIBRARY_PATH="$BROWSER_CEF_SOURCE_DIR${HUNK_LINUX_EXTRA_LIBRARY_PATH:+:$HUNK_LINUX_EXTRA_LIBRARY_PATH}"
+
   echo "Downloading bundled Codex runtime for Linux..." >&2
   "$ROOT_DIR/scripts/download_codex_runtime_unix.sh" linux >/dev/null
   echo "Validating bundled Codex runtime for Linux..." >&2
   "$ROOT_DIR/scripts/validate_codex_runtime_bundle.sh" --strict --platform linux >/dev/null
+  echo "Building Linux CEF helper..." >&2
+  (
+    cd "$ROOT_DIR"
+    cargo build -p hunk-browser-helper --release --locked --target "$TARGET_TRIPLE" --features hunk-browser-helper/cef-subprocess
+  )
   echo "Building Linux release binary..." >&2
   (
     cd "$ROOT_DIR"
-    "$ROOT_DIR/scripts/build_linux.sh" --target "$TARGET_TRIPLE"
+    "$ROOT_DIR/scripts/build_linux.sh" --target "$TARGET_TRIPLE" --features hunk-desktop/cef-browser
   )
 }
 
@@ -355,9 +371,10 @@ prepare_linux_system_install_root() {
 
   cp "$PACKAGED_BINARY_PATH" "$SYSTEM_REAL_BINARY_PATH"
   cp "$PACKAGED_LAUNCHER_PATH" "$SYSTEM_LAUNCHER_PATH"
+  cp "$PACKAGED_BROWSER_HELPER_PATH" "$SYSTEM_LIB_DIR/hunk-browser-helper"
   cp -R "$PACKAGE_LIB_DIR/." "$SYSTEM_PRIVATE_LIB_DIR/"
   cp "$PACKAGED_CODEX_PATH" "$SYSTEM_RUNTIME_PATH"
-  chmod +x "$SYSTEM_REAL_BINARY_PATH" "$SYSTEM_LAUNCHER_PATH" "$SYSTEM_RUNTIME_PATH"
+  chmod +x "$SYSTEM_REAL_BINARY_PATH" "$SYSTEM_LAUNCHER_PATH" "$SYSTEM_LIB_DIR/hunk-browser-helper" "$SYSTEM_RUNTIME_PATH"
 
   patch_linux_runtime_paths "$SYSTEM_REAL_BINARY_PATH" "$SYSTEM_PRIVATE_LIB_DIR" '$ORIGIN/lib'
   validate_linux_runtime_bundle "$SYSTEM_REAL_BINARY_PATH" "$SYSTEM_PRIVATE_LIB_DIR"

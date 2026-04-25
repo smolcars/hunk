@@ -47,6 +47,130 @@ impl DiffViewer {
         }
     }
 
+    fn load_ai_browser_runtime() -> hunk_browser::BrowserRuntime {
+        let app_data_dir = match hunk_domain::state::app_data_dir() {
+            Ok(app_data_dir) => app_data_dir,
+            Err(err) => {
+                error!("failed to resolve browser app data path: {err:#}");
+                return hunk_browser::BrowserRuntime::new_disabled();
+            }
+        };
+        let storage_paths = hunk_browser::BrowserStoragePaths::from_app_data_dir(app_data_dir);
+        if let Err(err) = storage_paths.ensure_directories() {
+            error!("failed to initialize browser storage directories: {err:#}");
+            return hunk_browser::BrowserRuntime::new_disabled();
+        }
+
+        let runtime =
+            hunk_browser::BrowserRuntime::new_configured(hunk_browser::BrowserRuntimeConfig::new(
+            Self::default_browser_cef_runtime_dir(),
+            Self::default_browser_helper_executable_path(),
+            storage_paths,
+        ));
+        #[cfg(feature = "cef-browser")]
+        {
+            let mut runtime = runtime;
+            if let Err(err) = runtime.initialize_backend() {
+                error!("failed to initialize embedded browser CEF backend: {err:#}");
+            }
+            runtime
+        }
+        #[cfg(not(feature = "cef-browser"))]
+        {
+            runtime
+        }
+    }
+
+    fn default_browser_cef_runtime_dir() -> PathBuf {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(current_exe) = std::env::current_exe()
+                && let Some(contents_dir) = Self::macos_app_contents_dir(current_exe.as_path())
+            {
+                return contents_dir.join("Frameworks");
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(current_exe) = std::env::current_exe()
+                && let Some(exe_dir) = current_exe.parent()
+            {
+                let packaged_runtime = exe_dir.join("lib");
+                if packaged_runtime.join("libcef.so").is_file() {
+                    return packaged_runtime;
+                }
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(current_exe) = std::env::current_exe()
+                && let Some(exe_dir) = current_exe.parent()
+            {
+                if exe_dir.join("libcef.dll").is_file() {
+                    return exe_dir.to_path_buf();
+                }
+            }
+        }
+
+        let platform_runtime = if cfg!(target_os = "linux") {
+            "linux"
+        } else if cfg!(target_os = "windows") {
+            "windows"
+        } else {
+            "macos"
+        };
+
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("assets/browser-runtime/cef")
+            .join(platform_runtime)
+            .join("runtime")
+    }
+
+    fn default_browser_helper_executable_path() -> PathBuf {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(current_exe) = std::env::current_exe()
+                && let Some(contents_dir) = Self::macos_app_contents_dir(current_exe.as_path())
+            {
+                return contents_dir
+                    .join("Frameworks")
+                    .join(format!(
+                        "{}.app",
+                        hunk_browser_helper::MACOS_HELPER_BUNDLE_NAME
+                    ))
+                    .join("Contents/MacOS")
+                    .join(hunk_browser_helper::MACOS_HELPER_BUNDLE_NAME);
+            }
+        }
+
+        if let Ok(current_exe) = std::env::current_exe()
+            && let Some(exe_dir) = current_exe.parent()
+        {
+            return exe_dir.join(hunk_browser_helper::helper_executable_name());
+        }
+
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("target/debug")
+            .join(hunk_browser_helper::helper_executable_name())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn macos_app_contents_dir(current_exe: &std::path::Path) -> Option<PathBuf> {
+        let macos_dir = current_exe.parent()?;
+        if macos_dir.file_name()? != "MacOS" {
+            return None;
+        }
+        let contents_dir = macos_dir.parent()?;
+        if contents_dir.file_name()? != "Contents" {
+            return None;
+        }
+        Some(contents_dir.to_path_buf())
+    }
+
     fn apply_theme_preference(&self, window: &mut Window, cx: &mut Context<Self>) {
         let mode = match self.config.theme {
             ThemePreference::System => ThemeMode::from(window.appearance()),
@@ -402,6 +526,9 @@ impl DiffViewer {
         });
         let ai_terminal_input_state =
             cx.new(|cx| InputState::new(window, cx).placeholder("Run a command in this workspace"));
+        let ai_browser_address_input_state = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search or enter website address")
+        });
         let file_quick_open_input_state =
             cx.new(|cx| InputState::new(window, cx).placeholder("Type a file name or path"));
         let editor_search_input_state =
@@ -474,6 +601,8 @@ impl DiffViewer {
             ai_timeline_follow_output: true,
             ai_inline_review_selected_row_id_by_thread: BTreeMap::new(),
             ai_inline_review_mode_by_thread: BTreeMap::new(),
+            ai_browser_open_thread_ids: BTreeSet::new(),
+            ai_right_pane_mode_by_thread: BTreeMap::new(),
             ai_inline_review_session: None,
             ai_inline_review_loaded_state: None,
             ai_inline_review_error: None,
@@ -533,6 +662,15 @@ impl DiffViewer {
             ai_thread_catalog_task: Task::ready(()),
             ai_attachment_picker_task: Task::ready(()),
             ai_workspace_states: BTreeMap::new(),
+            ai_browser_runtime: Self::load_ai_browser_runtime(),
+            ai_browser_address_input_state,
+            ai_browser_pump_generation: 0,
+            ai_browser_pump_active: false,
+            ai_browser_pump_task: Task::ready(()),
+            ai_browser_render_frame_cache: None,
+            ai_pending_browser_approvals: Vec::new(),
+            ai_browser_focus_handle: cx.focus_handle(),
+            ai_browser_surface_focused: false,
             ai_desktop_notification_state_by_workspace: BTreeMap::new(),
             ai_pending_desktop_notification_events_by_workspace: BTreeMap::new(),
             #[cfg(target_os = "macos")]
@@ -785,6 +923,26 @@ impl DiffViewer {
             if should_send_ai_prompt_from_input_event(event) {
                 this.ai_send_prompt_action_from_keyboard(cx);
             }
+        })
+        .detach();
+
+        let ai_browser_address_state = view.ai_browser_address_input_state.clone();
+        cx.subscribe(&ai_browser_address_state, |this, _, event, cx| {
+            if let InputEvent::PressEnter { secondary } = event
+                && !secondary
+            {
+                this.ai_submit_browser_address(cx);
+            }
+        })
+        .detach();
+
+        let ai_browser_focus_handle = view.ai_browser_focus_handle.clone();
+        cx.on_focus_in(&ai_browser_focus_handle, window, |this, _, cx| {
+            this.ai_browser_surface_focus_in(cx);
+        })
+        .detach();
+        cx.on_focus_out(&ai_browser_focus_handle, window, |this, _, _, cx| {
+            this.ai_browser_surface_focus_out(cx);
         })
         .detach();
 

@@ -81,6 +81,8 @@
                 rustToolchain
                 just
                 zig
+                cmake
+                ninja
                 openssl
                 pkgconf
               ]
@@ -88,7 +90,6 @@
                 gcc
                 gnumake
                 clang
-                cmake
                 alsa-lib
                 libcap
                 dbus

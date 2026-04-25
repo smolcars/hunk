@@ -47,6 +47,31 @@ pub(crate) fn ai_workspace_item_display_label(kind: &str) -> &str {
     }
 }
 
+fn ai_workspace_browser_tool_action_label(
+    namespace: Option<&str>,
+    tool: &str,
+) -> Option<&'static str> {
+    if !hunk_codex::browser_tools::is_browser_dynamic_tool_call(namespace, tool) {
+        return None;
+    }
+
+    match tool {
+        hunk_codex::browser_tools::BROWSER_NAVIGATE_TOOL => Some("Navigate"),
+        hunk_codex::browser_tools::BROWSER_RELOAD_TOOL => Some("Reload"),
+        hunk_codex::browser_tools::BROWSER_STOP_TOOL => Some("Stop"),
+        hunk_codex::browser_tools::BROWSER_BACK_TOOL => Some("Back"),
+        hunk_codex::browser_tools::BROWSER_FORWARD_TOOL => Some("Forward"),
+        hunk_codex::browser_tools::BROWSER_SNAPSHOT_TOOL => Some("Snapshot"),
+        hunk_codex::browser_tools::BROWSER_CLICK_TOOL => Some("Click"),
+        hunk_codex::browser_tools::BROWSER_TYPE_TOOL => Some("Type"),
+        hunk_codex::browser_tools::BROWSER_PRESS_TOOL => Some("Press"),
+        hunk_codex::browser_tools::BROWSER_SCROLL_TOOL => Some("Scroll"),
+        hunk_codex::browser_tools::BROWSER_SCREENSHOT_TOOL => Some("Screenshot"),
+        hunk_codex::browser_tools::BROWSER_CONSOLE_TOOL => Some("Console"),
+        _ => None,
+    }
+}
+
 pub(crate) fn ai_workspace_item_status_label(
     status: hunk_codex::state::ItemStatus,
 ) -> &'static str {
@@ -173,7 +198,21 @@ fn ai_workspace_tool_compact_preview_text(
         Some(hunk_codex::protocol::ThreadItem::McpToolCall { server, tool, .. }) => {
             Some(format!("{server} :: {tool}"))
         }
-        Some(hunk_codex::protocol::ThreadItem::DynamicToolCall { tool, .. }) => Some(tool),
+        Some(hunk_codex::protocol::ThreadItem::DynamicToolCall {
+            namespace,
+            tool,
+            arguments,
+            content_items,
+            ..
+        }) => Some(
+            ai_workspace_browser_tool_compact_summary(
+                namespace.as_deref(),
+                tool.as_str(),
+                &arguments,
+                content_items.as_deref(),
+            )
+            .unwrap_or(tool),
+        ),
         Some(hunk_codex::protocol::ThreadItem::CollabAgentToolCall {
             tool,
             receiver_thread_ids,
@@ -200,6 +239,17 @@ fn ai_workspace_tool_summary_is_placeholder(summary: &str) -> bool {
 }
 
 pub(crate) fn ai_workspace_tool_header_title(item: &hunk_codex::state::ItemSummary) -> String {
+    if let Some(hunk_codex::protocol::ThreadItem::DynamicToolCall {
+        namespace, tool, ..
+    }) = ai_workspace_timeline_item_thread_item(item)
+        && hunk_codex::browser_tools::is_browser_dynamic_tool_call(
+            namespace.as_deref(),
+            tool.as_str(),
+        )
+    {
+        return "Browser".to_string();
+    }
+
     item.display_metadata
         .as_ref()
         .and_then(|metadata| metadata.summary.as_deref())
@@ -220,6 +270,89 @@ pub(crate) fn ai_workspace_tool_compact_summary(
 
     let title = ai_workspace_tool_header_title(item);
     (summary != title).then(|| summary.to_string())
+}
+
+fn ai_workspace_browser_tool_compact_summary(
+    namespace: Option<&str>,
+    tool: &str,
+    arguments: &serde_json::Value,
+    content_items: Option<&[hunk_codex::protocol::DynamicToolCallOutputContentItem]>,
+) -> Option<String> {
+    let action = ai_workspace_browser_tool_action_label(namespace, tool)?;
+    if let Some(confirmation) = ai_workspace_browser_confirmation_summary(content_items) {
+        return Some(confirmation);
+    }
+
+    let summary = match tool {
+        hunk_codex::browser_tools::BROWSER_NAVIGATE_TOOL => arguments
+            .get("url")
+            .and_then(|value| value.as_str())
+            .map(|url| format!("{action} {url}"))
+            .unwrap_or_else(|| action.to_string()),
+        hunk_codex::browser_tools::BROWSER_RELOAD_TOOL
+        | hunk_codex::browser_tools::BROWSER_STOP_TOOL
+        | hunk_codex::browser_tools::BROWSER_BACK_TOOL
+        | hunk_codex::browser_tools::BROWSER_FORWARD_TOOL => action.to_string(),
+        hunk_codex::browser_tools::BROWSER_CLICK_TOOL => arguments
+            .get("index")
+            .and_then(|value| value.as_u64())
+            .map(|index| format!("{action} element #{index}"))
+            .unwrap_or_else(|| action.to_string()),
+        hunk_codex::browser_tools::BROWSER_TYPE_TOOL => arguments
+            .get("index")
+            .and_then(|value| value.as_u64())
+            .map(|index| format!("{action} into element #{index}"))
+            .unwrap_or_else(|| action.to_string()),
+        hunk_codex::browser_tools::BROWSER_PRESS_TOOL => arguments
+            .get("keys")
+            .and_then(|value| value.as_str())
+            .map(|keys| format!("{action} {keys}"))
+            .unwrap_or_else(|| action.to_string()),
+        hunk_codex::browser_tools::BROWSER_SCROLL_TOOL => {
+            let direction = if arguments
+                .get("down")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true)
+            {
+                "down"
+            } else {
+                "up"
+            };
+            let pages = arguments
+                .get("pages")
+                .and_then(|value| value.as_f64())
+                .unwrap_or(1.0);
+            format!("{action} {direction} {pages} pages")
+        }
+        hunk_codex::browser_tools::BROWSER_SNAPSHOT_TOOL
+        | hunk_codex::browser_tools::BROWSER_SCREENSHOT_TOOL
+        | hunk_codex::browser_tools::BROWSER_CONSOLE_TOOL => action.to_string(),
+        _ => return None,
+    };
+    Some(summary)
+}
+
+fn ai_workspace_browser_confirmation_summary(
+    content_items: Option<&[hunk_codex::protocol::DynamicToolCallOutputContentItem]>,
+) -> Option<String> {
+    let items = content_items?;
+    items.iter().find_map(|item| {
+        let hunk_codex::protocol::DynamicToolCallOutputContentItem::InputText { text } = item
+        else {
+            return None;
+        };
+        let value = serde_json::from_str::<serde_json::Value>(text).ok()?;
+        if value.get("error").and_then(|value| value.as_str())
+            != Some("browserConfirmationRequired")
+        {
+            return None;
+        }
+        let sensitive_action = value
+            .get("sensitiveAction")
+            .and_then(|value| value.as_str())
+            .unwrap_or("action");
+        Some(format!("Confirmation required: {sensitive_action}"))
+    })
 }
 
 fn ai_workspace_diff_summary_push_file(
@@ -539,4 +672,87 @@ pub(crate) fn ai_workspace_command_execution_terminal_text(
     }
 
     (sections.join("\n"), truncated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn browser_tool_item(
+        tool: &str,
+        arguments: serde_json::Value,
+        content_items: Option<Vec<hunk_codex::protocol::DynamicToolCallOutputContentItem>>,
+    ) -> hunk_codex::state::ItemSummary {
+        let thread_item = hunk_codex::protocol::ThreadItem::DynamicToolCall {
+            id: "call-1".to_string(),
+            namespace: Some(hunk_codex::browser_tools::BROWSER_TOOL_NAMESPACE.to_string()),
+            tool: tool.to_string(),
+            arguments,
+            status: hunk_codex::protocol::DynamicToolCallStatus::Completed,
+            content_items,
+            success: Some(true),
+            duration_ms: Some(12),
+        };
+
+        hunk_codex::state::ItemSummary {
+            id: "item-1".to_string(),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            kind: "dynamicToolCall".to_string(),
+            status: hunk_codex::state::ItemStatus::Completed,
+            content: String::new(),
+            display_metadata: Some(hunk_codex::state::ItemDisplayMetadata {
+                summary: Some("Called tool".to_string()),
+                details_json: serde_json::to_string(&thread_item).ok(),
+            }),
+            last_sequence: 1,
+        }
+    }
+
+    #[test]
+    fn browser_dynamic_tool_rows_use_browser_title() {
+        let item = browser_tool_item(
+            hunk_codex::browser_tools::BROWSER_SNAPSHOT_TOOL,
+            serde_json::json!({}),
+            None,
+        );
+
+        assert_eq!(ai_workspace_tool_header_title(&item), "Browser");
+    }
+
+    #[test]
+    fn browser_navigation_tool_rows_summarize_url() {
+        let item = browser_tool_item(
+            hunk_codex::browser_tools::BROWSER_NAVIGATE_TOOL,
+            serde_json::json!({ "url": "https://example.com" }),
+            None,
+        );
+
+        assert_eq!(
+            ai_workspace_tool_compact_summary(&item, ""),
+            Some("Navigate https://example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn browser_confirmation_tool_rows_summarize_required_confirmation() {
+        let item = browser_tool_item(
+            hunk_codex::browser_tools::BROWSER_NAVIGATE_TOOL,
+            serde_json::json!({ "url": "mailto:support@example.com" }),
+            Some(vec![
+                hunk_codex::protocol::DynamicToolCallOutputContentItem::InputText {
+                    text: serde_json::json!({
+                        "error": "browserConfirmationRequired",
+                        "sensitiveAction": "ExternalProtocol"
+                    })
+                    .to_string(),
+                },
+            ]),
+        );
+
+        assert_eq!(
+            ai_workspace_tool_compact_summary(&item, ""),
+            Some("Confirmation required: ExternalProtocol".to_string())
+        );
+    }
 }

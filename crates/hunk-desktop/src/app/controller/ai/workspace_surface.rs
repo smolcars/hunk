@@ -93,6 +93,61 @@ fn ai_historical_inline_review_loaded_state(
     }
 }
 
+fn normalize_ai_browser_address(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("://") || lower.starts_with("about:") || lower.starts_with("data:") {
+        return Some(trimmed.to_string());
+    }
+
+    let scheme = if lower.starts_with("localhost") || lower.starts_with("127.") {
+        "http://"
+    } else {
+        "https://"
+    };
+    Some(format!("{scheme}{trimmed}"))
+}
+
+fn ai_browser_modifiers(modifiers: gpui::Modifiers) -> hunk_browser::BrowserInputModifiers {
+    hunk_browser::BrowserInputModifiers {
+        shift: modifiers.shift,
+        control: modifiers.control,
+        alt: modifiers.alt,
+        meta: modifiers.platform,
+    }
+}
+
+fn ai_browser_mouse_button(button: MouseButton) -> Option<hunk_browser::BrowserMouseButton> {
+    match button {
+        MouseButton::Left => Some(hunk_browser::BrowserMouseButton::Left),
+        MouseButton::Middle => Some(hunk_browser::BrowserMouseButton::Middle),
+        MouseButton::Right => Some(hunk_browser::BrowserMouseButton::Right),
+        _ => None,
+    }
+}
+
+fn ai_browser_key_press_string(keystroke: &gpui::Keystroke) -> String {
+    let mut parts = Vec::new();
+    if keystroke.modifiers.control {
+        parts.push("Control");
+    }
+    if keystroke.modifiers.alt {
+        parts.push("Alt");
+    }
+    if keystroke.modifiers.shift {
+        parts.push("Shift");
+    }
+    if keystroke.modifiers.platform {
+        parts.push("Meta");
+    }
+    parts.push(keystroke.key.as_str());
+    parts.join("+")
+}
+
 impl DiffViewer {
     fn ai_workspace_message_block_config(
         item_kind: &str,
@@ -580,6 +635,592 @@ impl DiffViewer {
             .is_some()
     }
 
+    pub(super) fn current_ai_right_pane_mode_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Option<AiWorkspaceRightPaneMode> {
+        let inline_review_open = self
+            .current_ai_inline_review_row_id_for_thread(thread_id)
+            .is_some();
+        let browser_open = self.ai_browser_open_thread_ids.contains(thread_id);
+
+        match self.ai_right_pane_mode_by_thread.get(thread_id).copied() {
+            Some(AiWorkspaceRightPaneMode::InlineReview) if inline_review_open => {
+                Some(AiWorkspaceRightPaneMode::InlineReview)
+            }
+            Some(AiWorkspaceRightPaneMode::Browser) if browser_open => {
+                Some(AiWorkspaceRightPaneMode::Browser)
+            }
+            _ if inline_review_open => Some(AiWorkspaceRightPaneMode::InlineReview),
+            _ if browser_open => Some(AiWorkspaceRightPaneMode::Browser),
+            _ => None,
+        }
+    }
+
+    pub(super) fn current_ai_right_pane_mode(&self) -> Option<AiWorkspaceRightPaneMode> {
+        self.ai_selected_thread_id
+            .as_deref()
+            .and_then(|thread_id| self.current_ai_right_pane_mode_for_thread(thread_id))
+    }
+
+    pub(super) fn ai_browser_is_open(&self) -> bool {
+        self.ai_selected_thread_id
+            .as_deref()
+            .is_some_and(|thread_id| self.ai_browser_open_thread_ids.contains(thread_id))
+    }
+
+    pub(super) fn ai_open_browser_for_current_thread(&mut self, cx: &mut Context<Self>) {
+        let Some(thread_id) = self.current_ai_thread_id() else {
+            return;
+        };
+        if self.ai_selected_thread_id.as_deref() != Some(thread_id.as_str()) {
+            self.ai_selected_thread_id = Some(thread_id.clone());
+        }
+        if self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+            if let Err(err) = self.ai_browser_runtime.ensure_backend_session(thread_id.clone()) {
+                error!("failed to create embedded browser session: {err:#}");
+                self.ai_browser_runtime
+                    .ensure_session(thread_id.clone())
+                    .set_load_error(err.to_string());
+            }
+        } else {
+            self.ai_browser_runtime.ensure_session(thread_id.clone());
+        }
+        self.ai_browser_open_thread_ids.insert(thread_id.clone());
+        self.ai_right_pane_mode_by_thread
+            .insert(thread_id, AiWorkspaceRightPaneMode::Browser);
+        self.ai_sync_browser_pump(cx);
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
+        cx.notify();
+    }
+
+    pub(super) fn ai_toggle_browser_for_current_thread(&mut self, cx: &mut Context<Self>) {
+        if self.current_ai_right_pane_mode() == Some(AiWorkspaceRightPaneMode::Browser) {
+            self.ai_close_browser_action(cx);
+        } else {
+            self.ai_open_browser_for_current_thread(cx);
+        }
+    }
+
+    pub(super) fn ai_close_browser_action(&mut self, cx: &mut Context<Self>) {
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        let changed = self.ai_browser_open_thread_ids.remove(thread_id.as_str());
+        if self.ai_right_pane_mode_by_thread.get(thread_id.as_str()).copied()
+            == Some(AiWorkspaceRightPaneMode::Browser)
+        {
+            if self
+                .current_ai_inline_review_row_id_for_thread(thread_id.as_str())
+                .is_some()
+            {
+                self.ai_right_pane_mode_by_thread
+                    .insert(thread_id.clone(), AiWorkspaceRightPaneMode::InlineReview);
+            } else {
+                self.ai_right_pane_mode_by_thread.remove(thread_id.as_str());
+            }
+        }
+        if changed {
+            self.ai_sync_browser_pump(cx);
+            self.invalidate_ai_visible_frame_state_with_reason("timeline");
+            cx.notify();
+        }
+    }
+
+    fn ai_sync_browser_pump(&mut self, cx: &mut Context<Self>) {
+        let should_run = self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready
+            && !self.ai_browser_open_thread_ids.is_empty();
+        if should_run {
+            self.ai_start_browser_pump(cx);
+        } else {
+            self.ai_stop_browser_pump();
+        }
+    }
+
+    fn ai_start_browser_pump(&mut self, cx: &mut Context<Self>) {
+        if self.ai_browser_pump_active {
+            return;
+        }
+        self.ai_browser_pump_generation = self.ai_browser_pump_generation.saturating_add(1);
+        let generation = self.ai_browser_pump_generation;
+        self.ai_browser_pump_active = true;
+        self.ai_browser_pump_task = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_millis(16)).await;
+
+                let Some(this) = this.upgrade() else {
+                    return;
+                };
+
+                let mut keep_running = true;
+                this.update(cx, |this, cx| {
+                    if this.ai_browser_pump_generation != generation
+                        || this.ai_browser_runtime.status()
+                            != hunk_browser::BrowserRuntimeStatus::Ready
+                        || this.ai_browser_open_thread_ids.is_empty()
+                    {
+                        this.ai_browser_pump_active = false;
+                        this.ai_browser_pump_task = Task::ready(());
+                        keep_running = false;
+                        return;
+                    }
+
+                    match this.ai_browser_runtime.pump_backend() {
+                        Ok(changed) => {
+                            if changed {
+                                this.ai_refresh_browser_render_frame_cache_for_selected_thread();
+                                cx.notify();
+                            }
+                        }
+                        Err(err) => {
+                            error!("embedded browser pump failed: {err:#}");
+                            this.ai_browser_pump_active = false;
+                            this.ai_browser_pump_task = Task::ready(());
+                            keep_running = false;
+                        }
+                    }
+                });
+                if !keep_running {
+                    return;
+                }
+            }
+        });
+    }
+
+    fn ai_refresh_browser_render_frame_cache_for_selected_thread(&mut self) {
+        let Some(thread_id) = self.ai_selected_thread_id.as_deref() else {
+            return;
+        };
+        let Some(frame) = self
+            .ai_browser_runtime
+            .session(thread_id)
+            .and_then(|session| session.latest_frame())
+        else {
+            return;
+        };
+        let metadata = frame.metadata();
+        if let Some(cache) = &self.ai_browser_render_frame_cache
+            && cache.thread_id == thread_id
+            && cache.frame_epoch == metadata.frame_epoch
+            && cache.width == metadata.width
+            && cache.height == metadata.height
+        {
+            return;
+        }
+
+        let Some(buffer) = ai_browser_frame_rgba_image(frame) else {
+            return;
+        };
+        let image = std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)]));
+        self.ai_browser_render_frame_cache = Some(AiBrowserRenderFrameCache {
+            thread_id: thread_id.to_string(),
+            frame_epoch: metadata.frame_epoch,
+            width: metadata.width,
+            height: metadata.height,
+            image,
+        });
+    }
+
+    fn ai_stop_browser_pump(&mut self) {
+        self.ai_browser_pump_generation = self.ai_browser_pump_generation.saturating_add(1);
+        self.ai_browser_pump_active = false;
+        self.ai_browser_pump_task = Task::ready(());
+    }
+
+    pub(super) fn ai_apply_browser_action_for_current_thread(
+        &mut self,
+        action: hunk_browser::BrowserAction,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        if self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+            if let Err(err) = self
+                .ai_browser_runtime
+                .apply_backend_action(thread_id.as_str(), &action)
+            {
+                error!("embedded browser action failed: {err:#}");
+                self.ai_browser_runtime
+                    .ensure_session(thread_id)
+                    .set_load_error(err.to_string());
+            }
+            self.ai_sync_browser_pump(cx);
+        } else if let Err(err) = self
+            .ai_browser_runtime
+            .apply_state_only_action(thread_id.as_str(), &action)
+        {
+            self.ai_browser_runtime
+                .ensure_session(thread_id)
+                .set_load_error(err.to_string());
+        }
+        cx.notify();
+    }
+
+    pub(super) fn ai_submit_browser_address(&mut self, cx: &mut Context<Self>) {
+        let value = self.ai_browser_address_input_state.read(cx).value();
+        let Some(url) = normalize_ai_browser_address(value.as_ref()) else {
+            return;
+        };
+        self.ai_apply_browser_action_for_current_thread(
+            hunk_browser::BrowserAction::Navigate { url },
+            cx,
+        );
+    }
+
+    pub(super) fn ai_handle_browser_dynamic_tool_call(
+        &mut self,
+        params: hunk_codex::protocol::DynamicToolCallParams,
+        response_tx: std::sync::mpsc::Sender<hunk_codex::protocol::DynamicToolCallResponse>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(confirmation) =
+            crate::app::ai_dynamic_tools::browser_dynamic_tool_confirmation(&params)
+        {
+            let request_id = params.call_id.clone();
+            if self
+                .ai_pending_browser_approvals
+                .iter()
+                .any(|approval| approval.request_id == request_id)
+            {
+                let response = crate::app::ai_dynamic_tools::browser_unavailable_response(
+                    &params,
+                    "This browser action is already waiting for user confirmation.",
+                );
+                if response_tx.send(response).is_err() {
+                    self.ai_status_message =
+                        Some("Embedded browser tool response receiver disconnected.".to_string());
+                }
+                return;
+            }
+
+            self.ai_select_browser_tool_thread(params.thread_id.clone(), cx);
+            self.ai_pending_browser_approvals
+                .push(AiPendingBrowserApproval {
+                    request_id,
+                    params,
+                    kind: confirmation.kind,
+                    summary: confirmation.summary,
+                    response_tx,
+                });
+            self.ai_status_message = Some("Browser action needs confirmation.".to_string());
+            self.invalidate_ai_visible_frame_state_with_reason("timeline");
+            cx.notify();
+            return;
+        }
+
+        let response = self.ai_execute_browser_dynamic_tool_with_safety(
+            params,
+            crate::app::ai_dynamic_tools::BrowserToolSafetyMode::Enforce,
+            cx,
+        );
+        if response_tx.send(response).is_err() {
+            self.ai_status_message =
+                Some("Embedded browser tool response receiver disconnected.".to_string());
+        }
+    }
+
+    pub(super) fn ai_resolve_pending_browser_approval_action(
+        &mut self,
+        request_id: String,
+        decision: AiApprovalDecision,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self
+            .ai_pending_browser_approvals
+            .iter()
+            .position(|approval| approval.request_id == request_id)
+        else {
+            return;
+        };
+        let pending = self.ai_pending_browser_approvals.remove(index);
+        let response = match decision {
+            AiApprovalDecision::Accept => self.ai_execute_browser_dynamic_tool_with_safety(
+                pending.params.clone(),
+                crate::app::ai_dynamic_tools::BrowserToolSafetyMode::AllowSensitiveOnce,
+                cx,
+            ),
+            AiApprovalDecision::Decline => {
+                crate::app::ai_dynamic_tools::browser_confirmation_declined_response(
+                    &pending.params,
+                )
+            }
+        };
+        if pending.response_tx.send(response).is_err() {
+            self.ai_status_message =
+                Some("Embedded browser tool response receiver disconnected.".to_string());
+        } else {
+            self.ai_status_message = Some(match decision {
+                AiApprovalDecision::Accept => "Browser action approved.".to_string(),
+                AiApprovalDecision::Decline => "Browser action declined.".to_string(),
+            });
+        }
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
+        cx.notify();
+    }
+
+    fn ai_select_browser_tool_thread(&mut self, thread_id: String, cx: &mut Context<Self>) {
+        if self.ai_selected_thread_id.as_deref() != Some(thread_id.as_str()) {
+            self.ai_selected_thread_id = Some(thread_id.clone());
+        }
+        self.ai_browser_open_thread_ids.insert(thread_id.clone());
+        self.ai_right_pane_mode_by_thread
+            .insert(thread_id, AiWorkspaceRightPaneMode::Browser);
+        self.ai_sync_browser_pump(cx);
+    }
+
+    fn ai_execute_browser_dynamic_tool_with_safety(
+        &mut self,
+        params: hunk_codex::protocol::DynamicToolCallParams,
+        safety_mode: crate::app::ai_dynamic_tools::BrowserToolSafetyMode,
+        cx: &mut Context<Self>,
+    ) -> hunk_codex::protocol::DynamicToolCallResponse {
+        self.ai_select_browser_tool_thread(params.thread_id.clone(), cx);
+        if self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+            if let Err(err) = self
+                .ai_browser_runtime
+                .ensure_backend_session(params.thread_id.clone())
+            {
+                self.ai_browser_runtime
+                    .ensure_session(params.thread_id.clone())
+                    .set_load_error(err.to_string());
+                return crate::app::ai_dynamic_tools::browser_unavailable_response(
+                    &params,
+                    "The embedded browser backend could not create a session for this thread.",
+                );
+            }
+        } else {
+            self.ai_browser_runtime
+                .ensure_session(params.thread_id.clone());
+        }
+
+        let use_backend = self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready;
+        let response = crate::app::ai_dynamic_tools::execute_browser_dynamic_tool_with_runtime_and_safety(
+            &mut self.ai_browser_runtime,
+            &params,
+            use_backend,
+            safety_mode,
+        );
+        self.ai_sync_browser_pump(cx);
+        self.ai_refresh_browser_render_frame_cache_for_selected_thread();
+        self.invalidate_ai_visible_frame_state_with_reason("timeline");
+        cx.notify();
+        response
+    }
+
+    pub(super) fn ai_browser_surface_focus_in(&mut self, cx: &mut Context<Self>) {
+        if self.ai_browser_surface_focused {
+            return;
+        }
+        self.ai_browser_surface_focused = true;
+        self.ai_focus_browser_session(true);
+        cx.notify();
+    }
+
+    pub(super) fn ai_browser_surface_focus_out(&mut self, cx: &mut Context<Self>) {
+        if !self.ai_browser_surface_focused {
+            return;
+        }
+        self.ai_browser_surface_focused = false;
+        self.ai_focus_browser_session(false);
+        cx.notify();
+    }
+
+    pub(super) fn ai_browser_surface_resize(
+        &mut self,
+        thread_id: &str,
+        width: u32,
+        height: u32,
+        device_scale_factor: f32,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ai_browser_runtime.status() != hunk_browser::BrowserRuntimeStatus::Ready {
+            return;
+        }
+        let Ok(viewport) =
+            hunk_browser::BrowserViewportSize::new(width, height, device_scale_factor)
+        else {
+            return;
+        };
+        let already_current = self
+            .ai_browser_runtime
+            .session(thread_id)
+            .is_some_and(|session| {
+                let viewport_state = &session.latest_snapshot().viewport;
+                viewport_state.width == viewport.width
+                    && viewport_state.height == viewport.height
+                    && (viewport_state.device_scale_factor - viewport.device_scale_factor).abs()
+                        < f32::EPSILON
+            });
+        if already_current {
+            return;
+        }
+        if let Err(err) = self
+            .ai_browser_runtime
+            .resize_backend_session(thread_id, viewport)
+        {
+            error!("embedded browser resize failed: {err:#}");
+            self.ai_browser_runtime
+                .ensure_session(thread_id.to_string())
+                .set_load_error(err.to_string());
+        }
+        self.ai_sync_browser_pump(cx);
+    }
+
+    pub(super) fn ai_browser_surface_mouse_down(
+        &mut self,
+        thread_id: &str,
+        point: hunk_browser::BrowserPhysicalPoint,
+        button: MouseButton,
+        modifiers: gpui::Modifiers,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(button) = ai_browser_mouse_button(button) else {
+            return false;
+        };
+        self.ai_browser_focus_handle.focus(window, cx);
+        self.ai_focus_browser_session(true);
+        let input = hunk_browser::BrowserMouseInput {
+            point,
+            modifiers: ai_browser_modifiers(modifiers),
+        };
+        if let Err(err) = self
+            .ai_browser_runtime
+            .send_backend_mouse_click(thread_id, input, button)
+        {
+            error!("embedded browser mouse click failed: {err:#}");
+            return false;
+        }
+        self.ai_sync_browser_pump(cx);
+        true
+    }
+
+    pub(super) fn ai_browser_surface_mouse_move(
+        &mut self,
+        thread_id: &str,
+        point: hunk_browser::BrowserPhysicalPoint,
+        modifiers: gpui::Modifiers,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let input = hunk_browser::BrowserMouseInput {
+            point,
+            modifiers: ai_browser_modifiers(modifiers),
+        };
+        if let Err(err) = self
+            .ai_browser_runtime
+            .send_backend_mouse_move(thread_id, input)
+        {
+            error!("embedded browser mouse move failed: {err:#}");
+            return false;
+        }
+        self.ai_sync_browser_pump(cx);
+        true
+    }
+
+    pub(super) fn ai_browser_surface_scroll_wheel(
+        &mut self,
+        thread_id: &str,
+        point: hunk_browser::BrowserPhysicalPoint,
+        event: &gpui::ScrollWheelEvent,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let delta = event.delta.pixel_delta(px(16.0));
+        if delta.x.abs() < px(0.5) && delta.y.abs() < px(0.5) {
+            return false;
+        }
+        let input = hunk_browser::BrowserMouseInput {
+            point,
+            modifiers: ai_browser_modifiers(event.modifiers),
+        };
+        if let Err(err) = self.ai_browser_runtime.send_backend_mouse_wheel(
+            thread_id,
+            input,
+            delta.x.as_f32().round() as i32,
+            delta.y.as_f32().round() as i32,
+        ) {
+            error!("embedded browser wheel failed: {err:#}");
+            return false;
+        }
+        self.ai_sync_browser_pump(cx);
+        true
+    }
+
+    pub(super) fn ai_browser_surface_key_down(
+        &mut self,
+        keystroke: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.ai_browser_focus_handle.is_focused(window) {
+            return false;
+        }
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return false;
+        };
+
+        let result = if !keystroke.modifiers.control
+            && !keystroke.modifiers.alt
+            && !keystroke.modifiers.platform
+            && let Some(text) = keystroke.key_char.as_deref()
+        {
+            self.ai_browser_runtime
+                .send_backend_text(thread_id.as_str(), text)
+        } else {
+            self.ai_browser_runtime
+                .send_backend_key_press(thread_id.as_str(), &ai_browser_key_press_string(keystroke))
+        };
+
+        if let Err(err) = result {
+            error!("embedded browser key press failed: {err:#}");
+            return false;
+        }
+        self.ai_sync_browser_pump(cx);
+        true
+    }
+
+    fn ai_focus_browser_session(&mut self, focused: bool) {
+        if self.ai_browser_runtime.status() != hunk_browser::BrowserRuntimeStatus::Ready {
+            return;
+        }
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        if let Err(err) = self
+            .ai_browser_runtime
+            .focus_backend_session(thread_id.as_str(), focused)
+        {
+            error!("embedded browser focus failed: {err:#}");
+        }
+    }
+
+    pub(super) fn ai_set_right_pane_mode(
+        &mut self,
+        mode: AiWorkspaceRightPaneMode,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        let mode_available = match mode {
+            AiWorkspaceRightPaneMode::InlineReview => self
+                .current_ai_inline_review_row_id_for_thread(thread_id.as_str())
+                .is_some(),
+            AiWorkspaceRightPaneMode::Browser => self.ai_browser_open_thread_ids.contains(&thread_id),
+        };
+        if !mode_available {
+            return;
+        }
+        if self
+            .ai_right_pane_mode_by_thread
+            .insert(thread_id, mode)
+            != Some(mode)
+        {
+            self.invalidate_ai_visible_frame_state_with_reason("timeline");
+            cx.notify();
+        }
+    }
+
     pub(super) fn ai_row_supports_inline_review(&self, row: &AiTimelineRow) -> bool {
         let item_kind = match &row.source {
             AiTimelineRowSource::Item { item_key } => self
@@ -628,6 +1269,8 @@ impl DiffViewer {
             .insert(thread_id.clone(), row_id.clone());
         self.ai_inline_review_mode_by_thread
             .insert(thread_id.clone(), mode);
+        self.ai_right_pane_mode_by_thread
+            .insert(thread_id.clone(), AiWorkspaceRightPaneMode::InlineReview);
         if changed_row || changed_mode {
             self.ai_inline_review_surface.clear_runtime_state();
         }
@@ -687,6 +1330,10 @@ impl DiffViewer {
         }
         self.ai_inline_review_mode_by_thread
             .insert(thread_id, mode);
+        if let Some(thread_id) = self.ai_selected_thread_id.clone() {
+            self.ai_right_pane_mode_by_thread
+                .insert(thread_id, AiWorkspaceRightPaneMode::InlineReview);
+        }
         self.ai_inline_review_surface.clear_runtime_state();
         self.ai_clear_inline_review_loaded_state();
         self.ai_sync_review_compare_to_selected_thread(cx);
@@ -704,6 +1351,16 @@ impl DiffViewer {
             .remove(thread_id)
             .is_some()
         {
+            if self.ai_right_pane_mode_by_thread.get(thread_id).copied()
+                == Some(AiWorkspaceRightPaneMode::InlineReview)
+            {
+                if self.ai_browser_open_thread_ids.contains(thread_id) {
+                    self.ai_right_pane_mode_by_thread
+                        .insert(thread_id.to_string(), AiWorkspaceRightPaneMode::Browser);
+                } else {
+                    self.ai_right_pane_mode_by_thread.remove(thread_id);
+                }
+            }
             self.ai_clear_inline_review_loaded_state();
             self.ai_inline_review_surface.clear_runtime_state();
             self.invalidate_ai_visible_frame_state_with_reason("timeline");
@@ -1311,4 +1968,13 @@ fn ai_workspace_message_uses_markdown_preview(
         .turns
         .get(turn_key.as_str())
         .is_some_and(|turn| turn.status == hunk_codex::state::TurnStatus::InProgress)
+}
+
+fn ai_browser_frame_rgba_image(frame: &hunk_browser::BrowserFrame) -> Option<image::RgbaImage> {
+    let metadata = frame.metadata();
+    let mut rgba = frame.bgra().to_vec();
+    for pixel in rgba.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    image::RgbaImage::from_raw(metadata.width, metadata.height, rgba)
 }
