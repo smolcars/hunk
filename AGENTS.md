@@ -42,6 +42,8 @@ Important paths:
 - `crates/hunk-git`: shared Git read/write behavior; keep production Git logic here instead of app crates.
 - `crates/hunk-forge`: forge integration logic, remote/review workflows, and hosting-service coordination.
 - `crates/hunk-updater`: update/download/install logic for desktop releases.
+- `crates/hunk-browser`: embedded browser runtime state, CEF backend integration, offscreen frames, input routing, snapshots, console logs, and safety checks.
+- `crates/hunk-browser-helper`: CEF subprocess helper binary used by the embedded browser runtime.
 - `crates/hunk-desktop`: GPUI app binary, app lifecycle, controllers, and render surfaces.
 - `crates/hunk-codex`: embedded Codex app-server integration, thread service, protocol boundary, and AI reducer/state logic.
 - `crates/hunk-desktop/src/app`: GPUI app entry/types; `controller/` owns behavior, `render/` owns UI, `theme.rs` owns app colors.

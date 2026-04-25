@@ -54,6 +54,48 @@ fn element_click_target_uses_rect_center_and_device_scale() {
 }
 
 #[test]
+fn scroll_target_uses_requested_element_center() {
+    let mut session = BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.replace_snapshot(BrowserSnapshot {
+        epoch: 3,
+        url: Some("https://example.com".to_string()),
+        title: Some("Example".to_string()),
+        viewport: viewport(2.0),
+        elements: vec![BrowserElement {
+            index: 7,
+            role: "listbox".to_string(),
+            label: "Results".to_string(),
+            text: String::new(),
+            rect: BrowserElementRect {
+                x: 30.0,
+                y: 40.0,
+                width: 100.0,
+                height: 50.0,
+            },
+            selector: Some("#results".to_string()),
+        }],
+    });
+
+    let target = session
+        .scroll_target(Some(7))
+        .expect("current element should have a scroll target");
+
+    assert_eq!(target, BrowserPhysicalPoint { x: 160, y: 130 });
+}
+
+#[test]
+fn scroll_target_defaults_to_viewport_center() {
+    let mut session = BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.set_viewport(BrowserViewportSize::new(640, 480, 2.0).unwrap());
+
+    let target = session
+        .scroll_target(None)
+        .expect("viewport should have a scroll target");
+
+    assert_eq!(target, BrowserPhysicalPoint { x: 640, y: 480 });
+}
+
+#[test]
 fn session_viewport_size_updates_snapshot_viewport() {
     let mut session = BrowserSession::new(BrowserSessionId::new("thread-a"));
 

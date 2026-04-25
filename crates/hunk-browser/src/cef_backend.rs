@@ -443,8 +443,13 @@ impl CefBrowserBackend {
         for load in events.loads {
             if let Some(session) = sessions.get_mut(&load.session_id) {
                 match load.state {
-                    CefLoadState::Started => session.set_loading(true),
-                    CefLoadState::Ended => session.set_loading(false),
+                    CefLoadState::Changed {
+                        loading,
+                        can_go_back,
+                        can_go_forward,
+                    } => {
+                        session.apply_backend_loading_state(loading, can_go_back, can_go_forward);
+                    }
                     CefLoadState::Failed(error) => session.set_load_error(error),
                 }
             }
@@ -625,8 +630,11 @@ struct CefDevToolsResult {
 }
 
 enum CefLoadState {
-    Started,
-    Ended,
+    Changed {
+        loading: bool,
+        can_go_back: bool,
+        can_go_forward: bool,
+    },
     Failed(String),
 }
 
@@ -808,13 +816,13 @@ wrap_load_handler! {
             &self,
             _browser: Option<&mut Browser>,
             is_loading: ::std::os::raw::c_int,
-            _can_go_back: ::std::os::raw::c_int,
-            _can_go_forward: ::std::os::raw::c_int,
+            can_go_back: ::std::os::raw::c_int,
+            can_go_forward: ::std::os::raw::c_int,
         ) {
-            let state = if is_loading == 1 {
-                CefLoadState::Started
-            } else {
-                CefLoadState::Ended
+            let state = CefLoadState::Changed {
+                loading: is_loading == 1,
+                can_go_back: can_go_back == 1,
+                can_go_forward: can_go_forward == 1,
             };
             self.handler
                 .shared
@@ -1146,6 +1154,19 @@ fn browser_snapshot_expression(epoch: u64) -> String {
     const EXPRESSION: &str = r#"
 (() => {
   const trim = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  const isSensitiveValueElement = element => {
+    const tag = element.tagName.toLowerCase();
+    if (tag !== 'input' && tag !== 'textarea') return false;
+    const type = (element.getAttribute('type') || '').toLowerCase();
+    const autocomplete = (element.getAttribute('autocomplete') || '').toLowerCase();
+    const name = (element.getAttribute('name') || '').toLowerCase();
+    const id = (element.id || '').toLowerCase();
+    return type === 'password' ||
+      autocomplete.includes('password') ||
+      autocomplete.includes('one-time-code') ||
+      /password|passwd|passcode|otp|token|secret|api[-_]?key|credential/.test(name) ||
+      /password|passwd|passcode|otp|token|secret|api[-_]?key|credential/.test(id);
+  };
   const viewportWidth = Math.max(0, Math.round(window.innerWidth || document.documentElement.clientWidth || 0));
   const viewportHeight = Math.max(0, Math.round(window.innerHeight || document.documentElement.clientHeight || 0));
   const visible = element => {
@@ -1195,7 +1216,7 @@ fn browser_snapshot_expression(epoch: u64) -> String {
       element.getAttribute('alt') ||
       element.getAttribute('title') ||
       element.getAttribute('placeholder') ||
-      element.getAttribute('value') ||
+      (isSensitiveValueElement(element) ? '' : element.getAttribute('value')) ||
       element.innerText ||
       element.textContent
     );
@@ -1239,7 +1260,7 @@ fn browser_snapshot_expression(epoch: u64) -> String {
     if (!visible(element) || element.disabled || element.getAttribute('aria-hidden') === 'true') continue;
     const rect = element.getBoundingClientRect();
     const label = labelFor(element);
-    const text = trim(element.value || element.innerText || element.textContent);
+    const text = isSensitiveValueElement(element) ? '' : trim(element.value || element.innerText || element.textContent);
     if (!label && !text && roleFor(element) === 'generic') continue;
     elements.push({
       index: elements.length,
@@ -1247,8 +1268,8 @@ fn browser_snapshot_expression(epoch: u64) -> String {
       label,
       text,
       rect: {
-        x: rect.x + window.scrollX,
-        y: rect.y + window.scrollY,
+        x: rect.x,
+        y: rect.y,
         width: rect.width,
         height: rect.height
       },
@@ -1314,6 +1335,20 @@ fn parse_devtools_snapshot_result(
 
 fn backend_error(message: impl Into<String>) -> BrowserError {
     BrowserError::BackendUnavailable(message.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::browser_snapshot_expression;
+
+    #[test]
+    fn snapshot_expression_redacts_sensitive_values_and_uses_viewport_rects() {
+        let expression = browser_snapshot_expression(1);
+
+        assert!(expression.contains("isSensitiveValueElement(element) ? ''"));
+        assert!(!expression.contains("x: rect.x + window.scrollX"));
+        assert!(!expression.contains("y: rect.y + window.scrollY"));
+    }
 }
 
 #[cfg(target_os = "macos")]

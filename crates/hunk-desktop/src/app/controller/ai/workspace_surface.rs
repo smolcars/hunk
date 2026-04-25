@@ -808,9 +808,7 @@ impl DiffViewer {
             return;
         }
 
-        let Some(buffer) =
-            image::RgbaImage::from_raw(metadata.width, metadata.height, frame.bgra().to_vec())
-        else {
+        let Some(buffer) = ai_browser_frame_rgba_image(frame) else {
             return;
         };
         let image = std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)]));
@@ -1970,4 +1968,13 @@ fn ai_workspace_message_uses_markdown_preview(
         .turns
         .get(turn_key.as_str())
         .is_some_and(|turn| turn.status == hunk_codex::state::TurnStatus::InProgress)
+}
+
+fn ai_browser_frame_rgba_image(frame: &hunk_browser::BrowserFrame) -> Option<image::RgbaImage> {
+    let metadata = frame.metadata();
+    let mut rgba = frame.bgra().to_vec();
+    for pixel in rgba.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    image::RgbaImage::from_raw(metadata.width, metadata.height, rgba)
 }

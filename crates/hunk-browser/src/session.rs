@@ -234,6 +234,28 @@ impl BrowserSession {
         self.state.loading = loading;
     }
 
+    pub fn apply_backend_loading_state(
+        &mut self,
+        loading: bool,
+        can_go_back: bool,
+        can_go_forward: bool,
+    ) {
+        self.set_history_state(can_go_back, can_go_forward);
+        if loading && !self.state.loading {
+            self.state.load_error = None;
+            self.invalidate_snapshot();
+        }
+        self.state.loading = loading;
+    }
+
+    pub fn start_backend_history_navigation(&mut self) {
+        if !self.state.loading {
+            self.invalidate_snapshot();
+        }
+        self.state.loading = true;
+        self.state.load_error = None;
+    }
+
     pub fn set_load_error(&mut self, error: impl Into<String>) {
         self.state.loading = false;
         self.state.load_error = Some(error.into());
@@ -296,6 +318,25 @@ impl BrowserSession {
             .latest_snapshot
             .viewport
             .logical_to_physical_point(element.rect.center()))
+    }
+
+    pub fn scroll_target(&self, index: Option<u32>) -> Result<BrowserPhysicalPoint, BrowserError> {
+        let point = if let Some(index) = index {
+            self.latest_snapshot
+                .element(index)
+                .ok_or(BrowserError::UnknownElementIndex(index))?
+                .rect
+                .center()
+        } else {
+            crate::snapshot::BrowserPoint {
+                x: self.latest_snapshot.viewport.width as f64 / 2.0,
+                y: self.latest_snapshot.viewport.height as f64 / 2.0,
+            }
+        };
+        Ok(self
+            .latest_snapshot
+            .viewport
+            .logical_to_physical_point(point))
     }
 
     pub fn preflight_action(&self, action: &BrowserAction) -> Result<(), BrowserError> {

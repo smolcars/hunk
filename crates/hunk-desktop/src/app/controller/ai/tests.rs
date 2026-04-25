@@ -40,6 +40,7 @@ mod ai_tests {
     use super::ai_thread_start_mode_for_workspace;
     use super::ai_thread_workspace_matches_current_project;
     use super::ai_turn_keys_with_file_change_items;
+    use super::ai_browser_frame_rgba_image;
     use super::apply_ai_thread_catalog_to_workspace_state;
     use super::background_branch_name_for_new_thread;
     use super::bundled_codex_executable_candidates;
@@ -304,6 +305,16 @@ mod ai_tests {
         );
 
         assert!(ai_workspace_message_uses_markdown_preview(&state, &item));
+    }
+
+    #[test]
+    fn browser_frame_render_image_converts_bgra_to_rgba() {
+        let frame = hunk_browser::BrowserFrame::from_bgra(1, 1, 1, vec![10, 20, 30, 255])
+            .expect("valid frame");
+
+        let image = ai_browser_frame_rgba_image(&frame).expect("image should be created");
+
+        assert_eq!(image.as_raw(), &[30, 20, 10, 255]);
     }
 
     fn timeline_item_row(

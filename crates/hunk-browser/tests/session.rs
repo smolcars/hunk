@@ -132,6 +132,41 @@ fn load_error_stops_loading_and_is_cleared_by_navigation() {
 }
 
 #[test]
+fn backend_loading_state_updates_history_flags_and_invalidates_snapshot() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.replace_snapshot(snapshot(7, "https://example.com", 4));
+
+    session.apply_backend_loading_state(true, true, false);
+
+    assert!(session.state().loading);
+    assert!(session.state().can_go_back);
+    assert!(!session.state().can_go_forward);
+    assert_eq!(session.state().snapshot_epoch, 8);
+    assert!(session.latest_snapshot().elements.is_empty());
+
+    session.apply_backend_loading_state(false, true, true);
+
+    assert!(!session.state().loading);
+    assert!(session.state().can_go_back);
+    assert!(session.state().can_go_forward);
+    assert_eq!(session.state().snapshot_epoch, 8);
+}
+
+#[test]
+fn backend_history_navigation_does_not_require_state_only_history_stack() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.replace_snapshot(snapshot(7, "https://example.com/b", 4));
+    session.set_history_state(true, false);
+
+    session.start_backend_history_navigation();
+
+    assert!(session.state().loading);
+    assert_eq!(session.state().load_error, None);
+    assert_eq!(session.state().snapshot_epoch, 8);
+    assert!(session.latest_snapshot().elements.is_empty());
+}
+
+#[test]
 fn console_entries_are_sequenced_filtered_and_bounded() {
     let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
 

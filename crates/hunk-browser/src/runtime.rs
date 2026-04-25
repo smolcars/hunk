@@ -7,8 +7,6 @@ use crate::session::{
     BrowserAction, BrowserError, BrowserMouseButton, BrowserMouseInput, BrowserSession,
     BrowserSessionId, BrowserViewportSize,
 };
-#[cfg(feature = "cef")]
-use crate::snapshot::BrowserPhysicalPoint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserRuntimeStatus {
@@ -625,11 +623,16 @@ impl BrowserRuntime {
                 BrowserAction::Press { keys } => {
                     backend.send_key_press(&session_id, keys)?;
                 }
-                BrowserAction::Scroll { down, pages, .. } => {
+                BrowserAction::Scroll { down, pages, index } => {
                     let delta_y = scroll_pages_to_wheel_delta(*down, *pages);
+                    let point = self
+                        .sessions
+                        .get(&session_id)
+                        .ok_or_else(|| BrowserError::MissingSession(thread_id.to_string()))?
+                        .scroll_target(*index)?;
                     backend.send_mouse_wheel(
                         &session_id,
-                        BrowserMouseInput::new(BrowserPhysicalPoint { x: 0, y: 0 }),
+                        BrowserMouseInput::new(point),
                         0,
                         delta_y,
                     )?;
@@ -637,10 +640,16 @@ impl BrowserRuntime {
                 BrowserAction::Navigate { .. }
                 | BrowserAction::Reload
                 | BrowserAction::Stop
-                | BrowserAction::Back
-                | BrowserAction::Forward
                 | BrowserAction::Screenshot => {
                     backend.apply_action(&session_id, action)?;
+                }
+                BrowserAction::Back | BrowserAction::Forward => {
+                    backend.apply_action(&session_id, action)?;
+                    self.sessions
+                        .get_mut(&session_id)
+                        .ok_or_else(|| BrowserError::MissingSession(thread_id.to_string()))?
+                        .start_backend_history_navigation();
+                    return Ok(());
                 }
             }
         }
