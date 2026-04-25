@@ -302,8 +302,8 @@ try {
     Write-Host "Validating bundled Codex runtime for Windows..."
     Test-WindowsCodexRuntimeBundle -RootDir $rootDir
     & $validateBundleScript -RootDir $rootDir
-    Write-Host "Validating bundled CEF runtime for Windows..."
-    & (Join-Path $PSScriptRoot "validate_browser_cef_windows.ps1") -RuntimeDir $browserCefRuntimeDir
+    Write-Host "Preparing bundled CEF runtime for Windows..."
+    & (Join-Path $PSScriptRoot "prepare_browser_cef_runtime_windows.ps1") -TargetTriple $targetTriple -RuntimeDir $browserCefRuntimeDir
     $env:CEF_PATH = $browserCefRuntimeDir
     $env:PATH = "$env:PATH;$browserCefRuntimeDir"
     Write-Host "Building Windows CEF helper..."

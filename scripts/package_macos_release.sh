@@ -10,6 +10,7 @@ PACKAGER_OUT_DIR="$TARGET_DIR/packager/macos"
 APP_PATH="$PACKAGER_OUT_DIR/Hunk.app"
 APP_EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/hunk_desktop"
 APP_FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
+BROWSER_CEF_RUNTIME_DIR="${HUNK_CEF_RUNTIME_DIR:-$ROOT_DIR/assets/browser-runtime/cef/macos/runtime}"
 APP_BUNDLE_IDENTIFIER="com.niteshbalusu.hunk"
 DMG_PATH="$DIST_DIR/Hunk-$VERSION_LABEL-macos-arm64.dmg"
 DMG_STAGE_DIR="$TARGET_DIR/dmg-stage"
@@ -287,6 +288,11 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
+echo "Preparing bundled CEF runtime for macOS..." >&2
+"$ROOT_DIR/scripts/prepare_browser_cef_runtime.sh" "$TARGET_TRIPLE" "$BROWSER_CEF_RUNTIME_DIR" >/dev/null
+export CEF_PATH="$BROWSER_CEF_RUNTIME_DIR"
+export DYLD_FALLBACK_LIBRARY_PATH="${DYLD_FALLBACK_LIBRARY_PATH:-}:$BROWSER_CEF_RUNTIME_DIR:$BROWSER_CEF_RUNTIME_DIR/Chromium Embedded Framework.framework/Libraries"
+
 echo "Downloading bundled Codex runtime for macOS..." >&2
 "$ROOT_DIR/scripts/download_codex_runtime_unix.sh" macos >/dev/null
 echo "Validating bundled Codex runtime for macOS..." >&2
@@ -334,7 +340,7 @@ fi
 
 "$ROOT_DIR/scripts/package_browser_cef_macos.sh" \
   "$APP_PATH" \
-  "$ROOT_DIR/assets/browser-runtime/cef/macos/runtime" \
+  "$BROWSER_CEF_RUNTIME_DIR" \
   "$TARGET_DIR/$TARGET_TRIPLE/release/hunk-browser-helper"
 "$ROOT_DIR/scripts/validate_release_bundle_layout.sh" macos-app "$APP_PATH"
 bundle_macos_non_system_dylibs "$APP_EXECUTABLE_PATH"

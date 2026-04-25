@@ -317,7 +317,7 @@ validate_linux_runtime_bundle() {
 prepare_linux_release_build_inputs() {
   require_linux_tool patchelf
 
-  "$ROOT_DIR/scripts/validate_browser_cef_linux.sh" "$BROWSER_CEF_SOURCE_DIR" >/dev/null
+  "$ROOT_DIR/scripts/prepare_browser_cef_runtime.sh" "$TARGET_TRIPLE" "$BROWSER_CEF_SOURCE_DIR" >/dev/null
   export CEF_PATH="$BROWSER_CEF_SOURCE_DIR"
   export LD_LIBRARY_PATH="$BROWSER_CEF_SOURCE_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   export HUNK_LINUX_EXTRA_LIBRARY_PATH="$BROWSER_CEF_SOURCE_DIR${HUNK_LINUX_EXTRA_LIBRARY_PATH:+:$HUNK_LINUX_EXTRA_LIBRARY_PATH}"
