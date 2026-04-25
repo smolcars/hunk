@@ -16,6 +16,8 @@ on:
       - "justfile"
       - "crates/**"
       - "scripts/**"
+      - "tools/**"
+      - "assets/browser-runtime/**"
       - "assets/icons/**"
       - "README.md"
 
@@ -236,6 +238,18 @@ jobs:
       - name: Build hunk-desktop
         if: runner.os == 'macOS'
         run: nix develop --accept-flake-config -c cargo build -p hunk-desktop --locked --profile ci
+        shell: bash
+
+      - name: Build hunk-desktop with embedded browser
+        if: runner.os == 'macOS'
+        run: |
+          CEF_PATH="$PWD/assets/browser-runtime/cef/macos/runtime" \
+            nix develop --accept-flake-config -c cargo build \
+              -p hunk-browser-helper \
+              -p hunk-desktop \
+              --locked \
+              --profile ci \
+              --features hunk-browser-helper/cef-subprocess,hunk-desktop/cef-browser
         shell: bash
 
       - name: Build hunk-desktop

@@ -6,9 +6,7 @@ use hunk_browser::{
     BrowserAction, BrowserRuntime, BrowserSafetyDecision, SensitiveBrowserAction,
     classify_browser_action, redact_browser_tool_text,
 };
-use hunk_codex::browser_tools::{
-    BrowserDynamicToolRequest, is_browser_dynamic_tool, parse_browser_dynamic_tool_request,
-};
+use hunk_codex::browser_tools::{BrowserDynamicToolRequest, parse_browser_dynamic_tool_request};
 use hunk_codex::protocol::{
     DynamicToolCallOutputContentItem, DynamicToolCallParams, DynamicToolCallResponse,
 };
@@ -59,7 +57,10 @@ impl AiDynamicToolExecutor {
         cwd: &Path,
         params: &DynamicToolCallParams,
     ) -> DynamicToolCallResponse {
-        if is_browser_dynamic_tool(params.tool.as_str()) {
+        if hunk_codex::browser_tools::is_browser_dynamic_tool_call(
+            params.namespace.as_deref(),
+            params.tool.as_str(),
+        ) {
             return self.browser_tools.execute(params);
         }
 
@@ -186,6 +187,23 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
                 }),
                 vec![DynamicToolCallOutputContentItem::InputImage { image_url }],
             )
+        }
+        BrowserDynamicToolRequest::Console {
+            level,
+            since_sequence,
+            limit,
+        } => {
+            if use_backend {
+                let _ = runtime.pump_backend();
+            }
+            let session = runtime.ensure_session(params.thread_id.clone());
+            json_success_response(console_response(
+                params,
+                session,
+                level,
+                since_sequence,
+                limit,
+            ))
         }
         BrowserDynamicToolRequest::Action(action) => {
             if safety_mode == BrowserToolSafetyMode::Enforce
@@ -341,6 +359,40 @@ fn snapshot_response(
         },
         "visibleText": visible_text,
         "elements": elements,
+    })
+}
+
+fn console_response(
+    params: &DynamicToolCallParams,
+    session: &hunk_browser::BrowserSession,
+    level: Option<hunk_browser::BrowserConsoleLevel>,
+    since_sequence: Option<u64>,
+    limit: usize,
+) -> serde_json::Value {
+    let entries = session
+        .recent_console_entries(level, since_sequence, limit)
+        .into_iter()
+        .map(|entry| {
+            json!({
+                "sequence": entry.sequence,
+                "level": entry.level,
+                "message": redact_browser_tool_text(entry.message.as_str()),
+                "source": entry.source.as_deref().map(redact_browser_tool_text),
+                "line": entry.line,
+                "timestampMs": entry.timestamp_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    let latest_sequence = session.console_entries().last().map(|entry| entry.sequence);
+
+    json!({
+        "ok": true,
+        "tool": params.tool,
+        "threadId": params.thread_id,
+        "turnId": params.turn_id,
+        "entries": entries,
+        "latestSequence": latest_sequence,
+        "message": "Console messages were read from the embedded browser.",
     })
 }
 

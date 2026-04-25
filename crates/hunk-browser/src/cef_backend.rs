@@ -13,13 +13,14 @@ use serde_json::json;
 use crate::config::BrowserRuntimeConfig;
 use crate::frame::{BrowserFrame, BrowserFrameRateLimiter};
 use crate::session::{
-    BrowserAction, BrowserError, BrowserInputModifiers, BrowserMouseButton, BrowserMouseInput,
-    BrowserSession, BrowserSessionId, BrowserViewportSize,
+    BrowserAction, BrowserConsoleLevel, BrowserError, BrowserInputModifiers, BrowserMouseButton,
+    BrowserMouseInput, BrowserSession, BrowserSessionId, BrowserViewportSize,
 };
 use crate::snapshot::BrowserSnapshot;
 
 const DEFAULT_URL: &str = "about:blank";
 const DEVTOOLS_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(2);
+const NEW_BROWSER_WARMUP_PUMP_ITERATIONS: usize = 8;
 
 pub(crate) struct CefBrowserBackend {
     _app: cef::App,
@@ -141,6 +142,12 @@ impl CefBrowserBackend {
             session_id: session_id.clone(),
             shared: self.shared.clone(),
         });
+        let display_handler = HunkCefDisplayHandlerBuilder::build(HunkCefDisplayHandler {
+            session_id: session_id.clone(),
+            shared: self.shared.clone(),
+        });
+        let context_menu_handler =
+            HunkCefContextMenuHandlerBuilder::build(HunkCefContextMenuHandler);
         let mut devtools_observer =
             HunkCefDevToolsMessageObserverBuilder::build(HunkCefDevToolsMessageObserver {
                 shared: self.shared.clone(),
@@ -148,7 +155,12 @@ impl CefBrowserBackend {
         let mut client = HunkCefClientBuilder::build(HunkCefClient {
             render_handler,
             load_handler,
+            display_handler,
+            context_menu_handler,
         });
+        self.shared
+            .borrow_mut()
+            .set_viewport(session_id.clone(), BrowserViewportSize::default());
 
         let window_info = WindowInfo {
             windowless_rendering_enabled: true as _,
@@ -172,18 +184,15 @@ impl CefBrowserBackend {
             .host()
             .and_then(|host| host.add_dev_tools_message_observer(Some(&mut devtools_observer)));
 
-        self.browsers.insert(
-            session_id.clone(),
-            CefBrowserHandle {
-                browser,
-                _client: client,
-                _devtools_observer: devtools_observer,
-                _devtools_registration: devtools_registration,
-            },
-        );
-        self.shared
-            .borrow_mut()
-            .set_viewport(session_id, BrowserViewportSize::default());
+        let handle = CefBrowserHandle {
+            browser,
+            _client: client,
+            _devtools_observer: devtools_observer,
+            _devtools_registration: devtools_registration,
+        };
+        warm_new_browser(&handle);
+
+        self.browsers.insert(session_id.clone(), handle);
         Ok(())
     }
 
@@ -422,8 +431,10 @@ impl CefBrowserBackend {
         }
 
         let events = self.shared.borrow_mut().drain();
-        let changed =
-            !events.frames.is_empty() || !events.loads.is_empty() || !events.viewports.is_empty();
+        let changed = !events.frames.is_empty()
+            || !events.loads.is_empty()
+            || !events.console_entries.is_empty()
+            || !events.viewports.is_empty();
         for frame in events.frames {
             if let Some(session) = sessions.get_mut(&frame.session_id) {
                 session.set_latest_frame(frame.frame);
@@ -436,6 +447,17 @@ impl CefBrowserBackend {
                     CefLoadState::Ended => session.set_loading(false),
                     CefLoadState::Failed(error) => session.set_load_error(error),
                 }
+            }
+        }
+        for entry in events.console_entries {
+            if let Some(session) = sessions.get_mut(&entry.session_id) {
+                session.push_console_entry(
+                    entry.level,
+                    entry.message,
+                    entry.source,
+                    entry.line,
+                    entry.timestamp_ms,
+                );
             }
         }
         for (session_id, viewport) in events.viewports {
@@ -469,6 +491,19 @@ struct CefBrowserHandle {
     _devtools_registration: Option<Registration>,
 }
 
+fn warm_new_browser(handle: &CefBrowserHandle) {
+    if let Some(host) = handle.browser.host() {
+        host.was_resized();
+    }
+    for _ in 0..NEW_BROWSER_WARMUP_PUMP_ITERATIONS {
+        do_message_loop_work();
+        if let Some(host) = handle.browser.host() {
+            host.send_external_begin_frame();
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 #[derive(Default)]
 struct CefSharedState {
     next_frame_epoch: u64,
@@ -476,6 +511,7 @@ struct CefSharedState {
     frame_limiters: BTreeMap<BrowserSessionId, BrowserFrameRateLimiter>,
     frames: Vec<CefFrameEvent>,
     loads: Vec<CefLoadEvent>,
+    console_entries: Vec<CefConsoleEvent>,
     viewports: BTreeMap<BrowserSessionId, BrowserViewportSize>,
     viewport_events: Vec<(BrowserSessionId, BrowserViewportSize)>,
     devtools_results: BTreeMap<i32, CefDevToolsResult>,
@@ -506,6 +542,24 @@ impl CefSharedState {
         self.loads.push(CefLoadEvent { session_id, state });
     }
 
+    fn push_console_entry(
+        &mut self,
+        session_id: BrowserSessionId,
+        level: BrowserConsoleLevel,
+        message: String,
+        source: Option<String>,
+        line: Option<u32>,
+    ) {
+        self.console_entries.push(CefConsoleEvent {
+            session_id,
+            level,
+            message,
+            source,
+            line,
+            timestamp_ms: browser_console_timestamp_ms(),
+        });
+    }
+
     fn set_viewport(&mut self, session_id: BrowserSessionId, viewport: BrowserViewportSize) {
         self.viewports.insert(session_id.clone(), viewport);
         self.viewport_events.push((session_id, viewport));
@@ -532,6 +586,7 @@ impl CefSharedState {
         CefSharedDrain {
             frames: std::mem::take(&mut self.frames),
             loads: std::mem::take(&mut self.loads),
+            console_entries: std::mem::take(&mut self.console_entries),
             viewports: std::mem::take(&mut self.viewport_events),
         }
     }
@@ -540,6 +595,7 @@ impl CefSharedState {
 struct CefSharedDrain {
     frames: Vec<CefFrameEvent>,
     loads: Vec<CefLoadEvent>,
+    console_entries: Vec<CefConsoleEvent>,
     viewports: Vec<(BrowserSessionId, BrowserViewportSize)>,
 }
 
@@ -551,6 +607,15 @@ struct CefFrameEvent {
 struct CefLoadEvent {
     session_id: BrowserSessionId,
     state: CefLoadState,
+}
+
+struct CefConsoleEvent {
+    session_id: BrowserSessionId,
+    level: BrowserConsoleLevel,
+    message: String,
+    source: Option<String>,
+    line: Option<u32>,
+    timestamp_ms: u64,
 }
 
 struct CefDevToolsResult {
@@ -825,6 +890,8 @@ impl HunkCefDevToolsMessageObserverBuilder {
 struct HunkCefClient {
     render_handler: RenderHandler,
     load_handler: LoadHandler,
+    display_handler: DisplayHandler,
+    context_menu_handler: ContextMenuHandler,
 }
 
 wrap_client! {
@@ -840,12 +907,101 @@ wrap_client! {
         fn load_handler(&self) -> Option<LoadHandler> {
             Some(self.client.load_handler.clone())
         }
+
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(self.client.display_handler.clone())
+        }
+
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(self.client.context_menu_handler.clone())
+        }
     }
 }
 
 impl HunkCefClientBuilder {
     fn build(client: HunkCefClient) -> Client {
         Self::new(client)
+    }
+}
+
+#[derive(Clone)]
+struct HunkCefDisplayHandler {
+    session_id: BrowserSessionId,
+    shared: Rc<RefCell<CefSharedState>>,
+}
+
+wrap_display_handler! {
+    struct HunkCefDisplayHandlerBuilder {
+        handler: HunkCefDisplayHandler,
+    }
+
+    impl DisplayHandler {
+        fn on_console_message(
+            &self,
+            _browser: Option<&mut Browser>,
+            level: LogSeverity,
+            message: Option<&CefString>,
+            source: Option<&CefString>,
+            line: ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int {
+            self.handler.shared.borrow_mut().push_console_entry(
+                self.handler.session_id.clone(),
+                browser_console_level(level),
+                message.map(CefString::to_string).unwrap_or_default(),
+                source.map(CefString::to_string).filter(|source| !source.is_empty()),
+                u32::try_from(line).ok().filter(|line| *line > 0),
+            );
+            true as _
+        }
+    }
+}
+
+impl HunkCefDisplayHandlerBuilder {
+    fn build(handler: HunkCefDisplayHandler) -> DisplayHandler {
+        Self::new(handler)
+    }
+}
+
+#[derive(Clone)]
+struct HunkCefContextMenuHandler;
+
+wrap_context_menu_handler! {
+    struct HunkCefContextMenuHandlerBuilder {
+        handler: HunkCefContextMenuHandler,
+    }
+
+    impl ContextMenuHandler {
+        fn on_before_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _params: Option<&mut ContextMenuParams>,
+            model: Option<&mut MenuModel>,
+        ) {
+            if let Some(model) = model {
+                model.clear();
+            }
+        }
+
+        fn run_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _params: Option<&mut ContextMenuParams>,
+            _model: Option<&mut MenuModel>,
+            callback: Option<&mut RunContextMenuCallback>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(callback) = callback {
+                callback.cancel();
+            }
+            true as _
+        }
+    }
+}
+
+impl HunkCefContextMenuHandlerBuilder {
+    fn build(handler: HunkCefContextMenuHandler) -> ContextMenuHandler {
+        Self::new(handler)
     }
 }
 
@@ -874,6 +1030,24 @@ fn cef_mouse_button(button: BrowserMouseButton) -> MouseButtonType {
         BrowserMouseButton::Middle => MouseButtonType::MIDDLE,
         BrowserMouseButton::Right => MouseButtonType::RIGHT,
     }
+}
+
+fn browser_console_level(level: LogSeverity) -> BrowserConsoleLevel {
+    match level.get_raw() {
+        raw if raw == LogSeverity::VERBOSE.get_raw() => BrowserConsoleLevel::Verbose,
+        raw if raw == LogSeverity::WARNING.get_raw() => BrowserConsoleLevel::Warning,
+        raw if raw == LogSeverity::ERROR.get_raw() || raw == LogSeverity::FATAL.get_raw() => {
+            BrowserConsoleLevel::Error
+        }
+        _ => BrowserConsoleLevel::Info,
+    }
+}
+
+fn browser_console_timestamp_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or_default()
 }
 
 fn cef_input_modifiers(modifiers: BrowserInputModifiers) -> u32 {
@@ -1315,30 +1489,69 @@ fn install_macos_nsapplication_compatibility() {
             0
         }
 
-        let class_name = c"GPUIApplication";
-        let selector_name = c"isHandlingSendEvent";
-        let type_encoding = c"c@:";
+        extern "C" fn set_handling_send_event(
+            _this: *mut c_void,
+            _selector: *mut c_void,
+            _handling_send_event: c_schar,
+        ) {
+        }
 
         // Some Chromium macOS paths ask NSApp whether it is inside sendEvent:.
-        // GPUI's custom NSApplication subclass does not currently implement
-        // that private selector, so add a conservative false response.
+        // GPUI's NSApplication subclass does not currently implement Chromium's
+        // private CrAppProtocol selectors, so add conservative no-op responses.
         unsafe {
+            let class_name = c"GPUIApplication";
             let class = objc_getClass(class_name.as_ptr());
             if class.is_null() {
                 return;
             }
-            let selector = sel_registerName(selector_name.as_ptr());
-            if selector.is_null() || !class_getInstanceMethod(class, selector).is_null() {
-                return;
-            }
-            class_addMethod(
+            add_missing_macos_method(
                 class,
-                selector,
+                c"isHandlingSendEvent",
                 is_handling_send_event as *const c_void,
-                type_encoding.as_ptr(),
+                c"c@:",
+                sel_registerName,
+                class_getInstanceMethod,
+                class_addMethod,
+            );
+            add_missing_macos_method(
+                class,
+                c"setHandlingSendEvent:",
+                set_handling_send_event as *const c_void,
+                c"v@:c",
+                sel_registerName,
+                class_getInstanceMethod,
+                class_addMethod,
             );
         }
     });
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn add_missing_macos_method(
+    class: *mut std::ffi::c_void,
+    selector_name: &'static std::ffi::CStr,
+    implementation: *const std::ffi::c_void,
+    type_encoding: &'static std::ffi::CStr,
+    sel_register_name: unsafe extern "C" fn(*const std::os::raw::c_char) -> *mut std::ffi::c_void,
+    class_get_instance_method: unsafe extern "C" fn(
+        *mut std::ffi::c_void,
+        *mut std::ffi::c_void,
+    ) -> *mut std::ffi::c_void,
+    class_add_method: unsafe extern "C" fn(
+        *mut std::ffi::c_void,
+        *mut std::ffi::c_void,
+        *const std::ffi::c_void,
+        *const std::os::raw::c_char,
+    ) -> bool,
+) {
+    let selector = unsafe { sel_register_name(selector_name.as_ptr()) };
+    if selector.is_null() || !unsafe { class_get_instance_method(class, selector) }.is_null() {
+        return;
+    }
+    unsafe {
+        class_add_method(class, selector, implementation, type_encoding.as_ptr());
+    }
 }
 
 #[cfg(target_os = "macos")]

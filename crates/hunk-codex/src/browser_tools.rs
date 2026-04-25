@@ -1,26 +1,31 @@
 use crate::protocol::DynamicToolCallParams;
 use crate::protocol::DynamicToolSpec;
 use crate::protocol::ThreadStartParams;
-use hunk_browser::BrowserAction;
+use hunk_browser::{BrowserAction, BrowserConsoleLevel};
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
 
-pub const BROWSER_NAVIGATE_TOOL: &str = "hunk.browser_navigate";
-pub const BROWSER_RELOAD_TOOL: &str = "hunk.browser_reload";
-pub const BROWSER_STOP_TOOL: &str = "hunk.browser_stop";
-pub const BROWSER_BACK_TOOL: &str = "hunk.browser_back";
-pub const BROWSER_FORWARD_TOOL: &str = "hunk.browser_forward";
-pub const BROWSER_SNAPSHOT_TOOL: &str = "hunk.browser_snapshot";
-pub const BROWSER_CLICK_TOOL: &str = "hunk.browser_click";
-pub const BROWSER_TYPE_TOOL: &str = "hunk.browser_type";
-pub const BROWSER_PRESS_TOOL: &str = "hunk.browser_press";
-pub const BROWSER_SCROLL_TOOL: &str = "hunk.browser_scroll";
-pub const BROWSER_SCREENSHOT_TOOL: &str = "hunk.browser_screenshot";
+pub const BROWSER_TOOL_NAMESPACE: &str = "hunk_browser";
+pub const BROWSER_NAVIGATE_TOOL: &str = "navigate";
+pub const BROWSER_RELOAD_TOOL: &str = "reload";
+pub const BROWSER_STOP_TOOL: &str = "stop";
+pub const BROWSER_BACK_TOOL: &str = "back";
+pub const BROWSER_FORWARD_TOOL: &str = "forward";
+pub const BROWSER_SNAPSHOT_TOOL: &str = "snapshot";
+pub const BROWSER_CLICK_TOOL: &str = "click";
+pub const BROWSER_TYPE_TOOL: &str = "type";
+pub const BROWSER_PRESS_TOOL: &str = "press";
+pub const BROWSER_SCROLL_TOOL: &str = "scroll";
+pub const BROWSER_SCREENSHOT_TOOL: &str = "screenshot";
+pub const BROWSER_CONSOLE_TOOL: &str = "console";
 
-pub const BROWSER_DEVELOPER_INSTRUCTIONS: &str = r#"When the embedded Hunk browser is available, use it through the hunk.browser_* tools instead of trying to launch an external browser.
-Use hunk.browser_snapshot before clicking or typing. The snapshot returns a snapshotEpoch and indexed visible elements; pass that same snapshotEpoch and element index to hunk.browser_click or hunk.browser_type.
-Use hunk.browser_reload, hunk.browser_stop, hunk.browser_back, and hunk.browser_forward for browser-level navigation controls.
+pub const BROWSER_DEVELOPER_INSTRUCTIONS: &str = r#"When the user asks to open, browse, inspect, or control the built-in/in-app/embedded browser, use Hunk's embedded browser dynamic tools.
+Use the tools in the hunk_browser namespace directly. Do not use Browser Use/browser-use plugins, browser-use skills, Playwright, Selenium, Node REPL scripts, or an external system browser for Hunk's built-in browser.
+Use hunk_browser.snapshot before clicking or typing. The snapshot returns a snapshotEpoch and indexed visible elements; pass that same snapshotEpoch and element index to hunk_browser.click or hunk_browser.type.
+Use hunk_browser.console when the user asks what is in the browser console, asks about console errors/warnings/logs, or asks for browser debugging output.
+Use hunk_browser.navigate with an absolute URL when the user asks to go to a site.
+Use hunk_browser.reload, hunk_browser.stop, hunk_browser.back, and hunk_browser.forward for browser-level navigation controls.
 If a browser action reports that confirmation is required, stop and wait for the user decision before continuing."#;
 
 pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
@@ -144,6 +149,28 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
             "Capture a screenshot of the embedded browser viewport.",
             object_schema(json!({}), &[]),
         ),
+        spec(
+            BROWSER_CONSOLE_TOOL,
+            "Read recent console messages from the embedded browser page.",
+            object_schema(
+                json!({
+                    "level": {
+                        "type": "string",
+                        "enum": ["verbose", "info", "warning", "error"],
+                        "description": "Optional console level filter."
+                    },
+                    "sinceSequence": {
+                        "type": "integer",
+                        "description": "Optional sequence cursor. Only entries after this sequence are returned."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum entries to return. Defaults to 100 and is capped by Hunk."
+                    }
+                }),
+                &[],
+            ),
+        ),
     ]
 }
 
@@ -161,7 +188,12 @@ pub fn is_browser_dynamic_tool(tool: &str) -> bool {
             | BROWSER_PRESS_TOOL
             | BROWSER_SCROLL_TOOL
             | BROWSER_SCREENSHOT_TOOL
+            | BROWSER_CONSOLE_TOOL
     )
+}
+
+pub fn is_browser_dynamic_tool_call(namespace: Option<&str>, tool: &str) -> bool {
+    namespace == Some(BROWSER_TOOL_NAMESPACE) && is_browser_dynamic_tool(tool)
 }
 
 pub fn apply_browser_thread_start_context(params: &mut ThreadStartParams) {
@@ -183,12 +215,29 @@ pub fn apply_browser_thread_start_context(params: &mut ThreadStartParams) {
 pub enum BrowserDynamicToolRequest {
     Snapshot,
     Screenshot,
+    Console {
+        level: Option<BrowserConsoleLevel>,
+        since_sequence: Option<u64>,
+        limit: usize,
+    },
     Action(BrowserAction),
 }
 
 pub fn parse_browser_dynamic_tool_request(
     params: &DynamicToolCallParams,
 ) -> Result<BrowserDynamicToolRequest, String> {
+    if !is_browser_dynamic_tool_call(params.namespace.as_deref(), params.tool.as_str()) {
+        return Err(format!(
+            "unsupported browser dynamic tool '{}{}'",
+            params
+                .namespace
+                .as_deref()
+                .map(|namespace| format!("{namespace}."))
+                .unwrap_or_default(),
+            params.tool
+        ));
+    }
+
     match params.tool.as_str() {
         BROWSER_NAVIGATE_TOOL => {
             let args = parse_args::<NavigateArgs>(&params.arguments)?;
@@ -232,6 +281,14 @@ pub fn parse_browser_dynamic_tool_request(
             }))
         }
         BROWSER_SCREENSHOT_TOOL => Ok(BrowserDynamicToolRequest::Screenshot),
+        BROWSER_CONSOLE_TOOL => {
+            let args = parse_args::<ConsoleArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Console {
+                level: args.level.map(parse_console_level).transpose()?,
+                since_sequence: args.since_sequence,
+                limit: args.limit.unwrap_or(100).clamp(1, 500),
+            })
+        }
         _ => Err(format!(
             "unsupported browser dynamic tool '{}'",
             params.tool
@@ -295,6 +352,29 @@ struct ScrollArgs {
     index: Option<u32>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConsoleArgs {
+    #[serde(default)]
+    level: Option<String>,
+    #[serde(default)]
+    since_sequence: Option<u64>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+fn parse_console_level(level: String) -> Result<BrowserConsoleLevel, String> {
+    match level.trim().to_ascii_lowercase().as_str() {
+        "verbose" => Ok(BrowserConsoleLevel::Verbose),
+        "info" => Ok(BrowserConsoleLevel::Info),
+        "warning" | "warn" => Ok(BrowserConsoleLevel::Warning),
+        "error" => Ok(BrowserConsoleLevel::Error),
+        _ => Err(format!(
+            "invalid browser console level '{level}'; expected verbose, info, warning, or error"
+        )),
+    }
+}
+
 fn parse_args<T>(arguments: &Value) -> Result<T, String>
 where
     T: for<'de> Deserialize<'de>,
@@ -305,7 +385,7 @@ where
 
 fn spec(name: &str, description: &str, input_schema: Value) -> DynamicToolSpec {
     DynamicToolSpec {
-        namespace: None,
+        namespace: Some(BROWSER_TOOL_NAMESPACE.to_string()),
         name: name.to_string(),
         description: description.to_string(),
         input_schema,

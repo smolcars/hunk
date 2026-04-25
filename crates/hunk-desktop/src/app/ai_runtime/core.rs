@@ -342,6 +342,7 @@ impl AiWorkerRuntime {
                 if self.browser_tools_enabled {
                     apply_browser_thread_start_context(&mut params);
                 }
+                trace_thread_start_browser_context(self.browser_tools_enabled, &params);
                 let response =
                     self.service
                         .start_thread(&mut self.session, params, self.request_timeout)?;

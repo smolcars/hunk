@@ -26,10 +26,12 @@ fn unsupported_tool_returns_structured_error() {
 fn browser_tool_returns_structured_error_until_executor_is_connected() {
     let temp = tempdir().expect("temp dir should be created");
     let registry = DynamicToolRegistry::new();
-    let response = registry.execute(
-        temp.path(),
-        &dynamic_tool_params("hunk.browser_snapshot", serde_json::json!({})),
+    let mut params = dynamic_tool_params(
+        hunk_codex::browser_tools::BROWSER_SNAPSHOT_TOOL,
+        serde_json::json!({}),
     );
+    params.namespace = Some(hunk_codex::browser_tools::BROWSER_TOOL_NAMESPACE.to_string());
+    let response = registry.execute(temp.path(), &params);
 
     assert!(!response.success);
     assert!(

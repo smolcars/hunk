@@ -47,7 +47,14 @@ pub(crate) fn ai_workspace_item_display_label(kind: &str) -> &str {
     }
 }
 
-fn ai_workspace_browser_tool_action_label(tool: &str) -> Option<&'static str> {
+fn ai_workspace_browser_tool_action_label(
+    namespace: Option<&str>,
+    tool: &str,
+) -> Option<&'static str> {
+    if !hunk_codex::browser_tools::is_browser_dynamic_tool_call(namespace, tool) {
+        return None;
+    }
+
     match tool {
         hunk_codex::browser_tools::BROWSER_NAVIGATE_TOOL => Some("Navigate"),
         hunk_codex::browser_tools::BROWSER_RELOAD_TOOL => Some("Reload"),
@@ -60,6 +67,7 @@ fn ai_workspace_browser_tool_action_label(tool: &str) -> Option<&'static str> {
         hunk_codex::browser_tools::BROWSER_PRESS_TOOL => Some("Press"),
         hunk_codex::browser_tools::BROWSER_SCROLL_TOOL => Some("Scroll"),
         hunk_codex::browser_tools::BROWSER_SCREENSHOT_TOOL => Some("Screenshot"),
+        hunk_codex::browser_tools::BROWSER_CONSOLE_TOOL => Some("Console"),
         _ => None,
     }
 }
@@ -191,12 +199,14 @@ fn ai_workspace_tool_compact_preview_text(
             Some(format!("{server} :: {tool}"))
         }
         Some(hunk_codex::protocol::ThreadItem::DynamicToolCall {
+            namespace,
             tool,
             arguments,
             content_items,
             ..
         }) => Some(
             ai_workspace_browser_tool_compact_summary(
+                namespace.as_deref(),
                 tool.as_str(),
                 &arguments,
                 content_items.as_deref(),
@@ -229,9 +239,13 @@ fn ai_workspace_tool_summary_is_placeholder(summary: &str) -> bool {
 }
 
 pub(crate) fn ai_workspace_tool_header_title(item: &hunk_codex::state::ItemSummary) -> String {
-    if let Some(hunk_codex::protocol::ThreadItem::DynamicToolCall { tool, .. }) =
-        ai_workspace_timeline_item_thread_item(item)
-        && hunk_codex::browser_tools::is_browser_dynamic_tool(tool.as_str())
+    if let Some(hunk_codex::protocol::ThreadItem::DynamicToolCall {
+        namespace, tool, ..
+    }) = ai_workspace_timeline_item_thread_item(item)
+        && hunk_codex::browser_tools::is_browser_dynamic_tool_call(
+            namespace.as_deref(),
+            tool.as_str(),
+        )
     {
         return "Browser".to_string();
     }
@@ -259,11 +273,12 @@ pub(crate) fn ai_workspace_tool_compact_summary(
 }
 
 fn ai_workspace_browser_tool_compact_summary(
+    namespace: Option<&str>,
     tool: &str,
     arguments: &serde_json::Value,
     content_items: Option<&[hunk_codex::protocol::DynamicToolCallOutputContentItem]>,
 ) -> Option<String> {
-    let action = ai_workspace_browser_tool_action_label(tool)?;
+    let action = ai_workspace_browser_tool_action_label(namespace, tool)?;
     if let Some(confirmation) = ai_workspace_browser_confirmation_summary(content_items) {
         return Some(confirmation);
     }
@@ -310,7 +325,8 @@ fn ai_workspace_browser_tool_compact_summary(
             format!("{action} {direction} {pages} pages")
         }
         hunk_codex::browser_tools::BROWSER_SNAPSHOT_TOOL
-        | hunk_codex::browser_tools::BROWSER_SCREENSHOT_TOOL => action.to_string(),
+        | hunk_codex::browser_tools::BROWSER_SCREENSHOT_TOOL
+        | hunk_codex::browser_tools::BROWSER_CONSOLE_TOOL => action.to_string(),
         _ => return None,
     };
     Some(summary)
@@ -669,7 +685,7 @@ mod tests {
     ) -> hunk_codex::state::ItemSummary {
         let thread_item = hunk_codex::protocol::ThreadItem::DynamicToolCall {
             id: "call-1".to_string(),
-            namespace: None,
+            namespace: Some(hunk_codex::browser_tools::BROWSER_TOOL_NAMESPACE.to_string()),
             tool: tool.to_string(),
             arguments,
             status: hunk_codex::protocol::DynamicToolCallStatus::Completed,

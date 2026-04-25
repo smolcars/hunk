@@ -1,6 +1,7 @@
 use hunk_browser::{
-    BrowserAction, BrowserElement, BrowserElementRect, BrowserError, BrowserFrame,
-    BrowserHistoryDirection, BrowserRuntime, BrowserSessionId, BrowserSnapshot, BrowserViewport,
+    BrowserAction, BrowserConsoleLevel, BrowserElement, BrowserElementRect, BrowserError,
+    BrowserFrame, BrowserHistoryDirection, BrowserRuntime, BrowserSessionId, BrowserSnapshot,
+    BrowserViewport,
 };
 
 #[test]
@@ -128,6 +129,47 @@ fn load_error_stops_loading_and_is_cleared_by_navigation() {
 
     assert!(session.state().loading);
     assert_eq!(session.state().load_error, None);
+}
+
+#[test]
+fn console_entries_are_sequenced_filtered_and_bounded() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    session.push_console_entry(
+        BrowserConsoleLevel::Info,
+        "first",
+        Some("https://example.com/app.js".to_string()),
+        Some(10),
+        1000,
+    );
+    session.push_console_entry(BrowserConsoleLevel::Error, "second", None, None, 1001);
+
+    let errors = session.recent_console_entries(Some(BrowserConsoleLevel::Error), None, 10);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].sequence, 2);
+    assert_eq!(errors[0].message, "second");
+
+    let since_first = session.recent_console_entries(None, Some(1), 10);
+    assert_eq!(since_first.len(), 1);
+    assert_eq!(since_first[0].sequence, 2);
+
+    for index in 0..510 {
+        session.push_console_entry(
+            BrowserConsoleLevel::Info,
+            format!("entry {index}"),
+            None,
+            None,
+            2000 + index,
+        );
+    }
+
+    assert_eq!(session.console_entries().len(), 500);
+    assert_eq!(session.console_entries()[0].sequence, 13);
+
+    let limited = session.recent_console_entries(None, None, 3);
+    assert_eq!(limited.len(), 3);
+    assert_eq!(limited[0].sequence, 510);
+    assert_eq!(limited[2].sequence, 512);
 }
 
 #[test]

@@ -5,6 +5,8 @@ use crate::frame::BrowserFrame;
 use crate::runtime::{BrowserRuntimeOperation, BrowserRuntimeStatus};
 use crate::snapshot::{BrowserElement, BrowserPhysicalPoint, BrowserSnapshot};
 
+const MAX_CONSOLE_ENTRIES: usize = 500;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct BrowserSessionId(String);
 
@@ -40,11 +42,33 @@ pub struct BrowserSessionState {
     pub latest_frame: Option<BrowserFrameMetadata>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserConsoleEntry {
+    pub sequence: u64,
+    pub level: BrowserConsoleLevel,
+    pub message: String,
+    pub source: Option<String>,
+    pub line: Option<u32>,
+    pub timestamp_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserConsoleLevel {
+    Verbose,
+    Info,
+    Warning,
+    Error,
+}
+
 #[derive(Debug, Clone)]
 pub struct BrowserSession {
     state: BrowserSessionState,
     latest_snapshot: BrowserSnapshot,
     latest_frame: Option<BrowserFrame>,
+    console_entries: Vec<BrowserConsoleEntry>,
+    next_console_sequence: u64,
     back_history: Vec<String>,
     forward_history: Vec<String>,
 }
@@ -66,6 +90,8 @@ impl BrowserSession {
             },
             latest_snapshot,
             latest_frame: None,
+            console_entries: Vec::new(),
+            next_console_sequence: 0,
             back_history: Vec::new(),
             forward_history: Vec::new(),
         }
@@ -81,6 +107,57 @@ impl BrowserSession {
 
     pub fn latest_frame(&self) -> Option<&BrowserFrame> {
         self.latest_frame.as_ref()
+    }
+
+    pub fn console_entries(&self) -> &[BrowserConsoleEntry] {
+        &self.console_entries
+    }
+
+    pub fn recent_console_entries(
+        &self,
+        level: Option<BrowserConsoleLevel>,
+        since_sequence: Option<u64>,
+        limit: usize,
+    ) -> Vec<BrowserConsoleEntry> {
+        let mut entries = self
+            .console_entries
+            .iter()
+            .filter(|entry| level.is_none_or(|level| entry.level == level))
+            .filter(|entry| since_sequence.is_none_or(|since| entry.sequence > since))
+            .cloned()
+            .collect::<Vec<_>>();
+        let limit = limit.max(1);
+        if entries.len() > limit {
+            entries.drain(0..entries.len() - limit);
+        }
+        entries
+    }
+
+    pub fn push_console_entry(
+        &mut self,
+        level: BrowserConsoleLevel,
+        message: impl Into<String>,
+        source: Option<String>,
+        line: Option<u32>,
+        timestamp_ms: u64,
+    ) {
+        self.next_console_sequence = self.next_console_sequence.saturating_add(1);
+        self.console_entries.push(BrowserConsoleEntry {
+            sequence: self.next_console_sequence,
+            level,
+            message: message.into(),
+            source,
+            line,
+            timestamp_ms,
+        });
+        if self.console_entries.len() > MAX_CONSOLE_ENTRIES {
+            let overflow = self.console_entries.len() - MAX_CONSOLE_ENTRIES;
+            self.console_entries.drain(0..overflow);
+        }
+    }
+
+    pub fn clear_console_entries(&mut self) {
+        self.console_entries.clear();
     }
 
     pub fn navigate(&mut self, url: impl Into<String>) {

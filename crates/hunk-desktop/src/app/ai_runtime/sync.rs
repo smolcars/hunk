@@ -557,11 +557,26 @@ impl AiWorkerRuntime {
                         params.turn_id.as_str(),
                         Instant::now(),
                     );
-                    let response = if hunk_codex::browser_tools::is_browser_dynamic_tool(
+                    let response = if hunk_codex::browser_tools::is_browser_dynamic_tool_call(
+                        params.namespace.as_deref(),
                         params.tool.as_str(),
                     ) {
+                        tracing::debug!(
+                            thread_id = %params.thread_id,
+                            turn_id = %params.turn_id,
+                            call_id = %params.call_id,
+                            tool = %params.tool,
+                            "routing browser dynamic tool through embedded browser UI bridge"
+                        );
                         self.execute_browser_dynamic_tool_via_ui(event_tx, params.clone())
                     } else {
+                        tracing::debug!(
+                            thread_id = %params.thread_id,
+                            turn_id = %params.turn_id,
+                            call_id = %params.call_id,
+                            tool = %params.tool,
+                            "routing dynamic tool through workspace executor"
+                        );
                         self.dynamic_tool_executor
                             .execute(self.service.cwd(), &params)
                     };

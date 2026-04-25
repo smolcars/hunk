@@ -108,13 +108,17 @@ mod ai_tests {
         assert!(
             tools
                 .iter()
-                .any(|tool| tool.name == hunk_codex::browser_tools::BROWSER_SNAPSHOT_TOOL)
+                .any(|tool| {
+                    tool.namespace.as_deref()
+                        == Some(hunk_codex::browser_tools::BROWSER_TOOL_NAMESPACE)
+                        && tool.name == hunk_codex::browser_tools::BROWSER_SNAPSHOT_TOOL
+                })
         );
         assert!(
             params
                 .developer_instructions
                 .as_deref()
-                .is_some_and(|instructions| instructions.contains("hunk.browser_snapshot"))
+                .is_some_and(|instructions| instructions.contains("hunk_browser.snapshot"))
         );
     }
 
