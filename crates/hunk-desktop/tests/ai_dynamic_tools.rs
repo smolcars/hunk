@@ -1,6 +1,11 @@
 use std::fs;
 
 use hunk_browser::{BrowserFrame, BrowserRuntime};
+use hunk_codex::browser_tools::{
+    BROWSER_BACK_TOOL, BROWSER_CLICK_TOOL, BROWSER_FORWARD_TOOL, BROWSER_NAVIGATE_TOOL,
+    BROWSER_RELOAD_TOOL, BROWSER_SCREENSHOT_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_STOP_TOOL,
+    BROWSER_TOOL_NAMESPACE,
+};
 use hunk_codex::protocol::{
     DynamicToolCallOutputContentItem, DynamicToolCallParams, DynamicToolCallResponse,
 };
@@ -33,7 +38,7 @@ fn browser_tool_calls_return_disabled_browser_response() {
 
     let response = executor.execute(
         temp.path(),
-        &dynamic_tool_params("hunk.browser_snapshot", serde_json::json!({})),
+        &browser_tool_params(BROWSER_SNAPSHOT_TOOL, serde_json::json!({})),
     );
 
     assert!(!response.success);
@@ -55,8 +60,8 @@ fn browser_tool_calls_validate_arguments_before_backend_routing() {
 
     let response = executor.execute(
         temp.path(),
-        &dynamic_tool_params(
-            "hunk.browser_click",
+        &browser_tool_params(
+            BROWSER_CLICK_TOOL,
             serde_json::json!({
                 "index": 42
             }),
@@ -96,8 +101,8 @@ fn browser_state_only_executor_routes_navigation_and_snapshot() {
 
     let navigate = executor.execute(
         temp.path(),
-        &dynamic_tool_params(
-            "hunk.browser_navigate",
+        &browser_tool_params(
+            BROWSER_NAVIGATE_TOOL,
             serde_json::json!({ "url": "https://example.com" }),
         ),
     );
@@ -109,7 +114,7 @@ fn browser_state_only_executor_routes_navigation_and_snapshot() {
 
     let snapshot = executor.execute(
         temp.path(),
-        &dynamic_tool_params("hunk.browser_snapshot", serde_json::json!({})),
+        &browser_tool_params(BROWSER_SNAPSHOT_TOOL, serde_json::json!({})),
     );
 
     assert!(snapshot.success);
@@ -129,7 +134,7 @@ fn browser_backend_snapshot_reports_structured_failure_when_runtime_is_not_ready
 
     let response = ai_dynamic_tools::execute_browser_dynamic_tool_with_runtime(
         &mut runtime,
-        &dynamic_tool_params("hunk.browser_snapshot", serde_json::json!({})),
+        &browser_tool_params(BROWSER_SNAPSHOT_TOOL, serde_json::json!({})),
         true,
     );
 
@@ -152,8 +157,8 @@ fn browser_state_only_executor_routes_navigation_controls() {
 
     let first = executor.execute(
         temp.path(),
-        &dynamic_tool_params(
-            "hunk.browser_navigate",
+        &browser_tool_params(
+            BROWSER_NAVIGATE_TOOL,
             serde_json::json!({ "url": "https://example.com/a" }),
         ),
     );
@@ -161,8 +166,8 @@ fn browser_state_only_executor_routes_navigation_controls() {
 
     let second = executor.execute(
         temp.path(),
-        &dynamic_tool_params(
-            "hunk.browser_navigate",
+        &browser_tool_params(
+            BROWSER_NAVIGATE_TOOL,
             serde_json::json!({ "url": "https://example.com/b" }),
         ),
     );
@@ -170,7 +175,7 @@ fn browser_state_only_executor_routes_navigation_controls() {
 
     let back = executor.execute(
         temp.path(),
-        &dynamic_tool_params("hunk.browser_back", serde_json::json!({})),
+        &browser_tool_params(BROWSER_BACK_TOOL, serde_json::json!({})),
     );
     assert!(back.success);
     let back_json = response_json(&back);
@@ -179,7 +184,7 @@ fn browser_state_only_executor_routes_navigation_controls() {
 
     let forward = executor.execute(
         temp.path(),
-        &dynamic_tool_params("hunk.browser_forward", serde_json::json!({})),
+        &browser_tool_params(BROWSER_FORWARD_TOOL, serde_json::json!({})),
     );
     assert!(forward.success);
     let forward_json = response_json(&forward);
@@ -188,7 +193,7 @@ fn browser_state_only_executor_routes_navigation_controls() {
 
     let reload = executor.execute(
         temp.path(),
-        &dynamic_tool_params("hunk.browser_reload", serde_json::json!({})),
+        &browser_tool_params(BROWSER_RELOAD_TOOL, serde_json::json!({})),
     );
     assert!(reload.success);
     let reload_json = response_json(&reload);
@@ -197,7 +202,7 @@ fn browser_state_only_executor_routes_navigation_controls() {
 
     let stop = executor.execute(
         temp.path(),
-        &dynamic_tool_params("hunk.browser_stop", serde_json::json!({})),
+        &browser_tool_params(BROWSER_STOP_TOOL, serde_json::json!({})),
     );
     assert!(stop.success);
     let stop_json = response_json(&stop);
@@ -212,8 +217,8 @@ fn browser_state_only_executor_returns_confirmation_required_for_sensitive_actio
 
     let response = executor.execute(
         temp.path(),
-        &dynamic_tool_params(
-            "hunk.browser_navigate",
+        &browser_tool_params(
+            BROWSER_NAVIGATE_TOOL,
             serde_json::json!({ "url": "mailto:support@example.com" }),
         ),
     );
@@ -232,8 +237,8 @@ fn browser_state_only_executor_returns_confirmation_required_for_sensitive_actio
 
 #[test]
 fn browser_tool_confirmation_detects_sensitive_actions() {
-    let params = dynamic_tool_params(
-        "hunk.browser_navigate",
+    let params = browser_tool_params(
+        BROWSER_NAVIGATE_TOOL,
         serde_json::json!({ "url": "mailto:support@example.com" }),
     );
 
@@ -249,8 +254,8 @@ fn browser_tool_confirmation_detects_sensitive_actions() {
 
 #[test]
 fn browser_confirmation_declined_response_is_structured() {
-    let response = ai_dynamic_tools::browser_confirmation_declined_response(&dynamic_tool_params(
-        "hunk.browser_navigate",
+    let response = ai_dynamic_tools::browser_confirmation_declined_response(&browser_tool_params(
+        BROWSER_NAVIGATE_TOOL,
         serde_json::json!({ "url": "mailto:support@example.com" }),
     ));
 
@@ -268,8 +273,8 @@ fn browser_safety_override_allows_confirmed_sensitive_action() {
 
     let response = ai_dynamic_tools::execute_browser_dynamic_tool_with_runtime_and_safety(
         &mut runtime,
-        &dynamic_tool_params(
-            "hunk.browser_navigate",
+        &browser_tool_params(
+            BROWSER_NAVIGATE_TOOL,
             serde_json::json!({ "url": "mailto:support@example.com" }),
         ),
         false,
@@ -289,8 +294,8 @@ fn browser_state_only_executor_rejects_unknown_snapshot_elements() {
 
     let response = executor.execute(
         temp.path(),
-        &dynamic_tool_params(
-            "hunk.browser_click",
+        &browser_tool_params(
+            BROWSER_CLICK_TOOL,
             serde_json::json!({
                 "snapshotEpoch": 0,
                 "index": 1
@@ -322,7 +327,7 @@ fn browser_screenshot_returns_input_image_when_frame_exists() {
 
     let response = executor.execute(
         temp.path(),
-        &dynamic_tool_params("hunk.browser_screenshot", serde_json::json!({})),
+        &browser_tool_params(BROWSER_SCREENSHOT_TOOL, serde_json::json!({})),
     );
 
     assert!(response.success);
@@ -344,6 +349,12 @@ fn dynamic_tool_params(tool: &str, arguments: serde_json::Value) -> DynamicToolC
         tool: tool.to_string(),
         arguments,
     }
+}
+
+fn browser_tool_params(tool: &str, arguments: serde_json::Value) -> DynamicToolCallParams {
+    let mut params = dynamic_tool_params(tool, arguments);
+    params.namespace = Some(BROWSER_TOOL_NAMESPACE.to_string());
+    params
 }
 
 fn response_image_url(response: &DynamicToolCallResponse) -> Option<String> {

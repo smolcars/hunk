@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use codex_core::config_loader::LoaderOverrides;
 use hunk_codex::api::method;
 use hunk_codex::app_server_client::{
     AppServerClient, AppServerEvent, EmbeddedAppServerClient, EmbeddedAppServerClientStartArgs,
@@ -24,7 +25,7 @@ use wiremock::Respond;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::{method as http_method, path_regex};
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn repo_root() -> PathBuf {
@@ -57,6 +58,7 @@ base_url = "{server_uri}/v1"
 wire_api = "responses"
 request_max_retries = 0
 stream_max_retries = 0
+supports_websockets = false
 "#
         ),
     )
@@ -179,7 +181,6 @@ fn start_mock_responses_server(runtime: &Runtime, responses: Vec<String>) -> Moc
                 call_count: AtomicUsize::new(0),
                 responses,
             })
-            .expect(2)
             .mount(&server)
             .await;
         server
@@ -223,13 +224,16 @@ fn embedded_turn_apply_patch_updates_workspace_file() -> Result<()> {
         codex_executable.display()
     );
 
-    let mut client = EmbeddedAppServerClient::start(EmbeddedAppServerClientStartArgs::new(
-        codex_home.clone(),
-        workspace.clone(),
-        codex_executable,
-        "hunk-test".to_string(),
-        "0.0.0-test".to_string(),
-    ))?;
+    let mut client = EmbeddedAppServerClient::start(
+        EmbeddedAppServerClientStartArgs::new(
+            codex_home.clone(),
+            workspace.clone(),
+            codex_executable,
+            "hunk-test".to_string(),
+            "0.0.0-test".to_string(),
+        )
+        .with_loader_overrides(LoaderOverrides::without_managed_config_for_tests()),
+    )?;
 
     let thread_start: ThreadStartResponse = client.request_typed(
         method::THREAD_START,

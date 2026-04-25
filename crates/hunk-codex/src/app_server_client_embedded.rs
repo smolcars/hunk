@@ -9,6 +9,7 @@ use crate::protocol::SessionSource;
 use codex_app_server::in_process::InProcessServerEvent;
 use codex_arg0::Arg0DispatchPaths;
 use codex_core::config::ConfigBuilder;
+use codex_core::config_loader::LoaderOverrides;
 use codex_exec_server::EnvironmentManager;
 use codex_exec_server::EnvironmentManagerArgs;
 use codex_exec_server::ExecServerRuntimePaths;
@@ -38,6 +39,7 @@ pub struct EmbeddedAppServerClientStartArgs {
     pub codex_executable: PathBuf,
     pub client_name: String,
     pub client_version: String,
+    pub loader_overrides: LoaderOverrides,
 }
 
 impl EmbeddedAppServerClientStartArgs {
@@ -54,7 +56,13 @@ impl EmbeddedAppServerClientStartArgs {
             codex_executable,
             client_name,
             client_version,
+            loader_overrides: LoaderOverrides::default(),
         }
+    }
+
+    pub fn with_loader_overrides(mut self, loader_overrides: LoaderOverrides) -> Self {
+        self.loader_overrides = loader_overrides;
+        self
     }
 }
 
@@ -71,6 +79,7 @@ impl EmbeddedAppServerClient {
             let config = ConfigBuilder::default()
                 .codex_home(args.codex_home.clone())
                 .fallback_cwd(Some(args.fallback_cwd.clone()))
+                .loader_overrides(args.loader_overrides.clone())
                 .build()
                 .await
                 .map_err(|error| {
@@ -114,6 +123,7 @@ impl EmbeddedAppServerClient {
                 client_version: args.client_version,
                 experimental_api: true,
                 opt_out_notification_methods: Vec::new(),
+                loader_overrides: args.loader_overrides,
                 channel_capacity: DEFAULT_APP_SERVER_CHANNEL_CAPACITY.max(1),
             })
             .await
