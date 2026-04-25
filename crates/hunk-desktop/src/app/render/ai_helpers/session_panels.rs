@@ -359,6 +359,9 @@ fn ai_account_summary(
         Some(hunk_codex::protocol::Account::Chatgpt { email, plan_type }) => {
             format!("ChatGPT: {email} ({plan_type:?})")
         }
+        Some(hunk_codex::protocol::Account::AmazonBedrock { .. }) => {
+            "Signed in with Amazon Bedrock.".to_string()
+        }
         None if requires_openai_auth => {
             "Sign in with ChatGPT to run coding agents.".to_string()
         }
