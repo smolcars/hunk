@@ -117,11 +117,17 @@ jobs:
         run: cargo build -p hunk-desktop --locked
         shell: bash
 
-      - name: Build hunk-desktop with embedded browser
+      - name: Test and build hunk-desktop with embedded browser
         run: |
           ./scripts/prepare_browser_cef_runtime.sh \
             x86_64-unknown-linux-gnu \
             "$PWD/assets/browser-runtime/cef/linux/runtime"
+          CEF_PATH="$PWD/assets/browser-runtime/cef/linux/runtime" \
+          LD_LIBRARY_PATH="$PWD/assets/browser-runtime/cef/linux/runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            cargo test \
+              -p hunk-browser \
+              --locked \
+              --features cef
           CEF_PATH="$PWD/assets/browser-runtime/cef/linux/runtime" \
           LD_LIBRARY_PATH="$PWD/assets/browser-runtime/cef/linux/runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             cargo build \

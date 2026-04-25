@@ -2,7 +2,7 @@
 
 This folder is reserved for the bundled CEF runtime used by Hunk's embedded AI browser.
 
-Pinned smoke target:
+Pinned runtime target:
 
 - OS/architecture: `aarch64-apple-darwin`
 - Candidate Rust binding: `tauri-apps/cef-rs`
@@ -15,12 +15,14 @@ Pinned smoke target:
 The exported runtime is generated under `assets/browser-runtime/cef/macos/runtime` and is intentionally ignored by git. Recreate it with:
 
 ```sh
-nix develop -c ./scripts/smoke_browser_cef_macos.sh
+nix develop -c ./scripts/prepare_browser_cef_runtime.sh \
+  aarch64-apple-darwin \
+  assets/browser-runtime/cef/macos/runtime
 ```
 
 Refresh the pinned runtime metadata by updating:
 
-- `HUNK_CEF_RS_REV` in `scripts/smoke_browser_cef_macos.sh` when moving to a newer cef-rs commit.
+- `HUNK_CEF_RS_REV` in `scripts/prepare_browser_cef_runtime.sh` and `scripts/prepare_browser_cef_runtime_windows.ps1` when moving to a newer cef-rs commit.
 - The candidate binding and CEF version lines in this README.
 - The archive name and SHA-1 from `assets/browser-runtime/cef/macos/runtime/archive.json` after export.
 - The notes in `docs/AI_BROWSER_CEF_TODO.md`.
@@ -28,7 +30,9 @@ Refresh the pinned runtime metadata by updating:
 Then rerun:
 
 ```sh
-HUNK_CEF_SKIP_EXPORT=0 nix develop -c ./scripts/smoke_browser_cef_macos.sh
+HUNK_CEF_FORCE_EXPORT=1 nix develop -c ./scripts/prepare_browser_cef_runtime.sh \
+  aarch64-apple-darwin \
+  assets/browser-runtime/cef/macos/runtime
 ```
 
 Validate an existing staged runtime with:
@@ -42,7 +46,7 @@ Validate both a staged runtime and an app bundle with:
 ```sh
 nix develop -c ./scripts/validate_browser_cef_macos.sh \
   assets/browser-runtime/cef/macos/runtime \
-  target/browser-cef-smoke/hunk-browser-cef-smoke.app
+  target/packager/macos/Hunk.app
 ```
 
 Package the staged runtime into an existing macOS app bundle with:
@@ -63,10 +67,9 @@ Expected staged files:
 - `hunk-browser-helper` subprocess binary or helper app
 - `archive.json` or an equivalent pinned manifest with source URL, version, size, and checksum
 
-The current smoke script creates a temporary Hunk-owned app bundle under
-`target/browser-cef-smoke/hunk-browser-cef-smoke.app` and validates that a
-windowless CEF browser can load `https://example.com` and produce a nonblank
-BGRA frame. That bundle is build output and should not be committed.
+Release and PR packaging now use `scripts/prepare_browser_cef_runtime.sh` to
+download/export the pinned CEF runtime through cef-rs before validating and
+building browser-enabled Hunk binaries.
 
 Checksum process:
 

@@ -52,12 +52,9 @@ Implementation notes:
 - The example provides the exact callback shape we need: `wrap_render_handler!` implements `view_rect`, `screen_info`, `on_paint`, and optional `on_accelerated_paint`. For Hunk v1, start with CPU BGRA `on_paint`; accelerated OSR can follow after the basic GPUI texture path is stable.
 - Required browser controls exist in the generated bindings: `load_url`, `go_back`, `go_forward`, `reload`, `stop_load`, `was_resized`, `set_focus`, `send_key_event`, `send_mouse_click_event`, `send_mouse_move_event`, `send_mouse_wheel_event`, `execute_dev_tools_method`, and `add_dev_tools_message_observer`.
 - cef-rs includes `bundle-cef-app`, helper naming metadata, and platform bundle support. We should adapt the packaging behavior rather than inventing a parallel CEF layout.
-- Smoke command run successfully on macOS arm64: `CARGO_HOME=/Volumes/hulk/dev/cache/cargo HUNK_CEF_SKIP_EXPORT=1 HUNK_CEF_SMOKE_RUN_SECONDS=8 nix develop -c ./scripts/smoke_browser_cef_macos.sh`.
-- Hunk-owned smoke command run successfully on macOS arm64: `CARGO_HOME=/Volumes/hulk/dev/cache/cargo HUNK_CEF_SKIP_EXPORT=1 HUNK_CEF_SMOKE_RUN_SECONDS=0 nix develop -c ./scripts/smoke_browser_cef_macos.sh`.
-- Hunk-owned smoke result: `CEF smoke produced nonblank frame: Some((1024, 768)), frames=1, load_done=true`.
-- The Hunk-owned smoke is intentionally isolated under `tools/browser-cef-smoke` instead of the normal workspace so regular Hunk builds do not resolve, build, or link CEF until the production adapter is ready.
-- macOS CEF subprocesses require helper app bundles under `Contents/Frameworks`. The smoke script creates the general helper plus GPU, Renderer, Plugin, and Alerts variants, and the smoke binary points `Settings.browser_subprocess_path` at the general helper.
-- The smoke uses cef-rs as a dependency for generated bindings and runtime/build utilities. Do not copy generated bindings into Hunk unless cef-rs becomes unmaintained or blocks a required API; copying them would make Hunk own a large version-sensitive FFI surface.
+- The initial Hunk-owned smoke tool under `tools/browser-cef-smoke` proved the OSR path and was removed after the production adapter, package validation, and browser-enabled CI builds replaced it.
+- macOS CEF subprocesses require helper app bundles under `Contents/Frameworks`. The production packaging path creates the general helper plus GPU, Renderer, Plugin, and Alerts variants from `hunk-browser-helper`.
+- Runtime preparation uses cef-rs as a dependency for generated bindings and runtime/build utilities. Do not copy generated bindings into Hunk unless cef-rs becomes unmaintained or blocks a required API; copying them would make Hunk own a large version-sensitive FFI surface.
 - Exported runtime size: about `325M`; bundled cef-rs OSR app size: about `342M`.
 - cef-rs `cef-dll-sys` hardcodes the Ninja CMake generator, so Hunk's nix dev shell now includes `ninja`.
 
@@ -243,9 +240,8 @@ Implementation notes:
 
 - [x] Add `assets/browser-runtime` to desktop package resources.
 - [x] Add CEF runtime validation scripts for macOS first.
-  - [x] Add `scripts/smoke_browser_cef_macos.sh` to clone/pin cef-rs, export CEF, build the cef-rs OSR bundle, and optionally launch it.
-  - [x] Extend the smoke script to build and run a Hunk-owned OSR app bundle with helper apps and a nonblank pixel assertion.
-  - [x] Extend the Hunk-owned smoke app to verify click/key input, DevTools snapshot evaluation, and screenshot frame capture.
+  - [x] Add `scripts/prepare_browser_cef_runtime.sh` to clone/pin cef-rs, export CEF, and validate the staged runtime.
+  - [x] Add `scripts/prepare_browser_cef_runtime_windows.ps1` for Windows release and CI packaging.
   - [x] Add Hunk-specific runtime layout validation for release packaging.
 - [x] Update macOS packaging to include:
   - [x] CEF framework/runtime files
@@ -266,16 +262,15 @@ Exit criteria:
 Implementation notes:
 
 - `scripts/validate_browser_cef_macos.sh` validates the staged runtime and, when given an app bundle path, validates the copied framework plus macOS CEF helper app layout.
-- The smoke script runs the validator before launching the Hunk-owned CEF smoke app, so helper/framework packaging regressions fail before runtime startup.
+- The prepare scripts run the platform validators after exporting CEF, so missing runtime files fail before browser-enabled builds or package assembly.
 - `scripts/package_browser_cef_macos.sh` copies the staged CEF framework into `Contents/Frameworks`, creates the macOS helper app variants from `hunk-browser-helper`, and runs the CEF bundle validator. `scripts/package_macos_release.sh` invokes it before signing.
 - `scripts/package_macos_release.sh` signs nested CEF helper `.app` bundles and the CEF `.framework` before signing the top-level Hunk app and submitting the DMG to the existing notarization flow.
 - `scripts/validate_release_bundle_layout.sh macos-app` now invokes the CEF app-bundle validator with the production `Hunk Browser` helper prefix.
-- Package layout smoke passed against `target/browser-cef-smoke/package-validation.app` after building `hunk-browser-helper` with `--features hunk-browser-helper/cef-subprocess`.
 - macOS release packaging now builds `hunk-desktop` with `--features hunk-desktop/cef-browser` so packaged apps include both the bundled CEF runtime and a CEF-enabled Hunk binary.
 - Local macOS release packaging passed and produced `target/dist/Hunk-0.0.6-macos-arm64.dmg`; a guarded launch of `target/packager/macos/Hunk.app/Contents/MacOS/hunk_desktop` started from the `.app` layout without CEF ICU/resource initialization errors.
 - Linux packaging now validates `assets/browser-runtime/cef/linux/runtime`, builds `hunk-browser-helper` with `cef-subprocess`, builds `hunk-desktop` with `cef-browser`, copies the flat CEF runtime into the packaged private `lib` directory, and validates both tarball and system install-root layouts.
 - Windows packaging now validates `assets/browser-runtime/cef/windows/runtime`, builds the CEF helper and CEF-enabled desktop binary, injects the CEF runtime and helper next to the MSI-installed executable, and validates the MSI payload includes the helper plus core CEF files.
-- Linux and Windows package scripts intentionally fail early until their platform CEF runtimes are staged under `assets/browser-runtime/cef/<platform>/runtime`.
+- Linux and Windows package scripts download/export their platform CEF runtimes with the pinned cef-rs exporter before validating and building browser-enabled binaries.
 
 ## Phase 6: Final Verification
 
