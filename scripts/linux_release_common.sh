@@ -256,6 +256,11 @@ bundle_linux_runtime_dependencies() {
     local current="${queue[0]}"
     queue=("${queue[@]:1}")
 
+    local dependency_output
+    if ! dependency_output="$(list_linux_runtime_dependencies "$current")"; then
+      exit 1
+    fi
+
     while IFS= read -r dependency_path; do
       [[ -n "$dependency_path" ]] || continue
 
@@ -283,7 +288,7 @@ bundle_linux_runtime_dependencies() {
       cp -L "$dependency_path" "$destination_dir/$dependency_name"
       chmod 755 "$destination_dir/$dependency_name"
       queue+=("$dependency_path")
-    done < <(list_linux_runtime_dependencies "$current")
+    done <<<"$dependency_output"
   done
 }
 
@@ -377,7 +382,9 @@ prepare_linux_system_install_root() {
   chmod +x "$SYSTEM_REAL_BINARY_PATH" "$SYSTEM_LAUNCHER_PATH" "$SYSTEM_LIB_DIR/hunk-browser-helper" "$SYSTEM_RUNTIME_PATH"
 
   patch_linux_runtime_paths "$SYSTEM_REAL_BINARY_PATH" "$SYSTEM_PRIVATE_LIB_DIR" '$ORIGIN/lib'
+  patch_linux_runtime_paths "$SYSTEM_LIB_DIR/hunk-browser-helper" "$SYSTEM_PRIVATE_LIB_DIR" '$ORIGIN/lib'
   validate_linux_runtime_bundle "$SYSTEM_REAL_BINARY_PATH" "$SYSTEM_PRIVATE_LIB_DIR"
+  validate_linux_runtime_bundle "$SYSTEM_LIB_DIR/hunk-browser-helper" "$SYSTEM_PRIVATE_LIB_DIR"
 
   write_linux_system_wrapper "$SYSTEM_WRAPPER_PATH" "/usr/lib/$PACKAGE_NAME/$PACKAGE_NAME"
   write_linux_system_wrapper "$SYSTEM_WRAPPER_ALIAS_PATH" "/usr/lib/$PACKAGE_NAME/$PACKAGE_NAME"

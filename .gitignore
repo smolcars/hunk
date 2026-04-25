@@ -4,6 +4,8 @@ assets/codex-runtime/macos
 assets/codex-runtime/linux
 assets/codex-runtime/windows
 assets/browser-runtime/cef/macos/*
+assets/browser-runtime/cef/linux/*
+assets/browser-runtime/cef/windows/*
 !assets/browser-runtime/cef/macos/README.md
 tools/*/target/
 .DS_Store

@@ -30,6 +30,11 @@
             with pkgs;
             [
               alsa-lib
+              at-spi2-atk
+              atk
+              bzip2
+              cairo
+              cups
               dbus.lib
               expat
               fontconfig
@@ -37,15 +42,22 @@
               libcap
               libdrm
               libffi
+              libgbm
               libglvnd
               libgit2
               libxkbcommon
               llvmPackages.libllvm
               mesa
+              nspr
+              nss
+              openssl
+              pango
               stdenv.cc.cc.lib
+              udev
               vulkan-loader
               wayland
               libx11
+              libxcomposite
               libxcursor
               libxdamage
               libxext
@@ -91,15 +103,26 @@
                 gnumake
                 clang
                 alsa-lib
+                at-spi2-atk
+                atk
+                bzip2
+                cairo
+                cups
                 libcap
                 dbus
                 expat
                 fontconfig
                 libgit2
                 glib
+                libgbm
+                nspr
+                nss
+                pango
+                udev
                 vulkan-loader
                 wayland
                 libx11
+                libxcomposite
                 libxcb
                 libxkbcommon
                 zstd

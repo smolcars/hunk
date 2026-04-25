@@ -1,5 +1,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+#[cfg(target_os = "linux")]
+use std::ffi::OsStr;
 #[cfg(target_os = "macos")]
 use std::os::unix::ffi::OsStrExt;
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
@@ -670,6 +672,8 @@ wrap_app! {
             append_macos_cef_switches(command_line, &self.app.cef_paths);
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             append_flat_cef_switches(command_line, &self.app.cef_runtime_dir);
+            #[cfg(target_os = "linux")]
+            append_linux_cef_compositor_switches(command_line);
         }
 
         fn browser_process_handler(&self) -> Option<cef::BrowserProcessHandler> {
@@ -716,6 +720,8 @@ wrap_browser_process_handler! {
             append_macos_cef_switches(command_line, &self.handler.cef_paths);
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             append_flat_cef_switches(command_line, &self.handler.cef_runtime_dir);
+            #[cfg(target_os = "linux")]
+            append_linux_cef_compositor_switches(command_line);
         }
     }
 }
@@ -1340,6 +1346,10 @@ fn backend_error(message: impl Into<String>) -> BrowserError {
 #[cfg(test)]
 mod tests {
     use super::browser_snapshot_expression;
+    #[cfg(target_os = "linux")]
+    use super::linux_cef_ozone_platform;
+    #[cfg(target_os = "linux")]
+    use std::ffi::OsStr;
 
     #[test]
     fn snapshot_expression_redacts_sensitive_values_and_uses_viewport_rects() {
@@ -1348,6 +1358,30 @@ mod tests {
         assert!(expression.contains("isSensitiveValueElement(element) ? ''"));
         assert!(!expression.contains("x: rect.x + window.scrollX"));
         assert!(!expression.contains("y: rect.y + window.scrollY"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_cef_ozone_platform_uses_x11_when_wayland_is_empty() {
+        assert_eq!(
+            linux_cef_ozone_platform(Some(OsStr::new("")), Some(OsStr::new(":0"))),
+            Some("x11")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_cef_ozone_platform_prefers_wayland_when_available() {
+        assert_eq!(
+            linux_cef_ozone_platform(Some(OsStr::new("wayland-0")), Some(OsStr::new(":0"))),
+            Some("wayland")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_cef_ozone_platform_is_unset_without_display() {
+        assert_eq!(linux_cef_ozone_platform(None, None), None);
     }
 }
 
@@ -1494,6 +1528,42 @@ fn append_flat_cef_switches(command_line: &mut CommandLine, runtime_dir: &PathBu
             runtime_dir.join("locales").to_string_lossy().as_ref(),
         )),
     );
+}
+
+#[cfg(target_os = "linux")]
+fn append_linux_cef_compositor_switches(command_line: &mut CommandLine) {
+    let ozone_platform = linux_cef_ozone_platform(
+        std::env::var_os("WAYLAND_DISPLAY").as_deref(),
+        std::env::var_os("DISPLAY").as_deref(),
+    );
+
+    if let Some(ozone_platform) = ozone_platform {
+        command_line.append_switch_with_value(
+            Some(&"ozone-platform".into()),
+            Some(&CefString::from(ozone_platform)),
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_cef_ozone_platform(
+    wayland_display: Option<&OsStr>,
+    x11_display: Option<&OsStr>,
+) -> Option<&'static str> {
+    if os_str_is_non_empty(wayland_display) {
+        Some("wayland")
+    } else if os_str_is_non_empty(x11_display) {
+        Some("x11")
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn os_str_is_non_empty(value: Option<&OsStr>) -> bool {
+    value
+        .map(|value| !value.to_string_lossy().is_empty())
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "macos")]

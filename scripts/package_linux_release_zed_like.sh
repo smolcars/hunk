@@ -118,8 +118,11 @@ prepare_zed_like_linux_release_bundle() {
 
   echo "Bundling Linux shared libraries into experimental Zed-like release bundle..." >&2
   bundle_linux_runtime_dependencies "$BINARY_SOURCE_PATH" "$PACKAGE_LIB_DIR"
+  bundle_linux_runtime_dependencies "$BROWSER_HELPER_SOURCE_PATH" "$PACKAGE_LIB_DIR"
   patch_linux_runtime_paths "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR" '$ORIGIN/lib'
+  patch_linux_runtime_paths "$PACKAGED_BROWSER_HELPER_PATH" "$PACKAGE_LIB_DIR" '$ORIGIN/lib'
   validate_linux_runtime_bundle "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR"
+  validate_linux_runtime_bundle "$PACKAGED_BROWSER_HELPER_PATH" "$PACKAGE_LIB_DIR"
   "$ROOT_DIR/scripts/validate_release_bundle_layout.sh" linux-package "$PACKAGE_DIR"
   "$ROOT_DIR/scripts/validate_browser_cef_linux.sh" "$BROWSER_CEF_SOURCE_DIR" linux-package "$PACKAGE_DIR" >/dev/null
 }
