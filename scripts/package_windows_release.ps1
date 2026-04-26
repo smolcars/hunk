@@ -38,6 +38,33 @@ function Test-WindowsCodexRuntimeBundle {
     }
 }
 
+function Assert-CommandAvailable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Command,
+        [string]$EnvironmentVariable,
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    if ($EnvironmentVariable) {
+        $override = [Environment]::GetEnvironmentVariable($EnvironmentVariable)
+        if (-not [string]::IsNullOrWhiteSpace($override)) {
+            return
+        }
+    }
+
+    if (Get-Command $Command -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    if ($EnvironmentVariable) {
+        throw "Missing required Windows packaging tool: $Description. Install '$Command' or set `$env:$EnvironmentVariable."
+    }
+
+    throw "Missing required Windows packaging tool: $Description. Install '$Command' and ensure it is on PATH."
+}
+
 function Get-WindowsRuntimeSidecarDlls {
     param(
         [Parameter(Mandatory = $true)]
@@ -299,13 +326,15 @@ try {
     $packagerOutDir = Join-Path $targetDir "packager"
     Write-Host "Downloading bundled Codex runtime for Windows..."
     & ./scripts/download_codex_runtime_windows.ps1 | Out-Null
-    Write-Host "Validating bundled Codex runtime for Windows..."
-    Test-WindowsCodexRuntimeBundle -RootDir $rootDir
-    & $validateBundleScript -RootDir $rootDir
     Write-Host "Preparing bundled CEF runtime for Windows..."
     & (Join-Path $PSScriptRoot "prepare_browser_cef_runtime_windows.ps1") -TargetTriple $targetTriple -RuntimeDir $browserCefRuntimeDir
     $env:CEF_PATH = $browserCefRuntimeDir
     $env:PATH = "$env:PATH;$browserCefRuntimeDir"
+    Write-Host "Validating Windows release bundle inputs..."
+    Test-WindowsCodexRuntimeBundle -RootDir $rootDir
+    & $validateBundleScript -RootDir $rootDir
+    Assert-CommandAvailable -Command "cmake" -EnvironmentVariable "CMAKE" -Description "CMake for cef-rs"
+    Assert-CommandAvailable -Command "ninja" -EnvironmentVariable "CMAKE_MAKE_PROGRAM" -Description "Ninja for cef-rs"
     Write-Host "Building Windows CEF helper..."
     cargo build -p hunk-browser-helper --release --target $targetTriple --locked --features hunk-browser-helper/cef-subprocess
     Write-Host "Building Windows release binary..."
