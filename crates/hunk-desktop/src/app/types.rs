@@ -353,6 +353,7 @@ impl AiWorkspaceRightPaneMode {
 
 struct AiBrowserRenderFrameCache {
     thread_id: String,
+    tab_id: hunk_browser::BrowserTabId,
     frame_epoch: u64,
     width: u32,
     height: u32,

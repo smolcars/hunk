@@ -735,7 +735,8 @@ impl DiffViewer {
             .create_tab(thread_id.as_str(), None, true);
         self.ai_browser_render_frame_cache = None;
         self.ai_ensure_active_browser_tab_backend(thread_id.as_str(), cx);
-        self.ai_sync_browser_address_input(cx);
+        self.ai_sync_browser_address_input_for_current_tab(cx, true);
+        self.ai_refresh_browser_render_frame_cache_for_selected_thread();
         cx.notify();
     }
 
@@ -757,7 +758,8 @@ impl DiffViewer {
         }
         self.ai_browser_render_frame_cache = None;
         self.ai_ensure_active_browser_tab_backend(thread_id.as_str(), cx);
-        self.ai_sync_browser_address_input(cx);
+        self.ai_sync_browser_address_input_for_current_tab(cx, true);
+        self.ai_refresh_browser_render_frame_cache_for_selected_thread();
         cx.notify();
     }
 
@@ -779,7 +781,8 @@ impl DiffViewer {
         }
         self.ai_browser_render_frame_cache = None;
         self.ai_ensure_active_browser_tab_backend(thread_id.as_str(), cx);
-        self.ai_sync_browser_address_input(cx);
+        self.ai_sync_browser_address_input_for_current_tab(cx, true);
+        self.ai_refresh_browser_render_frame_cache_for_selected_thread();
         cx.notify();
     }
 
@@ -790,6 +793,21 @@ impl DiffViewer {
                 self.ai_browser_runtime
                     .ensure_session(thread_id.to_string())
                     .set_load_error(err.to_string());
+            }
+            if let Some(viewport) = self.ai_browser_surface_viewport
+                && let Err(err) = self
+                    .ai_browser_runtime
+                    .resize_backend_session(thread_id, viewport)
+            {
+                error!("failed to size embedded browser tab: {err:#}");
+                self.ai_browser_runtime
+                    .ensure_session(thread_id.to_string())
+                    .set_load_error(err.to_string());
+            }
+            if self.ai_browser_surface_focused
+                && let Err(err) = self.ai_browser_runtime.focus_backend_session(thread_id, true)
+            {
+                error!("failed to focus embedded browser tab: {err:#}");
             }
             self.ai_sync_browser_pump(cx);
         } else {
@@ -880,16 +898,19 @@ impl DiffViewer {
         let Some(thread_id) = self.ai_selected_thread_id.as_deref() else {
             return;
         };
-        let Some(frame) = self
-            .ai_browser_runtime
-            .session(thread_id)
-            .and_then(|session| session.latest_frame())
-        else {
+        let Some(session) = self.ai_browser_runtime.session(thread_id) else {
+            self.ai_browser_render_frame_cache = None;
+            return;
+        };
+        let tab_id = session.active_tab_id().clone();
+        let Some(frame) = session.latest_frame() else {
+            self.ai_browser_render_frame_cache = None;
             return;
         };
         let metadata = frame.metadata();
         if let Some(cache) = &self.ai_browser_render_frame_cache
             && cache.thread_id == thread_id
+            && cache.tab_id == tab_id
             && cache.frame_epoch == metadata.frame_epoch
             && cache.width == metadata.width
             && cache.height == metadata.height
@@ -903,6 +924,7 @@ impl DiffViewer {
         let image = std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)]));
         self.ai_browser_render_frame_cache = Some(AiBrowserRenderFrameCache {
             thread_id: thread_id.to_string(),
+            tab_id,
             frame_epoch: metadata.frame_epoch,
             width: metadata.width,
             height: metadata.height,
@@ -1001,6 +1023,7 @@ impl DiffViewer {
             hunk_browser::BrowserAction::Navigate { url },
             cx,
         );
+        self.ai_sync_browser_address_input_for_current_tab(cx, true);
     }
 
     pub(super) fn ai_handle_browser_dynamic_tool_call(
@@ -1145,6 +1168,14 @@ impl DiffViewer {
     }
 
     fn ai_sync_browser_address_input(&mut self, cx: &mut Context<Self>) {
+        self.ai_sync_browser_address_input_for_current_tab(cx, false);
+    }
+
+    fn ai_sync_browser_address_input_for_current_tab(
+        &mut self,
+        cx: &mut Context<Self>,
+        force: bool,
+    ) {
         let Some(thread_id) = self.ai_selected_thread_id.as_deref() else {
             return;
         };
@@ -1159,7 +1190,7 @@ impl DiffViewer {
         let input_state = self.ai_browser_address_input_state.clone();
         let _ = cx.update_window(window_handle, move |_, window, cx| {
             input_state.update(cx, |state, cx| {
-                if state.focus_handle(cx).is_focused(window) {
+                if !force && state.focus_handle(cx).is_focused(window) {
                     return;
                 }
                 if state.value().as_ref() != url.as_str() {
@@ -1195,14 +1226,15 @@ impl DiffViewer {
         device_scale_factor: f32,
         cx: &mut Context<Self>,
     ) {
-        if self.ai_browser_runtime.status() != hunk_browser::BrowserRuntimeStatus::Ready {
-            return;
-        }
         let Ok(viewport) =
             hunk_browser::BrowserViewportSize::new(width, height, device_scale_factor)
         else {
             return;
         };
+        self.ai_browser_surface_viewport = Some(viewport);
+        if self.ai_browser_runtime.status() != hunk_browser::BrowserRuntimeStatus::Ready {
+            return;
+        }
         let already_current = self
             .ai_browser_runtime
             .session(thread_id)

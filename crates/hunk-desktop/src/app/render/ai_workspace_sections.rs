@@ -1887,6 +1887,13 @@ impl DiffViewer {
             .and_then(|thread_id| self.ai_browser_runtime.session(thread_id))
             .map(|session| session.state().clone());
         let session_state = session_snapshot;
+        let browser_tabs = session_state
+            .as_ref()
+            .map(|state| state.tabs.clone())
+            .unwrap_or_default();
+        let active_tab_id = session_state
+            .as_ref()
+            .map(|state| state.active_tab_id.clone());
         let browser_render_image = selected_thread_id.as_deref().and_then(|thread_id| {
             let latest_frame = session_state
                 .as_ref()
@@ -1895,6 +1902,7 @@ impl DiffViewer {
                 .as_ref()
                 .filter(|cache| {
                     cache.thread_id == thread_id
+                        && active_tab_id.as_ref() == Some(&cache.tab_id)
                         && cache.frame_epoch == latest_frame.frame_epoch
                         && cache.width == latest_frame.width
                         && cache.height == latest_frame.height
@@ -1922,14 +1930,6 @@ impl DiffViewer {
                     ("Idle", cx.theme().muted_foreground)
                 }
             });
-        let browser_tabs = session_state
-            .as_ref()
-            .map(|state| state.tabs.clone())
-            .unwrap_or_default();
-        let active_tab_id = session_state
-            .as_ref()
-            .map(|state| state.active_tab_id.clone());
-
         v_flex()
             .size_full()
             .min_h_0()
@@ -2318,41 +2318,63 @@ impl DiffViewer {
                             }
                         }
                     })
-                    .child(if let Some(render_image) = browser_render_image {
-                        if let Some(thread_id) = selected_thread_id.clone() {
-                            AiBrowserSurfaceElement {
-                                view: view.clone(),
-                                thread_id,
-                                image: render_image,
-                            }
-                            .into_any_element()
+                    .child(if let Some(thread_id) = selected_thread_id.clone() {
+                        let has_render_image = browser_render_image.is_some();
+                        let (empty_title, empty_body) = if runtime_ready {
+                            (
+                                "Waiting for tab contents",
+                                "This tab is ready and will appear as soon as CEF paints its first frame.",
+                            )
                         } else {
-                            div().size_full().into_any_element()
-                        }
-                    } else {
-                        v_flex()
+                            (
+                                "Browser runtime not connected",
+                                "CEF offscreen rendering will attach here once the browser backend is available.",
+                            )
+                        };
+                        div()
+                            .relative()
                             .size_full()
-                            .items_center()
-                            .justify_center()
-                            .gap_2()
-                            .px_4()
-                            .child(Icon::new(IconName::Globe).size(px(32.0)))
                             .child(
-                                div()
-                                    .text_sm()
-                                    .font_semibold()
-                                    .text_color(cx.theme().foreground)
-                                    .child("Browser runtime not connected"),
+                                AiBrowserSurfaceElement {
+                                    view: view.clone(),
+                                    thread_id,
+                                    image: browser_render_image.clone(),
+                                }
+                                .into_any_element(),
                             )
-                            .child(
-                                div()
-                                    .max_w(px(360.0))
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .text_align(gpui::TextAlign::Center)
-                                    .child("CEF offscreen rendering will attach here once the browser backend is available."),
-                            )
+                            .when(!has_render_image, |this| {
+                                this.child(
+                                    v_flex()
+                                        .absolute()
+                                        .top_0()
+                                        .right_0()
+                                        .bottom_0()
+                                        .left_0()
+                                        .items_center()
+                                        .justify_center()
+                                        .gap_2()
+                                        .px_4()
+                                        .child(Icon::new(IconName::Globe).size(px(32.0)))
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_semibold()
+                                                .text_color(cx.theme().foreground)
+                                                .child(empty_title),
+                                        )
+                                        .child(
+                                            div()
+                                                .max_w(px(360.0))
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .text_align(gpui::TextAlign::Center)
+                                                .child(empty_body),
+                                        ),
+                                )
+                            })
                             .into_any_element()
+                    } else {
+                        div().size_full().into_any_element()
                     }),
             )
             .into_any_element()

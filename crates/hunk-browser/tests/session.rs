@@ -125,7 +125,33 @@ fn new_session_starts_with_one_active_tab() {
     assert_eq!(session.active_tab_id().as_str(), "tab-1");
     assert_eq!(session.tab_summaries().len(), 1);
     assert_eq!(session.tab_summaries()[0].tab_id, *session.active_tab_id());
+    assert_eq!(session.state().url.as_deref(), Some("about:blank"));
+    assert_eq!(
+        session.tab_summaries()[0].url.as_deref(),
+        Some("about:blank")
+    );
     assert_eq!(session.state().active_tab_id, *session.active_tab_id());
+}
+
+#[test]
+fn create_blank_tab_uses_about_blank_without_loading() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.navigate("https://example.com/one");
+    session.set_loading(false);
+
+    let tab_id = session.create_tab(None, true);
+
+    assert_eq!(session.active_tab_id(), &tab_id);
+    assert_eq!(session.state().url.as_deref(), Some("about:blank"));
+    assert!(!session.state().loading);
+    assert_eq!(
+        session
+            .tab_summaries()
+            .iter()
+            .find(|tab| tab.tab_id == tab_id)
+            .and_then(|tab| tab.url.as_deref()),
+        Some("about:blank")
+    );
 }
 
 #[test]
@@ -547,6 +573,40 @@ fn setting_latest_frame_updates_state_metadata_and_keeps_pixels() {
             .expect("frame should be stored")
             .bgra(),
         &[0, 0, 255, 255, 0, 255, 0, 255]
+    );
+}
+
+#[test]
+fn selecting_tab_restores_that_tabs_cached_frame() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    let first_tab_id = session.active_tab_id().clone();
+    let first_frame =
+        BrowserFrame::from_bgra(1, 1, 11, vec![1, 2, 3, 255]).expect("valid first frame");
+    session.set_latest_frame_for_tab(&first_tab_id, first_frame);
+
+    let second_tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+    let second_frame =
+        BrowserFrame::from_bgra(1, 1, 12, vec![4, 5, 6, 255]).expect("valid second frame");
+    session.set_latest_frame_for_tab(&second_tab_id, second_frame);
+
+    session
+        .select_tab(&first_tab_id)
+        .expect("first tab should still be selectable");
+
+    assert_eq!(
+        session
+            .latest_frame()
+            .expect("first tab frame should be restored")
+            .metadata()
+            .frame_epoch,
+        11
+    );
+    assert_eq!(
+        session
+            .latest_frame()
+            .expect("first tab frame should be restored")
+            .bgra(),
+        &[1, 2, 3, 255]
     );
 }
 

@@ -9,6 +9,7 @@ use crate::snapshot::{BrowserElement, BrowserPhysicalPoint, BrowserSnapshot};
 
 const MAX_CONSOLE_ENTRIES: usize = 500;
 const INITIAL_BROWSER_TAB_ID: &str = "tab-1";
+const BLANK_BROWSER_URL: &str = "about:blank";
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct BrowserSessionId(String);
@@ -132,7 +133,7 @@ impl BrowserSession {
         tab_snapshots.insert(active_tab_id.clone(), latest_snapshot.clone());
         let initial_tab = BrowserTabSummary {
             tab_id: active_tab_id.clone(),
-            url: None,
+            url: Some(BLANK_BROWSER_URL.to_string()),
             title: None,
             loading: false,
             load_error: None,
@@ -146,7 +147,7 @@ impl BrowserSession {
                 session_id,
                 active_tab_id,
                 tabs: vec![initial_tab],
-                url: None,
+                url: Some(BLANK_BROWSER_URL.to_string()),
                 title: None,
                 loading: false,
                 load_error: None,
@@ -242,13 +243,15 @@ impl BrowserSession {
         let tab_id = BrowserTabId::new(format!("tab-{}", self.next_tab_ordinal));
         self.next_tab_ordinal = self.next_tab_ordinal.saturating_add(1);
         let snapshot_epoch = self.latest_snapshot.epoch.saturating_add(1);
+        let url = url.unwrap_or_else(|| BLANK_BROWSER_URL.to_string());
+        let loading = url != BLANK_BROWSER_URL;
         self.tab_snapshots
             .insert(tab_id.clone(), BrowserSnapshot::empty(snapshot_epoch));
         let tab = BrowserTabSummary {
             tab_id: tab_id.clone(),
-            url: url.clone(),
+            url: Some(url),
             title: None,
-            loading: url.is_some(),
+            loading,
             load_error: None,
             can_go_back: false,
             can_go_forward: false,
@@ -278,7 +281,7 @@ impl BrowserSession {
         if self.state.tabs.len() == 1 {
             self.state.tabs[0] = BrowserTabSummary {
                 tab_id: self.state.active_tab_id.clone(),
-                url: None,
+                url: Some(BLANK_BROWSER_URL.to_string()),
                 title: None,
                 loading: false,
                 load_error: None,
@@ -287,7 +290,7 @@ impl BrowserSession {
                 snapshot_epoch: self.latest_snapshot.epoch.saturating_add(1),
                 latest_frame: None,
             };
-            self.state.url = None;
+            self.state.url = Some(BLANK_BROWSER_URL.to_string());
             self.state.title = None;
             self.state.loading = false;
             self.state.load_error = None;
@@ -317,7 +320,12 @@ impl BrowserSession {
     pub fn navigate(&mut self, url: impl Into<String>) {
         let url = url.into();
         if self.state.url.as_deref() != Some(url.as_str()) {
-            if let Some(current_url) = self.state.url.clone() {
+            if let Some(current_url) = self
+                .state
+                .url
+                .clone()
+                .filter(|url| url.as_str() != BLANK_BROWSER_URL)
+            {
                 self.back_history.push(current_url);
             }
             self.forward_history.clear();
@@ -326,7 +334,12 @@ impl BrowserSession {
     }
 
     pub fn reload(&mut self) -> Result<(), BrowserError> {
-        if self.state.url.is_none() {
+        if self
+            .state
+            .url
+            .as_deref()
+            .is_none_or(|url| url == BLANK_BROWSER_URL)
+        {
             return Err(BrowserError::NoPageLoaded);
         }
         self.state.loading = true;

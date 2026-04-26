@@ -702,6 +702,7 @@ impl DiffViewer {
             ai_browser_pump_active: false,
             ai_browser_pump_task: Task::ready(()),
             ai_browser_render_frame_cache: None,
+            ai_browser_surface_viewport: None,
             ai_pending_browser_approvals: Vec::new(),
             ai_browser_focus_handle: cx.focus_handle(),
             ai_browser_surface_focused: false,
