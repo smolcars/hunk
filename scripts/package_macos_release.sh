@@ -342,6 +342,7 @@ fi
   "$APP_PATH" \
   "$BROWSER_CEF_RUNTIME_DIR" \
   "$TARGET_DIR/$TARGET_TRIPLE/release/hunk-browser-helper"
+rm -rf "$APP_PATH/Contents/Resources/browser-runtime"
 "$ROOT_DIR/scripts/validate_release_bundle_layout.sh" macos-app "$APP_PATH"
 bundle_macos_non_system_dylibs "$APP_EXECUTABLE_PATH"
 echo "Validating macOS app binary dependencies..." >&2

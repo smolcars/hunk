@@ -40,6 +40,10 @@ validate_macos_app() {
   require_executable \
     "$app_path/Contents/Resources/codex-runtime/macos/codex" \
     "bundled macOS Codex runtime"
+  if [[ -e "$app_path/Contents/Resources/browser-runtime" ]]; then
+    echo "error: macOS app bundle must not include unsigned browser-runtime resources; CEF must live under Contents/Frameworks" >&2
+    exit 1
+  fi
   HUNK_CEF_HELPER_PREFIX="Hunk Browser" \
     "$root_dir/scripts/validate_browser_cef_macos.sh" \
       "$root_dir/assets/browser-runtime/cef/macos/runtime" \

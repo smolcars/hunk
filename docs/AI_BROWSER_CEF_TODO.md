@@ -264,7 +264,7 @@ Implementation notes:
 
 - `scripts/validate_browser_cef_macos.sh` validates the staged runtime and, when given an app bundle path, validates the copied framework plus macOS CEF helper app layout.
 - The prepare scripts run the platform validators after exporting CEF, so missing runtime files fail before browser-enabled builds or package assembly.
-- `scripts/package_browser_cef_macos.sh` copies the staged CEF framework into `Contents/Frameworks`, creates the macOS helper app variants from `hunk-browser-helper`, and runs the CEF bundle validator. `scripts/package_macos_release.sh` invokes it before signing.
+- `scripts/package_browser_cef_macos.sh` copies the staged CEF framework into `Contents/Frameworks`, creates the macOS helper app variants from `hunk-browser-helper`, and runs the CEF bundle validator. `scripts/package_macos_release.sh` invokes it before signing, removes the redundant `Contents/Resources/browser-runtime` copy created by the generic packager resources list, and release bundle validation fails if that unsigned duplicate returns.
 - `scripts/package_macos_release.sh` signs nested CEF helper `.app` bundles and the CEF `.framework` before signing the top-level Hunk app and submitting the DMG to the existing notarization flow.
 - `scripts/validate_release_bundle_layout.sh macos-app` now invokes the CEF app-bundle validator with the production `Hunk Browser` helper prefix.
 - macOS release packaging now builds `hunk-desktop` with `--features hunk-desktop/cef-browser` so packaged apps include both the bundled CEF runtime and a CEF-enabled Hunk binary.
