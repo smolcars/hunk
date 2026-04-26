@@ -136,20 +136,47 @@ fn backend_loading_state_updates_history_flags_and_invalidates_snapshot() {
     let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
     session.replace_snapshot(snapshot(7, "https://example.com", 4));
 
-    session.apply_backend_loading_state(true, true, false);
+    session.apply_backend_loading_state(
+        true,
+        true,
+        false,
+        Some("https://example.com/next".to_string()),
+    );
 
     assert!(session.state().loading);
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/next")
+    );
     assert!(session.state().can_go_back);
     assert!(!session.state().can_go_forward);
     assert_eq!(session.state().snapshot_epoch, 8);
     assert!(session.latest_snapshot().elements.is_empty());
 
-    session.apply_backend_loading_state(false, true, true);
+    session.apply_backend_loading_state(false, true, true, None);
 
     assert!(!session.state().loading);
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/next")
+    );
     assert!(session.state().can_go_back);
     assert!(session.state().can_go_forward);
     assert_eq!(session.state().snapshot_epoch, 8);
+}
+
+#[test]
+fn backend_url_and_title_events_update_session_state() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    session.set_url("https://example.com/changed");
+    session.set_title("Changed");
+
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/changed")
+    );
+    assert_eq!(session.state().title.as_deref(), Some("Changed"));
 }
 
 #[test]

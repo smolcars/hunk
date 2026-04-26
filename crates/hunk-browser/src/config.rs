@@ -33,8 +33,20 @@ pub struct BrowserStoragePaths {
 
 impl BrowserStoragePaths {
     pub fn from_app_data_dir(app_data_dir: impl AsRef<Path>) -> Self {
+        Self::from_app_data_dir_with_profile_id(app_data_dir, "default")
+    }
+
+    pub fn from_app_data_dir_with_profile_id(
+        app_data_dir: impl AsRef<Path>,
+        profile_id: impl AsRef<str>,
+    ) -> Self {
         let storage_root = app_data_dir.as_ref().join("browser");
-        let root_cache_path = storage_root.join("cef-root");
+        let profile_id = sanitize_profile_id(profile_id.as_ref());
+        let root_cache_path = if profile_id == "default" {
+            storage_root.join("cef-root")
+        } else {
+            storage_root.join("cef-roots").join(profile_id)
+        };
         let profile_path = root_cache_path.join("profile");
         let downloads_path = storage_root.join("downloads");
 
@@ -52,6 +64,25 @@ impl BrowserStoragePaths {
         create_dir(&self.profile_path)?;
         create_dir(&self.downloads_path)?;
         Ok(())
+    }
+}
+
+fn sanitize_profile_id(profile_id: &str) -> String {
+    let sanitized: String = profile_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .take(96)
+        .collect();
+    if sanitized.is_empty() {
+        "default".to_string()
+    } else {
+        sanitized
     }
 }
 

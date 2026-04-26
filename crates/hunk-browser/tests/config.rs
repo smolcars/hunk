@@ -22,6 +22,27 @@ fn storage_paths_are_isolated_under_browser_app_data() {
 }
 
 #[test]
+fn storage_paths_support_isolated_named_profiles() {
+    let app_data_dir = PathBuf::from("/tmp/hunk-test-app-data");
+    let paths =
+        BrowserStoragePaths::from_app_data_dir_with_profile_id(&app_data_dir, "dev profile/one");
+
+    assert_eq!(
+        paths.root_cache_path,
+        app_data_dir.join("browser/cef-roots/dev_profile_one")
+    );
+    assert_eq!(
+        paths.profile_path,
+        app_data_dir.join("browser/cef-roots/dev_profile_one/profile")
+    );
+    assert!(paths.profile_path.starts_with(&paths.root_cache_path));
+    assert_ne!(
+        paths.root_cache_path,
+        BrowserStoragePaths::from_app_data_dir(&app_data_dir).root_cache_path
+    );
+}
+
+#[test]
 fn storage_paths_create_required_directories() {
     let app_data_dir = unique_temp_dir("storage-paths");
     let paths = BrowserStoragePaths::from_app_data_dir(&app_data_dir);

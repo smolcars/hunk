@@ -5,7 +5,7 @@ start-mac:
     cargo run -p hunk-desktop
 
 start-mac-release:
-    RUST_LOG=hunk_desktop=debug,hunk_codex=debug cargo run --release -p hunk-desktop
+    RUST_LOG=hunk_desktop=debug,hunk_codex=debug cargo run -p hunk-desktop --release --features hunk-desktop/cef-browser
 
 start-windows:
     pwsh ./scripts/run_windows_dev.ps1

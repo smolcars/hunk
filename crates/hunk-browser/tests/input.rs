@@ -24,7 +24,16 @@ fn viewport_converts_physical_pixels_to_logical_points() {
 }
 
 #[test]
-fn element_click_target_uses_rect_center_and_device_scale() {
+fn viewport_converts_logical_points_to_view_coordinates() {
+    let viewport = viewport(2.0);
+
+    let point = viewport.logical_to_view_point(hunk_browser::BrowserPoint { x: 10.25, y: 20.5 });
+
+    assert_eq!(point, BrowserPhysicalPoint { x: 10, y: 21 });
+}
+
+#[test]
+fn element_click_target_uses_rect_center_view_coordinates() {
     let mut session = BrowserSession::new(BrowserSessionId::new("thread-a"));
     session.replace_snapshot(BrowserSnapshot {
         epoch: 3,
@@ -50,7 +59,7 @@ fn element_click_target_uses_rect_center_and_device_scale() {
         .element_click_target(3, 7)
         .expect("current element should have a click target");
 
-    assert_eq!(target, BrowserPhysicalPoint { x: 101, y: 71 });
+    assert_eq!(target, BrowserPhysicalPoint { x: 51, y: 36 });
 }
 
 #[test]
@@ -80,7 +89,7 @@ fn scroll_target_uses_requested_element_center() {
         .scroll_target(Some(7))
         .expect("current element should have a scroll target");
 
-    assert_eq!(target, BrowserPhysicalPoint { x: 160, y: 130 });
+    assert_eq!(target, BrowserPhysicalPoint { x: 80, y: 65 });
 }
 
 #[test]
@@ -92,7 +101,7 @@ fn scroll_target_defaults_to_viewport_center() {
         .scroll_target(None)
         .expect("viewport should have a scroll target");
 
-    assert_eq!(target, BrowserPhysicalPoint { x: 640, y: 480 });
+    assert_eq!(target, BrowserPhysicalPoint { x: 320, y: 240 });
 }
 
 #[test]
