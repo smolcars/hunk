@@ -16,7 +16,7 @@ use crate::config::BrowserRuntimeConfig;
 use crate::frame::{BrowserFrame, BrowserFrameRateLimiter};
 use crate::session::{
     BrowserAction, BrowserConsoleLevel, BrowserError, BrowserInputModifiers, BrowserMouseButton,
-    BrowserMouseInput, BrowserSession, BrowserSessionId, BrowserViewportSize,
+    BrowserMouseInput, BrowserSession, BrowserSessionId, BrowserTabId, BrowserViewportSize,
 };
 use crate::snapshot::BrowserSnapshot;
 
@@ -24,11 +24,23 @@ const DEFAULT_URL: &str = "about:blank";
 const DEVTOOLS_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(2);
 const NEW_BROWSER_WARMUP_PUMP_ITERATIONS: usize = 8;
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct CefBrowserKey {
+    session_id: BrowserSessionId,
+    tab_id: BrowserTabId,
+}
+
+impl CefBrowserKey {
+    pub(crate) fn new(session_id: BrowserSessionId, tab_id: BrowserTabId) -> Self {
+        Self { session_id, tab_id }
+    }
+}
+
 pub(crate) struct CefBrowserBackend {
     _app: cef::App,
     #[cfg(target_os = "macos")]
     _loader: MacCefLoader,
-    browsers: BTreeMap<BrowserSessionId, CefBrowserHandle>,
+    browsers: BTreeMap<CefBrowserKey, CefBrowserHandle>,
     shared: Rc<RefCell<CefSharedState>>,
 }
 
@@ -128,24 +140,26 @@ impl CefBrowserBackend {
         })
     }
 
-    pub(crate) fn ensure_session(
+    pub(crate) fn ensure_tab(
         &mut self,
         session_id: BrowserSessionId,
+        tab_id: BrowserTabId,
     ) -> Result<(), BrowserError> {
-        if self.browsers.contains_key(&session_id) {
+        let key = CefBrowserKey::new(session_id, tab_id);
+        if self.browsers.contains_key(&key) {
             return Ok(());
         }
 
         let render_handler = HunkCefRenderHandlerBuilder::build(HunkCefRenderHandler {
-            session_id: session_id.clone(),
+            key: key.clone(),
             shared: self.shared.clone(),
         });
         let load_handler = HunkCefLoadHandlerBuilder::build(HunkCefLoadHandler {
-            session_id: session_id.clone(),
+            key: key.clone(),
             shared: self.shared.clone(),
         });
         let display_handler = HunkCefDisplayHandlerBuilder::build(HunkCefDisplayHandler {
-            session_id: session_id.clone(),
+            key: key.clone(),
             shared: self.shared.clone(),
         });
         let context_menu_handler =
@@ -162,7 +176,7 @@ impl CefBrowserBackend {
         });
         self.shared
             .borrow_mut()
-            .set_viewport(session_id.clone(), BrowserViewportSize::default());
+            .set_viewport(key.clone(), BrowserViewportSize::default());
 
         let window_info = WindowInfo {
             windowless_rendering_enabled: true as _,
@@ -194,18 +208,30 @@ impl CefBrowserBackend {
         };
         warm_new_browser(&handle);
 
-        self.browsers.insert(session_id.clone(), handle);
+        self.browsers.insert(key, handle);
         Ok(())
+    }
+
+    pub(crate) fn close_tab(&mut self, session_id: &BrowserSessionId, tab_id: &BrowserTabId) {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
+        if let Some(handle) = self.browsers.remove(&key)
+            && let Some(host) = handle.browser.host()
+        {
+            host.close_browser(true as _);
+        }
+        self.shared.borrow_mut().remove_tab(&key);
     }
 
     pub(crate) fn capture_snapshot(
         &mut self,
         session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
         epoch: u64,
     ) -> Result<BrowserSnapshot, BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
         let handle = self
             .browsers
-            .get(session_id)
+            .get(&key)
             .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
         let host = handle
             .browser
@@ -249,11 +275,13 @@ impl CefBrowserBackend {
     pub(crate) fn apply_action(
         &mut self,
         session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
         action: &BrowserAction,
     ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
         let handle = self
             .browsers
-            .get(session_id)
+            .get(&key)
             .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
 
         match action {
@@ -281,15 +309,15 @@ impl CefBrowserBackend {
     pub(crate) fn resize_session(
         &mut self,
         session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
         viewport: BrowserViewportSize,
     ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
         let handle = self
             .browsers
-            .get(session_id)
+            .get(&key)
             .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
-        self.shared
-            .borrow_mut()
-            .set_viewport(session_id.clone(), viewport);
+        self.shared.borrow_mut().set_viewport(key, viewport);
         if let Some(host) = handle.browser.host() {
             host.was_resized();
             host.send_external_begin_frame();
@@ -300,11 +328,13 @@ impl CefBrowserBackend {
     pub(crate) fn focus_session(
         &mut self,
         session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
         focused: bool,
     ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
         let handle = self
             .browsers
-            .get(session_id)
+            .get(&key)
             .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
         if let Some(host) = handle.browser.host() {
             host.set_focus(focused as _);
@@ -315,11 +345,13 @@ impl CefBrowserBackend {
     pub(crate) fn send_mouse_move(
         &mut self,
         session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
         input: BrowserMouseInput,
     ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
         let handle = self
             .browsers
-            .get(session_id)
+            .get(&key)
             .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
         if let Some(host) = handle.browser.host() {
             let event = cef_mouse_event(input);
@@ -331,12 +363,14 @@ impl CefBrowserBackend {
     pub(crate) fn send_mouse_click(
         &mut self,
         session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
         input: BrowserMouseInput,
         button: BrowserMouseButton,
     ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
         let handle = self
             .browsers
-            .get(session_id)
+            .get(&key)
             .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
         if let Some(host) = handle.browser.host() {
             let event = cef_mouse_event(input);
@@ -352,13 +386,15 @@ impl CefBrowserBackend {
     pub(crate) fn send_mouse_wheel(
         &mut self,
         session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
         input: BrowserMouseInput,
         delta_x: i32,
         delta_y: i32,
     ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
         let handle = self
             .browsers
-            .get(session_id)
+            .get(&key)
             .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
         if let Some(host) = handle.browser.host() {
             let event = cef_mouse_event(input);
@@ -370,11 +406,13 @@ impl CefBrowserBackend {
     pub(crate) fn send_text(
         &mut self,
         session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
         text: &str,
     ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
         let handle = self
             .browsers
-            .get(session_id)
+            .get(&key)
             .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
         if let Some(host) = handle.browser.host() {
             for unit in text.encode_utf16() {
@@ -388,11 +426,13 @@ impl CefBrowserBackend {
     pub(crate) fn send_key_press(
         &mut self,
         session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
         keys: &str,
     ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
         let handle = self
             .browsers
-            .get(session_id)
+            .get(&key)
             .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
         let Some(host) = handle.browser.host() else {
             return Ok(());
@@ -438,12 +478,12 @@ impl CefBrowserBackend {
             || !events.console_entries.is_empty()
             || !events.viewports.is_empty();
         for frame in events.frames {
-            if let Some(session) = sessions.get_mut(&frame.session_id) {
-                session.set_latest_frame(frame.frame);
+            if let Some(session) = sessions.get_mut(&frame.key.session_id) {
+                session.set_latest_frame_for_tab(&frame.key.tab_id, frame.frame);
             }
         }
         for load in events.loads {
-            if let Some(session) = sessions.get_mut(&load.session_id) {
+            if let Some(session) = sessions.get_mut(&load.key.session_id) {
                 match load.state {
                     CefLoadState::Changed {
                         loading,
@@ -451,21 +491,26 @@ impl CefBrowserBackend {
                         can_go_forward,
                         url,
                     } => {
-                        session.apply_backend_loading_state(
+                        session.apply_backend_loading_state_for_tab(
+                            &load.key.tab_id,
                             loading,
                             can_go_back,
                             can_go_forward,
                             url,
                         );
                     }
-                    CefLoadState::UrlChanged(url) => session.set_url(url),
-                    CefLoadState::TitleChanged(title) => session.set_title(title),
-                    CefLoadState::Failed(error) => session.set_load_error(error),
+                    CefLoadState::UrlChanged(url) => session.set_url_for_tab(&load.key.tab_id, url),
+                    CefLoadState::TitleChanged(title) => {
+                        session.set_title_for_tab(&load.key.tab_id, title);
+                    }
+                    CefLoadState::Failed(error) => {
+                        session.set_load_error_for_tab(&load.key.tab_id, error);
+                    }
                 }
             }
         }
         for entry in events.console_entries {
-            if let Some(session) = sessions.get_mut(&entry.session_id) {
+            if let Some(session) = sessions.get_mut(&entry.key.session_id) {
                 session.push_console_entry(
                     entry.level,
                     entry.message,
@@ -475,9 +520,9 @@ impl CefBrowserBackend {
                 );
             }
         }
-        for (session_id, viewport) in events.viewports {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.set_viewport(viewport);
+        for (key, viewport) in events.viewports {
+            if let Some(session) = sessions.get_mut(&key.session_id) {
+                session.set_viewport_for_tab(&key.tab_id, viewport);
             }
         }
 
@@ -523,21 +568,21 @@ fn warm_new_browser(handle: &CefBrowserHandle) {
 struct CefSharedState {
     next_frame_epoch: u64,
     next_devtools_message_id: i32,
-    frame_limiters: BTreeMap<BrowserSessionId, BrowserFrameRateLimiter>,
+    frame_limiters: BTreeMap<CefBrowserKey, BrowserFrameRateLimiter>,
     frames: Vec<CefFrameEvent>,
     loads: Vec<CefLoadEvent>,
     console_entries: Vec<CefConsoleEvent>,
-    viewports: BTreeMap<BrowserSessionId, BrowserViewportSize>,
-    viewport_events: Vec<(BrowserSessionId, BrowserViewportSize)>,
+    viewports: BTreeMap<CefBrowserKey, BrowserViewportSize>,
+    viewport_events: Vec<(CefBrowserKey, BrowserViewportSize)>,
     devtools_results: BTreeMap<i32, CefDevToolsResult>,
 }
 
 impl CefSharedState {
-    fn push_frame(&mut self, session_id: BrowserSessionId, width: i32, height: i32, bgra: Vec<u8>) {
+    fn push_frame(&mut self, key: CefBrowserKey, width: i32, height: i32, bgra: Vec<u8>) {
         let now = Instant::now();
         if !self
             .frame_limiters
-            .entry(session_id.clone())
+            .entry(key.clone())
             .or_insert_with(BrowserFrameRateLimiter::v1_60fps)
             .should_notify(now)
         {
@@ -550,23 +595,23 @@ impl CefSharedState {
         else {
             return;
         };
-        self.frames.push(CefFrameEvent { session_id, frame });
+        self.frames.push(CefFrameEvent { key, frame });
     }
 
-    fn push_load(&mut self, session_id: BrowserSessionId, state: CefLoadState) {
-        self.loads.push(CefLoadEvent { session_id, state });
+    fn push_load(&mut self, key: CefBrowserKey, state: CefLoadState) {
+        self.loads.push(CefLoadEvent { key, state });
     }
 
     fn push_console_entry(
         &mut self,
-        session_id: BrowserSessionId,
+        key: CefBrowserKey,
         level: BrowserConsoleLevel,
         message: String,
         source: Option<String>,
         line: Option<u32>,
     ) {
         self.console_entries.push(CefConsoleEvent {
-            session_id,
+            key,
             level,
             message,
             source,
@@ -575,9 +620,19 @@ impl CefSharedState {
         });
     }
 
-    fn set_viewport(&mut self, session_id: BrowserSessionId, viewport: BrowserViewportSize) {
-        self.viewports.insert(session_id.clone(), viewport);
-        self.viewport_events.push((session_id, viewport));
+    fn set_viewport(&mut self, key: CefBrowserKey, viewport: BrowserViewportSize) {
+        self.viewports.insert(key.clone(), viewport);
+        self.viewport_events.push((key, viewport));
+    }
+
+    fn remove_tab(&mut self, key: &CefBrowserKey) {
+        self.frame_limiters.remove(key);
+        self.viewports.remove(key);
+        self.frames.retain(|event| &event.key != key);
+        self.loads.retain(|event| &event.key != key);
+        self.console_entries.retain(|event| &event.key != key);
+        self.viewport_events
+            .retain(|(event_key, _)| event_key != key);
     }
 
     fn next_devtools_message_id(&mut self) -> i32 {
@@ -593,8 +648,8 @@ impl CefSharedState {
         self.devtools_results.remove(&message_id)
     }
 
-    fn viewport(&self, session_id: &BrowserSessionId) -> BrowserViewportSize {
-        self.viewports.get(session_id).copied().unwrap_or_default()
+    fn viewport(&self, key: &CefBrowserKey) -> BrowserViewportSize {
+        self.viewports.get(key).copied().unwrap_or_default()
     }
 
     fn drain(&mut self) -> CefSharedDrain {
@@ -611,21 +666,21 @@ struct CefSharedDrain {
     frames: Vec<CefFrameEvent>,
     loads: Vec<CefLoadEvent>,
     console_entries: Vec<CefConsoleEvent>,
-    viewports: Vec<(BrowserSessionId, BrowserViewportSize)>,
+    viewports: Vec<(CefBrowserKey, BrowserViewportSize)>,
 }
 
 struct CefFrameEvent {
-    session_id: BrowserSessionId,
+    key: CefBrowserKey,
     frame: BrowserFrame,
 }
 
 struct CefLoadEvent {
-    session_id: BrowserSessionId,
+    key: CefBrowserKey,
     state: CefLoadState,
 }
 
 struct CefConsoleEvent {
-    session_id: BrowserSessionId,
+    key: CefBrowserKey,
     level: BrowserConsoleLevel,
     message: String,
     source: Option<String>,
@@ -749,7 +804,7 @@ impl HunkCefBrowserProcessHandlerBuilder {
 
 #[derive(Clone)]
 struct HunkCefRenderHandler {
-    session_id: BrowserSessionId,
+    key: CefBrowserKey,
     shared: Rc<RefCell<CefSharedState>>,
 }
 
@@ -765,7 +820,7 @@ wrap_render_handler! {
                     .handler
                     .shared
                     .borrow()
-                    .viewport(&self.handler.session_id);
+                    .viewport(&self.handler.key);
                 rect.width = viewport.width.min(i32::MAX as u32) as i32;
                 rect.height = viewport.height.min(i32::MAX as u32) as i32;
             }
@@ -781,7 +836,7 @@ wrap_render_handler! {
                     .handler
                     .shared
                     .borrow()
-                    .viewport(&self.handler.session_id)
+                    .viewport(&self.handler.key)
                     .device_scale_factor;
                 return true as _;
             }
@@ -806,7 +861,7 @@ wrap_render_handler! {
                 .saturating_mul(4);
             let pixels = unsafe { std::slice::from_raw_parts(buffer, buffer_len) }.to_vec();
             self.handler.shared.borrow_mut().push_frame(
-                self.handler.session_id.clone(),
+                self.handler.key.clone(),
                 width,
                 height,
                 pixels,
@@ -823,7 +878,7 @@ impl HunkCefRenderHandlerBuilder {
 
 #[derive(Clone)]
 struct HunkCefLoadHandler {
-    session_id: BrowserSessionId,
+    key: CefBrowserKey,
     shared: Rc<RefCell<CefSharedState>>,
 }
 
@@ -853,7 +908,7 @@ wrap_load_handler! {
             self.handler
                 .shared
                 .borrow_mut()
-                .push_load(self.handler.session_id.clone(), state);
+                .push_load(self.handler.key.clone(), state);
         }
 
         fn on_load_error(
@@ -865,7 +920,7 @@ wrap_load_handler! {
             failed_url: Option<&CefString>,
         ) {
             self.handler.shared.borrow_mut().push_load(
-                self.handler.session_id.clone(),
+                self.handler.key.clone(),
                 CefLoadState::Failed(format!(
                     "load failed for {}: {:?} {}",
                     failed_url.map(CefString::to_string).unwrap_or_default(),
@@ -960,7 +1015,7 @@ impl HunkCefClientBuilder {
 
 #[derive(Clone)]
 struct HunkCefDisplayHandler {
-    session_id: BrowserSessionId,
+    key: CefBrowserKey,
     shared: Rc<RefCell<CefSharedState>>,
 }
 
@@ -988,7 +1043,7 @@ wrap_display_handler! {
             self.handler
                 .shared
                 .borrow_mut()
-                .push_load(self.handler.session_id.clone(), CefLoadState::UrlChanged(url));
+                .push_load(self.handler.key.clone(), CefLoadState::UrlChanged(url));
         }
 
         fn on_title_change(
@@ -1002,7 +1057,7 @@ wrap_display_handler! {
             self.handler
                 .shared
                 .borrow_mut()
-                .push_load(self.handler.session_id.clone(), CefLoadState::TitleChanged(title));
+                .push_load(self.handler.key.clone(), CefLoadState::TitleChanged(title));
         }
 
         fn on_console_message(
@@ -1014,7 +1069,7 @@ wrap_display_handler! {
             line: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             self.handler.shared.borrow_mut().push_console_entry(
-                self.handler.session_id.clone(),
+                self.handler.key.clone(),
                 browser_console_level(level),
                 message.map(CefString::to_string).unwrap_or_default(),
                 source.map(CefString::to_string).filter(|source| !source.is_empty()),

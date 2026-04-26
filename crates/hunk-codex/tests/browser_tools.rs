@@ -1,11 +1,12 @@
-use hunk_browser::{BrowserAction, BrowserConsoleLevel};
+use hunk_browser::{BrowserAction, BrowserConsoleLevel, BrowserTabId};
 use hunk_codex::browser_tools::{
-    BROWSER_BACK_TOOL, BROWSER_CLICK_TOOL, BROWSER_CONSOLE_TOOL, BROWSER_DEVELOPER_INSTRUCTIONS,
-    BROWSER_FORWARD_TOOL, BROWSER_NAVIGATE_TOOL, BROWSER_RELOAD_TOOL, BROWSER_SCREENSHOT_TOOL,
-    BROWSER_SCROLL_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_STOP_TOOL, BROWSER_TOOL_NAMESPACE,
-    BROWSER_TYPE_TOOL, BrowserDynamicToolRequest, apply_browser_thread_start_context,
-    browser_dynamic_tool_specs, is_browser_dynamic_tool, is_browser_dynamic_tool_call,
-    parse_browser_dynamic_tool_request,
+    BROWSER_BACK_TOOL, BROWSER_CLICK_TOOL, BROWSER_CLOSE_TAB_TOOL, BROWSER_CONSOLE_TOOL,
+    BROWSER_DEVELOPER_INSTRUCTIONS, BROWSER_FORWARD_TOOL, BROWSER_NAVIGATE_TOOL,
+    BROWSER_NEW_TAB_TOOL, BROWSER_RELOAD_TOOL, BROWSER_SCREENSHOT_TOOL, BROWSER_SCROLL_TOOL,
+    BROWSER_SELECT_TAB_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_STOP_TOOL, BROWSER_TABS_TOOL,
+    BROWSER_TOOL_NAMESPACE, BROWSER_TYPE_TOOL, BrowserDynamicToolRequest,
+    apply_browser_thread_start_context, browser_dynamic_tool_specs, is_browser_dynamic_tool,
+    is_browser_dynamic_tool_call, parse_browser_dynamic_tool_request,
 };
 use hunk_codex::protocol::{DynamicToolCallParams, DynamicToolSpec, ThreadStartParams};
 
@@ -32,6 +33,10 @@ fn browser_tool_specs_include_core_controls() {
     assert!(names.contains(&BROWSER_TYPE_TOOL));
     assert!(names.contains(&BROWSER_SCREENSHOT_TOOL));
     assert!(names.contains(&BROWSER_CONSOLE_TOOL));
+    assert!(names.contains(&BROWSER_TABS_TOOL));
+    assert!(names.contains(&BROWSER_NEW_TAB_TOOL));
+    assert!(names.contains(&BROWSER_SELECT_TAB_TOOL));
+    assert!(names.contains(&BROWSER_CLOSE_TAB_TOOL));
 }
 
 #[test]
@@ -66,6 +71,8 @@ fn browser_developer_instructions_describe_snapshot_index_flow() {
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.navigate"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.snapshot"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.console"));
+    assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.tabs"));
+    assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.select_tab"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("snapshotEpoch"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("element index"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.back"));
@@ -258,6 +265,58 @@ fn parse_browser_console_request_applies_defaults_and_filters() {
             level: Some(BrowserConsoleLevel::Warning),
             since_sequence: Some(7),
             limit: 500,
+        }
+    );
+}
+
+#[test]
+fn parse_browser_tab_requests() {
+    assert_eq!(
+        parse_browser_dynamic_tool_request(&dynamic_tool_params(
+            BROWSER_TABS_TOOL,
+            serde_json::json!({})
+        ))
+        .expect("tabs should parse"),
+        BrowserDynamicToolRequest::Tabs
+    );
+
+    assert_eq!(
+        parse_browser_dynamic_tool_request(&dynamic_tool_params(
+            BROWSER_NEW_TAB_TOOL,
+            serde_json::json!({
+                "url": "https://example.com",
+            })
+        ))
+        .expect("new tab should parse"),
+        BrowserDynamicToolRequest::NewTab {
+            url: Some("https://example.com".to_string()),
+            activate: true,
+        }
+    );
+
+    assert_eq!(
+        parse_browser_dynamic_tool_request(&dynamic_tool_params(
+            BROWSER_SELECT_TAB_TOOL,
+            serde_json::json!({
+                "tabId": "tab-2",
+            })
+        ))
+        .expect("select tab should parse"),
+        BrowserDynamicToolRequest::SelectTab {
+            tab_id: BrowserTabId::new("tab-2"),
+        }
+    );
+
+    assert_eq!(
+        parse_browser_dynamic_tool_request(&dynamic_tool_params(
+            BROWSER_CLOSE_TAB_TOOL,
+            serde_json::json!({
+                "tabId": "tab-2",
+            })
+        ))
+        .expect("close tab should parse"),
+        BrowserDynamicToolRequest::CloseTab {
+            tab_id: BrowserTabId::new("tab-2"),
         }
     );
 }

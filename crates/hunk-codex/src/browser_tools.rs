@@ -1,7 +1,7 @@
 use crate::protocol::DynamicToolCallParams;
 use crate::protocol::DynamicToolSpec;
 use crate::protocol::ThreadStartParams;
-use hunk_browser::{BrowserAction, BrowserConsoleLevel};
+use hunk_browser::{BrowserAction, BrowserConsoleLevel, BrowserTabId};
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
@@ -19,11 +19,17 @@ pub const BROWSER_PRESS_TOOL: &str = "press";
 pub const BROWSER_SCROLL_TOOL: &str = "scroll";
 pub const BROWSER_SCREENSHOT_TOOL: &str = "screenshot";
 pub const BROWSER_CONSOLE_TOOL: &str = "console";
+pub const BROWSER_TABS_TOOL: &str = "tabs";
+pub const BROWSER_NEW_TAB_TOOL: &str = "new_tab";
+pub const BROWSER_SELECT_TAB_TOOL: &str = "select_tab";
+pub const BROWSER_CLOSE_TAB_TOOL: &str = "close_tab";
 
 pub const BROWSER_DEVELOPER_INSTRUCTIONS: &str = r#"When the user asks to open, browse, inspect, or control the built-in/in-app/embedded browser, use Hunk's embedded browser dynamic tools.
 Use the tools in the hunk_browser namespace directly. Do not use Browser Use/browser-use plugins, browser-use skills, Playwright, Selenium, Node REPL scripts, or an external system browser for Hunk's built-in browser.
 Use hunk_browser.snapshot before clicking or typing. The snapshot returns a snapshotEpoch and indexed visible elements; pass that same snapshotEpoch and element index to hunk_browser.click or hunk_browser.type.
 Use hunk_browser.console when the user asks what is in the browser console, asks about console errors/warnings/logs, or asks for browser debugging output.
+Use hunk_browser.tabs to inspect open tabs. When multiple tabs are open, use hunk_browser.select_tab before operating on a specific tab.
+Use hunk_browser.new_tab to open a new tab and hunk_browser.close_tab to close a tab.
 Use hunk_browser.navigate with an absolute URL when the user asks to go to a site.
 Use hunk_browser.reload, hunk_browser.stop, hunk_browser.back, and hunk_browser.forward for browser-level navigation controls.
 If a browser action reports that confirmation is required, stop and wait for the user decision before continuing."#;
@@ -171,6 +177,54 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
                 &[],
             ),
         ),
+        spec(
+            BROWSER_TABS_TOOL,
+            "List embedded browser tabs for the active AI thread.",
+            object_schema(json!({}), &[]),
+        ),
+        spec(
+            BROWSER_NEW_TAB_TOOL,
+            "Create a new embedded browser tab and optionally navigate it.",
+            object_schema(
+                json!({
+                    "url": {
+                        "type": "string",
+                        "description": "Optional absolute URL to load in the new tab."
+                    },
+                    "activate": {
+                        "type": "boolean",
+                        "description": "Whether to make the new tab active. Defaults to true."
+                    }
+                }),
+                &[],
+            ),
+        ),
+        spec(
+            BROWSER_SELECT_TAB_TOOL,
+            "Select an embedded browser tab by tabId.",
+            object_schema(
+                json!({
+                    "tabId": {
+                        "type": "string",
+                        "description": "Tab ID returned by hunk_browser.tabs or hunk_browser.snapshot."
+                    }
+                }),
+                &["tabId"],
+            ),
+        ),
+        spec(
+            BROWSER_CLOSE_TAB_TOOL,
+            "Close an embedded browser tab by tabId.",
+            object_schema(
+                json!({
+                    "tabId": {
+                        "type": "string",
+                        "description": "Tab ID returned by hunk_browser.tabs or hunk_browser.snapshot."
+                    }
+                }),
+                &["tabId"],
+            ),
+        ),
     ]
 }
 
@@ -189,6 +243,10 @@ pub fn is_browser_dynamic_tool(tool: &str) -> bool {
             | BROWSER_SCROLL_TOOL
             | BROWSER_SCREENSHOT_TOOL
             | BROWSER_CONSOLE_TOOL
+            | BROWSER_TABS_TOOL
+            | BROWSER_NEW_TAB_TOOL
+            | BROWSER_SELECT_TAB_TOOL
+            | BROWSER_CLOSE_TAB_TOOL
     )
 }
 
@@ -215,6 +273,17 @@ pub fn apply_browser_thread_start_context(params: &mut ThreadStartParams) {
 pub enum BrowserDynamicToolRequest {
     Snapshot,
     Screenshot,
+    Tabs,
+    NewTab {
+        url: Option<String>,
+        activate: bool,
+    },
+    SelectTab {
+        tab_id: BrowserTabId,
+    },
+    CloseTab {
+        tab_id: BrowserTabId,
+    },
     Console {
         level: Option<BrowserConsoleLevel>,
         since_sequence: Option<u64>,
@@ -281,6 +350,26 @@ pub fn parse_browser_dynamic_tool_request(
             }))
         }
         BROWSER_SCREENSHOT_TOOL => Ok(BrowserDynamicToolRequest::Screenshot),
+        BROWSER_TABS_TOOL => Ok(BrowserDynamicToolRequest::Tabs),
+        BROWSER_NEW_TAB_TOOL => {
+            let args = parse_args::<NewTabArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::NewTab {
+                url: args.url,
+                activate: args.activate.unwrap_or(true),
+            })
+        }
+        BROWSER_SELECT_TAB_TOOL => {
+            let args = parse_args::<TabIdArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::SelectTab {
+                tab_id: BrowserTabId::new(args.tab_id),
+            })
+        }
+        BROWSER_CLOSE_TAB_TOOL => {
+            let args = parse_args::<TabIdArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::CloseTab {
+                tab_id: BrowserTabId::new(args.tab_id),
+            })
+        }
         BROWSER_CONSOLE_TOOL => {
             let args = parse_args::<ConsoleArgs>(&params.arguments)?;
             Ok(BrowserDynamicToolRequest::Console {
@@ -361,6 +450,21 @@ struct ConsoleArgs {
     since_sequence: Option<u64>,
     #[serde(default)]
     limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NewTabArgs {
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    activate: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TabIdArgs {
+    tab_id: String,
 }
 
 fn parse_console_level(level: String) -> Result<BrowserConsoleLevel, String> {

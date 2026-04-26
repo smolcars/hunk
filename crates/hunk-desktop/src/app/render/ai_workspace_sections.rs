@@ -1922,6 +1922,13 @@ impl DiffViewer {
                     ("Idle", cx.theme().muted_foreground)
                 }
             });
+        let browser_tabs = session_state
+            .as_ref()
+            .map(|state| state.tabs.clone())
+            .unwrap_or_default();
+        let active_tab_id = session_state
+            .as_ref()
+            .map(|state| state.active_tab_id.clone());
 
         v_flex()
             .size_full()
@@ -2000,6 +2007,136 @@ impl DiffViewer {
                                         });
                                     })
                             }),
+                    ),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .h(px(34.0))
+                    .bg(cx.theme().tab_bar)
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .overflow_x_hidden()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .h_full()
+                            .items_center()
+                            .children(browser_tabs.iter().map(|tab| {
+                                let is_active = active_tab_id.as_ref() == Some(&tab.tab_id);
+                                let tab_id = tab.tab_id.as_str().to_string();
+                                let label = tab
+                                    .title
+                                    .as_deref()
+                                    .filter(|title| !title.trim().is_empty())
+                                    .or_else(|| {
+                                        tab.url
+                                            .as_deref()
+                                            .filter(|url| !url.trim().is_empty() && *url != "about:blank")
+                                    })
+                                    .unwrap_or("New Tab")
+                                    .to_string();
+                                let select_view = view.clone();
+                                let close_view = view.clone();
+                                let mut tab_surface = div()
+                                    .id(format!("ai-browser-tab-{tab_id}"))
+                                    .flex_none()
+                                    .min_w(px(128.0))
+                                    .max_w(px(220.0))
+                                    .h_full()
+                                    .px_2()
+                                    .gap_1()
+                                    .items_center()
+                                    .border_r_1()
+                                    .border_color(cx.theme().border)
+                                    .on_mouse_down(MouseButton::Left, {
+                                        let tab_id = tab_id.clone();
+                                        move |_, _, cx| {
+                                            select_view.update(cx, |this, cx| {
+                                                this.ai_select_browser_tab_for_current_thread(
+                                                    tab_id.clone(),
+                                                    cx,
+                                                );
+                                            });
+                                        }
+                                    });
+                                if is_active {
+                                    tab_surface = tab_surface
+                                        .bg(cx.theme().tab_active)
+                                        .border_b_0();
+                                } else {
+                                    tab_surface = tab_surface
+                                        .bg(cx.theme().tab)
+                                        .hover(|this| this.bg(cx.theme().muted))
+                                        .cursor_pointer();
+                                }
+
+                                tab_surface
+                                    .child(
+                                        h_flex()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .items_center()
+                                            .gap_1()
+                                            .child(
+                                                div()
+                                                    .truncate()
+                                                    .text_xs()
+                                                    .text_color(if is_active {
+                                                        cx.theme().tab_active_foreground
+                                                    } else {
+                                                        cx.theme().tab_foreground
+                                                    })
+                                                    .child(label),
+                                            )
+                                            .when(tab.loading, |this| {
+                                                this.child(
+                                                    Icon::new(IconName::LoaderCircle)
+                                                        .size(px(11.0))
+                                                        .text_color(cx.theme().warning),
+                                                )
+                                            })
+                                            .child({
+                                                let tab_id = tab_id.clone();
+                                                Button::new(format!("ai-browser-tab-close-{tab_id}"))
+                                                    .ghost()
+                                                    .xsmall()
+                                                    .icon(Icon::new(IconName::Close).size(px(11.0)))
+                                                    .tooltip("Close tab")
+                                                    .on_click(move |_, _, cx| {
+                                                        cx.stop_propagation();
+                                                        close_view.update(cx, |this, cx| {
+                                                            this.ai_close_browser_tab_for_current_thread(
+                                                                tab_id.clone(),
+                                                                cx,
+                                                            );
+                                                        });
+                                                    })
+                                            }),
+                                    )
+                                    .into_any_element()
+                            }))
+                            .child({
+                                let view = view.clone();
+                                Button::new("ai-browser-new-tab")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(Icon::new(IconName::Plus).size(px(13.0)))
+                                    .tooltip("New tab")
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_create_browser_tab_for_current_thread(cx);
+                                        });
+                                    })
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full()
+                                    .border_b_1()
+                                    .border_color(cx.theme().border),
+                            ),
                     ),
             )
             .child(

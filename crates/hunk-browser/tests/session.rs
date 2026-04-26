@@ -1,7 +1,7 @@
 use hunk_browser::{
     BrowserAction, BrowserConsoleLevel, BrowserElement, BrowserElementRect, BrowserError,
     BrowserFrame, BrowserHistoryDirection, BrowserRuntime, BrowserSessionId, BrowserSnapshot,
-    BrowserViewport,
+    BrowserTabId, BrowserViewport,
 };
 
 #[test]
@@ -188,6 +188,56 @@ fn close_active_tab_selects_neighbor() {
         session.state().url.as_deref(),
         Some("https://example.com/one")
     );
+}
+
+#[test]
+fn runtime_exposes_tab_lifecycle_by_thread() {
+    let mut runtime = BrowserRuntime::new_disabled();
+
+    runtime
+        .apply_state_only_action(
+            "thread-a",
+            &BrowserAction::Navigate {
+                url: "https://example.com/one".to_string(),
+            },
+        )
+        .expect("navigation should create a session");
+    let first_tab_id = runtime.active_tab_id("thread-a");
+    let second_tab_id = runtime.create_tab(
+        "thread-a",
+        Some("https://example.com/two".to_string()),
+        true,
+    );
+
+    assert_eq!(runtime.active_tab_id("thread-a"), second_tab_id);
+    assert_eq!(runtime.browser_tabs("thread-a").len(), 2);
+
+    runtime
+        .select_tab("thread-a", &first_tab_id)
+        .expect("existing tab should be selectable");
+    assert_eq!(runtime.active_tab_id("thread-a"), first_tab_id);
+    assert_eq!(
+        runtime
+            .session("thread-a")
+            .and_then(|session| session.state().url.as_deref()),
+        Some("https://example.com/one")
+    );
+
+    runtime
+        .close_tab("thread-a", &second_tab_id)
+        .expect("existing tab should close");
+    assert_eq!(runtime.browser_tabs("thread-a").len(), 1);
+}
+
+#[test]
+fn runtime_rejects_missing_tab_selection() {
+    let mut runtime = BrowserRuntime::new_disabled();
+
+    let error = runtime
+        .select_tab("thread-a", &BrowserTabId::new("missing-tab"))
+        .expect_err("missing tab should be rejected");
+
+    assert_eq!(error, BrowserError::MissingTab("missing-tab".to_string()));
 }
 
 #[test]

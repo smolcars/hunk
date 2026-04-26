@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -97,6 +99,8 @@ pub struct BrowserSession {
     state: BrowserSessionState,
     latest_snapshot: BrowserSnapshot,
     latest_frame: Option<BrowserFrame>,
+    tab_snapshots: BTreeMap<BrowserTabId, BrowserSnapshot>,
+    tab_frames: BTreeMap<BrowserTabId, BrowserFrame>,
     console_entries: Vec<BrowserConsoleEntry>,
     next_console_sequence: u64,
     back_history: Vec<String>,
@@ -108,6 +112,8 @@ impl BrowserSession {
     pub fn new(session_id: BrowserSessionId) -> Self {
         let latest_snapshot = BrowserSnapshot::empty(0);
         let active_tab_id = BrowserTabId::new(INITIAL_BROWSER_TAB_ID);
+        let mut tab_snapshots = BTreeMap::new();
+        tab_snapshots.insert(active_tab_id.clone(), latest_snapshot.clone());
         let initial_tab = BrowserTabSummary {
             tab_id: active_tab_id.clone(),
             url: None,
@@ -135,6 +141,8 @@ impl BrowserSession {
             },
             latest_snapshot,
             latest_frame: None,
+            tab_snapshots,
+            tab_frames: BTreeMap::new(),
             console_entries: Vec::new(),
             next_console_sequence: 0,
             back_history: Vec::new(),
@@ -217,6 +225,9 @@ impl BrowserSession {
     pub fn create_tab(&mut self, url: Option<String>, activate: bool) -> BrowserTabId {
         let tab_id = BrowserTabId::new(format!("tab-{}", self.next_tab_ordinal));
         self.next_tab_ordinal = self.next_tab_ordinal.saturating_add(1);
+        let snapshot_epoch = self.latest_snapshot.epoch.saturating_add(1);
+        self.tab_snapshots
+            .insert(tab_id.clone(), BrowserSnapshot::empty(snapshot_epoch));
         let tab = BrowserTabSummary {
             tab_id: tab_id.clone(),
             url: url.clone(),
@@ -225,7 +236,7 @@ impl BrowserSession {
             load_error: None,
             can_go_back: false,
             can_go_forward: false,
-            snapshot_epoch: self.latest_snapshot.epoch,
+            snapshot_epoch,
             latest_frame: None,
         };
         self.state.tabs.push(tab);
@@ -269,6 +280,7 @@ impl BrowserSession {
             self.latest_frame = None;
             self.back_history.clear();
             self.forward_history.clear();
+            self.tab_frames.remove(&self.state.active_tab_id);
             self.invalidate_snapshot();
             self.sync_active_tab_summary();
             return Ok(());
@@ -276,6 +288,8 @@ impl BrowserSession {
 
         let closing_active = &self.state.active_tab_id == tab_id;
         self.state.tabs.remove(index);
+        self.tab_snapshots.remove(tab_id);
+        self.tab_frames.remove(tab_id);
         if closing_active {
             let replacement_index = index.saturating_sub(1).min(self.state.tabs.len() - 1);
             let replacement_tab_id = self.state.tabs[replacement_index].tab_id.clone();
@@ -350,6 +364,10 @@ impl BrowserSession {
     fn invalidate_snapshot(&mut self) {
         self.latest_snapshot = BrowserSnapshot::empty(self.latest_snapshot.epoch + 1);
         self.state.snapshot_epoch = self.latest_snapshot.epoch;
+        self.tab_snapshots.insert(
+            self.state.active_tab_id.clone(),
+            self.latest_snapshot.clone(),
+        );
     }
 
     fn refresh_history_state(&mut self) {
@@ -421,6 +439,10 @@ impl BrowserSession {
         self.latest_snapshot.viewport.width = viewport.width;
         self.latest_snapshot.viewport.height = viewport.height;
         self.latest_snapshot.viewport.device_scale_factor = viewport.device_scale_factor;
+        self.tab_snapshots.insert(
+            self.state.active_tab_id.clone(),
+            self.latest_snapshot.clone(),
+        );
     }
 
     pub fn replace_snapshot(&mut self, snapshot: BrowserSnapshot) {
@@ -428,13 +450,122 @@ impl BrowserSession {
         self.state.title = snapshot.title.clone();
         self.state.snapshot_epoch = snapshot.epoch;
         self.latest_snapshot = snapshot;
+        self.tab_snapshots.insert(
+            self.state.active_tab_id.clone(),
+            self.latest_snapshot.clone(),
+        );
         self.sync_active_tab_summary();
     }
 
     pub fn set_latest_frame(&mut self, frame: BrowserFrame) {
         self.state.latest_frame = Some(frame.metadata().clone());
         self.latest_frame = Some(frame);
+        if let Some(frame) = self.latest_frame.clone() {
+            self.tab_frames
+                .insert(self.state.active_tab_id.clone(), frame);
+        }
         self.sync_active_tab_summary();
+    }
+
+    pub fn set_latest_frame_for_tab(&mut self, tab_id: &BrowserTabId, frame: BrowserFrame) {
+        let metadata = frame.metadata().clone();
+        self.tab_frames.insert(tab_id.clone(), frame.clone());
+        self.update_tab_summary(tab_id, |tab| {
+            tab.latest_frame = Some(metadata.clone());
+        });
+        if self.active_tab_id() == tab_id {
+            self.state.latest_frame = Some(metadata);
+            self.latest_frame = Some(frame);
+        }
+    }
+
+    pub fn set_viewport_for_tab(&mut self, tab_id: &BrowserTabId, viewport: BrowserViewportSize) {
+        let mut snapshot = self
+            .tab_snapshots
+            .get(tab_id)
+            .cloned()
+            .unwrap_or_else(|| BrowserSnapshot::empty(0));
+        snapshot.viewport.width = viewport.width;
+        snapshot.viewport.height = viewport.height;
+        snapshot.viewport.device_scale_factor = viewport.device_scale_factor;
+        self.tab_snapshots.insert(tab_id.clone(), snapshot.clone());
+        if self.active_tab_id() == tab_id {
+            self.latest_snapshot = snapshot;
+        }
+    }
+
+    pub fn apply_backend_loading_state_for_tab(
+        &mut self,
+        tab_id: &BrowserTabId,
+        loading: bool,
+        can_go_back: bool,
+        can_go_forward: bool,
+        url: Option<String>,
+    ) {
+        if self.active_tab_id() == tab_id {
+            self.apply_backend_loading_state(loading, can_go_back, can_go_forward, url);
+            return;
+        }
+
+        let mut should_invalidate = false;
+        self.update_tab_summary(tab_id, |tab| {
+            tab.can_go_back = can_go_back;
+            tab.can_go_forward = can_go_forward;
+            if let Some(url) = url {
+                tab.url = Some(url);
+            }
+            if loading && !tab.loading {
+                tab.load_error = None;
+                tab.snapshot_epoch = tab.snapshot_epoch.saturating_add(1);
+                should_invalidate = true;
+            }
+            tab.loading = loading;
+        });
+        if should_invalidate {
+            let epoch = self
+                .state
+                .tabs
+                .iter()
+                .find(|tab| &tab.tab_id == tab_id)
+                .map(|tab| tab.snapshot_epoch)
+                .unwrap_or(1);
+            self.tab_snapshots
+                .insert(tab_id.clone(), BrowserSnapshot::empty(epoch));
+        }
+    }
+
+    pub fn set_url_for_tab(&mut self, tab_id: &BrowserTabId, url: impl Into<String>) {
+        if self.active_tab_id() == tab_id {
+            self.set_url(url);
+            return;
+        }
+        let url = url.into();
+        self.update_tab_summary(tab_id, |tab| {
+            tab.url = Some(url);
+        });
+    }
+
+    pub fn set_title_for_tab(&mut self, tab_id: &BrowserTabId, title: impl Into<String>) {
+        if self.active_tab_id() == tab_id {
+            self.set_title(title);
+            return;
+        }
+        let title = title.into();
+        self.update_tab_summary(tab_id, |tab| {
+            tab.title = Some(title);
+        });
+    }
+
+    pub fn set_load_error_for_tab(&mut self, tab_id: &BrowserTabId, error: impl Into<String>) {
+        if self.active_tab_id() == tab_id {
+            self.set_load_error(error);
+            return;
+        }
+        let error = error.into();
+        self.update_tab_summary(tab_id, |tab| {
+            tab.loading = false;
+            tab.load_error = Some(error);
+        });
     }
 
     pub fn validate_snapshot_element(
@@ -517,7 +648,7 @@ impl BrowserSession {
         else {
             return;
         };
-        self.state.active_tab_id = tab.tab_id;
+        self.state.active_tab_id = tab.tab_id.clone();
         self.state.url = tab.url;
         self.state.title = tab.title;
         self.state.loading = tab.loading;
@@ -525,7 +656,16 @@ impl BrowserSession {
         self.state.can_go_back = tab.can_go_back;
         self.state.can_go_forward = tab.can_go_forward;
         self.state.snapshot_epoch = tab.snapshot_epoch;
-        self.state.latest_frame = tab.latest_frame;
+        self.latest_snapshot = self
+            .tab_snapshots
+            .get(&tab.tab_id)
+            .cloned()
+            .unwrap_or_else(|| BrowserSnapshot::empty(tab.snapshot_epoch));
+        self.latest_frame = self.tab_frames.get(&tab.tab_id).cloned();
+        self.state.latest_frame = self
+            .latest_frame
+            .as_ref()
+            .map(|frame| frame.metadata().clone());
     }
 
     fn sync_active_tab_summary(&mut self) {
@@ -544,6 +684,16 @@ impl BrowserSession {
             tab.can_go_forward = self.state.can_go_forward;
             tab.snapshot_epoch = self.state.snapshot_epoch;
             tab.latest_frame = self.state.latest_frame.clone();
+        }
+    }
+
+    fn update_tab_summary(
+        &mut self,
+        tab_id: &BrowserTabId,
+        update: impl FnOnce(&mut BrowserTabSummary),
+    ) {
+        if let Some(tab) = self.state.tabs.iter_mut().find(|tab| &tab.tab_id == tab_id) {
+            update(tab);
         }
     }
 }

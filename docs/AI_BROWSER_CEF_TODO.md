@@ -309,23 +309,23 @@ Engineering implementation plan:
    - [x] Add crate-level tests for tab lifecycle and active-tab mirroring.
 
 2. Refactor runtime/backend targeting from session-only to tab-aware.
-   - [ ] Introduce an internal `BrowserTarget` or equivalent `{ thread_id, tab_id }` routing type.
-   - [ ] Change the CEF backend browser map from one browser per thread session to one browser per tab.
-   - [ ] Keep current public methods defaulting to the active tab so existing UI/tool code continues to work.
-   - [ ] Ensure closing a tab closes its CEF browser cleanly and cannot leave stale frame/snapshot events behind.
+   - [x] Introduce an internal `BrowserTarget` or equivalent `{ thread_id, tab_id }` routing type.
+   - [x] Change the CEF backend browser map from one browser per thread session to one browser per tab.
+   - [x] Keep current public methods defaulting to the active tab so existing UI/tool code continues to work.
+   - [x] Ensure closing a tab closes its CEF browser cleanly and cannot leave stale frame/snapshot events behind.
    - [ ] Throttle or pause inactive tab frame updates so the browser stays inside the 8ms frame budget.
 
 3. Add a GPUI tab strip to the browser pane.
-   - [ ] Render tabs above the browser toolbar with title/url fallback, loading state, close buttons, and an add-tab button.
-   - [ ] Switch the painted browser frame and toolbar state to the active tab.
-   - [ ] Keep the active tab's URL synced into the address input.
-   - [ ] Use only theme colors from `crates/hunk-desktop/src/app/theme.rs`.
+   - [x] Render tabs above the browser toolbar with title/url fallback, loading state, close buttons, and an add-tab button.
+   - [x] Switch the painted browser frame and toolbar state to the active tab.
+   - [x] Keep the active tab's URL synced into the address input.
+   - [x] Use only theme colors from `crates/hunk-desktop/src/app/theme.rs`.
 
 4. Add agent tab tools.
-   - [ ] Add `hunk_browser.tabs`, `hunk_browser.new_tab`, `hunk_browser.select_tab`, and `hunk_browser.close_tab`.
+   - [x] Add `hunk_browser.tabs`, `hunk_browser.new_tab`, `hunk_browser.select_tab`, and `hunk_browser.close_tab`.
    - [ ] Add optional `tabId` arguments to navigation, snapshot, screenshot, console, click, type, press, and scroll.
-   - [ ] Include `activeTabId` and a compact tab list in snapshot/action responses.
-   - [ ] Update browser developer instructions so the agent uses explicit tab IDs when more than one tab is open.
+   - [x] Include `activeTabId` and a compact tab list in snapshot/action responses.
+   - [x] Update browser developer instructions so the agent uses explicit tab IDs when more than one tab is open.
 
 5. Route CEF popups and new-window requests into Hunk tabs.
    - [ ] Add a CEF `LifeSpanHandler`.
@@ -356,3 +356,11 @@ Exit criteria:
 - [ ] `target=_blank`, `window.open`, and right-click "open in new tab" create Hunk tabs instead of external/native browser windows.
 - [ ] Right-click no longer crashes and provides useful browser actions.
 - [ ] Users can open visible DevTools for the active tab and inspect a clicked element.
+
+Implementation notes:
+
+- The first tab foundation keeps the existing single-surface browser behavior intact. `BrowserSessionState` now carries an `active_tab_id` plus tab summaries, and the current page state mirrors into the active tab until the CEF backend is refactored to own one browser per tab.
+- Runtime tab lifecycle helpers exist for create/select/close/list so desktop UI and dynamic tools have a stable state-layer API.
+- The CEF backend now keys browser handles, frame events, load events, console events, and viewports by `{session_id, tab_id}`. Existing thread-level runtime APIs route to the active tab, preserving callers while enabling real per-tab CEF instances.
+- The browser pane now renders a GPUI tab strip with add/select/close controls. Selecting a tab restores that tab's stored frame/snapshot state.
+- Agent-facing tab tools are exposed as `hunk_browser.tabs`, `hunk_browser.new_tab`, `hunk_browser.select_tab`, and `hunk_browser.close_tab`. Existing page actions remain active-tab based; optional `tabId` arguments for every page action are still pending.
