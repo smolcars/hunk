@@ -250,6 +250,54 @@ impl BrowserRuntime {
         self.ensure_session(thread_id.to_string()).close_tab(tab_id)
     }
 
+    pub fn navigate_tab_state_only(
+        &mut self,
+        thread_id: &str,
+        tab_id: &BrowserTabId,
+        url: String,
+    ) -> Result<(), BrowserError> {
+        self.ensure_session(thread_id.to_string())
+            .navigate_tab(tab_id, url)
+    }
+
+    pub fn navigate_backend_tab(
+        &mut self,
+        thread_id: &str,
+        tab_id: &BrowserTabId,
+        url: String,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Navigate)?;
+        let session_id = BrowserSessionId::new(thread_id);
+        self.ensure_session(thread_id.to_string());
+
+        #[cfg(feature = "cef")]
+        {
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
+            backend.apply_action(
+                &session_id,
+                tab_id,
+                &BrowserAction::Navigate { url: url.clone() },
+            )?;
+            self.sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| BrowserError::MissingSession(thread_id.to_string()))?
+                .navigate_tab(tab_id, url)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = (session_id, tab_id, url);
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
     pub fn take_context_menu_target(
         &mut self,
         thread_id: &str,

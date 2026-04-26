@@ -389,6 +389,43 @@ fn console_entries_are_sequenced_filtered_and_bounded() {
 }
 
 #[test]
+fn console_entries_can_be_filtered_by_tab() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    let first_tab_id = session.active_tab_id().clone();
+    let second_tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+
+    session.push_console_entry_for_tab(
+        first_tab_id.clone(),
+        BrowserConsoleLevel::Info,
+        "first tab",
+        None,
+        None,
+        1000,
+    );
+    session.push_console_entry_for_tab(
+        second_tab_id.clone(),
+        BrowserConsoleLevel::Info,
+        "second tab",
+        None,
+        None,
+        1001,
+    );
+
+    let first_entries = session.recent_console_entries_for_tab(&first_tab_id, None, None, 10);
+    let second_entries = session.recent_console_entries_for_tab(&second_tab_id, None, None, 10);
+
+    assert_eq!(first_entries.len(), 1);
+    assert_eq!(first_entries[0].message, "first tab");
+    assert_eq!(first_entries[0].tab_id, first_tab_id);
+    assert_eq!(second_entries.len(), 1);
+    assert_eq!(second_entries[0].message, "second tab");
+    assert_eq!(
+        session.latest_console_sequence_for_tab(&second_tab_id),
+        Some(second_entries[0].sequence)
+    );
+}
+
+#[test]
 fn runtime_applies_navigation_state_only_action() {
     let mut runtime = BrowserRuntime::new_disabled();
 

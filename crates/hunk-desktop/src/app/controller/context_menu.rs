@@ -149,10 +149,29 @@ impl DiffViewer {
         };
         self.close_browser_context_menu(cx);
         self.ai_browser_runtime
-            .create_tab(thread_id.as_str(), Some(url), true);
+            .create_tab(thread_id.as_str(), Some(url.clone()), true);
         self.ai_browser_render_frame_cache = None;
         self.ai_ensure_active_browser_tab_backend(thread_id.as_str(), cx);
-        self.ai_sync_browser_address_input(cx);
+        if self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+            if let Err(err) = self.ai_browser_runtime.apply_backend_action(
+                thread_id.as_str(),
+                &hunk_browser::BrowserAction::Navigate { url },
+            ) {
+                error!("failed to open browser context-menu URL in new tab: {err:#}");
+                self.ai_browser_runtime
+                    .ensure_session(thread_id)
+                    .set_load_error(err.to_string());
+            }
+        } else if let Err(err) = self.ai_browser_runtime.apply_state_only_action(
+            thread_id.as_str(),
+            &hunk_browser::BrowserAction::Navigate { url },
+        ) {
+            self.ai_browser_runtime
+                .ensure_session(thread_id)
+                .set_load_error(err.to_string());
+        }
+        self.ai_sync_browser_address_input_for_current_tab(cx, true);
+        self.ai_refresh_browser_render_frame_cache_for_selected_thread();
         cx.notify();
     }
 

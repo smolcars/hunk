@@ -200,25 +200,20 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
         }
         BrowserDynamicToolRequest::NewTab { url, activate } => {
             let tab_id = runtime.create_tab(params.thread_id.as_str(), url.clone(), activate);
-            if use_backend
+            if let Some(url) = url {
+                if use_backend && runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+                    let _ = runtime.navigate_backend_tab(params.thread_id.as_str(), &tab_id, url);
+                    let _ = runtime.pump_backend();
+                } else {
+                    let _ =
+                        runtime.navigate_tab_state_only(params.thread_id.as_str(), &tab_id, url);
+                }
+            } else if use_backend
                 && activate
                 && runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready
             {
                 let _ = runtime.ensure_backend_session(params.thread_id.clone());
-                if let Some(url) = url {
-                    let _ = runtime.apply_backend_action(
-                        params.thread_id.as_str(),
-                        &BrowserAction::Navigate { url },
-                    );
-                }
                 let _ = runtime.pump_backend();
-            } else if let Some(url) = url
-                && activate
-            {
-                let _ = runtime.apply_state_only_action(
-                    params.thread_id.as_str(),
-                    &BrowserAction::Navigate { url },
-                );
             }
             let session = runtime.ensure_session(params.thread_id.clone());
             json_success_response(tabs_response(
@@ -282,9 +277,11 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
                 let _ = runtime.pump_backend();
             }
             let session = runtime.ensure_session(params.thread_id.clone());
+            let tab_id = session.active_tab_id().clone();
             json_success_response(console_response(
                 params,
                 session,
+                &tab_id,
                 level,
                 since_sequence,
                 limit,
@@ -517,16 +514,18 @@ fn browser_tabs_value(state: &hunk_browser::BrowserSessionState) -> serde_json::
 fn console_response(
     params: &DynamicToolCallParams,
     session: &hunk_browser::BrowserSession,
+    tab_id: &hunk_browser::BrowserTabId,
     level: Option<hunk_browser::BrowserConsoleLevel>,
     since_sequence: Option<u64>,
     limit: usize,
 ) -> serde_json::Value {
     let entries = session
-        .recent_console_entries(level, since_sequence, limit)
+        .recent_console_entries_for_tab(tab_id, level, since_sequence, limit)
         .into_iter()
         .map(|entry| {
             json!({
                 "sequence": entry.sequence,
+                "tabId": entry.tab_id,
                 "level": entry.level,
                 "message": redact_browser_tool_text(entry.message.as_str()),
                 "source": entry.source.as_deref().map(redact_browser_tool_text),
@@ -535,13 +534,14 @@ fn console_response(
             })
         })
         .collect::<Vec<_>>();
-    let latest_sequence = session.console_entries().last().map(|entry| entry.sequence);
+    let latest_sequence = session.latest_console_sequence_for_tab(tab_id);
 
     json!({
         "ok": true,
         "tool": params.tool,
         "threadId": params.thread_id,
         "turnId": params.turn_id,
+        "tabId": tab_id,
         "entries": entries,
         "latestSequence": latest_sequence,
         "message": "Console messages were read from the embedded browser.",

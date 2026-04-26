@@ -527,7 +527,8 @@ impl CefBrowserBackend {
         }
         for entry in events.console_entries {
             if let Some(session) = sessions.get_mut(&entry.key.session_id) {
-                session.push_console_entry(
+                session.push_console_entry_for_tab(
+                    entry.key.tab_id,
                     entry.level,
                     entry.message,
                     entry.source,

@@ -79,6 +79,7 @@ pub struct BrowserSessionState {
 #[serde(rename_all = "camelCase")]
 pub struct BrowserConsoleEntry {
     pub sequence: u64,
+    pub tab_id: BrowserTabId,
     pub level: BrowserConsoleLevel,
     pub message: String,
     pub source: Option<String>,
@@ -212,8 +213,51 @@ impl BrowserSession {
         entries
     }
 
+    pub fn recent_console_entries_for_tab(
+        &self,
+        tab_id: &BrowserTabId,
+        level: Option<BrowserConsoleLevel>,
+        since_sequence: Option<u64>,
+        limit: usize,
+    ) -> Vec<BrowserConsoleEntry> {
+        let mut entries = self
+            .console_entries
+            .iter()
+            .filter(|entry| &entry.tab_id == tab_id)
+            .filter(|entry| level.is_none_or(|level| entry.level == level))
+            .filter(|entry| since_sequence.is_none_or(|since| entry.sequence > since))
+            .cloned()
+            .collect::<Vec<_>>();
+        let limit = limit.max(1);
+        if entries.len() > limit {
+            entries.drain(0..entries.len() - limit);
+        }
+        entries
+    }
+
+    pub fn latest_console_sequence_for_tab(&self, tab_id: &BrowserTabId) -> Option<u64> {
+        self.console_entries
+            .iter()
+            .rev()
+            .find(|entry| &entry.tab_id == tab_id)
+            .map(|entry| entry.sequence)
+    }
+
     pub fn push_console_entry(
         &mut self,
+        level: BrowserConsoleLevel,
+        message: impl Into<String>,
+        source: Option<String>,
+        line: Option<u32>,
+        timestamp_ms: u64,
+    ) {
+        let tab_id = self.state.active_tab_id.clone();
+        self.push_console_entry_for_tab(tab_id, level, message, source, line, timestamp_ms);
+    }
+
+    pub fn push_console_entry_for_tab(
+        &mut self,
+        tab_id: BrowserTabId,
         level: BrowserConsoleLevel,
         message: impl Into<String>,
         source: Option<String>,
@@ -223,6 +267,7 @@ impl BrowserSession {
         self.next_console_sequence = self.next_console_sequence.saturating_add(1);
         self.console_entries.push(BrowserConsoleEntry {
             sequence: self.next_console_sequence,
+            tab_id,
             level,
             message: message.into(),
             source,
@@ -331,6 +376,32 @@ impl BrowserSession {
             self.forward_history.clear();
         }
         self.start_navigation_to(url);
+    }
+
+    pub fn navigate_tab(
+        &mut self,
+        tab_id: &BrowserTabId,
+        url: impl Into<String>,
+    ) -> Result<(), BrowserError> {
+        let url = url.into();
+        if self.active_tab_id() == tab_id {
+            self.navigate(url);
+            return Ok(());
+        }
+
+        let Some(tab) = self.state.tabs.iter_mut().find(|tab| &tab.tab_id == tab_id) else {
+            return Err(BrowserError::MissingTab(tab_id.as_str().to_string()));
+        };
+        tab.url = Some(url);
+        tab.title = None;
+        tab.loading = true;
+        tab.load_error = None;
+        tab.can_go_back = false;
+        tab.can_go_forward = false;
+        tab.snapshot_epoch = tab.snapshot_epoch.saturating_add(1);
+        self.tab_snapshots
+            .insert(tab_id.clone(), BrowserSnapshot::empty(tab.snapshot_epoch));
+        Ok(())
     }
 
     pub fn reload(&mut self) -> Result<(), BrowserError> {
