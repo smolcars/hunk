@@ -294,3 +294,65 @@ Exit criteria:
 - [x] The AI agent can control the embedded browser.
 - [x] The macOS packaged app includes everything needed to run the browser runtime.
 - [x] Build, clippy, and targeted tests pass.
+
+## Phase 7: Tabs, Context Menus, and User-Visible DevTools
+
+Goal: evolve the browser from one page per AI thread into a small in-app browser workspace where the user and the agent can address multiple tabs, use right-click actions, and inspect pages with visible DevTools.
+
+Engineering implementation plan:
+
+1. Add durable tab state before changing CEF ownership.
+   - [x] Add `BrowserTabId` and `BrowserTabSummary` to `hunk-browser`.
+   - [x] Track `active_tab_id` and tab summaries on `BrowserSessionState`.
+   - [x] Keep the existing single-page session API working by treating the current page as the active tab.
+   - [x] Add state-only tab lifecycle methods: create, select, close, and list tabs.
+   - [x] Add crate-level tests for tab lifecycle and active-tab mirroring.
+
+2. Refactor runtime/backend targeting from session-only to tab-aware.
+   - [ ] Introduce an internal `BrowserTarget` or equivalent `{ thread_id, tab_id }` routing type.
+   - [ ] Change the CEF backend browser map from one browser per thread session to one browser per tab.
+   - [ ] Keep current public methods defaulting to the active tab so existing UI/tool code continues to work.
+   - [ ] Ensure closing a tab closes its CEF browser cleanly and cannot leave stale frame/snapshot events behind.
+   - [ ] Throttle or pause inactive tab frame updates so the browser stays inside the 8ms frame budget.
+
+3. Add a GPUI tab strip to the browser pane.
+   - [ ] Render tabs above the browser toolbar with title/url fallback, loading state, close buttons, and an add-tab button.
+   - [ ] Switch the painted browser frame and toolbar state to the active tab.
+   - [ ] Keep the active tab's URL synced into the address input.
+   - [ ] Use only theme colors from `crates/hunk-desktop/src/app/theme.rs`.
+
+4. Add agent tab tools.
+   - [ ] Add `hunk_browser.tabs`, `hunk_browser.new_tab`, `hunk_browser.select_tab`, and `hunk_browser.close_tab`.
+   - [ ] Add optional `tabId` arguments to navigation, snapshot, screenshot, console, click, type, press, and scroll.
+   - [ ] Include `activeTabId` and a compact tab list in snapshot/action responses.
+   - [ ] Update browser developer instructions so the agent uses explicit tab IDs when more than one tab is open.
+
+5. Route CEF popups and new-window requests into Hunk tabs.
+   - [ ] Add a CEF `LifeSpanHandler`.
+   - [ ] Implement `on_before_popup` to capture `target_url`, `target_disposition`, and `user_gesture`.
+   - [ ] Cancel unmanaged native popup creation and open a Hunk tab instead.
+   - [ ] Preserve opener metadata where useful for debugging/tool responses.
+
+6. Add Hunk-native right-click support.
+   - [ ] Keep Chromium's native context menu suppressed in the offscreen GPUI surface.
+   - [ ] Capture `ContextMenuParams` into a serializable `BrowserContextMenuTarget`.
+   - [ ] Drain context-menu events into the desktop controller.
+   - [ ] Render a GPUI context menu at the browser surface coordinate.
+   - [ ] Initial actions: back, forward, reload, copy page URL, copy selected text, copy link address, open link in new tab, open media in new tab, and inspect element.
+   - [ ] Add edit actions for text fields after the basic menu is stable: cut, copy, paste, select all.
+
+7. Add user-visible DevTools.
+   - [ ] Add runtime operations for `show_devtools`, `close_devtools`, and `has_devtools`.
+   - [ ] Start with CEF's native `show_dev_tools` window for the active tab.
+   - [ ] Wire a toolbar DevTools button and right-click `Inspect Element` action.
+   - [ ] Pass the right-click coordinate to `inspect_element_at` when opening DevTools from the context menu.
+   - [ ] Keep agent DevTools/snapshot/console access protocol-based and independent from whether the visible DevTools window is open.
+   - [ ] Revisit fully embedded DevTools as a later phase if the separate native window is not acceptable.
+
+Exit criteria:
+
+- [ ] Users can open, switch, and close multiple in-app browser tabs.
+- [ ] The agent can list tabs and target a specific tab without ambiguity.
+- [ ] `target=_blank`, `window.open`, and right-click "open in new tab" create Hunk tabs instead of external/native browser windows.
+- [ ] Right-click no longer crashes and provides useful browser actions.
+- [ ] Users can open visible DevTools for the active tab and inspect a clicked element.

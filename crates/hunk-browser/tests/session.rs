@@ -110,6 +110,84 @@ fn navigate_updates_session_state_and_invalidates_snapshot_epoch() {
     assert!(!session.state().can_go_forward);
     assert_eq!(session.state().snapshot_epoch, 8);
     assert!(session.latest_snapshot().elements.is_empty());
+    assert_eq!(session.state().tabs.len(), 1);
+    assert_eq!(
+        session.state().tabs[0].url.as_deref(),
+        Some("https://example.com")
+    );
+    assert_eq!(session.state().tabs[0].snapshot_epoch, 8);
+}
+
+#[test]
+fn new_session_starts_with_one_active_tab() {
+    let session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    assert_eq!(session.active_tab_id().as_str(), "tab-1");
+    assert_eq!(session.tab_summaries().len(), 1);
+    assert_eq!(session.tab_summaries()[0].tab_id, *session.active_tab_id());
+    assert_eq!(session.state().active_tab_id, *session.active_tab_id());
+}
+
+#[test]
+fn create_tab_can_activate_initial_url() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.navigate("https://example.com/one");
+    session.set_loading(false);
+
+    let tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+
+    assert_eq!(session.active_tab_id(), &tab_id);
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/two")
+    );
+    assert!(session.state().loading);
+    assert_eq!(session.tab_summaries().len(), 2);
+    assert_eq!(
+        session.tab_summaries()[0].url.as_deref(),
+        Some("https://example.com/one")
+    );
+    assert_eq!(session.tab_summaries()[1].tab_id, tab_id);
+}
+
+#[test]
+fn select_tab_restores_tab_summary_state() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.navigate("https://example.com/one");
+    session.set_loading(false);
+    let first_tab_id = session.active_tab_id().clone();
+    let second_tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+
+    session
+        .select_tab(&first_tab_id)
+        .expect("existing tab should be selectable");
+
+    assert_eq!(session.active_tab_id(), &first_tab_id);
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/one")
+    );
+    assert!(!session.state().loading);
+    assert_eq!(session.tab_summaries()[1].tab_id, second_tab_id);
+}
+
+#[test]
+fn close_active_tab_selects_neighbor() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.navigate("https://example.com/one");
+    let first_tab_id = session.active_tab_id().clone();
+    let second_tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+
+    session
+        .close_tab(&second_tab_id)
+        .expect("existing tab should close");
+
+    assert_eq!(session.active_tab_id(), &first_tab_id);
+    assert_eq!(session.tab_summaries().len(), 1);
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/one")
+    );
 }
 
 #[test]

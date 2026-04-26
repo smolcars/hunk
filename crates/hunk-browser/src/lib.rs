@@ -19,7 +19,8 @@ pub use safety::{
 pub use session::{
     BrowserAction, BrowserConsoleEntry, BrowserConsoleLevel, BrowserError, BrowserFrameMetadata,
     BrowserHistoryDirection, BrowserInputModifiers, BrowserMouseButton, BrowserMouseInput,
-    BrowserSession, BrowserSessionId, BrowserSessionState, BrowserToolAction, BrowserViewportSize,
+    BrowserSession, BrowserSessionId, BrowserSessionState, BrowserTabId, BrowserTabSummary,
+    BrowserToolAction, BrowserViewportSize,
 };
 pub use snapshot::{
     BrowserElement, BrowserElementRect, BrowserPhysicalPoint, BrowserPoint, BrowserSnapshot,
