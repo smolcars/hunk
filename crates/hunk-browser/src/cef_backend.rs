@@ -449,9 +449,17 @@ impl CefBrowserBackend {
                         loading,
                         can_go_back,
                         can_go_forward,
+                        url,
                     } => {
-                        session.apply_backend_loading_state(loading, can_go_back, can_go_forward);
+                        session.apply_backend_loading_state(
+                            loading,
+                            can_go_back,
+                            can_go_forward,
+                            url,
+                        );
                     }
+                    CefLoadState::UrlChanged(url) => session.set_url(url),
+                    CefLoadState::TitleChanged(title) => session.set_title(title),
                     CefLoadState::Failed(error) => session.set_load_error(error),
                 }
             }
@@ -636,7 +644,10 @@ enum CefLoadState {
         loading: bool,
         can_go_back: bool,
         can_go_forward: bool,
+        url: Option<String>,
     },
+    UrlChanged(String),
+    TitleChanged(String),
     Failed(String),
 }
 
@@ -668,6 +679,10 @@ wrap_app! {
             command_line.append_switch(Some(&"hide-crash-restore-bubble".into()));
             command_line.append_switch(Some(&"use-mock-keychain".into()));
             command_line.append_switch(Some(&"enable-logging=stderr".into()));
+            command_line.append_switch_with_value(
+                Some(&"autoplay-policy".into()),
+                Some(&CefString::from("no-user-gesture-required")),
+            );
             #[cfg(target_os = "macos")]
             append_macos_cef_switches(command_line, &self.app.cef_paths);
             #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -820,15 +835,20 @@ wrap_load_handler! {
     impl LoadHandler {
         fn on_loading_state_change(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             is_loading: ::std::os::raw::c_int,
             can_go_back: ::std::os::raw::c_int,
             can_go_forward: ::std::os::raw::c_int,
         ) {
+            let url = browser
+                .and_then(|browser| browser.main_frame())
+                .map(|frame| CefString::from(&frame.url()).to_string())
+                .filter(|url| !url.is_empty());
             let state = CefLoadState::Changed {
                 loading: is_loading == 1,
                 can_go_back: can_go_back == 1,
                 can_go_forward: can_go_forward == 1,
+                url,
             };
             self.handler
                 .shared
@@ -950,6 +970,41 @@ wrap_display_handler! {
     }
 
     impl DisplayHandler {
+        fn on_address_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            url: Option<&CefString>,
+        ) {
+            let Some(frame) = frame else {
+                return;
+            };
+            if frame.is_main() != 1 {
+                return;
+            }
+            let Some(url) = url.map(CefString::to_string).filter(|url| !url.is_empty()) else {
+                return;
+            };
+            self.handler
+                .shared
+                .borrow_mut()
+                .push_load(self.handler.session_id.clone(), CefLoadState::UrlChanged(url));
+        }
+
+        fn on_title_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            title: Option<&CefString>,
+        ) {
+            let Some(title) = title.map(CefString::to_string).filter(|title| !title.is_empty()) else {
+                return;
+            };
+            self.handler
+                .shared
+                .borrow_mut()
+                .push_load(self.handler.session_id.clone(), CefLoadState::TitleChanged(title));
+        }
+
         fn on_console_message(
             &self,
             _browser: Option<&mut Browser>,

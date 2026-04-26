@@ -30,6 +30,13 @@ impl BrowserViewport {
         }
     }
 
+    pub fn logical_to_view_point(&self, point: BrowserPoint) -> BrowserPhysicalPoint {
+        BrowserPhysicalPoint {
+            x: round_coordinate(point.x),
+            y: round_coordinate(point.y),
+        }
+    }
+
     pub fn physical_to_logical_point(&self, point: BrowserPhysicalPoint) -> BrowserPoint {
         let scale = self.device_scale_factor.max(f32::EPSILON) as f64;
         BrowserPoint {
@@ -110,5 +117,9 @@ impl BrowserSnapshot {
 
 fn scale_coordinate(value: f64, device_scale_factor: f32) -> i32 {
     let scaled = value * device_scale_factor.max(f32::EPSILON) as f64;
-    scaled.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32
+    round_coordinate(scaled)
+}
+
+fn round_coordinate(value: f64) -> i32 {
+    value.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32
 }

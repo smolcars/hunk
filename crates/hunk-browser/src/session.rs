@@ -239,13 +239,21 @@ impl BrowserSession {
         loading: bool,
         can_go_back: bool,
         can_go_forward: bool,
+        url: Option<String>,
     ) {
         self.set_history_state(can_go_back, can_go_forward);
+        if let Some(url) = url {
+            self.state.url = Some(url);
+        }
         if loading && !self.state.loading {
             self.state.load_error = None;
             self.invalidate_snapshot();
         }
         self.state.loading = loading;
+    }
+
+    pub fn set_url(&mut self, url: impl Into<String>) {
+        self.state.url = Some(url.into());
     }
 
     pub fn start_backend_history_navigation(&mut self) {
@@ -317,7 +325,7 @@ impl BrowserSession {
         Ok(self
             .latest_snapshot
             .viewport
-            .logical_to_physical_point(element.rect.center()))
+            .logical_to_view_point(element.rect.center()))
     }
 
     pub fn scroll_target(&self, index: Option<u32>) -> Result<BrowserPhysicalPoint, BrowserError> {
@@ -333,10 +341,7 @@ impl BrowserSession {
                 y: self.latest_snapshot.viewport.height as f64 / 2.0,
             }
         };
-        Ok(self
-            .latest_snapshot
-            .viewport
-            .logical_to_physical_point(point))
+        Ok(self.latest_snapshot.viewport.logical_to_view_point(point))
     }
 
     pub fn preflight_action(&self, action: &BrowserAction) -> Result<(), BrowserError> {

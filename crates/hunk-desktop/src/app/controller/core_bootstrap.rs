@@ -1,3 +1,9 @@
+fn stable_browser_profile_hash(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+    })
+}
+
 impl DiffViewer {
     const AUTO_REFRESH_MAX_INTERVAL_MS: u64 = 60_000;
     const AUTO_REFRESH_QUICK_PROBE_MS: u64 = 3_000;
@@ -55,7 +61,10 @@ impl DiffViewer {
                 return hunk_browser::BrowserRuntime::new_disabled();
             }
         };
-        let storage_paths = hunk_browser::BrowserStoragePaths::from_app_data_dir(app_data_dir);
+        let storage_paths = hunk_browser::BrowserStoragePaths::from_app_data_dir_with_profile_id(
+            app_data_dir,
+            Self::default_browser_profile_id(),
+        );
         if let Err(err) = storage_paths.ensure_directories() {
             error!("failed to initialize browser storage directories: {err:#}");
             return hunk_browser::BrowserRuntime::new_disabled();
@@ -79,6 +88,31 @@ impl DiffViewer {
         {
             runtime
         }
+    }
+
+    fn default_browser_profile_id() -> String {
+        if let Ok(profile_id) = std::env::var("HUNK_BROWSER_PROFILE_ID")
+            && !profile_id.trim().is_empty()
+        {
+            return profile_id;
+        }
+
+        let Ok(exe_path) = std::env::current_exe() else {
+            return "default".to_string();
+        };
+        if !exe_path.components().any(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .is_some_and(|part| matches!(part, "target" | "debug" | "release"))
+        }) {
+            return "default".to_string();
+        }
+
+        format!(
+            "dev-{:016x}",
+            stable_browser_profile_hash(exe_path.to_string_lossy().as_bytes())
+        )
     }
 
     fn default_browser_cef_runtime_dir() -> PathBuf {

@@ -769,6 +769,7 @@ impl DiffViewer {
                         Ok(changed) => {
                             if changed {
                                 this.ai_refresh_browser_render_frame_cache_for_selected_thread();
+                                this.ai_sync_browser_address_input(cx);
                                 cx.notify();
                             }
                         }
@@ -808,7 +809,7 @@ impl DiffViewer {
             return;
         }
 
-        let Some(buffer) = ai_browser_frame_rgba_image(frame) else {
+        let Some(buffer) = ai_browser_frame_render_image(frame) else {
             return;
         };
         let image = std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)]));
@@ -854,6 +855,7 @@ impl DiffViewer {
                 .ensure_session(thread_id)
                 .set_load_error(err.to_string());
         }
+        self.ai_sync_browser_address_input(cx);
         cx.notify();
     }
 
@@ -1003,9 +1005,37 @@ impl DiffViewer {
         );
         self.ai_sync_browser_pump(cx);
         self.ai_refresh_browser_render_frame_cache_for_selected_thread();
+        self.ai_sync_browser_address_input(cx);
         self.invalidate_ai_visible_frame_state_with_reason("timeline");
         cx.notify();
         response
+    }
+
+    fn ai_sync_browser_address_input(&mut self, cx: &mut Context<Self>) {
+        let Some(thread_id) = self.ai_selected_thread_id.as_deref() else {
+            return;
+        };
+        let Some(url) = self
+            .ai_browser_runtime
+            .session(thread_id)
+            .and_then(|session| session.state().url.clone())
+        else {
+            return;
+        };
+        let Some(window_handle) = cx.active_window() else {
+            return;
+        };
+        let input_state = self.ai_browser_address_input_state.clone();
+        let _ = cx.update_window(window_handle, move |_, window, cx| {
+            input_state.update(cx, |state, cx| {
+                if state.focus_handle(cx).is_focused(window) {
+                    return;
+                }
+                if state.value().as_ref() != url.as_str() {
+                    state.set_value(url, window, cx);
+                }
+            });
+        });
     }
 
     pub(super) fn ai_browser_surface_focus_in(&mut self, cx: &mut Context<Self>) {
@@ -1970,11 +2000,7 @@ fn ai_workspace_message_uses_markdown_preview(
         .is_some_and(|turn| turn.status == hunk_codex::state::TurnStatus::InProgress)
 }
 
-fn ai_browser_frame_rgba_image(frame: &hunk_browser::BrowserFrame) -> Option<image::RgbaImage> {
+fn ai_browser_frame_render_image(frame: &hunk_browser::BrowserFrame) -> Option<image::RgbaImage> {
     let metadata = frame.metadata();
-    let mut rgba = frame.bgra().to_vec();
-    for pixel in rgba.chunks_exact_mut(4) {
-        pixel.swap(0, 2);
-    }
-    image::RgbaImage::from_raw(metadata.width, metadata.height, rgba)
+    image::RgbaImage::from_raw(metadata.width, metadata.height, frame.bgra().to_vec())
 }
