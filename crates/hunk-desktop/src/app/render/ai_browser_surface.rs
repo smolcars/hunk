@@ -1,7 +1,7 @@
 pub(crate) struct AiBrowserSurfaceElement {
     pub(crate) view: Entity<DiffViewer>,
     pub(crate) thread_id: String,
-    pub(crate) image: Arc<gpui::RenderImage>,
+    pub(crate) image: Option<Arc<gpui::RenderImage>>,
 }
 
 pub(crate) struct AiBrowserSurfaceLayout {
@@ -73,13 +73,15 @@ impl gpui::Element for AiBrowserSurfaceElement {
         window: &mut gpui::Window,
         _cx: &mut gpui::App,
     ) {
-        window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
-            if let Err(err) =
-                window.paint_image(bounds, gpui::Corners::default(), self.image.clone(), 0, false)
-            {
-                eprintln!("failed to paint embedded browser frame: {err:#}");
-            }
-        });
+        if let Some(image) = self.image.clone() {
+            window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
+                if let Err(err) =
+                    window.paint_image(bounds, gpui::Corners::default(), image, 0, false)
+                {
+                    eprintln!("failed to paint embedded browser frame: {err:#}");
+                }
+            });
+        }
 
         let hitbox = layout.hitbox.clone();
         let view = self.view.clone();
@@ -92,9 +94,12 @@ impl gpui::Element for AiBrowserSurfaceElement {
             let handled = view.update(cx, |this, cx| {
                 this.ai_browser_surface_mouse_down(
                     thread_id.as_str(),
-                    point,
-                    event.button,
-                    event.modifiers,
+                    AiBrowserMouseDownInput {
+                        point,
+                        window_position: event.position,
+                        button: event.button,
+                        modifiers: event.modifiers,
+                    },
                     window,
                     cx,
                 )

@@ -1,7 +1,7 @@
 use hunk_browser::{
     BrowserAction, BrowserConsoleLevel, BrowserElement, BrowserElementRect, BrowserError,
     BrowserFrame, BrowserHistoryDirection, BrowserRuntime, BrowserSessionId, BrowserSnapshot,
-    BrowserViewport,
+    BrowserTabId, BrowserViewport,
 };
 
 #[test]
@@ -110,6 +110,160 @@ fn navigate_updates_session_state_and_invalidates_snapshot_epoch() {
     assert!(!session.state().can_go_forward);
     assert_eq!(session.state().snapshot_epoch, 8);
     assert!(session.latest_snapshot().elements.is_empty());
+    assert_eq!(session.state().tabs.len(), 1);
+    assert_eq!(
+        session.state().tabs[0].url.as_deref(),
+        Some("https://example.com")
+    );
+    assert_eq!(session.state().tabs[0].snapshot_epoch, 8);
+}
+
+#[test]
+fn new_session_starts_with_one_active_tab() {
+    let session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+
+    assert_eq!(session.active_tab_id().as_str(), "tab-1");
+    assert_eq!(session.tab_summaries().len(), 1);
+    assert_eq!(session.tab_summaries()[0].tab_id, *session.active_tab_id());
+    assert_eq!(session.state().url.as_deref(), Some("about:blank"));
+    assert_eq!(
+        session.tab_summaries()[0].url.as_deref(),
+        Some("about:blank")
+    );
+    assert_eq!(session.state().active_tab_id, *session.active_tab_id());
+}
+
+#[test]
+fn create_blank_tab_uses_about_blank_without_loading() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.navigate("https://example.com/one");
+    session.set_loading(false);
+
+    let tab_id = session.create_tab(None, true);
+
+    assert_eq!(session.active_tab_id(), &tab_id);
+    assert_eq!(session.state().url.as_deref(), Some("about:blank"));
+    assert!(!session.state().loading);
+    assert_eq!(
+        session
+            .tab_summaries()
+            .iter()
+            .find(|tab| tab.tab_id == tab_id)
+            .and_then(|tab| tab.url.as_deref()),
+        Some("about:blank")
+    );
+}
+
+#[test]
+fn create_tab_can_activate_initial_url() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.navigate("https://example.com/one");
+    session.set_loading(false);
+
+    let tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+
+    assert_eq!(session.active_tab_id(), &tab_id);
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/two")
+    );
+    assert!(session.state().loading);
+    assert_eq!(session.tab_summaries().len(), 2);
+    assert_eq!(
+        session.tab_summaries()[0].url.as_deref(),
+        Some("https://example.com/one")
+    );
+    assert_eq!(session.tab_summaries()[1].tab_id, tab_id);
+}
+
+#[test]
+fn select_tab_restores_tab_summary_state() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.navigate("https://example.com/one");
+    session.set_loading(false);
+    let first_tab_id = session.active_tab_id().clone();
+    let second_tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+
+    session
+        .select_tab(&first_tab_id)
+        .expect("existing tab should be selectable");
+
+    assert_eq!(session.active_tab_id(), &first_tab_id);
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/one")
+    );
+    assert!(!session.state().loading);
+    assert_eq!(session.tab_summaries()[1].tab_id, second_tab_id);
+}
+
+#[test]
+fn close_active_tab_selects_neighbor() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    session.navigate("https://example.com/one");
+    let first_tab_id = session.active_tab_id().clone();
+    let second_tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+
+    session
+        .close_tab(&second_tab_id)
+        .expect("existing tab should close");
+
+    assert_eq!(session.active_tab_id(), &first_tab_id);
+    assert_eq!(session.tab_summaries().len(), 1);
+    assert_eq!(
+        session.state().url.as_deref(),
+        Some("https://example.com/one")
+    );
+}
+
+#[test]
+fn runtime_exposes_tab_lifecycle_by_thread() {
+    let mut runtime = BrowserRuntime::new_disabled();
+
+    runtime
+        .apply_state_only_action(
+            "thread-a",
+            &BrowserAction::Navigate {
+                url: "https://example.com/one".to_string(),
+            },
+        )
+        .expect("navigation should create a session");
+    let first_tab_id = runtime.active_tab_id("thread-a");
+    let second_tab_id = runtime.create_tab(
+        "thread-a",
+        Some("https://example.com/two".to_string()),
+        true,
+    );
+
+    assert_eq!(runtime.active_tab_id("thread-a"), second_tab_id);
+    assert_eq!(runtime.browser_tabs("thread-a").len(), 2);
+
+    runtime
+        .select_tab("thread-a", &first_tab_id)
+        .expect("existing tab should be selectable");
+    assert_eq!(runtime.active_tab_id("thread-a"), first_tab_id);
+    assert_eq!(
+        runtime
+            .session("thread-a")
+            .and_then(|session| session.state().url.as_deref()),
+        Some("https://example.com/one")
+    );
+
+    runtime
+        .close_tab("thread-a", &second_tab_id)
+        .expect("existing tab should close");
+    assert_eq!(runtime.browser_tabs("thread-a").len(), 1);
+}
+
+#[test]
+fn runtime_rejects_missing_tab_selection() {
+    let mut runtime = BrowserRuntime::new_disabled();
+
+    let error = runtime
+        .select_tab("thread-a", &BrowserTabId::new("missing-tab"))
+        .expect_err("missing tab should be rejected");
+
+    assert_eq!(error, BrowserError::MissingTab("missing-tab".to_string()));
 }
 
 #[test]
@@ -232,6 +386,43 @@ fn console_entries_are_sequenced_filtered_and_bounded() {
     assert_eq!(limited.len(), 3);
     assert_eq!(limited[0].sequence, 510);
     assert_eq!(limited[2].sequence, 512);
+}
+
+#[test]
+fn console_entries_can_be_filtered_by_tab() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    let first_tab_id = session.active_tab_id().clone();
+    let second_tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+
+    session.push_console_entry_for_tab(
+        first_tab_id.clone(),
+        BrowserConsoleLevel::Info,
+        "first tab",
+        None,
+        None,
+        1000,
+    );
+    session.push_console_entry_for_tab(
+        second_tab_id.clone(),
+        BrowserConsoleLevel::Info,
+        "second tab",
+        None,
+        None,
+        1001,
+    );
+
+    let first_entries = session.recent_console_entries_for_tab(&first_tab_id, None, None, 10);
+    let second_entries = session.recent_console_entries_for_tab(&second_tab_id, None, None, 10);
+
+    assert_eq!(first_entries.len(), 1);
+    assert_eq!(first_entries[0].message, "first tab");
+    assert_eq!(first_entries[0].tab_id, first_tab_id);
+    assert_eq!(second_entries.len(), 1);
+    assert_eq!(second_entries[0].message, "second tab");
+    assert_eq!(
+        session.latest_console_sequence_for_tab(&second_tab_id),
+        Some(second_entries[0].sequence)
+    );
 }
 
 #[test]
@@ -419,6 +610,40 @@ fn setting_latest_frame_updates_state_metadata_and_keeps_pixels() {
             .expect("frame should be stored")
             .bgra(),
         &[0, 0, 255, 255, 0, 255, 0, 255]
+    );
+}
+
+#[test]
+fn selecting_tab_restores_that_tabs_cached_frame() {
+    let mut session = hunk_browser::BrowserSession::new(BrowserSessionId::new("thread-a"));
+    let first_tab_id = session.active_tab_id().clone();
+    let first_frame =
+        BrowserFrame::from_bgra(1, 1, 11, vec![1, 2, 3, 255]).expect("valid first frame");
+    session.set_latest_frame_for_tab(&first_tab_id, first_frame);
+
+    let second_tab_id = session.create_tab(Some("https://example.com/two".to_string()), true);
+    let second_frame =
+        BrowserFrame::from_bgra(1, 1, 12, vec![4, 5, 6, 255]).expect("valid second frame");
+    session.set_latest_frame_for_tab(&second_tab_id, second_frame);
+
+    session
+        .select_tab(&first_tab_id)
+        .expect("first tab should still be selectable");
+
+    assert_eq!(
+        session
+            .latest_frame()
+            .expect("first tab frame should be restored")
+            .metadata()
+            .frame_epoch,
+        11
+    );
+    assert_eq!(
+        session
+            .latest_frame()
+            .expect("first tab frame should be restored")
+            .bgra(),
+        &[1, 2, 3, 255]
     );
 }
 

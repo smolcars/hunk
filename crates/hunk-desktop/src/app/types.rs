@@ -131,6 +131,28 @@ struct WorkspaceTextContextMenuState {
 }
 
 #[derive(Debug, Clone)]
+struct BrowserContextMenuState {
+    target: hunk_browser::BrowserContextMenuTarget,
+    position: Point<gpui::Pixels>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserEditShortcut {
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AiBrowserMouseDownInput {
+    point: hunk_browser::BrowserPhysicalPoint,
+    window_position: Point<gpui::Pixels>,
+    button: MouseButton,
+    modifiers: gpui::Modifiers,
+}
+
+#[derive(Debug, Clone)]
 enum WorkspaceTextContextMenuTarget {
     FilesEditor(FilesEditorContextMenuTarget),
     SelectableText(SelectableTextContextMenuTarget),
@@ -331,6 +353,7 @@ impl AiWorkspaceRightPaneMode {
 
 struct AiBrowserRenderFrameCache {
     thread_id: String,
+    tab_id: hunk_browser::BrowserTabId,
     frame_epoch: u64,
     width: u32,
     height: u32,

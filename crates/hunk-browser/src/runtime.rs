@@ -5,8 +5,9 @@ use crate::cef_backend::CefBrowserBackend;
 use crate::config::BrowserRuntimeConfig;
 use crate::session::{
     BrowserAction, BrowserError, BrowserMouseButton, BrowserMouseInput, BrowserSession,
-    BrowserSessionId, BrowserViewportSize,
+    BrowserSessionId, BrowserTabId, BrowserTabSummary, BrowserViewportSize,
 };
+use crate::snapshot::BrowserPhysicalPoint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserRuntimeStatus {
@@ -33,6 +34,7 @@ pub enum BrowserRuntimeOperation {
     Focus,
     Snapshot,
     Screenshot,
+    DevTools,
 }
 
 impl BrowserRuntimeOperation {
@@ -54,6 +56,7 @@ impl BrowserRuntimeOperation {
             BrowserRuntimeOperation::Focus => "focus",
             BrowserRuntimeOperation::Snapshot => "snapshot",
             BrowserRuntimeOperation::Screenshot => "screenshot",
+            BrowserRuntimeOperation::DevTools => "devtools",
         }
     }
 }
@@ -206,6 +209,200 @@ impl BrowserRuntime {
         self.sessions.remove(&session_id)
     }
 
+    pub fn browser_tabs(&mut self, thread_id: &str) -> &[BrowserTabSummary] {
+        self.ensure_session(thread_id.to_string()).tab_summaries()
+    }
+
+    pub fn active_tab_id(&mut self, thread_id: &str) -> BrowserTabId {
+        self.ensure_session(thread_id.to_string())
+            .active_tab_id()
+            .clone()
+    }
+
+    pub fn create_tab(
+        &mut self,
+        thread_id: &str,
+        url: Option<String>,
+        activate: bool,
+    ) -> BrowserTabId {
+        self.ensure_session(thread_id.to_string())
+            .create_tab(url, activate)
+    }
+
+    pub fn select_tab(
+        &mut self,
+        thread_id: &str,
+        tab_id: &BrowserTabId,
+    ) -> Result<(), BrowserError> {
+        self.ensure_session(thread_id.to_string())
+            .select_tab(tab_id)
+    }
+
+    pub fn close_tab(
+        &mut self,
+        thread_id: &str,
+        tab_id: &BrowserTabId,
+    ) -> Result<(), BrowserError> {
+        #[cfg(feature = "cef")]
+        if let Some(backend) = self.cef_backend.as_mut() {
+            backend.close_tab(&BrowserSessionId::new(thread_id), tab_id);
+        }
+        self.ensure_session(thread_id.to_string()).close_tab(tab_id)
+    }
+
+    pub fn navigate_tab_state_only(
+        &mut self,
+        thread_id: &str,
+        tab_id: &BrowserTabId,
+        url: String,
+    ) -> Result<(), BrowserError> {
+        self.ensure_session(thread_id.to_string())
+            .navigate_tab(tab_id, url)
+    }
+
+    pub fn navigate_backend_tab(
+        &mut self,
+        thread_id: &str,
+        tab_id: &BrowserTabId,
+        url: String,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::Navigate)?;
+        let session_id = BrowserSessionId::new(thread_id);
+        self.ensure_session(thread_id.to_string());
+
+        #[cfg(feature = "cef")]
+        {
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
+            backend.apply_action(
+                &session_id,
+                tab_id,
+                &BrowserAction::Navigate { url: url.clone() },
+            )?;
+            self.sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| BrowserError::MissingSession(thread_id.to_string()))?
+                .navigate_tab(tab_id, url)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = (session_id, tab_id, url);
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn take_context_menu_target(
+        &mut self,
+        thread_id: &str,
+    ) -> Option<crate::session::BrowserContextMenuTarget> {
+        let session_id = BrowserSessionId::new(thread_id);
+        let tab_id = self.sessions.get(&session_id)?.active_tab_id().clone();
+        #[cfg(feature = "cef")]
+        {
+            self.cef_backend
+                .as_mut()
+                .and_then(|backend| backend.take_context_menu_target(&session_id, &tab_id))
+        }
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = (session_id, tab_id);
+            None
+        }
+    }
+
+    pub fn show_devtools(
+        &mut self,
+        thread_id: &str,
+        inspect_element_at: Option<BrowserPhysicalPoint>,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::DevTools)?;
+        self.ensure_backend_session(thread_id.to_string())?;
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.show_devtools(&session_id, &tab_id, inspect_element_at)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = inspect_element_at;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn close_devtools(&mut self, thread_id: &str) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::DevTools)?;
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.close_devtools(&session_id, &tab_id)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = thread_id;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn has_devtools(&mut self, thread_id: &str) -> Result<bool, BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::DevTools)?;
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.has_devtools(&session_id, &tab_id)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = thread_id;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
     pub fn apply_state_only_action(
         &mut self,
         thread_id: &str,
@@ -252,13 +449,17 @@ impl BrowserRuntime {
         #[cfg(feature = "cef")]
         {
             let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
             let Some(backend) = self.cef_backend.as_mut() else {
                 return Err(BrowserError::BackendUnavailable(
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            backend.ensure_session(session_id.clone())?;
-            backend.resize_session(&session_id, viewport)
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
+            backend.resize_session(&session_id, &tab_id, viewport)
         }
 
         #[cfg(not(feature = "cef"))]
@@ -281,13 +482,17 @@ impl BrowserRuntime {
         #[cfg(feature = "cef")]
         {
             let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
             let Some(backend) = self.cef_backend.as_mut() else {
                 return Err(BrowserError::BackendUnavailable(
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            backend.ensure_session(session_id.clone())?;
-            backend.focus_session(&session_id, focused)
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
+            backend.focus_session(&session_id, &tab_id, focused)
         }
 
         #[cfg(not(feature = "cef"))]
@@ -310,13 +515,17 @@ impl BrowserRuntime {
         #[cfg(feature = "cef")]
         {
             let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
             let Some(backend) = self.cef_backend.as_mut() else {
                 return Err(BrowserError::BackendUnavailable(
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            backend.ensure_session(session_id.clone())?;
-            backend.send_mouse_move(&session_id, input)
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
+            backend.send_mouse_move(&session_id, &tab_id, input)
         }
 
         #[cfg(not(feature = "cef"))]
@@ -340,13 +549,17 @@ impl BrowserRuntime {
         #[cfg(feature = "cef")]
         {
             let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
             let Some(backend) = self.cef_backend.as_mut() else {
                 return Err(BrowserError::BackendUnavailable(
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            backend.ensure_session(session_id.clone())?;
-            backend.send_mouse_click(&session_id, input, button)
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
+            backend.send_mouse_click(&session_id, &tab_id, input, button)
         }
 
         #[cfg(not(feature = "cef"))]
@@ -371,13 +584,17 @@ impl BrowserRuntime {
         #[cfg(feature = "cef")]
         {
             let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
             let Some(backend) = self.cef_backend.as_mut() else {
                 return Err(BrowserError::BackendUnavailable(
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            backend.ensure_session(session_id.clone())?;
-            backend.send_mouse_wheel(&session_id, input, delta_x, delta_y)
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
+            backend.send_mouse_wheel(&session_id, &tab_id, input, delta_x, delta_y)
         }
 
         #[cfg(not(feature = "cef"))]
@@ -400,13 +617,17 @@ impl BrowserRuntime {
         #[cfg(feature = "cef")]
         {
             let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
             let Some(backend) = self.cef_backend.as_mut() else {
                 return Err(BrowserError::BackendUnavailable(
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            backend.ensure_session(session_id.clone())?;
-            backend.send_key_press(&session_id, keys)
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
+            backend.send_key_press(&session_id, &tab_id, keys)
         }
 
         #[cfg(not(feature = "cef"))]
@@ -425,13 +646,17 @@ impl BrowserRuntime {
         #[cfg(feature = "cef")]
         {
             let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
             let Some(backend) = self.cef_backend.as_mut() else {
                 return Err(BrowserError::BackendUnavailable(
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            backend.ensure_session(session_id.clone())?;
-            backend.send_text(&session_id, text)
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
+            backend.send_text(&session_id, &tab_id, text)
         }
 
         #[cfg(not(feature = "cef"))]
@@ -505,6 +730,11 @@ impl BrowserRuntime {
         #[cfg(feature = "cef")]
         let session_id = BrowserSessionId::new(thread_id);
         #[cfg(feature = "cef")]
+        let tab_id = self
+            .ensure_session(thread_id.to_string())
+            .active_tab_id()
+            .clone();
+        #[cfg(feature = "cef")]
         let epoch = self
             .sessions
             .get(&session_id)
@@ -518,7 +748,7 @@ impl BrowserRuntime {
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            let snapshot = backend.capture_snapshot(&session_id, epoch)?;
+            let snapshot = backend.capture_snapshot(&session_id, &tab_id, epoch)?;
             let session = self
                 .sessions
                 .get_mut(&session_id)
@@ -545,6 +775,12 @@ impl BrowserRuntime {
         self.sessions
             .entry(session_id.clone())
             .or_insert_with(|| BrowserSession::new(session_id.clone()));
+        #[cfg(feature = "cef")]
+        let tab_id = self
+            .sessions
+            .get(&session_id)
+            .map(|session| session.active_tab_id().clone())
+            .unwrap_or_else(|| BrowserTabId::new("tab-1"));
 
         #[cfg(feature = "cef")]
         {
@@ -553,7 +789,7 @@ impl BrowserRuntime {
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            backend.ensure_session(session_id)
+            backend.ensure_tab(session_id, tab_id)
         }
 
         #[cfg(not(feature = "cef"))]
@@ -576,12 +812,16 @@ impl BrowserRuntime {
         #[cfg(feature = "cef")]
         {
             let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
             let Some(backend) = self.cef_backend.as_mut() else {
                 return Err(BrowserError::BackendUnavailable(
                     "CEF backend is marked ready but is not connected".to_string(),
                 ));
             };
-            backend.ensure_session(session_id.clone())?;
+            backend.ensure_tab(session_id.clone(), tab_id.clone())?;
             match action {
                 BrowserAction::Click {
                     snapshot_epoch,
@@ -594,6 +834,7 @@ impl BrowserRuntime {
                         .element_click_target(*snapshot_epoch, *index)?;
                     backend.send_mouse_click(
                         &session_id,
+                        &tab_id,
                         BrowserMouseInput::new(point),
                         BrowserMouseButton::Left,
                     )?;
@@ -611,17 +852,18 @@ impl BrowserRuntime {
                         .element_click_target(*snapshot_epoch, *index)?;
                     backend.send_mouse_click(
                         &session_id,
+                        &tab_id,
                         BrowserMouseInput::new(point),
                         BrowserMouseButton::Left,
                     )?;
                     if *clear {
-                        backend.send_key_press(&session_id, platform_select_all_keys())?;
-                        backend.send_key_press(&session_id, "Backspace")?;
+                        backend.send_key_press(&session_id, &tab_id, platform_select_all_keys())?;
+                        backend.send_key_press(&session_id, &tab_id, "Backspace")?;
                     }
-                    backend.send_text(&session_id, text)?;
+                    backend.send_text(&session_id, &tab_id, text)?;
                 }
                 BrowserAction::Press { keys } => {
-                    backend.send_key_press(&session_id, keys)?;
+                    backend.send_key_press(&session_id, &tab_id, keys)?;
                 }
                 BrowserAction::Scroll { down, pages, index } => {
                     let delta_y = scroll_pages_to_wheel_delta(*down, *pages);
@@ -632,6 +874,7 @@ impl BrowserRuntime {
                         .scroll_target(*index)?;
                     backend.send_mouse_wheel(
                         &session_id,
+                        &tab_id,
                         BrowserMouseInput::new(point),
                         0,
                         delta_y,
@@ -641,10 +884,10 @@ impl BrowserRuntime {
                 | BrowserAction::Reload
                 | BrowserAction::Stop
                 | BrowserAction::Screenshot => {
-                    backend.apply_action(&session_id, action)?;
+                    backend.apply_action(&session_id, &tab_id, action)?;
                 }
                 BrowserAction::Back | BrowserAction::Forward => {
-                    backend.apply_action(&session_id, action)?;
+                    backend.apply_action(&session_id, &tab_id, action)?;
                     self.sessions
                         .get_mut(&session_id)
                         .ok_or_else(|| BrowserError::MissingSession(thread_id.to_string()))?

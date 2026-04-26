@@ -1,11 +1,12 @@
-use hunk_browser::{BrowserAction, BrowserConsoleLevel};
+use hunk_browser::{BrowserAction, BrowserConsoleLevel, BrowserTabId};
 use hunk_codex::browser_tools::{
-    BROWSER_BACK_TOOL, BROWSER_CLICK_TOOL, BROWSER_CONSOLE_TOOL, BROWSER_DEVELOPER_INSTRUCTIONS,
-    BROWSER_FORWARD_TOOL, BROWSER_NAVIGATE_TOOL, BROWSER_RELOAD_TOOL, BROWSER_SCREENSHOT_TOOL,
-    BROWSER_SCROLL_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_STOP_TOOL, BROWSER_TOOL_NAMESPACE,
-    BROWSER_TYPE_TOOL, BrowserDynamicToolRequest, apply_browser_thread_start_context,
-    browser_dynamic_tool_specs, is_browser_dynamic_tool, is_browser_dynamic_tool_call,
-    parse_browser_dynamic_tool_request,
+    BROWSER_BACK_TOOL, BROWSER_CLICK_TOOL, BROWSER_CLOSE_TAB_TOOL, BROWSER_CONSOLE_TOOL,
+    BROWSER_DEVELOPER_INSTRUCTIONS, BROWSER_FORWARD_TOOL, BROWSER_NAVIGATE_TOOL,
+    BROWSER_NEW_TAB_TOOL, BROWSER_RELOAD_TOOL, BROWSER_SCREENSHOT_TOOL, BROWSER_SCROLL_TOOL,
+    BROWSER_SELECT_TAB_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_STOP_TOOL, BROWSER_TABS_TOOL,
+    BROWSER_TOOL_NAMESPACE, BROWSER_TYPE_TOOL, BrowserDynamicToolRequest,
+    apply_browser_thread_start_context, browser_dynamic_tool_specs, is_browser_dynamic_tool,
+    is_browser_dynamic_tool_call, parse_browser_dynamic_tool_request,
 };
 use hunk_codex::protocol::{DynamicToolCallParams, DynamicToolSpec, ThreadStartParams};
 
@@ -32,6 +33,10 @@ fn browser_tool_specs_include_core_controls() {
     assert!(names.contains(&BROWSER_TYPE_TOOL));
     assert!(names.contains(&BROWSER_SCREENSHOT_TOOL));
     assert!(names.contains(&BROWSER_CONSOLE_TOOL));
+    assert!(names.contains(&BROWSER_TABS_TOOL));
+    assert!(names.contains(&BROWSER_NEW_TAB_TOOL));
+    assert!(names.contains(&BROWSER_SELECT_TAB_TOOL));
+    assert!(names.contains(&BROWSER_CLOSE_TAB_TOOL));
 }
 
 #[test]
@@ -66,6 +71,9 @@ fn browser_developer_instructions_describe_snapshot_index_flow() {
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.navigate"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.snapshot"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.console"));
+    assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.tabs"));
+    assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.select_tab"));
+    assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("tabId"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("snapshotEpoch"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("element index"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.back"));
@@ -161,10 +169,13 @@ fn parse_browser_click_request_uses_snapshot_epoch_and_index() {
 
     assert_eq!(
         request,
-        BrowserDynamicToolRequest::Action(BrowserAction::Click {
-            snapshot_epoch: 7,
-            index: 42,
-        })
+        BrowserDynamicToolRequest::Action {
+            tab_id: None,
+            action: BrowserAction::Click {
+                snapshot_epoch: 7,
+                index: 42,
+            },
+        }
     );
 }
 
@@ -182,12 +193,15 @@ fn parse_browser_type_request_defaults_to_clear_first() {
 
     assert_eq!(
         request,
-        BrowserDynamicToolRequest::Action(BrowserAction::Type {
-            snapshot_epoch: 7,
-            index: 42,
-            text: "hello".to_string(),
-            clear: true,
-        })
+        BrowserDynamicToolRequest::Action {
+            tab_id: None,
+            action: BrowserAction::Type {
+                snapshot_epoch: 7,
+                index: 42,
+                text: "hello".to_string(),
+                clear: true,
+            },
+        }
     );
 }
 
@@ -201,11 +215,14 @@ fn parse_browser_scroll_request_applies_defaults() {
 
     assert_eq!(
         request,
-        BrowserDynamicToolRequest::Action(BrowserAction::Scroll {
-            down: true,
-            pages: 1.0,
-            index: None,
-        })
+        BrowserDynamicToolRequest::Action {
+            tab_id: None,
+            action: BrowserAction::Scroll {
+                down: true,
+                pages: 1.0,
+                index: None,
+            },
+        }
     );
 }
 
@@ -221,8 +238,49 @@ fn parse_browser_navigation_control_requests() {
             parse_browser_dynamic_tool_request(&dynamic_tool_params(tool, serde_json::json!({})))
                 .expect("browser navigation control args should parse");
 
-        assert_eq!(request, BrowserDynamicToolRequest::Action(expected));
+        assert_eq!(
+            request,
+            BrowserDynamicToolRequest::Action {
+                tab_id: None,
+                action: expected,
+            }
+        );
     }
+}
+
+#[test]
+fn parse_browser_requests_accept_optional_tab_id() {
+    let request = parse_browser_dynamic_tool_request(&dynamic_tool_params(
+        BROWSER_NAVIGATE_TOOL,
+        serde_json::json!({
+            "url": "https://example.com",
+            "tabId": "tab-2",
+        }),
+    ))
+    .expect("browser navigate with tab id should parse");
+    assert_eq!(
+        request,
+        BrowserDynamicToolRequest::Action {
+            tab_id: Some(BrowserTabId::new("tab-2")),
+            action: BrowserAction::Navigate {
+                url: "https://example.com".to_string(),
+            },
+        }
+    );
+
+    let request = parse_browser_dynamic_tool_request(&dynamic_tool_params(
+        BROWSER_SNAPSHOT_TOOL,
+        serde_json::json!({
+            "tabId": "tab-2",
+        }),
+    ))
+    .expect("browser snapshot with tab id should parse");
+    assert_eq!(
+        request,
+        BrowserDynamicToolRequest::Snapshot {
+            tab_id: Some(BrowserTabId::new("tab-2")),
+        }
+    );
 }
 
 #[test]
@@ -236,6 +294,7 @@ fn parse_browser_console_request_applies_defaults_and_filters() {
     assert_eq!(
         request,
         BrowserDynamicToolRequest::Console {
+            tab_id: None,
             level: None,
             since_sequence: None,
             limit: 100,
@@ -255,9 +314,62 @@ fn parse_browser_console_request_applies_defaults_and_filters() {
     assert_eq!(
         request,
         BrowserDynamicToolRequest::Console {
+            tab_id: None,
             level: Some(BrowserConsoleLevel::Warning),
             since_sequence: Some(7),
             limit: 500,
+        }
+    );
+}
+
+#[test]
+fn parse_browser_tab_requests() {
+    assert_eq!(
+        parse_browser_dynamic_tool_request(&dynamic_tool_params(
+            BROWSER_TABS_TOOL,
+            serde_json::json!({})
+        ))
+        .expect("tabs should parse"),
+        BrowserDynamicToolRequest::Tabs
+    );
+
+    assert_eq!(
+        parse_browser_dynamic_tool_request(&dynamic_tool_params(
+            BROWSER_NEW_TAB_TOOL,
+            serde_json::json!({
+                "url": "https://example.com",
+            })
+        ))
+        .expect("new tab should parse"),
+        BrowserDynamicToolRequest::NewTab {
+            url: Some("https://example.com".to_string()),
+            activate: true,
+        }
+    );
+
+    assert_eq!(
+        parse_browser_dynamic_tool_request(&dynamic_tool_params(
+            BROWSER_SELECT_TAB_TOOL,
+            serde_json::json!({
+                "tabId": "tab-2",
+            })
+        ))
+        .expect("select tab should parse"),
+        BrowserDynamicToolRequest::SelectTab {
+            tab_id: BrowserTabId::new("tab-2"),
+        }
+    );
+
+    assert_eq!(
+        parse_browser_dynamic_tool_request(&dynamic_tool_params(
+            BROWSER_CLOSE_TAB_TOOL,
+            serde_json::json!({
+                "tabId": "tab-2",
+            })
+        ))
+        .expect("close tab should parse"),
+        BrowserDynamicToolRequest::CloseTab {
+            tab_id: BrowserTabId::new("tab-2"),
         }
     );
 }

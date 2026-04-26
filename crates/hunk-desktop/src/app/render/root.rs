@@ -657,6 +657,9 @@ impl Render for DiffViewer {
             .when_some(self.render_workspace_text_context_menu(cx), |this, menu| {
                 this.child(menu)
             })
+            .when_some(self.render_browser_context_menu(cx), |this, menu| {
+                this.child(menu)
+            })
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_notification_layer(window, cx))
             .into_any_element();

@@ -140,7 +140,10 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
     };
 
     match request {
-        BrowserDynamicToolRequest::Snapshot => {
+        BrowserDynamicToolRequest::Snapshot { tab_id } => {
+            if let Some(error) = select_browser_tool_tab(runtime, params, tab_id.as_ref()) {
+                return error;
+            }
             if use_backend {
                 if let Err(error) = runtime.capture_backend_snapshot(params.thread_id.as_str()) {
                     return json_error_response(json!({
@@ -156,7 +159,10 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
             let session = runtime.ensure_session(params.thread_id.clone());
             json_success_response(snapshot_response(params, session))
         }
-        BrowserDynamicToolRequest::Screenshot => {
+        BrowserDynamicToolRequest::Screenshot { tab_id } => {
+            if let Some(error) = select_browser_tool_tab(runtime, params, tab_id.as_ref()) {
+                return error;
+            }
             let session = runtime.ensure_session(params.thread_id.clone());
             let Some(frame) = session.latest_frame() else {
                 return json_error_response(json!({
@@ -188,24 +194,100 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
                 vec![DynamicToolCallOutputContentItem::InputImage { image_url }],
             )
         }
+        BrowserDynamicToolRequest::Tabs => {
+            let session = runtime.ensure_session(params.thread_id.clone());
+            json_success_response(tabs_response(params, session, "Browser tabs were read."))
+        }
+        BrowserDynamicToolRequest::NewTab { url, activate } => {
+            let tab_id = runtime.create_tab(params.thread_id.as_str(), url.clone(), activate);
+            if let Some(url) = url {
+                if use_backend && runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+                    let _ = runtime.navigate_backend_tab(params.thread_id.as_str(), &tab_id, url);
+                    let _ = runtime.pump_backend();
+                } else {
+                    let _ =
+                        runtime.navigate_tab_state_only(params.thread_id.as_str(), &tab_id, url);
+                }
+            } else if use_backend
+                && activate
+                && runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready
+            {
+                let _ = runtime.ensure_backend_session(params.thread_id.clone());
+                let _ = runtime.pump_backend();
+            }
+            let session = runtime.ensure_session(params.thread_id.clone());
+            json_success_response(tabs_response(
+                params,
+                session,
+                format!("Created browser tab {}.", tab_id.as_str()).as_str(),
+            ))
+        }
+        BrowserDynamicToolRequest::SelectTab { tab_id } => {
+            if let Err(error) = runtime.select_tab(params.thread_id.as_str(), &tab_id) {
+                return json_error_response(json!({
+                    "error": "browserActionRejected",
+                    "message": error.to_string(),
+                    "tool": params.tool,
+                    "threadId": params.thread_id,
+                    "turnId": params.turn_id,
+                }));
+            }
+            if use_backend && runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+                let _ = runtime.ensure_backend_session(params.thread_id.clone());
+                let _ = runtime.pump_backend();
+            }
+            let session = runtime.ensure_session(params.thread_id.clone());
+            json_success_response(tabs_response(
+                params,
+                session,
+                format!("Selected browser tab {}.", tab_id.as_str()).as_str(),
+            ))
+        }
+        BrowserDynamicToolRequest::CloseTab { tab_id } => {
+            if let Err(error) = runtime.close_tab(params.thread_id.as_str(), &tab_id) {
+                return json_error_response(json!({
+                    "error": "browserActionRejected",
+                    "message": error.to_string(),
+                    "tool": params.tool,
+                    "threadId": params.thread_id,
+                    "turnId": params.turn_id,
+                }));
+            }
+            if use_backend && runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready {
+                let _ = runtime.ensure_backend_session(params.thread_id.clone());
+                let _ = runtime.pump_backend();
+            }
+            let session = runtime.ensure_session(params.thread_id.clone());
+            json_success_response(tabs_response(
+                params,
+                session,
+                format!("Closed browser tab {}.", tab_id.as_str()).as_str(),
+            ))
+        }
         BrowserDynamicToolRequest::Console {
+            tab_id,
             level,
             since_sequence,
             limit,
         } => {
+            if let Some(error) = select_browser_tool_tab(runtime, params, tab_id.as_ref()) {
+                return error;
+            }
             if use_backend {
                 let _ = runtime.pump_backend();
             }
             let session = runtime.ensure_session(params.thread_id.clone());
+            let tab_id = session.active_tab_id().clone();
             json_success_response(console_response(
                 params,
                 session,
+                &tab_id,
                 level,
                 since_sequence,
                 limit,
             ))
         }
-        BrowserDynamicToolRequest::Action(action) => {
+        BrowserDynamicToolRequest::Action { tab_id, action } => {
             if safety_mode == BrowserToolSafetyMode::Enforce
                 && let BrowserSafetyDecision::Prompt(kind) = classify_browser_action(&action)
             {
@@ -217,6 +299,9 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
                     "turnId": params.turn_id,
                     "sensitiveAction": format!("{kind:?}"),
                 }));
+            }
+            if let Some(error) = select_browser_tool_tab(runtime, params, tab_id.as_ref()) {
+                return error;
             }
 
             let action_result =
@@ -255,7 +340,8 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
 pub(crate) fn browser_dynamic_tool_confirmation(
     params: &DynamicToolCallParams,
 ) -> Option<BrowserToolConfirmation> {
-    let Ok(BrowserDynamicToolRequest::Action(action)) = parse_browser_dynamic_tool_request(params)
+    let Ok(BrowserDynamicToolRequest::Action { action, .. }) =
+        parse_browser_dynamic_tool_request(params)
     else {
         return None;
     };
@@ -294,6 +380,26 @@ pub(crate) fn browser_confirmation_declined_response(
     }))
 }
 
+fn select_browser_tool_tab(
+    runtime: &mut BrowserRuntime,
+    params: &DynamicToolCallParams,
+    tab_id: Option<&hunk_browser::BrowserTabId>,
+) -> Option<DynamicToolCallResponse> {
+    let tab_id = tab_id?;
+    runtime
+        .select_tab(params.thread_id.as_str(), tab_id)
+        .err()
+        .map(|error| {
+            json_error_response(json!({
+                "error": "browserActionRejected",
+                "message": error.to_string(),
+                "tool": params.tool,
+                "threadId": params.thread_id,
+                "turnId": params.turn_id,
+            }))
+        })
+}
+
 fn action_response(
     params: &DynamicToolCallParams,
     action: &BrowserAction,
@@ -310,6 +416,8 @@ fn action_response(
         "title": state.title,
         "loading": state.loading,
         "snapshotEpoch": state.snapshot_epoch,
+        "activeTabId": state.active_tab_id,
+        "tabs": browser_tabs_value(state),
         "message": browser_action_message(action, use_backend),
     })
 }
@@ -352,6 +460,8 @@ fn snapshot_response(
         "url": snapshot.url.as_ref().or(state.url.as_ref()),
         "title": snapshot.title.as_ref().or(state.title.as_ref()),
         "loading": state.loading,
+        "activeTabId": state.active_tab_id,
+        "tabs": browser_tabs_value(state),
         "viewport": snapshot.viewport,
         "scrollPosition": {
             "x": snapshot.viewport.scroll_x,
@@ -362,19 +472,60 @@ fn snapshot_response(
     })
 }
 
+fn tabs_response(
+    params: &DynamicToolCallParams,
+    session: &hunk_browser::BrowserSession,
+    message: &str,
+) -> serde_json::Value {
+    let state = session.state();
+    json!({
+        "ok": true,
+        "tool": params.tool,
+        "threadId": params.thread_id,
+        "turnId": params.turn_id,
+        "activeTabId": state.active_tab_id,
+        "tabs": browser_tabs_value(state),
+        "message": message,
+    })
+}
+
+fn browser_tabs_value(state: &hunk_browser::BrowserSessionState) -> serde_json::Value {
+    json!(
+        state
+            .tabs
+            .iter()
+            .map(|tab| {
+                json!({
+                    "tabId": tab.tab_id,
+                    "url": tab.url,
+                    "title": tab.title,
+                    "loading": tab.loading,
+                    "loadError": tab.load_error,
+                    "canGoBack": tab.can_go_back,
+                    "canGoForward": tab.can_go_forward,
+                    "snapshotEpoch": tab.snapshot_epoch,
+                    "latestFrame": tab.latest_frame,
+                })
+            })
+            .collect::<Vec<_>>()
+    )
+}
+
 fn console_response(
     params: &DynamicToolCallParams,
     session: &hunk_browser::BrowserSession,
+    tab_id: &hunk_browser::BrowserTabId,
     level: Option<hunk_browser::BrowserConsoleLevel>,
     since_sequence: Option<u64>,
     limit: usize,
 ) -> serde_json::Value {
     let entries = session
-        .recent_console_entries(level, since_sequence, limit)
+        .recent_console_entries_for_tab(tab_id, level, since_sequence, limit)
         .into_iter()
         .map(|entry| {
             json!({
                 "sequence": entry.sequence,
+                "tabId": entry.tab_id,
                 "level": entry.level,
                 "message": redact_browser_tool_text(entry.message.as_str()),
                 "source": entry.source.as_deref().map(redact_browser_tool_text),
@@ -383,13 +534,14 @@ fn console_response(
             })
         })
         .collect::<Vec<_>>();
-    let latest_sequence = session.console_entries().last().map(|entry| entry.sequence);
+    let latest_sequence = session.latest_console_sequence_for_tab(tab_id);
 
     json!({
         "ok": true,
         "tool": params.tool,
         "threadId": params.thread_id,
         "turnId": params.turn_id,
+        "tabId": tab_id,
         "entries": entries,
         "latestSequence": latest_sequence,
         "message": "Console messages were read from the embedded browser.",

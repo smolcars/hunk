@@ -1887,6 +1887,13 @@ impl DiffViewer {
             .and_then(|thread_id| self.ai_browser_runtime.session(thread_id))
             .map(|session| session.state().clone());
         let session_state = session_snapshot;
+        let browser_tabs = session_state
+            .as_ref()
+            .map(|state| state.tabs.clone())
+            .unwrap_or_default();
+        let active_tab_id = session_state
+            .as_ref()
+            .map(|state| state.active_tab_id.clone());
         let browser_render_image = selected_thread_id.as_deref().and_then(|thread_id| {
             let latest_frame = session_state
                 .as_ref()
@@ -1895,6 +1902,7 @@ impl DiffViewer {
                 .as_ref()
                 .filter(|cache| {
                     cache.thread_id == thread_id
+                        && active_tab_id.as_ref() == Some(&cache.tab_id)
                         && cache.frame_epoch == latest_frame.frame_epoch
                         && cache.width == latest_frame.width
                         && cache.height == latest_frame.height
@@ -1922,7 +1930,6 @@ impl DiffViewer {
                     ("Idle", cx.theme().muted_foreground)
                 }
             });
-
         v_flex()
             .size_full()
             .min_h_0()
@@ -2000,6 +2007,136 @@ impl DiffViewer {
                                         });
                                     })
                             }),
+                    ),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .h(px(34.0))
+                    .bg(cx.theme().tab_bar)
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .overflow_x_hidden()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .h_full()
+                            .items_center()
+                            .children(browser_tabs.iter().map(|tab| {
+                                let is_active = active_tab_id.as_ref() == Some(&tab.tab_id);
+                                let tab_id = tab.tab_id.as_str().to_string();
+                                let label = tab
+                                    .title
+                                    .as_deref()
+                                    .filter(|title| !title.trim().is_empty())
+                                    .or_else(|| {
+                                        tab.url
+                                            .as_deref()
+                                            .filter(|url| !url.trim().is_empty() && *url != "about:blank")
+                                    })
+                                    .unwrap_or("New Tab")
+                                    .to_string();
+                                let select_view = view.clone();
+                                let close_view = view.clone();
+                                let mut tab_surface = div()
+                                    .id(format!("ai-browser-tab-{tab_id}"))
+                                    .flex_none()
+                                    .min_w(px(128.0))
+                                    .max_w(px(220.0))
+                                    .h_full()
+                                    .px_2()
+                                    .gap_1()
+                                    .items_center()
+                                    .border_r_1()
+                                    .border_color(cx.theme().border)
+                                    .on_mouse_down(MouseButton::Left, {
+                                        let tab_id = tab_id.clone();
+                                        move |_, _, cx| {
+                                            select_view.update(cx, |this, cx| {
+                                                this.ai_select_browser_tab_for_current_thread(
+                                                    tab_id.clone(),
+                                                    cx,
+                                                );
+                                            });
+                                        }
+                                    });
+                                if is_active {
+                                    tab_surface = tab_surface
+                                        .bg(cx.theme().tab_active)
+                                        .border_b_0();
+                                } else {
+                                    tab_surface = tab_surface
+                                        .bg(cx.theme().tab)
+                                        .hover(|this| this.bg(cx.theme().muted))
+                                        .cursor_pointer();
+                                }
+
+                                tab_surface
+                                    .child(
+                                        h_flex()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .items_center()
+                                            .gap_1()
+                                            .child(
+                                                div()
+                                                    .truncate()
+                                                    .text_xs()
+                                                    .text_color(if is_active {
+                                                        cx.theme().tab_active_foreground
+                                                    } else {
+                                                        cx.theme().tab_foreground
+                                                    })
+                                                    .child(label),
+                                            )
+                                            .when(tab.loading, |this| {
+                                                this.child(
+                                                    Icon::new(IconName::LoaderCircle)
+                                                        .size(px(11.0))
+                                                        .text_color(cx.theme().warning),
+                                                )
+                                            })
+                                            .child({
+                                                let tab_id = tab_id.clone();
+                                                Button::new(format!("ai-browser-tab-close-{tab_id}"))
+                                                    .ghost()
+                                                    .xsmall()
+                                                    .icon(Icon::new(IconName::Close).size(px(11.0)))
+                                                    .tooltip("Close tab")
+                                                    .on_click(move |_, _, cx| {
+                                                        cx.stop_propagation();
+                                                        close_view.update(cx, |this, cx| {
+                                                            this.ai_close_browser_tab_for_current_thread(
+                                                                tab_id.clone(),
+                                                                cx,
+                                                            );
+                                                        });
+                                                    })
+                                            }),
+                                    )
+                                    .into_any_element()
+                            }))
+                            .child({
+                                let view = view.clone();
+                                Button::new("ai-browser-new-tab")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(Icon::new(IconName::Plus).size(px(13.0)))
+                                    .tooltip("New tab")
+                                    .on_click(move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            this.ai_create_browser_tab_for_current_thread(cx);
+                                        });
+                                    })
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full()
+                                    .border_b_1()
+                                    .border_color(cx.theme().border),
+                            ),
                     ),
             )
             .child(
@@ -2096,6 +2233,24 @@ impl DiffViewer {
                         },
                     )
                     .child(
+                        {
+                            let view = view.clone();
+                            Button::new("ai-browser-devtools")
+                                .compact()
+                                .ghost()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(IconName::SquareTerminal).size(px(13.0)))
+                                .tooltip("Toggle DevTools")
+                                .disabled(!runtime_ready)
+                                .on_click(move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_toggle_browser_devtools_for_current_thread(cx);
+                                    });
+                                })
+                        },
+                    )
+                    .child(
                         Input::new(&self.ai_browser_address_input_state)
                             .with_size(gpui_component::Size::Small)
                             .appearance(true)
@@ -2163,41 +2318,63 @@ impl DiffViewer {
                             }
                         }
                     })
-                    .child(if let Some(render_image) = browser_render_image {
-                        if let Some(thread_id) = selected_thread_id.clone() {
-                            AiBrowserSurfaceElement {
-                                view: view.clone(),
-                                thread_id,
-                                image: render_image,
-                            }
-                            .into_any_element()
+                    .child(if let Some(thread_id) = selected_thread_id.clone() {
+                        let has_render_image = browser_render_image.is_some();
+                        let (empty_title, empty_body) = if runtime_ready {
+                            (
+                                "Waiting for tab contents",
+                                "This tab is ready and will appear as soon as CEF paints its first frame.",
+                            )
                         } else {
-                            div().size_full().into_any_element()
-                        }
-                    } else {
-                        v_flex()
+                            (
+                                "Browser runtime not connected",
+                                "CEF offscreen rendering will attach here once the browser backend is available.",
+                            )
+                        };
+                        div()
+                            .relative()
                             .size_full()
-                            .items_center()
-                            .justify_center()
-                            .gap_2()
-                            .px_4()
-                            .child(Icon::new(IconName::Globe).size(px(32.0)))
                             .child(
-                                div()
-                                    .text_sm()
-                                    .font_semibold()
-                                    .text_color(cx.theme().foreground)
-                                    .child("Browser runtime not connected"),
+                                AiBrowserSurfaceElement {
+                                    view: view.clone(),
+                                    thread_id,
+                                    image: browser_render_image.clone(),
+                                }
+                                .into_any_element(),
                             )
-                            .child(
-                                div()
-                                    .max_w(px(360.0))
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .text_align(gpui::TextAlign::Center)
-                                    .child("CEF offscreen rendering will attach here once the browser backend is available."),
-                            )
+                            .when(!has_render_image, |this| {
+                                this.child(
+                                    v_flex()
+                                        .absolute()
+                                        .top_0()
+                                        .right_0()
+                                        .bottom_0()
+                                        .left_0()
+                                        .items_center()
+                                        .justify_center()
+                                        .gap_2()
+                                        .px_4()
+                                        .child(Icon::new(IconName::Globe).size(px(32.0)))
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_semibold()
+                                                .text_color(cx.theme().foreground)
+                                                .child(empty_title),
+                                        )
+                                        .child(
+                                            div()
+                                                .max_w(px(360.0))
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .text_align(gpui::TextAlign::Center)
+                                                .child(empty_body),
+                                        ),
+                                )
+                            })
                             .into_any_element()
+                    } else {
+                        div().size_full().into_any_element()
                     }),
             )
             .into_any_element()

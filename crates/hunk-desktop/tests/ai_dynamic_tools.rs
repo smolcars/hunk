@@ -2,9 +2,9 @@ use std::fs;
 
 use hunk_browser::{BrowserFrame, BrowserRuntime};
 use hunk_codex::browser_tools::{
-    BROWSER_BACK_TOOL, BROWSER_CLICK_TOOL, BROWSER_FORWARD_TOOL, BROWSER_NAVIGATE_TOOL,
-    BROWSER_RELOAD_TOOL, BROWSER_SCREENSHOT_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_STOP_TOOL,
-    BROWSER_TOOL_NAMESPACE,
+    BROWSER_BACK_TOOL, BROWSER_CLICK_TOOL, BROWSER_CONSOLE_TOOL, BROWSER_FORWARD_TOOL,
+    BROWSER_NAVIGATE_TOOL, BROWSER_NEW_TAB_TOOL, BROWSER_RELOAD_TOOL, BROWSER_SCREENSHOT_TOOL,
+    BROWSER_SELECT_TAB_TOOL, BROWSER_SNAPSHOT_TOOL, BROWSER_STOP_TOOL, BROWSER_TOOL_NAMESPACE,
 };
 use hunk_codex::protocol::{
     DynamicToolCallOutputContentItem, DynamicToolCallParams, DynamicToolCallResponse,
@@ -208,6 +208,98 @@ fn browser_state_only_executor_routes_navigation_controls() {
     let stop_json = response_json(&stop);
     assert_eq!(stop_json["action"], "stop");
     assert_eq!(stop_json["loading"], false);
+}
+
+#[test]
+fn browser_state_only_new_background_tab_keeps_requested_url() {
+    let temp = tempdir().expect("temp dir should be created");
+    let mut executor = AiDynamicToolExecutor::with_state_only_browser();
+
+    let response = executor.execute(
+        temp.path(),
+        &browser_tool_params(
+            BROWSER_NEW_TAB_TOOL,
+            serde_json::json!({
+                "url": "https://example.com/background",
+                "activate": false
+            }),
+        ),
+    );
+
+    assert!(response.success);
+    let json = response_json(&response);
+    assert_eq!(json["activeTabId"], "tab-1");
+    let tabs = json["tabs"].as_array().expect("tabs should be returned");
+    let background_tab = tabs
+        .iter()
+        .find(|tab| tab["tabId"] == "tab-2")
+        .expect("new background tab should exist");
+    assert_eq!(background_tab["url"], "https://example.com/background");
+    assert_eq!(background_tab["loading"], true);
+
+    let select = executor.execute(
+        temp.path(),
+        &browser_tool_params(
+            BROWSER_SELECT_TAB_TOOL,
+            serde_json::json!({ "tabId": "tab-2" }),
+        ),
+    );
+    assert!(select.success);
+    let selected_json = response_json(&select);
+    assert_eq!(selected_json["activeTabId"], "tab-2");
+    let selected_tabs = selected_json["tabs"]
+        .as_array()
+        .expect("tabs should be returned after selection");
+    let selected_tab = selected_tabs
+        .iter()
+        .find(|tab| tab["tabId"] == "tab-2")
+        .expect("selected tab should be present");
+    assert_eq!(selected_tab["url"], "https://example.com/background");
+}
+
+#[test]
+fn browser_console_tool_filters_entries_to_selected_tab() {
+    let mut runtime = BrowserRuntime::new_disabled();
+    let session = runtime.ensure_session("thread-1");
+    let first_tab_id = session.active_tab_id().clone();
+    let second_tab_id = session.create_tab(Some("https://example.com/second".to_string()), true);
+    session.push_console_entry_for_tab(
+        first_tab_id.clone(),
+        hunk_browser::BrowserConsoleLevel::Info,
+        "first tab message",
+        None,
+        None,
+        1000,
+    );
+    session.push_console_entry_for_tab(
+        second_tab_id.clone(),
+        hunk_browser::BrowserConsoleLevel::Info,
+        "second tab message",
+        None,
+        None,
+        1001,
+    );
+    let mut executor = AiDynamicToolExecutor::with_browser_runtime(runtime);
+    let temp = tempdir().expect("temp dir should be created");
+
+    let response = executor.execute(
+        temp.path(),
+        &browser_tool_params(
+            BROWSER_CONSOLE_TOOL,
+            serde_json::json!({ "tabId": first_tab_id.as_str() }),
+        ),
+    );
+
+    assert!(response.success);
+    let json = response_json(&response);
+    assert_eq!(json["tabId"], first_tab_id.as_str());
+    let entries = json["entries"]
+        .as_array()
+        .expect("entries should be returned");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["message"], "first tab message");
+    assert_eq!(entries[0]["tabId"], first_tab_id.as_str());
+    assert_eq!(json["latestSequence"], entries[0]["sequence"]);
 }
 
 #[test]
