@@ -19,7 +19,7 @@ env:
 jobs:
   macos:
     name: macOS ARM64 DMG
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: macOS
     timeout-minutes: 90
     env:
       APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
@@ -143,7 +143,7 @@ jobs:
 
   linux:
     name: Linux x86_64 Tarball, DEB, RPM
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-self-hosted
     timeout-minutes: 60
 
     steps:
@@ -296,7 +296,7 @@ jobs:
       - macos
       - linux
       - windows
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-self-hosted
     timeout-minutes: 20
     env:
       HUNK_UPDATE_PRIVATE_KEY_BASE64: ${{ secrets.HUNK_UPDATE_PRIVATE_KEY_BASE64 }}

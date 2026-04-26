@@ -35,7 +35,7 @@ env:
 jobs:
   linux:
     name: Linux Checks
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-self-hosted
     timeout-minutes: 60
 
     steps:
@@ -179,7 +179,7 @@ jobs:
       matrix:
         include:
           - name: macOS
-            os: macos-26
+            os: macOS
             install_packager: cargo install cargo-packager --locked --version 0.11.8
             resolve_version: |
               version="$(./scripts/resolve_hunk_version.sh)"
