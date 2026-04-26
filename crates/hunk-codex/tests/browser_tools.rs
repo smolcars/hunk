@@ -73,6 +73,7 @@ fn browser_developer_instructions_describe_snapshot_index_flow() {
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.console"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.tabs"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.select_tab"));
+    assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("tabId"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("snapshotEpoch"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("element index"));
     assert!(BROWSER_DEVELOPER_INSTRUCTIONS.contains("hunk_browser.back"));
@@ -168,10 +169,13 @@ fn parse_browser_click_request_uses_snapshot_epoch_and_index() {
 
     assert_eq!(
         request,
-        BrowserDynamicToolRequest::Action(BrowserAction::Click {
-            snapshot_epoch: 7,
-            index: 42,
-        })
+        BrowserDynamicToolRequest::Action {
+            tab_id: None,
+            action: BrowserAction::Click {
+                snapshot_epoch: 7,
+                index: 42,
+            },
+        }
     );
 }
 
@@ -189,12 +193,15 @@ fn parse_browser_type_request_defaults_to_clear_first() {
 
     assert_eq!(
         request,
-        BrowserDynamicToolRequest::Action(BrowserAction::Type {
-            snapshot_epoch: 7,
-            index: 42,
-            text: "hello".to_string(),
-            clear: true,
-        })
+        BrowserDynamicToolRequest::Action {
+            tab_id: None,
+            action: BrowserAction::Type {
+                snapshot_epoch: 7,
+                index: 42,
+                text: "hello".to_string(),
+                clear: true,
+            },
+        }
     );
 }
 
@@ -208,11 +215,14 @@ fn parse_browser_scroll_request_applies_defaults() {
 
     assert_eq!(
         request,
-        BrowserDynamicToolRequest::Action(BrowserAction::Scroll {
-            down: true,
-            pages: 1.0,
-            index: None,
-        })
+        BrowserDynamicToolRequest::Action {
+            tab_id: None,
+            action: BrowserAction::Scroll {
+                down: true,
+                pages: 1.0,
+                index: None,
+            },
+        }
     );
 }
 
@@ -228,8 +238,49 @@ fn parse_browser_navigation_control_requests() {
             parse_browser_dynamic_tool_request(&dynamic_tool_params(tool, serde_json::json!({})))
                 .expect("browser navigation control args should parse");
 
-        assert_eq!(request, BrowserDynamicToolRequest::Action(expected));
+        assert_eq!(
+            request,
+            BrowserDynamicToolRequest::Action {
+                tab_id: None,
+                action: expected,
+            }
+        );
     }
+}
+
+#[test]
+fn parse_browser_requests_accept_optional_tab_id() {
+    let request = parse_browser_dynamic_tool_request(&dynamic_tool_params(
+        BROWSER_NAVIGATE_TOOL,
+        serde_json::json!({
+            "url": "https://example.com",
+            "tabId": "tab-2",
+        }),
+    ))
+    .expect("browser navigate with tab id should parse");
+    assert_eq!(
+        request,
+        BrowserDynamicToolRequest::Action {
+            tab_id: Some(BrowserTabId::new("tab-2")),
+            action: BrowserAction::Navigate {
+                url: "https://example.com".to_string(),
+            },
+        }
+    );
+
+    let request = parse_browser_dynamic_tool_request(&dynamic_tool_params(
+        BROWSER_SNAPSHOT_TOOL,
+        serde_json::json!({
+            "tabId": "tab-2",
+        }),
+    ))
+    .expect("browser snapshot with tab id should parse");
+    assert_eq!(
+        request,
+        BrowserDynamicToolRequest::Snapshot {
+            tab_id: Some(BrowserTabId::new("tab-2")),
+        }
+    );
 }
 
 #[test]
@@ -243,6 +294,7 @@ fn parse_browser_console_request_applies_defaults_and_filters() {
     assert_eq!(
         request,
         BrowserDynamicToolRequest::Console {
+            tab_id: None,
             level: None,
             since_sequence: None,
             limit: 100,
@@ -262,6 +314,7 @@ fn parse_browser_console_request_applies_defaults_and_filters() {
     assert_eq!(
         request,
         BrowserDynamicToolRequest::Console {
+            tab_id: None,
             level: Some(BrowserConsoleLevel::Warning),
             since_sequence: Some(7),
             limit: 500,

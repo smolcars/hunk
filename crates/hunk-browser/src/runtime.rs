@@ -7,6 +7,7 @@ use crate::session::{
     BrowserAction, BrowserError, BrowserMouseButton, BrowserMouseInput, BrowserSession,
     BrowserSessionId, BrowserTabId, BrowserTabSummary, BrowserViewportSize,
 };
+use crate::snapshot::BrowserPhysicalPoint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserRuntimeStatus {
@@ -33,6 +34,7 @@ pub enum BrowserRuntimeOperation {
     Focus,
     Snapshot,
     Screenshot,
+    DevTools,
 }
 
 impl BrowserRuntimeOperation {
@@ -54,6 +56,7 @@ impl BrowserRuntimeOperation {
             BrowserRuntimeOperation::Focus => "focus",
             BrowserRuntimeOperation::Snapshot => "snapshot",
             BrowserRuntimeOperation::Screenshot => "screenshot",
+            BrowserRuntimeOperation::DevTools => "devtools",
         }
     }
 }
@@ -245,6 +248,111 @@ impl BrowserRuntime {
             backend.close_tab(&BrowserSessionId::new(thread_id), tab_id);
         }
         self.ensure_session(thread_id.to_string()).close_tab(tab_id)
+    }
+
+    pub fn take_context_menu_target(
+        &mut self,
+        thread_id: &str,
+    ) -> Option<crate::session::BrowserContextMenuTarget> {
+        let session_id = BrowserSessionId::new(thread_id);
+        let tab_id = self.sessions.get(&session_id)?.active_tab_id().clone();
+        #[cfg(feature = "cef")]
+        {
+            self.cef_backend
+                .as_mut()
+                .and_then(|backend| backend.take_context_menu_target(&session_id, &tab_id))
+        }
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = (session_id, tab_id);
+            None
+        }
+    }
+
+    pub fn show_devtools(
+        &mut self,
+        thread_id: &str,
+        inspect_element_at: Option<BrowserPhysicalPoint>,
+    ) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::DevTools)?;
+        self.ensure_backend_session(thread_id.to_string())?;
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.show_devtools(&session_id, &tab_id, inspect_element_at)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = inspect_element_at;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn close_devtools(&mut self, thread_id: &str) -> Result<(), BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::DevTools)?;
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.close_devtools(&session_id, &tab_id)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = thread_id;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
+    }
+
+    pub fn has_devtools(&mut self, thread_id: &str) -> Result<bool, BrowserError> {
+        self.require_ready_for_operation(BrowserRuntimeOperation::DevTools)?;
+
+        #[cfg(feature = "cef")]
+        {
+            let session_id = BrowserSessionId::new(thread_id);
+            let tab_id = self
+                .ensure_session(thread_id.to_string())
+                .active_tab_id()
+                .clone();
+            let Some(backend) = self.cef_backend.as_mut() else {
+                return Err(BrowserError::BackendUnavailable(
+                    "CEF backend is marked ready but is not connected".to_string(),
+                ));
+            };
+            backend.has_devtools(&session_id, &tab_id)
+        }
+
+        #[cfg(not(feature = "cef"))]
+        {
+            let _ = thread_id;
+            Err(BrowserError::BackendUnavailable(
+                "hunk-browser was built without the optional CEF backend".to_string(),
+            ))
+        }
     }
 
     pub fn apply_state_only_action(

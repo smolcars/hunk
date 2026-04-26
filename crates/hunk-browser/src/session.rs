@@ -85,6 +85,22 @@ pub struct BrowserConsoleEntry {
     pub timestamp_ms: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserContextMenuTarget {
+    pub tab_id: BrowserTabId,
+    pub x: i32,
+    pub y: i32,
+    pub page_url: Option<String>,
+    pub frame_url: Option<String>,
+    pub link_url: Option<String>,
+    pub source_url: Option<String>,
+    pub selection_text: Option<String>,
+    pub title_text: Option<String>,
+    pub media_type: Option<String>,
+    pub editable: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BrowserConsoleLevel {

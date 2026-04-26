@@ -92,9 +92,12 @@ impl gpui::Element for AiBrowserSurfaceElement {
             let handled = view.update(cx, |this, cx| {
                 this.ai_browser_surface_mouse_down(
                     thread_id.as_str(),
-                    point,
-                    event.button,
-                    event.modifiers,
+                    AiBrowserMouseDownInput {
+                        point,
+                        window_position: event.position,
+                        button: event.button,
+                        modifiers: event.modifiers,
+                    },
                     window,
                     cx,
                 )

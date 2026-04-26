@@ -1559,6 +1559,8 @@ struct DiffViewer {
     ai_pending_browser_approvals: Vec<AiPendingBrowserApproval>,
     ai_browser_focus_handle: FocusHandle,
     ai_browser_surface_focused: bool,
+    ai_browser_pending_context_menu_position: Option<Point<Pixels>>,
+    browser_context_menu: Option<BrowserContextMenuState>,
     ai_desktop_notification_state_by_workspace:
         BTreeMap<String, desktop_notifications::AiDesktopNotificationState>,
     ai_pending_desktop_notification_events_by_workspace:

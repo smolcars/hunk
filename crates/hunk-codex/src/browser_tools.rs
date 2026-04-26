@@ -28,7 +28,7 @@ pub const BROWSER_DEVELOPER_INSTRUCTIONS: &str = r#"When the user asks to open, 
 Use the tools in the hunk_browser namespace directly. Do not use Browser Use/browser-use plugins, browser-use skills, Playwright, Selenium, Node REPL scripts, or an external system browser for Hunk's built-in browser.
 Use hunk_browser.snapshot before clicking or typing. The snapshot returns a snapshotEpoch and indexed visible elements; pass that same snapshotEpoch and element index to hunk_browser.click or hunk_browser.type.
 Use hunk_browser.console when the user asks what is in the browser console, asks about console errors/warnings/logs, or asks for browser debugging output.
-Use hunk_browser.tabs to inspect open tabs. When multiple tabs are open, use hunk_browser.select_tab before operating on a specific tab.
+Use hunk_browser.tabs to inspect open tabs. When multiple tabs are open, pass tabId to navigation, snapshot, screenshot, console, click, type, press, and scroll, or use hunk_browser.select_tab before operating on a specific tab.
 Use hunk_browser.new_tab to open a new tab and hunk_browser.close_tab to close a tab.
 Use hunk_browser.navigate with an absolute URL when the user asks to go to a site.
 Use hunk_browser.reload, hunk_browser.stop, hunk_browser.back, and hunk_browser.forward for browser-level navigation controls.
@@ -44,6 +44,10 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
                     "url": {
                         "type": "string",
                         "description": "Absolute http or https URL to load."
+                    },
+                    "tabId": {
+                        "type": "string",
+                        "description": "Optional tab ID returned by hunk_browser.tabs or hunk_browser.snapshot."
                     }
                 }),
                 &["url"],
@@ -52,27 +56,27 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
         spec(
             BROWSER_SNAPSHOT_TOOL,
             "Read the embedded browser page state and visible interactive element index map.",
-            object_schema(json!({}), &[]),
+            object_schema(optional_tab_properties(json!({})), &[]),
         ),
         spec(
             BROWSER_RELOAD_TOOL,
             "Reload the current embedded browser page.",
-            object_schema(json!({}), &[]),
+            object_schema(optional_tab_properties(json!({})), &[]),
         ),
         spec(
             BROWSER_STOP_TOOL,
             "Stop loading the current embedded browser page.",
-            object_schema(json!({}), &[]),
+            object_schema(optional_tab_properties(json!({})), &[]),
         ),
         spec(
             BROWSER_BACK_TOOL,
             "Navigate the embedded browser back in its history.",
-            object_schema(json!({}), &[]),
+            object_schema(optional_tab_properties(json!({})), &[]),
         ),
         spec(
             BROWSER_FORWARD_TOOL,
             "Navigate the embedded browser forward in its history.",
-            object_schema(json!({}), &[]),
+            object_schema(optional_tab_properties(json!({})), &[]),
         ),
         spec(
             BROWSER_CLICK_TOOL,
@@ -86,6 +90,10 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
                     "index": {
                         "type": "integer",
                         "description": "Element index from the latest browser snapshot."
+                    },
+                    "tabId": {
+                        "type": "string",
+                        "description": "Optional tab ID returned by hunk_browser.tabs or hunk_browser.snapshot."
                     }
                 }),
                 &["snapshotEpoch", "index"],
@@ -111,6 +119,10 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
                     "clear": {
                         "type": "boolean",
                         "description": "Whether to clear existing text before typing."
+                    },
+                    "tabId": {
+                        "type": "string",
+                        "description": "Optional tab ID returned by hunk_browser.tabs or hunk_browser.snapshot."
                     }
                 }),
                 &["snapshotEpoch", "index", "text"],
@@ -124,6 +136,10 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
                     "keys": {
                         "type": "string",
                         "description": "Key sequence such as Enter, Escape, Tab, Ctrl+L, or Cmd+L."
+                    },
+                    "tabId": {
+                        "type": "string",
+                        "description": "Optional tab ID returned by hunk_browser.tabs or hunk_browser.snapshot."
                     }
                 }),
                 &["keys"],
@@ -145,6 +161,10 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
                     "index": {
                         "type": "integer",
                         "description": "Optional element index from the latest browser snapshot."
+                    },
+                    "tabId": {
+                        "type": "string",
+                        "description": "Optional tab ID returned by hunk_browser.tabs or hunk_browser.snapshot."
                     }
                 }),
                 &[],
@@ -153,7 +173,7 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
         spec(
             BROWSER_SCREENSHOT_TOOL,
             "Capture a screenshot of the embedded browser viewport.",
-            object_schema(json!({}), &[]),
+            object_schema(optional_tab_properties(json!({})), &[]),
         ),
         spec(
             BROWSER_CONSOLE_TOOL,
@@ -172,6 +192,10 @@ pub fn browser_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
                     "limit": {
                         "type": "integer",
                         "description": "Maximum entries to return. Defaults to 100 and is capped by Hunk."
+                    },
+                    "tabId": {
+                        "type": "string",
+                        "description": "Optional tab ID returned by hunk_browser.tabs or hunk_browser.snapshot."
                     }
                 }),
                 &[],
@@ -271,8 +295,12 @@ pub fn apply_browser_thread_start_context(params: &mut ThreadStartParams) {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BrowserDynamicToolRequest {
-    Snapshot,
-    Screenshot,
+    Snapshot {
+        tab_id: Option<BrowserTabId>,
+    },
+    Screenshot {
+        tab_id: Option<BrowserTabId>,
+    },
     Tabs,
     NewTab {
         url: Option<String>,
@@ -285,11 +313,15 @@ pub enum BrowserDynamicToolRequest {
         tab_id: BrowserTabId,
     },
     Console {
+        tab_id: Option<BrowserTabId>,
         level: Option<BrowserConsoleLevel>,
         since_sequence: Option<u64>,
         limit: usize,
     },
-    Action(BrowserAction),
+    Action {
+        tab_id: Option<BrowserTabId>,
+        action: BrowserAction,
+    },
 }
 
 pub fn parse_browser_dynamic_tool_request(
@@ -310,46 +342,91 @@ pub fn parse_browser_dynamic_tool_request(
     match params.tool.as_str() {
         BROWSER_NAVIGATE_TOOL => {
             let args = parse_args::<NavigateArgs>(&params.arguments)?;
-            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Navigate {
-                url: args.url,
-            }))
+            Ok(BrowserDynamicToolRequest::Action {
+                tab_id: optional_tab_id(args.tab_id),
+                action: BrowserAction::Navigate { url: args.url },
+            })
         }
-        BROWSER_SNAPSHOT_TOOL => Ok(BrowserDynamicToolRequest::Snapshot),
-        BROWSER_RELOAD_TOOL => Ok(BrowserDynamicToolRequest::Action(BrowserAction::Reload)),
-        BROWSER_STOP_TOOL => Ok(BrowserDynamicToolRequest::Action(BrowserAction::Stop)),
-        BROWSER_BACK_TOOL => Ok(BrowserDynamicToolRequest::Action(BrowserAction::Back)),
-        BROWSER_FORWARD_TOOL => Ok(BrowserDynamicToolRequest::Action(BrowserAction::Forward)),
+        BROWSER_SNAPSHOT_TOOL => {
+            let args = parse_args::<OptionalTabArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Snapshot {
+                tab_id: optional_tab_id(args.tab_id),
+            })
+        }
+        BROWSER_RELOAD_TOOL => {
+            let args = parse_args::<OptionalTabArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Action {
+                tab_id: optional_tab_id(args.tab_id),
+                action: BrowserAction::Reload,
+            })
+        }
+        BROWSER_STOP_TOOL => {
+            let args = parse_args::<OptionalTabArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Action {
+                tab_id: optional_tab_id(args.tab_id),
+                action: BrowserAction::Stop,
+            })
+        }
+        BROWSER_BACK_TOOL => {
+            let args = parse_args::<OptionalTabArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Action {
+                tab_id: optional_tab_id(args.tab_id),
+                action: BrowserAction::Back,
+            })
+        }
+        BROWSER_FORWARD_TOOL => {
+            let args = parse_args::<OptionalTabArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Action {
+                tab_id: optional_tab_id(args.tab_id),
+                action: BrowserAction::Forward,
+            })
+        }
         BROWSER_CLICK_TOOL => {
             let args = parse_args::<IndexedElementArgs>(&params.arguments)?;
-            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Click {
-                snapshot_epoch: args.snapshot_epoch,
-                index: args.index,
-            }))
+            Ok(BrowserDynamicToolRequest::Action {
+                tab_id: optional_tab_id(args.tab_id),
+                action: BrowserAction::Click {
+                    snapshot_epoch: args.snapshot_epoch,
+                    index: args.index,
+                },
+            })
         }
         BROWSER_TYPE_TOOL => {
             let args = parse_args::<TypeArgs>(&params.arguments)?;
-            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Type {
-                snapshot_epoch: args.snapshot_epoch,
-                index: args.index,
-                text: args.text,
-                clear: args.clear.unwrap_or(true),
-            }))
+            Ok(BrowserDynamicToolRequest::Action {
+                tab_id: optional_tab_id(args.tab_id),
+                action: BrowserAction::Type {
+                    snapshot_epoch: args.snapshot_epoch,
+                    index: args.index,
+                    text: args.text,
+                    clear: args.clear.unwrap_or(true),
+                },
+            })
         }
         BROWSER_PRESS_TOOL => {
             let args = parse_args::<PressArgs>(&params.arguments)?;
-            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Press {
-                keys: args.keys,
-            }))
+            Ok(BrowserDynamicToolRequest::Action {
+                tab_id: optional_tab_id(args.tab_id),
+                action: BrowserAction::Press { keys: args.keys },
+            })
         }
         BROWSER_SCROLL_TOOL => {
             let args = parse_args::<ScrollArgs>(&params.arguments)?;
-            Ok(BrowserDynamicToolRequest::Action(BrowserAction::Scroll {
-                down: args.down.unwrap_or(true),
-                pages: args.pages.unwrap_or(1.0),
-                index: args.index,
-            }))
+            Ok(BrowserDynamicToolRequest::Action {
+                tab_id: optional_tab_id(args.tab_id),
+                action: BrowserAction::Scroll {
+                    down: args.down.unwrap_or(true),
+                    pages: args.pages.unwrap_or(1.0),
+                    index: args.index,
+                },
+            })
         }
-        BROWSER_SCREENSHOT_TOOL => Ok(BrowserDynamicToolRequest::Screenshot),
+        BROWSER_SCREENSHOT_TOOL => {
+            let args = parse_args::<OptionalTabArgs>(&params.arguments)?;
+            Ok(BrowserDynamicToolRequest::Screenshot {
+                tab_id: optional_tab_id(args.tab_id),
+            })
+        }
         BROWSER_TABS_TOOL => Ok(BrowserDynamicToolRequest::Tabs),
         BROWSER_NEW_TAB_TOOL => {
             let args = parse_args::<NewTabArgs>(&params.arguments)?;
@@ -373,6 +450,7 @@ pub fn parse_browser_dynamic_tool_request(
         BROWSER_CONSOLE_TOOL => {
             let args = parse_args::<ConsoleArgs>(&params.arguments)?;
             Ok(BrowserDynamicToolRequest::Console {
+                tab_id: optional_tab_id(args.tab_id),
                 level: args.level.map(parse_console_level).transpose()?,
                 since_sequence: args.since_sequence,
                 limit: args.limit.unwrap_or(100).clamp(1, 500),
@@ -405,6 +483,15 @@ fn append_browser_developer_instructions(instructions: &mut Option<String>) {
 #[serde(rename_all = "camelCase")]
 struct NavigateArgs {
     url: String,
+    #[serde(default)]
+    tab_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OptionalTabArgs {
+    #[serde(default)]
+    tab_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -412,6 +499,8 @@ struct NavigateArgs {
 struct IndexedElementArgs {
     snapshot_epoch: u64,
     index: u32,
+    #[serde(default)]
+    tab_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -422,12 +511,16 @@ struct TypeArgs {
     text: String,
     #[serde(default)]
     clear: Option<bool>,
+    #[serde(default)]
+    tab_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PressArgs {
     keys: String,
+    #[serde(default)]
+    tab_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -439,6 +532,8 @@ struct ScrollArgs {
     pages: Option<f64>,
     #[serde(default)]
     index: Option<u32>,
+    #[serde(default)]
+    tab_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -450,6 +545,8 @@ struct ConsoleArgs {
     since_sequence: Option<u64>,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(default)]
+    tab_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -479,6 +576,13 @@ fn parse_console_level(level: String) -> Result<BrowserConsoleLevel, String> {
     }
 }
 
+fn optional_tab_id(tab_id: Option<String>) -> Option<BrowserTabId> {
+    tab_id
+        .map(|tab_id| tab_id.trim().to_string())
+        .filter(|tab_id| !tab_id.is_empty())
+        .map(BrowserTabId::new)
+}
+
 fn parse_args<T>(arguments: &Value) -> Result<T, String>
 where
     T: for<'de> Deserialize<'de>,
@@ -504,4 +608,17 @@ fn object_schema(properties: Value, required: &[&str]) -> Value {
         "required": required,
         "additionalProperties": false
     })
+}
+
+fn optional_tab_properties(mut properties: Value) -> Value {
+    if let Some(properties) = properties.as_object_mut() {
+        properties.insert(
+            "tabId".to_string(),
+            json!({
+                "type": "string",
+                "description": "Optional tab ID returned by hunk_browser.tabs or hunk_browser.snapshot."
+            }),
+        );
+    }
+    properties
 }

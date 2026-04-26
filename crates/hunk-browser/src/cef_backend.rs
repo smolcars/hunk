@@ -15,10 +15,11 @@ use serde_json::json;
 use crate::config::BrowserRuntimeConfig;
 use crate::frame::{BrowserFrame, BrowserFrameRateLimiter};
 use crate::session::{
-    BrowserAction, BrowserConsoleLevel, BrowserError, BrowserInputModifiers, BrowserMouseButton,
-    BrowserMouseInput, BrowserSession, BrowserSessionId, BrowserTabId, BrowserViewportSize,
+    BrowserAction, BrowserConsoleLevel, BrowserContextMenuTarget, BrowserError,
+    BrowserInputModifiers, BrowserMouseButton, BrowserMouseInput, BrowserSession, BrowserSessionId,
+    BrowserTabId, BrowserViewportSize,
 };
-use crate::snapshot::BrowserSnapshot;
+use crate::snapshot::{BrowserPhysicalPoint, BrowserSnapshot};
 
 const DEFAULT_URL: &str = "about:blank";
 const DEVTOOLS_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -163,7 +164,14 @@ impl CefBrowserBackend {
             shared: self.shared.clone(),
         });
         let context_menu_handler =
-            HunkCefContextMenuHandlerBuilder::build(HunkCefContextMenuHandler);
+            HunkCefContextMenuHandlerBuilder::build(HunkCefContextMenuHandler {
+                key: key.clone(),
+                shared: self.shared.clone(),
+            });
+        let life_span_handler = HunkCefLifeSpanHandlerBuilder::build(HunkCefLifeSpanHandler {
+            key: key.clone(),
+            shared: self.shared.clone(),
+        });
         let mut devtools_observer =
             HunkCefDevToolsMessageObserverBuilder::build(HunkCefDevToolsMessageObserver {
                 shared: self.shared.clone(),
@@ -173,6 +181,7 @@ impl CefBrowserBackend {
             load_handler,
             display_handler,
             context_menu_handler,
+            life_span_handler,
         });
         self.shared
             .borrow_mut()
@@ -464,6 +473,11 @@ impl CefBrowserBackend {
         &mut self,
         sessions: &mut BTreeMap<BrowserSessionId, BrowserSession>,
     ) -> Result<bool, BrowserError> {
+        self.shared.borrow_mut().set_active_tabs(
+            sessions
+                .iter()
+                .map(|(session_id, session)| (session_id.clone(), session.active_tab_id().clone())),
+        );
         do_message_loop_work();
 
         for handle in self.browsers.values() {
@@ -476,7 +490,9 @@ impl CefBrowserBackend {
         let changed = !events.frames.is_empty()
             || !events.loads.is_empty()
             || !events.console_entries.is_empty()
-            || !events.viewports.is_empty();
+            || !events.viewports.is_empty()
+            || !events.context_menus.is_empty()
+            || !events.popups.is_empty();
         for frame in events.frames {
             if let Some(session) = sessions.get_mut(&frame.key.session_id) {
                 session.set_latest_frame_for_tab(&frame.key.tab_id, frame.frame);
@@ -525,8 +541,98 @@ impl CefBrowserBackend {
                 session.set_viewport_for_tab(&key.tab_id, viewport);
             }
         }
+        for popup in events.popups {
+            let Some(session) = sessions.get_mut(&popup.key.session_id) else {
+                continue;
+            };
+            let _popup_metadata = (&popup.target_frame_name, popup.user_gesture);
+            let activate = popup.target_disposition != WindowOpenDisposition::NEW_BACKGROUND_TAB;
+            let tab_id = session.create_tab(Some(popup.target_url.clone()), activate);
+            self.ensure_tab(popup.key.session_id.clone(), tab_id.clone())?;
+            self.apply_action(
+                &popup.key.session_id,
+                &tab_id,
+                &BrowserAction::Navigate {
+                    url: popup.target_url,
+                },
+            )?;
+        }
 
         Ok(changed)
+    }
+
+    pub(crate) fn take_context_menu_target(
+        &mut self,
+        session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
+    ) -> Option<BrowserContextMenuTarget> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
+        self.shared.borrow_mut().take_context_menu_target(&key)
+    }
+
+    pub(crate) fn show_devtools(
+        &mut self,
+        session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
+        inspect_element_at: Option<BrowserPhysicalPoint>,
+    ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
+        let handle = self
+            .browsers
+            .get_mut(&key)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        let host = handle
+            .browser
+            .host()
+            .ok_or_else(|| backend_error("CEF browser host unavailable"))?;
+        let window_info = WindowInfo::default();
+        let settings = BrowserSettings::default();
+        let inspect_point = inspect_element_at.map(|point| Point {
+            x: point.x,
+            y: point.y,
+        });
+        host.show_dev_tools(
+            Some(&window_info),
+            None,
+            Some(&settings),
+            inspect_point.as_ref(),
+        );
+        Ok(())
+    }
+
+    pub(crate) fn close_devtools(
+        &mut self,
+        session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
+    ) -> Result<(), BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
+        let handle = self
+            .browsers
+            .get_mut(&key)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        let host = handle
+            .browser
+            .host()
+            .ok_or_else(|| backend_error("CEF browser host unavailable"))?;
+        host.close_dev_tools();
+        Ok(())
+    }
+
+    pub(crate) fn has_devtools(
+        &mut self,
+        session_id: &BrowserSessionId,
+        tab_id: &BrowserTabId,
+    ) -> Result<bool, BrowserError> {
+        let key = CefBrowserKey::new(session_id.clone(), tab_id.clone());
+        let handle = self
+            .browsers
+            .get_mut(&key)
+            .ok_or_else(|| BrowserError::MissingSession(session_id.as_str().to_string()))?;
+        let host = handle
+            .browser
+            .host()
+            .ok_or_else(|| backend_error("CEF browser host unavailable"))?;
+        Ok(host.has_dev_tools() == 1)
     }
 
     pub(crate) fn shutdown(&mut self) {
@@ -569,16 +675,27 @@ struct CefSharedState {
     next_frame_epoch: u64,
     next_devtools_message_id: i32,
     frame_limiters: BTreeMap<CefBrowserKey, BrowserFrameRateLimiter>,
+    active_tabs: BTreeMap<BrowserSessionId, BrowserTabId>,
     frames: Vec<CefFrameEvent>,
     loads: Vec<CefLoadEvent>,
     console_entries: Vec<CefConsoleEvent>,
     viewports: BTreeMap<CefBrowserKey, BrowserViewportSize>,
     viewport_events: Vec<(CefBrowserKey, BrowserViewportSize)>,
+    context_menu_targets: BTreeMap<CefBrowserKey, BrowserContextMenuTarget>,
+    context_menus: Vec<CefBrowserKey>,
+    popups: Vec<CefPopupEvent>,
     devtools_results: BTreeMap<i32, CefDevToolsResult>,
 }
 
 impl CefSharedState {
     fn push_frame(&mut self, key: CefBrowserKey, width: i32, height: i32, bgra: Vec<u8>) {
+        if self
+            .active_tabs
+            .get(&key.session_id)
+            .is_some_and(|active_tab_id| active_tab_id != &key.tab_id)
+        {
+            return;
+        }
         let now = Instant::now();
         if !self
             .frame_limiters
@@ -625,6 +742,29 @@ impl CefSharedState {
         self.viewport_events.push((key, viewport));
     }
 
+    fn push_context_menu_target(&mut self, key: CefBrowserKey, target: BrowserContextMenuTarget) {
+        self.context_menu_targets.insert(key.clone(), target);
+        self.context_menus.push(key);
+    }
+
+    fn push_popup(&mut self, event: CefPopupEvent) {
+        self.popups.push(event);
+    }
+
+    fn set_active_tabs(
+        &mut self,
+        active_tabs: impl IntoIterator<Item = (BrowserSessionId, BrowserTabId)>,
+    ) {
+        self.active_tabs = active_tabs.into_iter().collect();
+    }
+
+    fn take_context_menu_target(
+        &mut self,
+        key: &CefBrowserKey,
+    ) -> Option<BrowserContextMenuTarget> {
+        self.context_menu_targets.remove(key)
+    }
+
     fn remove_tab(&mut self, key: &CefBrowserKey) {
         self.frame_limiters.remove(key);
         self.viewports.remove(key);
@@ -633,6 +773,9 @@ impl CefSharedState {
         self.console_entries.retain(|event| &event.key != key);
         self.viewport_events
             .retain(|(event_key, _)| event_key != key);
+        self.context_menu_targets.remove(key);
+        self.context_menus.retain(|event_key| event_key != key);
+        self.popups.retain(|event| &event.key != key);
     }
 
     fn next_devtools_message_id(&mut self) -> i32 {
@@ -658,6 +801,8 @@ impl CefSharedState {
             loads: std::mem::take(&mut self.loads),
             console_entries: std::mem::take(&mut self.console_entries),
             viewports: std::mem::take(&mut self.viewport_events),
+            context_menus: std::mem::take(&mut self.context_menus),
+            popups: std::mem::take(&mut self.popups),
         }
     }
 }
@@ -667,6 +812,8 @@ struct CefSharedDrain {
     loads: Vec<CefLoadEvent>,
     console_entries: Vec<CefConsoleEvent>,
     viewports: Vec<(CefBrowserKey, BrowserViewportSize)>,
+    context_menus: Vec<CefBrowserKey>,
+    popups: Vec<CefPopupEvent>,
 }
 
 struct CefFrameEvent {
@@ -686,6 +833,14 @@ struct CefConsoleEvent {
     source: Option<String>,
     line: Option<u32>,
     timestamp_ms: u64,
+}
+
+struct CefPopupEvent {
+    key: CefBrowserKey,
+    target_url: String,
+    target_frame_name: Option<String>,
+    target_disposition: WindowOpenDisposition,
+    user_gesture: bool,
 }
 
 struct CefDevToolsResult {
@@ -981,6 +1136,7 @@ struct HunkCefClient {
     load_handler: LoadHandler,
     display_handler: DisplayHandler,
     context_menu_handler: ContextMenuHandler,
+    life_span_handler: LifeSpanHandler,
 }
 
 wrap_client! {
@@ -1003,6 +1159,10 @@ wrap_client! {
 
         fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
             Some(self.client.context_menu_handler.clone())
+        }
+
+        fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+            Some(self.client.life_span_handler.clone())
         }
     }
 }
@@ -1087,7 +1247,58 @@ impl HunkCefDisplayHandlerBuilder {
 }
 
 #[derive(Clone)]
-struct HunkCefContextMenuHandler;
+struct HunkCefLifeSpanHandler {
+    key: CefBrowserKey,
+    shared: Rc<RefCell<CefSharedState>>,
+}
+
+wrap_life_span_handler! {
+    struct HunkCefLifeSpanHandlerBuilder {
+        handler: HunkCefLifeSpanHandler,
+    }
+
+    impl LifeSpanHandler {
+        fn on_before_popup(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _popup_id: ::std::os::raw::c_int,
+            target_url: Option<&CefString>,
+            target_frame_name: Option<&CefString>,
+            target_disposition: WindowOpenDisposition,
+            user_gesture: ::std::os::raw::c_int,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(target_url) = cef_ref_optional_string(target_url) {
+                self.handler.shared.borrow_mut().push_popup(CefPopupEvent {
+                    key: self.handler.key.clone(),
+                    target_url,
+                    target_frame_name: cef_ref_optional_string(target_frame_name),
+                    target_disposition,
+                    user_gesture: user_gesture == 1,
+                });
+            }
+            true as _
+        }
+    }
+}
+
+impl HunkCefLifeSpanHandlerBuilder {
+    fn build(handler: HunkCefLifeSpanHandler) -> LifeSpanHandler {
+        Self::new(handler)
+    }
+}
+
+#[derive(Clone)]
+struct HunkCefContextMenuHandler {
+    key: CefBrowserKey,
+    shared: Rc<RefCell<CefSharedState>>,
+}
 
 wrap_context_menu_handler! {
     struct HunkCefContextMenuHandlerBuilder {
@@ -1099,9 +1310,29 @@ wrap_context_menu_handler! {
             &self,
             _browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
-            _params: Option<&mut ContextMenuParams>,
+            params: Option<&mut ContextMenuParams>,
             model: Option<&mut MenuModel>,
         ) {
+            if let Some(params) = params {
+                let target = BrowserContextMenuTarget {
+                    tab_id: self.handler.key.tab_id.clone(),
+                    x: params.xcoord(),
+                    y: params.ycoord(),
+                    page_url: cef_optional_string(params.page_url()),
+                    frame_url: cef_optional_string(params.frame_url()),
+                    link_url: cef_optional_string(params.link_url())
+                        .or_else(|| cef_optional_string(params.unfiltered_link_url())),
+                    source_url: cef_optional_string(params.source_url()),
+                    selection_text: cef_optional_string(params.selection_text()),
+                    title_text: cef_optional_string(params.title_text()),
+                    media_type: browser_context_media_type(params.media_type()),
+                    editable: params.is_editable() == 1,
+                };
+                self.handler
+                    .shared
+                    .borrow_mut()
+                    .push_context_menu_target(self.handler.key.clone(), target);
+            }
             if let Some(model) = model {
                 model.clear();
             }
@@ -1126,6 +1357,36 @@ wrap_context_menu_handler! {
 impl HunkCefContextMenuHandlerBuilder {
     fn build(handler: HunkCefContextMenuHandler) -> ContextMenuHandler {
         Self::new(handler)
+    }
+}
+
+fn cef_optional_string(value: CefStringUserfreeUtf16) -> Option<String> {
+    let value = CefString::from(&value).to_string();
+    (!value.trim().is_empty()).then_some(value)
+}
+
+fn cef_ref_optional_string(value: Option<&CefString>) -> Option<String> {
+    value
+        .map(CefString::to_string)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn browser_context_media_type(media_type: ContextMenuMediaType) -> Option<String> {
+    if media_type == ContextMenuMediaType::IMAGE {
+        Some("image".to_string())
+    } else if media_type == ContextMenuMediaType::VIDEO {
+        Some("video".to_string())
+    } else if media_type == ContextMenuMediaType::AUDIO {
+        Some("audio".to_string())
+    } else if media_type == ContextMenuMediaType::CANVAS {
+        Some("canvas".to_string())
+    } else if media_type == ContextMenuMediaType::FILE {
+        Some("file".to_string())
+    } else if media_type == ContextMenuMediaType::PLUGIN {
+        Some("plugin".to_string())
+    } else {
+        None
     }
 }
 

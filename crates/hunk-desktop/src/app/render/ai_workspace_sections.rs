@@ -2233,6 +2233,24 @@ impl DiffViewer {
                         },
                     )
                     .child(
+                        {
+                            let view = view.clone();
+                            Button::new("ai-browser-devtools")
+                                .compact()
+                                .ghost()
+                                .with_size(gpui_component::Size::Small)
+                                .rounded(px(8.0))
+                                .icon(Icon::new(IconName::SquareTerminal).size(px(13.0)))
+                                .tooltip("Toggle DevTools")
+                                .disabled(!runtime_ready)
+                                .on_click(move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.ai_toggle_browser_devtools_for_current_thread(cx);
+                                    });
+                                })
+                        },
+                    )
+                    .child(
                         Input::new(&self.ai_browser_address_input_state)
                             .with_size(gpui_component::Size::Small)
                             .appearance(true)

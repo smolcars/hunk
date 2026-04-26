@@ -313,7 +313,7 @@ Engineering implementation plan:
    - [x] Change the CEF backend browser map from one browser per thread session to one browser per tab.
    - [x] Keep current public methods defaulting to the active tab so existing UI/tool code continues to work.
    - [x] Ensure closing a tab closes its CEF browser cleanly and cannot leave stale frame/snapshot events behind.
-   - [ ] Throttle or pause inactive tab frame updates so the browser stays inside the 8ms frame budget.
+   - [x] Throttle or pause inactive tab frame updates so the browser stays inside the 8ms frame budget.
 
 3. Add a GPUI tab strip to the browser pane.
    - [x] Render tabs above the browser toolbar with title/url fallback, loading state, close buttons, and an add-tab button.
@@ -323,39 +323,40 @@ Engineering implementation plan:
 
 4. Add agent tab tools.
    - [x] Add `hunk_browser.tabs`, `hunk_browser.new_tab`, `hunk_browser.select_tab`, and `hunk_browser.close_tab`.
-   - [ ] Add optional `tabId` arguments to navigation, snapshot, screenshot, console, click, type, press, and scroll.
+   - [x] Add optional `tabId` arguments to navigation, snapshot, screenshot, console, click, type, press, and scroll.
    - [x] Include `activeTabId` and a compact tab list in snapshot/action responses.
    - [x] Update browser developer instructions so the agent uses explicit tab IDs when more than one tab is open.
 
 5. Route CEF popups and new-window requests into Hunk tabs.
-   - [ ] Add a CEF `LifeSpanHandler`.
-   - [ ] Implement `on_before_popup` to capture `target_url`, `target_disposition`, and `user_gesture`.
-   - [ ] Cancel unmanaged native popup creation and open a Hunk tab instead.
-   - [ ] Preserve opener metadata where useful for debugging/tool responses.
+   - [x] Add a CEF `LifeSpanHandler`.
+   - [x] Implement `on_before_popup` to capture `target_url`, `target_disposition`, and `user_gesture`.
+   - [x] Cancel unmanaged native popup creation and open a Hunk tab instead.
+   - [x] Preserve opener metadata where useful for debugging/tool responses.
 
 6. Add Hunk-native right-click support.
-   - [ ] Keep Chromium's native context menu suppressed in the offscreen GPUI surface.
-   - [ ] Capture `ContextMenuParams` into a serializable `BrowserContextMenuTarget`.
-   - [ ] Drain context-menu events into the desktop controller.
-   - [ ] Render a GPUI context menu at the browser surface coordinate.
-   - [ ] Initial actions: back, forward, reload, copy page URL, copy selected text, copy link address, open link in new tab, open media in new tab, and inspect element.
-   - [ ] Add edit actions for text fields after the basic menu is stable: cut, copy, paste, select all.
+   - [x] Keep Chromium's native context menu suppressed in the offscreen GPUI surface.
+   - [x] Capture `ContextMenuParams` into a serializable `BrowserContextMenuTarget`.
+   - [x] Drain context-menu events into the desktop controller.
+   - [x] Render a GPUI context menu at the browser surface coordinate.
+   - [x] Initial actions: back, forward, reload, copy page URL, copy link address, open link in new tab, open media in new tab, and inspect element.
+   - [x] Add copy selected text.
+   - [x] Add edit actions for text fields after the basic menu is stable: cut, copy, paste, select all.
 
 7. Add user-visible DevTools.
-   - [ ] Add runtime operations for `show_devtools`, `close_devtools`, and `has_devtools`.
-   - [ ] Start with CEF's native `show_dev_tools` window for the active tab.
-   - [ ] Wire a toolbar DevTools button and right-click `Inspect Element` action.
-   - [ ] Pass the right-click coordinate to `inspect_element_at` when opening DevTools from the context menu.
-   - [ ] Keep agent DevTools/snapshot/console access protocol-based and independent from whether the visible DevTools window is open.
-   - [ ] Revisit fully embedded DevTools as a later phase if the separate native window is not acceptable.
+   - [x] Add runtime operations for `show_devtools`, `close_devtools`, and `has_devtools`.
+   - [x] Start with CEF's native `show_dev_tools` window for the active tab.
+   - [x] Wire a toolbar DevTools button and right-click `Inspect Element` action.
+   - [x] Pass the right-click coordinate to `inspect_element_at` when opening DevTools from the context menu.
+   - [x] Keep agent DevTools/snapshot/console access protocol-based and independent from whether the visible DevTools window is open.
+   - [x] Revisit fully embedded DevTools as a later phase if the separate native window is not acceptable.
 
 Exit criteria:
 
-- [ ] Users can open, switch, and close multiple in-app browser tabs.
-- [ ] The agent can list tabs and target a specific tab without ambiguity.
-- [ ] `target=_blank`, `window.open`, and right-click "open in new tab" create Hunk tabs instead of external/native browser windows.
-- [ ] Right-click no longer crashes and provides useful browser actions.
-- [ ] Users can open visible DevTools for the active tab and inspect a clicked element.
+- [x] Users can open, switch, and close multiple in-app browser tabs.
+- [x] The agent can list tabs and target a specific tab without ambiguity.
+- [x] `target=_blank`, `window.open`, and right-click "open in new tab" create Hunk tabs instead of external/native browser windows.
+- [x] Right-click no longer crashes and provides useful browser actions.
+- [x] Users can open visible DevTools for the active tab and inspect a clicked element.
 
 Implementation notes:
 
@@ -363,4 +364,10 @@ Implementation notes:
 - Runtime tab lifecycle helpers exist for create/select/close/list so desktop UI and dynamic tools have a stable state-layer API.
 - The CEF backend now keys browser handles, frame events, load events, console events, and viewports by `{session_id, tab_id}`. Existing thread-level runtime APIs route to the active tab, preserving callers while enabling real per-tab CEF instances.
 - The browser pane now renders a GPUI tab strip with add/select/close controls. Selecting a tab restores that tab's stored frame/snapshot state.
-- Agent-facing tab tools are exposed as `hunk_browser.tabs`, `hunk_browser.new_tab`, `hunk_browser.select_tab`, and `hunk_browser.close_tab`. Existing page actions remain active-tab based; optional `tabId` arguments for every page action are still pending.
+- Agent-facing tab tools are exposed as `hunk_browser.tabs`, `hunk_browser.new_tab`, `hunk_browser.select_tab`, and `hunk_browser.close_tab`. Existing page actions still default to the active tab, and now accept optional `tabId` arguments when the agent needs to target another tab directly.
+- Right-click now stays inside Hunk: CEF native context menus remain suppressed, `ContextMenuParams` are converted into a Hunk context target, and GPUI renders page/link/media actions at the pointer location.
+- Visible DevTools uses CEF's native `show_dev_tools` window for the active tab. This keeps the agent's protocol-level snapshot/console tools independent from whether the user has DevTools open, while giving developers an inspectable page today.
+- Browser tools now accept optional `tabId` for page operations, so the agent can target a tab directly without first changing the active tab by separate tool call.
+- CEF `on_before_popup` now cancels native popup creation and opens `target=_blank` / `window.open` URLs as Hunk tabs, preserving the opener and disposition metadata at the backend event boundary.
+- Inactive tab frame notifications are skipped before frame allocation; inactive tabs keep their state but do not continuously feed GPUI frames until selected.
+- Fully embedded DevTools was revisited and deferred. The current accepted path is CEF's native DevTools window because it is immediately useful, keeps Hunk's offscreen browser surface simple, and does not interfere with agent protocol-level inspection.

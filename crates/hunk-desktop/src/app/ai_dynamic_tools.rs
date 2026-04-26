@@ -140,7 +140,10 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
     };
 
     match request {
-        BrowserDynamicToolRequest::Snapshot => {
+        BrowserDynamicToolRequest::Snapshot { tab_id } => {
+            if let Some(error) = select_browser_tool_tab(runtime, params, tab_id.as_ref()) {
+                return error;
+            }
             if use_backend {
                 if let Err(error) = runtime.capture_backend_snapshot(params.thread_id.as_str()) {
                     return json_error_response(json!({
@@ -156,7 +159,10 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
             let session = runtime.ensure_session(params.thread_id.clone());
             json_success_response(snapshot_response(params, session))
         }
-        BrowserDynamicToolRequest::Screenshot => {
+        BrowserDynamicToolRequest::Screenshot { tab_id } => {
+            if let Some(error) = select_browser_tool_tab(runtime, params, tab_id.as_ref()) {
+                return error;
+            }
             let session = runtime.ensure_session(params.thread_id.clone());
             let Some(frame) = session.latest_frame() else {
                 return json_error_response(json!({
@@ -264,10 +270,14 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
             ))
         }
         BrowserDynamicToolRequest::Console {
+            tab_id,
             level,
             since_sequence,
             limit,
         } => {
+            if let Some(error) = select_browser_tool_tab(runtime, params, tab_id.as_ref()) {
+                return error;
+            }
             if use_backend {
                 let _ = runtime.pump_backend();
             }
@@ -280,7 +290,7 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
                 limit,
             ))
         }
-        BrowserDynamicToolRequest::Action(action) => {
+        BrowserDynamicToolRequest::Action { tab_id, action } => {
             if safety_mode == BrowserToolSafetyMode::Enforce
                 && let BrowserSafetyDecision::Prompt(kind) = classify_browser_action(&action)
             {
@@ -292,6 +302,9 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
                     "turnId": params.turn_id,
                     "sensitiveAction": format!("{kind:?}"),
                 }));
+            }
+            if let Some(error) = select_browser_tool_tab(runtime, params, tab_id.as_ref()) {
+                return error;
             }
 
             let action_result =
@@ -330,7 +343,8 @@ pub(crate) fn execute_browser_dynamic_tool_with_runtime_and_safety(
 pub(crate) fn browser_dynamic_tool_confirmation(
     params: &DynamicToolCallParams,
 ) -> Option<BrowserToolConfirmation> {
-    let Ok(BrowserDynamicToolRequest::Action(action)) = parse_browser_dynamic_tool_request(params)
+    let Ok(BrowserDynamicToolRequest::Action { action, .. }) =
+        parse_browser_dynamic_tool_request(params)
     else {
         return None;
     };
@@ -367,6 +381,26 @@ pub(crate) fn browser_confirmation_declined_response(
         "threadId": params.thread_id,
         "turnId": params.turn_id,
     }))
+}
+
+fn select_browser_tool_tab(
+    runtime: &mut BrowserRuntime,
+    params: &DynamicToolCallParams,
+    tab_id: Option<&hunk_browser::BrowserTabId>,
+) -> Option<DynamicToolCallResponse> {
+    let tab_id = tab_id?;
+    runtime
+        .select_tab(params.thread_id.as_str(), tab_id)
+        .err()
+        .map(|error| {
+            json_error_response(json!({
+                "error": "browserActionRejected",
+                "message": error.to_string(),
+                "tool": params.tool,
+                "threadId": params.thread_id,
+                "turnId": params.turn_id,
+            }))
+        })
 }
 
 fn action_response(

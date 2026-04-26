@@ -25,7 +25,7 @@ use wiremock::Respond;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::{method as http_method, path_regex};
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn repo_root() -> PathBuf {

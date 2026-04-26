@@ -840,6 +840,7 @@ impl DiffViewer {
                             if changed {
                                 this.ai_refresh_browser_render_frame_cache_for_selected_thread();
                                 this.ai_sync_browser_address_input(cx);
+                                this.ai_sync_browser_context_menu_target(cx);
                                 cx.notify();
                             }
                         }
@@ -856,6 +857,23 @@ impl DiffViewer {
                 }
             }
         });
+    }
+
+    fn ai_sync_browser_context_menu_target(&mut self, cx: &mut Context<Self>) {
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        let Some(target) = self
+            .ai_browser_runtime
+            .take_context_menu_target(thread_id.as_str())
+        else {
+            return;
+        };
+        let position = self
+            .ai_browser_pending_context_menu_position
+            .take()
+            .unwrap_or_else(|| point(px(target.x as f32), px(target.y as f32)));
+        self.open_browser_context_menu(target, position, cx);
     }
 
     fn ai_refresh_browser_render_frame_cache_for_selected_thread(&mut self) {
@@ -926,6 +944,51 @@ impl DiffViewer {
                 .set_load_error(err.to_string());
         }
         self.ai_sync_browser_address_input(cx);
+        cx.notify();
+    }
+
+    pub(super) fn ai_toggle_browser_devtools_for_current_thread(&mut self, cx: &mut Context<Self>) {
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        let has_devtools = self
+            .ai_browser_runtime
+            .has_devtools(thread_id.as_str())
+            .unwrap_or(false);
+        let result = if has_devtools {
+            self.ai_browser_runtime.close_devtools(thread_id.as_str())
+        } else {
+            self.ai_browser_runtime
+                .show_devtools(thread_id.as_str(), None)
+        };
+        if let Err(err) = result {
+            error!("embedded browser devtools action failed: {err:#}");
+            self.ai_browser_runtime
+                .ensure_session(thread_id)
+                .set_load_error(err.to_string());
+        }
+        self.ai_sync_browser_pump(cx);
+        cx.notify();
+    }
+
+    pub(super) fn ai_show_browser_devtools_for_current_thread(
+        &mut self,
+        inspect_element_at: Option<hunk_browser::BrowserPhysicalPoint>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(thread_id) = self.ai_selected_thread_id.clone() else {
+            return;
+        };
+        if let Err(err) = self
+            .ai_browser_runtime
+            .show_devtools(thread_id.as_str(), inspect_element_at)
+        {
+            error!("embedded browser devtools action failed: {err:#}");
+            self.ai_browser_runtime
+                .ensure_session(thread_id)
+                .set_load_error(err.to_string());
+        }
+        self.ai_sync_browser_pump(cx);
         cx.notify();
     }
 
@@ -1168,24 +1231,27 @@ impl DiffViewer {
     pub(super) fn ai_browser_surface_mouse_down(
         &mut self,
         thread_id: &str,
-        point: hunk_browser::BrowserPhysicalPoint,
-        button: MouseButton,
-        modifiers: gpui::Modifiers,
+        input: AiBrowserMouseDownInput,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(button) = ai_browser_mouse_button(button) else {
+        let Some(button) = ai_browser_mouse_button(input.button) else {
             return false;
         };
+        if button == hunk_browser::BrowserMouseButton::Right {
+            self.ai_browser_pending_context_menu_position = Some(input.window_position);
+        } else {
+            self.close_browser_context_menu(cx);
+        }
         self.ai_browser_focus_handle.focus(window, cx);
         self.ai_focus_browser_session(true);
-        let input = hunk_browser::BrowserMouseInput {
-            point,
-            modifiers: ai_browser_modifiers(modifiers),
+        let mouse_input = hunk_browser::BrowserMouseInput {
+            point: input.point,
+            modifiers: ai_browser_modifiers(input.modifiers),
         };
         if let Err(err) = self
             .ai_browser_runtime
-            .send_backend_mouse_click(thread_id, input, button)
+            .send_backend_mouse_click(thread_id, mouse_input, button)
         {
             error!("embedded browser mouse click failed: {err:#}");
             return false;

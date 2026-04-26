@@ -705,6 +705,7 @@ impl DiffViewer {
             ai_pending_browser_approvals: Vec::new(),
             ai_browser_focus_handle: cx.focus_handle(),
             ai_browser_surface_focused: false,
+            ai_browser_pending_context_menu_position: None,
             ai_desktop_notification_state_by_workspace: BTreeMap::new(),
             ai_pending_desktop_notification_events_by_workspace: BTreeMap::new(),
             #[cfg(target_os = "macos")]
@@ -900,6 +901,7 @@ impl DiffViewer {
             repo_tree_inline_edit: None,
             repo_tree_context_menu: None,
             workspace_text_context_menu: None,
+            browser_context_menu: None,
             file_editor_tabs: Vec::new(),
             active_file_editor_tab_id: None,
             next_file_editor_tab_id: 1,
