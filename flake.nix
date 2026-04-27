@@ -26,13 +26,14 @@
           rustToolchain = pkgs.rust-bin.stable.latest.default.override {
             extensions = [ "rust-src" ];
           };
-          linuxRuntimeRpathLibraries =
+          linuxRuntimeRpathLibraries = pkgs.lib.optionals pkgs.stdenv.isLinux (
             with pkgs;
             [
               vulkan-loader
               wayland
-            ];
-          linuxPackagingRuntimeLibraries =
+            ]
+          );
+          linuxPackagingRuntimeLibraries = pkgs.lib.optionals pkgs.stdenv.isLinux (
             with pkgs;
             [
               alsa-lib
@@ -75,15 +76,17 @@
               libxshmfence
               zlib
               zstd
-            ];
-          linuxPackagingTools =
+            ]
+          );
+          linuxPackagingTools = pkgs.lib.optionals pkgs.stdenv.isLinux (
             with pkgs;
             [
               curl
               dpkg
               file
               rpm
-            ];
+            ]
+          );
         in
         {
           default = pkgs.mkShell {
