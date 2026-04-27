@@ -43,14 +43,14 @@ jobs:
         with:
           clean: false
 
-      - name: Cache cargo registry and Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release-${{ runner.os }}-desktop-v2
-          workspaces: |
-            . -> target
-          cache-on-failure: "true"
-          cmd-format: nix develop --accept-flake-config -c {0}
+      # - name: Cache cargo registry and Rust dependencies
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: release-${{ runner.os }}-desktop-v2
+      #     workspaces: |
+      #       . -> target
+      #     cache-on-failure: "true"
+      #     cmd-format: nix develop --accept-flake-config -c {0}
 
       - name: Install cargo-packager
         run: nix develop --accept-flake-config -c cargo install cargo-packager --locked --version 0.11.8
@@ -154,14 +154,14 @@ jobs:
         with:
           clean: false
 
-      - name: Cache cargo registry and Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release-${{ runner.os }}-desktop-v2
-          workspaces: |
-            . -> target
-          cache-on-failure: "true"
-          cmd-format: nix develop --accept-flake-config -c {0}
+      # - name: Cache cargo registry and Rust dependencies
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: release-${{ runner.os }}-desktop-v2
+      #     workspaces: |
+      #       . -> target
+      #     cache-on-failure: "true"
+      #     cmd-format: nix develop --accept-flake-config -c {0}
 
       - name: Resolve release version
         run: |
