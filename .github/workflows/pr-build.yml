@@ -35,7 +35,7 @@ env:
 jobs:
   linux:
     name: Linux Checks
-    runs-on: ubuntu-self-hosted
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
 
     steps:
@@ -44,6 +44,17 @@ jobs:
         with:
           clean: false
 
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          use-cache: false
+          version: 0.15.2
+
       - name: Cache cargo registry and Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -51,7 +62,37 @@ jobs:
           workspaces: |
             . -> target
           cache-on-failure: "true"
-          cmd-format: nix develop --accept-flake-config -c {0}
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            cmake \
+            libasound2-dev \
+            libcap-dev \
+            libdbus-1-dev \
+            libegl1 \
+            libffi-dev \
+            libfontconfig-dev \
+            libgit2-dev \
+            libglib2.0-dev \
+            libssl-dev \
+            libvulkan1 \
+            libwayland-client0 \
+            libwayland-cursor0 \
+            libwayland-dev \
+            libwayland-egl1 \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxkbcommon-x11-dev \
+            libzstd-dev \
+            ninja-build \
+            patchelf \
+            pkg-config \
+            rpm
+        shell: bash
 
       # Temporarily disabled for PR builds; release packaging stays in release workflows.
       # - name: Resolve release version
@@ -61,43 +102,39 @@ jobs:
       #   shell: bash
 
       - name: Check formatting
-        run: nix develop --accept-flake-config -c cargo fmt --all --check
+        run: cargo fmt --all --check
         shell: bash
 
       - name: Run clippy
-        run: nix develop --accept-flake-config -c cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
         shell: bash
 
       - name: Run tests
-        run: nix develop --accept-flake-config -c cargo test --workspace
+        run: cargo test --workspace
         shell: bash
 
       - name: Build hunk-desktop
-        run: nix develop --accept-flake-config -c cargo build -p hunk-desktop --locked
+        run: cargo build -p hunk-desktop --locked
         shell: bash
 
       - name: Test and build hunk-desktop with embedded browser
         run: |
-          nix develop --accept-flake-config -c ./scripts/prepare_browser_cef_runtime.sh \
+          ./scripts/prepare_browser_cef_runtime.sh \
             x86_64-unknown-linux-gnu \
             "$PWD/assets/browser-runtime/cef/linux/runtime"
-          nix develop --accept-flake-config -c sh -lc '
-            CEF_PATH="$PWD/assets/browser-runtime/cef/linux/runtime" \
-            LD_LIBRARY_PATH="$PWD/assets/browser-runtime/cef/linux/runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+          CEF_PATH="$PWD/assets/browser-runtime/cef/linux/runtime" \
+          LD_LIBRARY_PATH="$PWD/assets/browser-runtime/cef/linux/runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             cargo test \
               -p hunk-browser \
               --locked \
               --features cef
-          '
-          nix develop --accept-flake-config -c sh -lc '
-            CEF_PATH="$PWD/assets/browser-runtime/cef/linux/runtime" \
-            LD_LIBRARY_PATH="$PWD/assets/browser-runtime/cef/linux/runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+          CEF_PATH="$PWD/assets/browser-runtime/cef/linux/runtime" \
+          LD_LIBRARY_PATH="$PWD/assets/browser-runtime/cef/linux/runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             cargo build \
               -p hunk-browser-helper \
               -p hunk-desktop \
               --locked \
               --features hunk-browser-helper/cef-subprocess,hunk-desktop/cef-browser
-          '
         shell: bash
 
       # Temporarily disabled for PR builds; release packaging stays in release workflows.
