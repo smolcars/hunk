@@ -79,7 +79,7 @@ fn ai_composer_image_extension(format: ImageFormat) -> Option<&'static str> {
         ImageFormat::Gif => Some("gif"),
         ImageFormat::Bmp => Some("bmp"),
         ImageFormat::Tiff => Some("tiff"),
-        ImageFormat::Svg | ImageFormat::Ico => None,
+        ImageFormat::Svg | ImageFormat::Ico | ImageFormat::Pnm => None,
     }
 }
 

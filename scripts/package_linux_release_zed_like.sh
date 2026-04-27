@@ -14,7 +14,7 @@ This experimental path keeps the current Hunk bundle layout, but aligns more
 closely with Zed's Linux release strategy:
 - no AppImage output
 - no forced extra graphics runtime libraries
-- launcher relies on the binary's rpath instead of LD_LIBRARY_PATH
+- launcher exposes only the package's private lib directory for dlopen users
 
 Usage:
   ./scripts/package_linux_release_zed_like.sh [--formats <csv>]
@@ -91,11 +91,33 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REAL_BINARY_NAME="${HUNK_LINUX_REAL_BINARY_NAME:-hunk_desktop_bin}"
 REAL_BINARY_PATH="$SCRIPT_DIR/$REAL_BINARY_NAME"
+PRIVATE_LIB_DIR="$SCRIPT_DIR/lib"
+HOST_GRAPHICS_LIBRARY_PATHS="${HUNK_LINUX_HOST_GRAPHICS_LIBRARY_PATHS:-/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64}"
+
+append_library_path() {
+  local candidate="$1"
+
+  [[ -n "$candidate" && -d "$candidate" ]] || return 0
+
+  case ":${LD_LIBRARY_PATH:-}:" in
+    *":$candidate:"*) ;;
+    *)
+      export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$candidate"
+      ;;
+  esac
+}
 
 if [[ ! -x "$REAL_BINARY_PATH" ]]; then
   echo "error: expected Linux GUI binary at $REAL_BINARY_PATH" >&2
   exit 1
 fi
+
+append_library_path "$PRIVATE_LIB_DIR"
+
+IFS=':' read -r -a host_graphics_library_paths <<<"$HOST_GRAPHICS_LIBRARY_PATHS"
+for host_graphics_library_path in "${host_graphics_library_paths[@]}"; do
+  append_library_path "$host_graphics_library_path"
+done
 
 exec "$REAL_BINARY_PATH" "$@"
 EOF
@@ -119,6 +141,7 @@ prepare_zed_like_linux_release_bundle() {
   echo "Bundling Linux shared libraries into experimental Zed-like release bundle..." >&2
   bundle_linux_runtime_dependencies "$BINARY_SOURCE_PATH" "$PACKAGE_LIB_DIR"
   bundle_linux_runtime_dependencies "$BROWSER_HELPER_SOURCE_PATH" "$PACKAGE_LIB_DIR"
+  bundle_linux_dynamic_runtime_dependencies "$PACKAGE_LIB_DIR"
   patch_linux_runtime_paths "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR" '$ORIGIN/lib'
   patch_linux_runtime_paths "$PACKAGED_BROWSER_HELPER_PATH" "$PACKAGE_LIB_DIR" '$ORIGIN/lib'
   validate_linux_runtime_bundle "$PACKAGED_BINARY_PATH" "$PACKAGE_LIB_DIR"

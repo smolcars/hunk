@@ -433,7 +433,7 @@ impl DiffViewer {
         let Some(anchor_position) = self
             .ai_composer_input_state
             .read(cx)
-            .offset_range_bounds(&anchor_range)
+            .range_to_bounds(&anchor_range)
             .map(|bounds| point(bounds.left(), bounds.top()))
         else {
             return div().into_any_element();
@@ -555,7 +555,7 @@ impl DiffViewer {
         let Some(anchor_position) = self
             .ai_composer_input_state
             .read(cx)
-            .offset_range_bounds(&anchor_range)
+            .range_to_bounds(&anchor_range)
             .map(|bounds| point(bounds.left(), bounds.top()))
         else {
             return div().into_any_element();
@@ -687,7 +687,7 @@ impl DiffViewer {
         let Some(anchor_position) = self
             .ai_composer_input_state
             .read(cx)
-            .offset_range_bounds(&anchor_range)
+            .range_to_bounds(&anchor_range)
             .map(|bounds| point(bounds.left(), bounds.top()))
         else {
             return div().into_any_element();
@@ -804,7 +804,7 @@ impl DiffViewer {
                 .position_mode(AnchoredPositionMode::Window)
                 .position(shell.anchor_position)
                 .offset(point(px(0.), -px(AI_COMPOSER_FILE_COMPLETION_MENU_GAP_Y)))
-                .anchor(Corner::BottomLeft)
+                .anchor(Anchor::BottomLeft)
                 .snap_to_window_with_margin(px(8.0))
                 .child(
                     div()

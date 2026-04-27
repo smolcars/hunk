@@ -32,6 +32,8 @@ use crate::in_process_app_server_client::InProcessClientStartArgs;
 use crate::in_process_app_server_client::TypedRequestError;
 use crate::rpc::RequestIdGenerator;
 
+const EMBEDDED_APP_SERVER_WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
+
 #[derive(Debug, Clone)]
 pub struct EmbeddedAppServerClientStartArgs {
     pub codex_home: PathBuf,
@@ -256,6 +258,7 @@ impl Drop for EmbeddedAppServerClient {
 fn build_runtime() -> Result<Runtime> {
     Builder::new_multi_thread()
         .worker_threads(2)
+        .thread_stack_size(EMBEDDED_APP_SERVER_WORKER_STACK_SIZE)
         .enable_io()
         .enable_time()
         .build()

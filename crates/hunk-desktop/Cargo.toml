@@ -1,6 +1,6 @@
 [package]
 name = "hunk-desktop"
-version = "0.0.7"
+version = "0.0.8"
 license.workspace = true
 edition = "2024"
 authors = ["Nitesh Balusu"]
@@ -47,10 +47,10 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
   "wayland",
   "runtime_shaders",
 ] }
-gpui-component = { git = "https://github.com/niteshbalusu11/gpui-component", rev = "4640591715ae6732b6b2075f040672eeabdb5c87", features = [
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "af52cd899f4885f4f02c3530b63fb42afc619e0c", features = [
   "tree-sitter-languages",
 ] }
-gpui-component-assets = { git = "https://github.com/niteshbalusu11/gpui-component", rev = "4640591715ae6732b6b2075f040672eeabdb5c87" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "af52cd899f4885f4f02c3530b63fb42afc619e0c" }
 image = "0.25"
 libc = "0.2"
 notify = "8.2.0"

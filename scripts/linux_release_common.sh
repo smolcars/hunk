@@ -196,6 +196,49 @@ linux_dependency_ld_library_path() {
   local build_dir="$TARGET_DIR/$TARGET_TRIPLE/release/build"
   local extra_path="${HUNK_LINUX_EXTRA_LIBRARY_PATH:-}"
 
+  append_extra_path() {
+    local candidate="$1"
+
+    [[ -n "$candidate" && -d "$candidate" ]] || return 0
+
+    case ":$extra_path:" in
+      *":$candidate:"*) ;;
+      *)
+        extra_path="${extra_path:+$extra_path:}$candidate"
+        ;;
+    esac
+  }
+
+  if [[ -n "${HUNK_LINUX_PACKAGING_LIBRARY_PATH:-}" ]]; then
+    local -a packaging_paths
+    local packaging_path
+    IFS=':' read -r -a packaging_paths <<<"$HUNK_LINUX_PACKAGING_LIBRARY_PATH"
+    for packaging_path in "${packaging_paths[@]}"; do
+      append_extra_path "$packaging_path"
+    done
+  fi
+
+  if [[ -n "${NIX_LDFLAGS:-}" ]]; then
+    local next_is_library_path=0
+    local flag
+    for flag in $NIX_LDFLAGS; do
+      if [[ "$next_is_library_path" == "1" ]]; then
+        append_extra_path "$flag"
+        next_is_library_path=0
+        continue
+      fi
+
+      case "$flag" in
+        -L)
+          next_is_library_path=1
+          ;;
+        -L*)
+          append_extra_path "${flag#-L}"
+          ;;
+      esac
+    done
+  fi
+
   if [[ -d "$build_dir" ]]; then
     local discovered_paths=""
     while IFS= read -r discovered_dir; do
@@ -289,6 +332,62 @@ bundle_linux_runtime_dependencies() {
       chmod 755 "$destination_dir/$dependency_name"
       queue+=("$dependency_path")
     done <<<"$dependency_output"
+  done
+}
+
+find_linux_packaging_library() {
+  local library_name="$1"
+  local search_path
+  local -a search_paths=()
+
+  search_path="$(linux_dependency_ld_library_path)"
+  if [[ -n "$search_path" ]]; then
+    IFS=':' read -r -a search_paths <<<"$search_path"
+  fi
+
+  local search_dir
+  for search_dir in "${search_paths[@]}"; do
+    local candidate="$search_dir/$library_name"
+    if [[ -e "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+bundle_linux_dynamic_library() {
+  local library_name="$1"
+  local destination_dir="$2"
+  local library_path
+
+  if ! library_path="$(find_linux_packaging_library "$library_name")"; then
+    echo "error: required Linux dynamic runtime library '$library_name' was not found" >&2
+    exit 1
+  fi
+
+  echo "Bundling Linux dynamic runtime library $library_name from $library_path" >&2
+  cp -L "$library_path" "$destination_dir/$library_name"
+  chmod 755 "$destination_dir/$library_name"
+  bundle_linux_runtime_dependencies "$library_path" "$destination_dir"
+}
+
+bundle_linux_dynamic_runtime_dependencies() {
+  local destination_dir="$1"
+  local -a dynamic_libraries=(
+    libwayland-client.so.0
+    libwayland-cursor.so.0
+    libwayland-egl.so.1
+    libEGL.so.1
+    libGL.so.1
+    libGLX.so.0
+    libGLdispatch.so.0
+  )
+
+  local library_name
+  for library_name in "${dynamic_libraries[@]}"; do
+    bundle_linux_dynamic_library "$library_name" "$destination_dir"
   done
 }
 

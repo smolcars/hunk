@@ -266,7 +266,7 @@ impl DiffViewer {
             deferred(
                 anchored()
                     .position(menu_state.position)
-                    .anchor(Corner::TopLeft)
+                    .anchor(Anchor::TopLeft)
                     .snap_to_window_with_margin(px(8.0))
                     .child(
                         v_flex()
