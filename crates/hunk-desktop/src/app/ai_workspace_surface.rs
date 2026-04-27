@@ -9,7 +9,8 @@ use gpui::{
 };
 
 use crate::app::ai_workspace_render::{
-    ai_workspace_drag_text_hit, ai_workspace_hit_test, paint_ai_workspace_block,
+    AiWorkspaceTextShaper, ai_workspace_drag_text_hit_precise, ai_workspace_hit_test,
+    ai_workspace_hit_test_precise, paint_ai_workspace_block,
 };
 use crate::app::{
     AiPressedMarkdownLink, AiTextSelection, AiTextSelectionSurfaceSpec, DiffViewer,
@@ -120,6 +121,8 @@ impl Element for AiWorkspaceSurfaceElement {
         let view = self.view.clone();
         let view_for_mouse_down = view.clone();
         let workspace_root = self.workspace_root.clone();
+        let ui_font_family_for_mouse_down = self.ui_font_family.clone();
+        let mono_font_family_for_mouse_down = self.mono_font_family.clone();
 
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
             if phase != DispatchPhase::Bubble
@@ -132,11 +135,18 @@ impl Element for AiWorkspaceSurfaceElement {
             view_for_mouse_down
                 .read(cx)
                 .record_ai_workspace_surface_hit_test();
-            let Some(hit) = ai_workspace_hit_test(
+            let mut text_shaper = AiWorkspaceTextShaper {
+                window,
+                cx,
+                ui_font_family: &ui_font_family_for_mouse_down,
+                mono_font_family: &mono_font_family_for_mouse_down,
+            };
+            let Some(hit) = ai_workspace_hit_test_precise(
                 snapshot.as_ref(),
                 event.position,
                 hitbox.bounds,
                 workspace_root.as_deref(),
+                &mut text_shaper,
             ) else {
                 return;
             };
@@ -188,6 +198,8 @@ impl Element for AiWorkspaceSurfaceElement {
         let view_for_secondary_mouse_down = self.view.clone();
         let workspace_root_for_secondary_mouse_down = self.workspace_root.clone();
         let hitbox_for_secondary_mouse_down = layout.hitbox.clone();
+        let ui_font_family_for_secondary_mouse_down = self.ui_font_family.clone();
+        let mono_font_family_for_secondary_mouse_down = self.mono_font_family.clone();
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
             if phase != DispatchPhase::Bubble
                 || event.button != MouseButton::Right
@@ -199,11 +211,18 @@ impl Element for AiWorkspaceSurfaceElement {
             view_for_secondary_mouse_down
                 .read(cx)
                 .record_ai_workspace_surface_hit_test();
-            let Some(hit) = ai_workspace_hit_test(
+            let mut text_shaper = AiWorkspaceTextShaper {
+                window,
+                cx,
+                ui_font_family: &ui_font_family_for_secondary_mouse_down,
+                mono_font_family: &mono_font_family_for_secondary_mouse_down,
+            };
+            let Some(hit) = ai_workspace_hit_test_precise(
                 snapshot_for_secondary_mouse_down.as_ref(),
                 event.position,
                 hitbox_for_secondary_mouse_down.bounds,
                 workspace_root_for_secondary_mouse_down.as_deref(),
+                &mut text_shaper,
             ) else {
                 return;
             };
@@ -251,6 +270,8 @@ impl Element for AiWorkspaceSurfaceElement {
         let view_for_mouse_move = self.view.clone();
         let workspace_root_for_mouse_move = self.workspace_root.clone();
         let hitbox_for_mouse_move = layout.hitbox.clone();
+        let ui_font_family_for_mouse_move = self.ui_font_family.clone();
+        let mono_font_family_for_mouse_move = self.mono_font_family.clone();
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
             if phase != DispatchPhase::Bubble {
                 return;
@@ -277,11 +298,18 @@ impl Element for AiWorkspaceSurfaceElement {
                     this.ai_schedule_workspace_text_selection_auto_scroll(cx);
                 });
 
-                if let Some(text_hit) = ai_workspace_drag_text_hit(
+                let mut text_shaper = AiWorkspaceTextShaper {
+                    window,
+                    cx,
+                    ui_font_family: &ui_font_family_for_mouse_move,
+                    mono_font_family: &mono_font_family_for_mouse_move,
+                };
+                if let Some(text_hit) = ai_workspace_drag_text_hit_precise(
                     snapshot_for_mouse_move.as_ref(),
                     event.position,
                     hitbox_for_mouse_move.bounds,
                     workspace_root_for_mouse_move.as_deref(),
+                    &mut text_shaper,
                 ) {
                     view_for_mouse_move.update(cx, |this, cx| {
                         this.ai_update_text_selection(

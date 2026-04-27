@@ -61,11 +61,44 @@ pub(crate) struct AiWorkspaceBlockHit {
     pub(crate) open_review_tab: bool,
 }
 
+pub(crate) struct AiWorkspaceTextShaper<'a, 'b> {
+    pub(crate) window: &'a mut Window,
+    pub(crate) cx: &'b App,
+    pub(crate) ui_font_family: &'b SharedString,
+    pub(crate) mono_font_family: &'b SharedString,
+}
+
 pub(crate) fn ai_workspace_hit_test(
     snapshot: &ai_workspace_session::AiWorkspaceSurfaceSnapshot,
     position: Point<Pixels>,
     bounds: Bounds<Pixels>,
     workspace_root: Option<&Path>,
+) -> Option<AiWorkspaceBlockHit> {
+    ai_workspace_hit_test_impl(snapshot, position, bounds, workspace_root, None)
+}
+
+pub(crate) fn ai_workspace_hit_test_precise(
+    snapshot: &ai_workspace_session::AiWorkspaceSurfaceSnapshot,
+    position: Point<Pixels>,
+    bounds: Bounds<Pixels>,
+    workspace_root: Option<&Path>,
+    text_shaper: &mut AiWorkspaceTextShaper<'_, '_>,
+) -> Option<AiWorkspaceBlockHit> {
+    ai_workspace_hit_test_impl(
+        snapshot,
+        position,
+        bounds,
+        workspace_root,
+        Some(text_shaper),
+    )
+}
+
+fn ai_workspace_hit_test_impl(
+    snapshot: &ai_workspace_session::AiWorkspaceSurfaceSnapshot,
+    position: Point<Pixels>,
+    bounds: Bounds<Pixels>,
+    workspace_root: Option<&Path>,
+    text_shaper: Option<&mut AiWorkspaceTextShaper<'_, '_>>,
 ) -> Option<AiWorkspaceBlockHit> {
     if !bounds.contains(&position) {
         return None;
@@ -141,6 +174,7 @@ pub(crate) fn ai_workspace_hit_test(
         position,
         workspace_root,
         snapshot.selection_surfaces.clone(),
+        text_shaper,
         false,
     );
 
@@ -158,8 +192,40 @@ pub(crate) fn ai_workspace_drag_text_hit(
     bounds: Bounds<Pixels>,
     workspace_root: Option<&Path>,
 ) -> Option<AiWorkspaceTextHit> {
-    if let Some(hit) = ai_workspace_hit_test(snapshot, position, bounds, workspace_root)
-        .and_then(|hit| hit.text_hit)
+    ai_workspace_drag_text_hit_impl(snapshot, position, bounds, workspace_root, None)
+}
+
+pub(crate) fn ai_workspace_drag_text_hit_precise(
+    snapshot: &ai_workspace_session::AiWorkspaceSurfaceSnapshot,
+    position: Point<Pixels>,
+    bounds: Bounds<Pixels>,
+    workspace_root: Option<&Path>,
+    text_shaper: &mut AiWorkspaceTextShaper<'_, '_>,
+) -> Option<AiWorkspaceTextHit> {
+    ai_workspace_drag_text_hit_impl(
+        snapshot,
+        position,
+        bounds,
+        workspace_root,
+        Some(text_shaper),
+    )
+}
+
+fn ai_workspace_drag_text_hit_impl(
+    snapshot: &ai_workspace_session::AiWorkspaceSurfaceSnapshot,
+    position: Point<Pixels>,
+    bounds: Bounds<Pixels>,
+    workspace_root: Option<&Path>,
+    mut text_shaper: Option<&mut AiWorkspaceTextShaper<'_, '_>>,
+) -> Option<AiWorkspaceTextHit> {
+    if let Some(hit) = ai_workspace_hit_test_impl(
+        snapshot,
+        position,
+        bounds,
+        workspace_root,
+        text_shaper.as_deref_mut(),
+    )
+    .and_then(|hit| hit.text_hit)
     {
         return Some(hit);
     }
@@ -190,6 +256,7 @@ pub(crate) fn ai_workspace_drag_text_hit(
         position,
         workspace_root,
         snapshot.selection_surfaces.clone(),
+        text_shaper,
         true,
     )
 }
@@ -313,14 +380,6 @@ pub(crate) fn paint_ai_workspace_block(
         crate::app::theme::hunk_text_selection_background(cx.theme(), is_dark);
 
     for line in &lines {
-        ai_workspace_paint_selection(
-            line,
-            current_selection
-                .as_ref()
-                .and_then(|selection| selection.range_for_surface(line.surface_id.as_str())),
-            selection_background,
-            window,
-        );
         if !line.title
             && line.preview_kind == ai_workspace_session::AiWorkspacePreviewLineKind::Rule
         {
@@ -362,25 +421,14 @@ pub(crate) fn paint_ai_workspace_block(
         } else {
             (ui_font_family.clone(), FontWeight::NORMAL, preview_color)
         };
+        let font_size = ai_workspace_line_font_size(line);
+        let line_height = ai_workspace_line_height(line);
         let style = TextStyle {
             color,
             font_family,
-            font_size: if line.preview_kind
-                == ai_workspace_session::AiWorkspacePreviewLineKind::Heading
-            {
-                px(13.0).into()
-            } else {
-                px(12.0).into()
-            },
+            font_size: font_size.into(),
             font_weight,
-            line_height: if line.title {
-                relative(1.35)
-            } else if line.preview_kind == ai_workspace_session::AiWorkspacePreviewLineKind::Heading
-            {
-                relative(1.40)
-            } else {
-                relative(1.45)
-            },
+            line_height,
             ..Default::default()
         };
         let font = style.font();
@@ -388,8 +436,17 @@ pub(crate) fn paint_ai_workspace_block(
         let shape = shape_editor_line(
             window,
             SharedString::from(line.text.clone()),
-            style.font_size.to_pixels(window.rem_size()),
+            font_size,
             &runs,
+        );
+        ai_workspace_paint_selection(
+            line,
+            current_selection
+                .as_ref()
+                .and_then(|selection| selection.range_for_surface(line.surface_id.as_str())),
+            &shape,
+            selection_background,
+            window,
         );
         paint_editor_line(window, cx, &shape, line.origin, line.line_height);
     }
@@ -581,6 +638,7 @@ fn ai_workspace_text_hit(
     position: Point<Pixels>,
     workspace_root: Option<&Path>,
     selection_surfaces: Arc<[AiTextSelectionSurfaceSpec]>,
+    mut text_shaper: Option<&mut AiWorkspaceTextShaper<'_, '_>>,
     clamp_to_nearest: bool,
 ) -> Option<AiWorkspaceTextHit> {
     let lines = ai_workspace_paint_lines_for_block(block, render_layout, workspace_root);
@@ -618,11 +676,24 @@ fn ai_workspace_text_hit(
         return None;
     };
     let relative_x = (position.x - render_layout.text_origin_x).max(Pixels::ZERO);
-    let max_column = line.column_byte_offsets.len().saturating_sub(1);
-    let unclamped_column = (relative_x / line.char_width).floor() as usize;
-    let column = unclamped_column.min(max_column);
-    let index = line.surface_byte_range.start + line.column_byte_offsets[column];
-    let line_local_index = line.column_byte_offsets[column];
+    let line_local_index = if let Some(text_shaper) = text_shaper.as_mut() {
+        let shape = ai_workspace_shape_line(
+            text_shaper.window,
+            text_shaper.cx,
+            line,
+            text_shaper.ui_font_family,
+            text_shaper.mono_font_family,
+        );
+        shape
+            .closest_index_for_x(relative_x)
+            .min(line.surface_byte_range.len())
+    } else {
+        let max_column = line.column_byte_offsets.len().saturating_sub(1);
+        let unclamped_column = (relative_x / line.char_width).floor() as usize;
+        let column = unclamped_column.min(max_column);
+        line.column_byte_offsets[column]
+    };
+    let index = line.surface_byte_range.start + line_local_index;
     let link_target = line
         .link_ranges
         .iter()
@@ -731,6 +802,7 @@ fn ai_workspace_normalize_link_candidate(
 fn ai_workspace_paint_selection(
     line: &AiWorkspacePaintLine,
     selection_range: Option<Range<usize>>,
+    shape: &gpui::ShapedLine,
     selection_background: gpui::Hsla,
     window: &mut Window,
 ) {
@@ -740,25 +812,16 @@ fn ai_workspace_paint_selection(
     let Some(local_range) = ai_workspace_line_selection_range(line, selection_range) else {
         return;
     };
-    let Some((start_column, end_column)) =
-        ai_workspace_selection_columns(line.column_byte_offsets.as_ref(), &local_range)
-    else {
-        return;
-    };
-    if start_column == end_column {
+    let start_x = shape.x_for_index(local_range.start);
+    let end_x = shape.x_for_index(local_range.end);
+    if start_x >= end_x {
         return;
     }
 
     window.paint_quad(fill(
         Bounds {
-            origin: point(
-                line.origin.x + line.char_width * start_column as f32,
-                line.origin.y,
-            ),
-            size: size(
-                line.char_width * (end_column - start_column) as f32,
-                line.line_height,
-            ),
+            origin: point(line.origin.x + start_x, line.origin.y),
+            size: size(end_x - start_x, line.line_height),
         },
         selection_background,
     ));
@@ -776,19 +839,69 @@ fn ai_workspace_line_selection_range(
     })
 }
 
-fn ai_workspace_selection_columns(
-    column_byte_offsets: &[usize],
-    range: &Range<usize>,
-) -> Option<(usize, usize)> {
-    if range.is_empty() || column_byte_offsets.len() < 2 {
-        return None;
-    }
+fn ai_workspace_shape_line(
+    window: &mut Window,
+    cx: &App,
+    line: &AiWorkspacePaintLine,
+    ui_font_family: &SharedString,
+    mono_font_family: &SharedString,
+) -> gpui::ShapedLine {
+    let font = ai_workspace_line_font(line, ui_font_family, mono_font_family);
+    let runs = ai_workspace_text_runs_for_line(
+        line,
+        cx.theme().foreground,
+        cx.theme().primary,
+        font,
+        cx.theme(),
+    );
+    shape_editor_line(
+        window,
+        SharedString::from(line.text.clone()),
+        ai_workspace_line_font_size(line),
+        &runs,
+    )
+}
 
-    let start_column = column_byte_offsets
-        .partition_point(|offset| *offset <= range.start)
-        .saturating_sub(1);
-    let end_column = column_byte_offsets.partition_point(|offset| *offset < range.end);
-    (start_column < end_column).then_some((start_column, end_column))
+fn ai_workspace_line_font(
+    line: &AiWorkspacePaintLine,
+    ui_font_family: &SharedString,
+    mono_font_family: &SharedString,
+) -> Font {
+    let family = if line.preview_kind == ai_workspace_session::AiWorkspacePreviewLineKind::Code {
+        mono_font_family.clone()
+    } else {
+        ui_font_family.clone()
+    };
+    let weight = if line.title
+        || line.preview_kind == ai_workspace_session::AiWorkspacePreviewLineKind::Heading
+    {
+        FontWeight::SEMIBOLD
+    } else {
+        FontWeight::NORMAL
+    };
+    Font {
+        family,
+        weight,
+        ..Default::default()
+    }
+}
+
+fn ai_workspace_line_font_size(line: &AiWorkspacePaintLine) -> Pixels {
+    if line.preview_kind == ai_workspace_session::AiWorkspacePreviewLineKind::Heading {
+        px(13.0)
+    } else {
+        px(12.0)
+    }
+}
+
+fn ai_workspace_line_height(line: &AiWorkspacePaintLine) -> gpui::DefiniteLength {
+    if line.title {
+        relative(1.35)
+    } else if line.preview_kind == ai_workspace_session::AiWorkspacePreviewLineKind::Heading {
+        relative(1.40)
+    } else {
+        relative(1.45)
+    }
 }
 
 fn ai_workspace_text_runs_for_line(
