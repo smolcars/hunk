@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use gpui::{
-    AnchoredPositionMode, Animation, AnimationExt as _, AnyWindowHandle, App, AppContext as _,
-    Bounds, ClipboardItem, Context, Corner, Decorations, DragMoveEvent, Empty, Entity, EntityId,
-    EntityInputHandler, FocusHandle, Focusable as _, InteractiveElement as _, KeyBinding,
+    Anchor, AnchoredPositionMode, Animation, AnimationExt as _, AnyWindowHandle, App,
+    AppContext as _, Bounds, ClipboardItem, Context, Decorations, DragMoveEvent, Empty, Entity,
+    EntityId, EntityInputHandler, FocusHandle, Focusable as _, InteractiveElement as _, KeyBinding,
     ListAlignment, ListOffset, ListSizingBehavior, ListState, Menu, MenuItem, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, OsAction, ParentElement as _, PathPromptOptions,
     Pixels, Point, Render, ScrollHandle, ScrollWheelEvent, SharedString,
