@@ -26,7 +26,13 @@
           rustToolchain = pkgs.rust-bin.stable.latest.default.override {
             extensions = [ "rust-src" ];
           };
-          linuxRuntimeLibraries =
+          linuxRuntimeRpathLibraries =
+            with pkgs;
+            [
+              vulkan-loader
+              wayland
+            ];
+          linuxPackagingRuntimeLibraries =
             with pkgs;
             [
               alsa-lib
@@ -132,11 +138,8 @@
               ++ lib.optionals stdenv.isLinux linuxPackagingTools;
 
             RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
-            LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux (
-              pkgs.lib.makeLibraryPath linuxRuntimeLibraries
-            );
-            LIBGL_DRIVERS_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux (
-              "${pkgs.mesa}/lib/dri"
+            NIX_LDFLAGS = pkgs.lib.optionalString pkgs.stdenv.isLinux (
+              "-rpath ${pkgs.lib.makeLibraryPath linuxRuntimeRpathLibraries}"
             );
             shellHook = ''
               if [ -d "$HOME/.cargo/bin" ]; then
@@ -144,6 +147,9 @@
               fi
 
               if [ "$(uname -s)" = "Linux" ]; then
+                unset LD_LIBRARY_PATH
+                unset LIBGL_DRIVERS_PATH
+                export HUNK_LINUX_PACKAGING_LIBRARY_PATH="${pkgs.lib.makeLibraryPath linuxPackagingRuntimeLibraries}"
                 export HUNK_LINUX_HOST_GRAPHICS_LIBRARY_PATHS="/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64"
                 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="$PWD/scripts/run_with_linux_graphics_env.sh"
               fi
