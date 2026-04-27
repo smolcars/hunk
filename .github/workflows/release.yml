@@ -35,12 +35,6 @@ jobs:
         with:
           clean: false
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Enable Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
-
       - name: Cache cargo registry and Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -143,7 +137,7 @@ jobs:
 
   linux:
     name: Linux x86_64 Tarball, DEB, RPM
-    runs-on: ubuntu-self-hosted
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
 
     steps:
@@ -296,7 +290,7 @@ jobs:
       - macos
       - linux
       - windows
-    runs-on: ubuntu-self-hosted
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 20
     env:
       HUNK_UPDATE_PRIVATE_KEY_BASE64: ${{ secrets.HUNK_UPDATE_PRIVATE_KEY_BASE64 }}

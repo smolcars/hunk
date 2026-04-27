@@ -33,12 +33,6 @@ jobs:
         with:
           clean: false
 
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Enable Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
-
       - name: Cache cargo registry and Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
