@@ -90,6 +90,7 @@
             packages =
               with pkgs;
               [
+                git
                 rustToolchain
                 just
                 zig

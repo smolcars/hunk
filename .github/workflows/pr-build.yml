@@ -35,7 +35,7 @@ env:
 jobs:
   linux:
     name: Linux Checks
-    runs-on: ubuntu-22.04
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
 
     steps:
@@ -179,13 +179,13 @@ jobs:
       matrix:
         include:
           - name: macOS
-            os: macos-26
+            os: macOS
             install_packager: cargo install cargo-packager --locked --version 0.11.8
             resolve_version: |
               version="$(./scripts/resolve_hunk_version.sh)"
               echo "HUNK_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
           - name: Windows
-            os: windows-latest
+            os: blacksmith-4vcpu-windows-2025
             install_packager: cargo install cargo-packager --locked --version 0.11.8
             resolve_version: |
               $version = (bash ./scripts/resolve_hunk_version.sh).Trim()
@@ -207,14 +207,6 @@ jobs:
         with:
           use-cache: false
           version: 0.15.2
-
-      - name: Install Determinate Nix
-        if: runner.os == 'macOS'
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Enable Magic Nix Cache
-        if: runner.os == 'macOS'
-        uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Cache cargo registry and Rust dependencies
         if: runner.os == 'macOS'
