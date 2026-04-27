@@ -117,7 +117,7 @@ jobs:
 
   linux:
     name: Linux x86_64 Tarball, DEB, RPM
-    runs-on: ubuntu-self-hosted
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
 
     steps:
@@ -126,6 +126,15 @@ jobs:
         with:
           clean: false
 
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          use-cache: false
+          version: 0.15.2
+
       - name: Cache cargo registry and Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -133,7 +142,6 @@ jobs:
           workspaces: |
             . -> target
           cache-on-failure: "true"
-          cmd-format: nix develop --accept-flake-config -c {0}
 
       - name: Resolve release version
         run: |
@@ -141,8 +149,38 @@ jobs:
           echo "HUNK_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
         shell: bash
 
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            cmake \
+            libasound2-dev \
+            libcap-dev \
+            libdbus-1-dev \
+            libegl1 \
+            libffi-dev \
+            libfontconfig-dev \
+            libgit2-dev \
+            libglib2.0-dev \
+            libssl-dev \
+            libvulkan1 \
+            libwayland-client0 \
+            libwayland-cursor0 \
+            libwayland-dev \
+            libwayland-egl1 \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxkbcommon-x11-dev \
+            libzstd-dev \
+            patchelf \
+            pkg-config \
+            rpm
+        shell: bash
+
       - name: Package Linux release artifacts
-        run: nix develop --accept-flake-config -c ./scripts/package_linux_release_zed_like.sh --formats tarball,deb,rpm
+        run: ./scripts/package_linux_release_zed_like.sh --formats tarball,deb,rpm
         shell: bash
 
       - name: Upload Linux tarball release artifact
