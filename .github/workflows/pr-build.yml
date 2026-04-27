@@ -208,15 +208,15 @@ jobs:
           use-cache: false
           version: 0.15.2
 
-      - name: Cache cargo registry and Rust dependencies
-        if: runner.os == 'macOS'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: pr-build-${{ runner.os }}-desktop-v2
-          workspaces: |
-            . -> target
-          cache-on-failure: "true"
-          cmd-format: nix develop --accept-flake-config -c {0}
+      # - name: Cache cargo registry and Rust dependencies
+      #   if: runner.os == 'macOS'
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: pr-build-${{ runner.os }}-desktop-v2
+      #     workspaces: |
+      #       . -> target
+      #     cache-on-failure: "true"
+      #     cmd-format: nix develop --accept-flake-config -c {0}
 
       - name: Cache cargo registry and Rust dependencies
         if: runner.os != 'macOS'
