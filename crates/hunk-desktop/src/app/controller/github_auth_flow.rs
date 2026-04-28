@@ -244,6 +244,78 @@ impl DiffViewer {
         Ok(())
     }
 
+    pub(super) fn delete_forge_token_for_repo(
+        &mut self,
+        repo: &ForgeRepoRef,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let resolved = self
+            .resolved_forge_credential_for_repo(repo)
+            .ok_or_else(|| {
+                format!(
+                    "No saved {} token is available for this repo.",
+                    forge_provider_label(repo.provider)
+                )
+            })?;
+        let credential_id = resolved.credential_id;
+        let removed_index = self
+            .config
+            .forge_credentials
+            .iter()
+            .position(|credential| credential.id == credential_id)
+            .ok_or_else(|| "The saved forge token could not be found.".to_string())?;
+        let removed = self.config.forge_credentials.remove(removed_index);
+
+        self.config
+            .forge_repo_credential_bindings
+            .retain(|binding| binding.credential_id != credential_id);
+
+        let host_missing_default = !self.config.forge_credentials.iter().any(|credential| {
+            credential.provider == removed.provider
+                && credential.host == removed.host
+                && credential.is_default_for_host
+        });
+        if removed.is_default_for_host
+            && host_missing_default
+            && let Some(next_default) = self.config.forge_credentials.iter_mut().find(|credential| {
+                credential.provider == removed.provider && credential.host == removed.host
+            })
+        {
+            next_default.is_default_for_host = true;
+        }
+
+        self.forge_tokens_by_credential_id
+            .remove(credential_id.as_str());
+        self.persist_config();
+
+        if let Err(err) = delete_forge_secret(credential_id.as_str()) {
+            warn!(
+                "failed to delete saved {} token {}: {err:#}",
+                forge_provider_log_label(repo.provider),
+                credential_id
+            );
+            Self::push_warning_notification(
+                format!(
+                    "Deleted the {} token in Hunk, but the saved token could not be removed from the system credential store.",
+                    forge_provider_label(repo.provider)
+                ),
+                None,
+                cx,
+            );
+        }
+
+        let message = format!(
+            "Deleted {} token for {}",
+            forge_provider_label(repo.provider),
+            repo.path
+        );
+        self.git_status_message = Some(message.clone());
+        Self::push_success_notification(message, cx);
+        self.refresh_selected_git_workspace_review_summary_after_auth_change(repo, cx);
+        cx.notify();
+        Ok(())
+    }
+
     pub(super) fn start_github_device_sign_in(
         &mut self,
         repo: ForgeRepoRef,

@@ -194,9 +194,12 @@ impl DiffViewer {
             return self.render_github_auth_header_controls(view, repo, cx);
         }
 
-        let button_label = match repo.provider {
-            hunk_forge::ForgeProvider::GitHub => "Enter GitHub Token",
-            hunk_forge::ForgeProvider::GitLab => "Enter GitLab Token",
+        let has_saved_token = self.resolved_forge_credential_for_repo(repo).is_some();
+        let button_label = match (repo.provider, has_saved_token) {
+            (hunk_forge::ForgeProvider::GitHub, false) => "Enter GitHub Token",
+            (hunk_forge::ForgeProvider::GitHub, true) => "Delete GitHub Token",
+            (hunk_forge::ForgeProvider::GitLab, false) => "Enter GitLab Token",
+            (hunk_forge::ForgeProvider::GitLab, true) => "Delete GitLab Token",
         };
         let button_icon = match repo.provider {
             hunk_forge::ForgeProvider::GitHub => Icon::new(IconName::Github).size(px(12.0)),
@@ -220,7 +223,13 @@ impl DiffViewer {
                     .disabled(self.git_rail_controls_busy())
                     .on_click(move |_, window, cx| {
                         view.update(cx, |this, cx| {
-                            this.open_forge_token_dialog_for_repo(repo.clone(), window, cx);
+                            if has_saved_token {
+                                if let Err(err) = this.delete_forge_token_for_repo(&repo, cx) {
+                                    Self::push_error_notification(err, cx);
+                                }
+                            } else {
+                                this.open_forge_token_dialog_for_repo(repo.clone(), window, cx);
+                            }
                         });
                     })
             })

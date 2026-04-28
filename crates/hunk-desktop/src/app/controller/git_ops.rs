@@ -66,7 +66,7 @@ impl DiffViewer {
         }
     }
 
-    fn push_error_notification(message: String, cx: &mut Context<Self>) {
+    pub(super) fn push_error_notification(message: String, cx: &mut Context<Self>) {
         let window_handles = cx.windows().into_iter().collect::<Vec<_>>();
         if window_handles.is_empty() {
             error!("cannot show git action error notification: no windows available");

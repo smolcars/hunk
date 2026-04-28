@@ -211,7 +211,7 @@ impl DiffViewer {
             .collect()
     }
 
-    fn resolved_forge_credential_for_repo(
+    pub(super) fn resolved_forge_credential_for_repo(
         &self,
         repo: &ForgeRepoRef,
     ) -> Option<hunk_forge::ResolvedForgeCredential> {
