@@ -178,6 +178,7 @@ mod ai_inline_review;
 mod ai_inline_review_snapshot;
 mod ai_paths;
 mod ai_terminal_dynamic_tools;
+mod ai_terminal_review;
 mod ai_terminal_safety;
 mod ai_thread_catalog_scheduler;
 mod ai_thread_flow;
@@ -1590,6 +1591,8 @@ struct DiffViewer {
     ai_browser_surface_viewport: Option<hunk_browser::BrowserViewportSize>,
     ai_pending_browser_approvals: Vec<AiPendingBrowserApproval>,
     ai_pending_terminal_approvals: Vec<AiPendingTerminalApproval>,
+    ai_pending_terminal_reviews: BTreeMap<String, AiPendingTerminalReview>,
+    ai_terminal_auto_review_denials_by_thread: BTreeMap<String, u8>,
     ai_browser_focus_handle: FocusHandle,
     ai_browser_surface_focused: bool,
     ai_browser_pending_context_menu_position: Option<Point<Pixels>>,

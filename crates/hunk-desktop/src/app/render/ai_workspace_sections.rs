@@ -1535,7 +1535,7 @@ impl DiffViewer {
                                             div()
                                                 .text_xs()
                                                 .font_semibold()
-                                                .child("Terminal Action Approval"),
+                                                .child(approval.status.label()),
                                         )
                                         .child(
                                             div()
@@ -1550,7 +1550,29 @@ impl DiffViewer {
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
                                         .whitespace_normal()
-                                        .child(format!("{:?}: {}", approval.kind, approval.summary)),
+                                        .child({
+                                            let evidence = approval.evidence.join("; ");
+                                            if evidence.is_empty() {
+                                                format!(
+                                                    "{:?}/{:?}/{:?}: {} ({})",
+                                                    approval.risk_level,
+                                                    approval.user_authorization,
+                                                    approval.outcome,
+                                                    approval.summary,
+                                                    approval.rationale
+                                                )
+                                            } else {
+                                                format!(
+                                                    "{:?}/{:?}/{:?}: {} ({}) {}",
+                                                    approval.risk_level,
+                                                    approval.user_authorization,
+                                                    approval.outcome,
+                                                    approval.summary,
+                                                    approval.rationale,
+                                                    evidence
+                                                )
+                                            }
+                                        }),
                                 )
                                 .child(
                                     h_flex()

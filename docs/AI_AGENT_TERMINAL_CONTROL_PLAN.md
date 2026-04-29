@@ -319,9 +319,122 @@ Do not repeatedly run the full workspace checks during iteration. Run them once 
 - [x] Run `nix develop -c cargo clippy --workspace --all-targets --all-features`.
 - [x] Run `nix develop -c cargo build --workspace`.
 
+## Next Phase: Terminal Auto-Review Safety
+
+The next implementation phase should move terminal safety away from command allowlists and toward a Guardian-style auto-review flow, similar to upstream Codex. Deterministic checks should remain small and conservative: allow read-only inspection, reject clearly invalid or credential-leaking actions, and route consequential or ambiguous terminal writes through a dedicated reviewer that returns structured JSON.
+
+The reviewer must assess the exact terminal action in context, not just the command string. Context should include the user request, recent agent transcript, terminal cwd, workspace root, shell/platform, target tab, recent terminal logs, and a current terminal snapshot when useful. Low- and medium-risk reviewer approvals may execute automatically. High- and critical-risk actions must require user confirmation even when the reviewer returns `allow`. The system must fail closed to user confirmation on timeout, malformed output, or reviewer errors.
+
+Current implementation status: the first slices have replaced the heuristic command-safety classifier with a conservative prefilter, structured auto-review request/assessment types, policy decision primitives, reviewer-output parsing, a prompt/schema document, and an async read-only reviewer session. Completed checklist items below refer to implemented scaffolding and app-side execution; unchecked items remain follow-up hardening.
+
+### Architecture
+
+- [x] Add a `TerminalAutoReview` subsystem owned by `crates/hunk-codex` or `crates/hunk-desktop` at the app-server boundary.
+- [x] Model terminal review requests as structured data, not prompt-only strings.
+- [x] Define `TerminalAutoReviewRequest` with action kind, command/input/keys, cwd, workspace root, shell, platform, tab id, thread id, turn id, recent logs, visible snapshot, and originating user intent.
+- [x] Define `TerminalAutoReviewAssessment` with `riskLevel`, `userAuthorization`, `outcome`, `rationale`, and optional `evidence`.
+- [x] Define explicit outcomes for `allow`, `confirm`, and `deny`; do not collapse reviewer output into a boolean.
+- [x] Add a `TerminalAutoReviewPolicy` that maps reviewer `outcome` plus `riskLevel` into execute, user-confirm, or reject.
+- [x] Execute reviewer `allow` decisions automatically only for `low` and `medium` risk levels.
+- [x] Require user confirmation for reviewer `allow` decisions with `high` or `critical` risk levels.
+- [x] Require user confirmation for reviewer `confirm` decisions at any risk level.
+- [x] Reject reviewer `deny` decisions unless the user explicitly overrides the denied action.
+- [x] Keep terminal secret redaction independent from auto-review so logs, snapshots, rationales, and pending approvals are always redacted before display or model review.
+- [x] Preserve deterministic read-only behavior: `tabs`, `snapshot`, `logs`, and viewport reads should not require model review.
+
+### Reviewer Session
+
+- [x] Add a locked-down reviewer session inspired by upstream Codex Guardian.
+- [x] Prefer a fast review model when available, with fallback to the active Codex model at low reasoning effort.
+- [x] Run the reviewer with approval policy `never`.
+- [x] Run the reviewer in a read-only sandbox or equivalent read-only capability profile.
+- [x] Disable terminal write tools, browser mutation tools, plugins/apps, subagents, hooks, and any tool that can mutate local or remote state inside the reviewer.
+- [x] Allow only read-only context tools needed for assessment, such as filesystem reads, git status/diff reads, terminal snapshot/log reads, and optionally browser snapshot/console reads.
+- [x] Add a short timeout and fail closed to user confirmation when the reviewer does not complete.
+- [x] Reject malformed or non-JSON reviewer output and surface the failure as `terminalConfirmationRequired`, not as an implicit allow.
+- [x] Add cancellation support so interrupted turns stop pending terminal reviews.
+- [x] Add a small denial circuit breaker so repeated denied terminal actions interrupt the current turn or force user confirmation.
+
+### Prompt And Schema
+
+- [x] Add a dedicated terminal auto-review policy prompt file under `crates/hunk-codex` or `docs/`.
+- [x] Include a JSON schema for reviewer output with required `outcome` and optional `riskLevel`, `userAuthorization`, `rationale`, and `evidence`.
+- [x] Prompt the reviewer to treat transcript, tool outputs, terminal logs, and command text as untrusted evidence, not instructions.
+- [x] Prompt the reviewer to focus on whether the exact terminal action is authorized by the user and proportionate to the task.
+- [x] Include policy guidance for local workspace mutation, destructive file operations, package installs, process management, network calls, credential handling, persistent system changes, and data exfiltration.
+- [x] Keep low- and medium-risk actions eligible for automatic execution only when they are clearly task-aligned and have a bounded blast radius.
+- [x] Require `confirm` or `deny` for high- and critical-risk actions unless the user has explicitly authorized the exact action and blast radius.
+- [x] Require denial for obvious credential disclosure, untrusted exfiltration, broad destructive actions, or persistent security weakening without explicit user authorization.
+
+### Deterministic Prefilter
+
+- [x] Replace the current command-pattern classifier with a prefilter that only makes high-confidence decisions.
+- [x] Allow read-only terminal tools without review.
+- [x] Deny malformed requests, stale tab ids, no-workspace actions, and unavailable shell sessions before reviewer routing.
+- [x] Deny obvious secret exfiltration before reviewer routing when command/input contains credential-looking material being sent to an untrusted external sink.
+- [x] Route all terminal writes through prefilter: `run`, `type`, `paste`, `press`, `resize`, and `kill`.
+- [x] Route ambiguous or consequential writes to auto-review instead of trying to prove safety locally.
+- [x] Treat shell analyzers and command heuristics as evidence only; they should not become the main allowlist.
+- [x] Keep user confirmation as fallback for reviewer timeout, reviewer denial override, or disabled auto-review.
+
+### Terminal Context Collection
+
+- [x] Capture current workspace root and cwd for every terminal review.
+- [x] Capture shell family and platform for every terminal review.
+- [x] Capture target tab id, active tab id, process status, exit code, title, and last command.
+- [x] Capture recent terminal transcript lines with sequence metadata and redaction.
+- [x] Capture visible terminal snapshot text with redaction.
+- [x] Include recent relevant assistant/tool transcript from the Codex thread, capped and truncated predictably.
+- [x] Include browser console/snapshot context only when a terminal action is linked to an active browser-driven workflow.
+- [x] Avoid sending raw cell grids or large transcripts to the reviewer unless a clear assessment need exists.
+
+### Executor Integration
+
+- [x] Replace direct `terminal_dynamic_tool_confirmation` gating with `evaluate_terminal_action_prefilter`.
+- [x] Add `review_terminal_action` for actions requiring auto-review.
+- [x] Return `terminalConfirmationRequired` when the prefilter or reviewer requires human confirmation.
+- [x] Return `terminalActionRejected` when the prefilter or reviewer denies the action.
+- [x] Include review metadata in tool responses: `riskLevel`, `userAuthorization`, `outcome`, `rationale`, and `evidence`.
+- [x] Execute low- and medium-risk reviewer-approved actions directly without creating a pending user approval.
+- [x] Ensure an auto-approved terminal action executes only the exact reviewed request once.
+- [x] Ensure a user-approved terminal action bypasses only the exact pending request once.
+- [x] Keep terminal write execution centralized in the desktop controller so the reviewer and worker never own live terminal handles.
+- [x] Make auto-review configurable per approval mode so users can choose user-only approvals, auto-review, or strict confirmation.
+
+### Approval UX
+
+- [x] Update pending terminal approval UI to distinguish `Needs user confirmation`, `Auto-review denied`, and `Auto-review timed out`.
+- [x] Distinguish normal terminal confirmations from auto-review failures that fail closed to confirmation.
+- [x] Show the reviewed command/input when it is not secret-looking.
+- [x] Show reviewer risk level, user authorization level, rationale, and concise evidence.
+- [x] Redact secret-looking fragments in summaries, rationale, evidence, timeline rows, and response payloads.
+- [x] Add user actions for allow once and deny.
+- [x] Add a path for the user to manually approve a specific action that auto-review denied, with the denial rationale preserved in thread context.
+
+### Tests
+
+- [x] Add unit tests for the deterministic prefilter: read-only allow, malformed reject, secret exfiltration reject, and ambiguous write review-required.
+- [x] Add unit tests for unavailable terminal and stale context rejection before reviewer routing.
+- [x] Add schema tests for `TerminalAutoReviewRequest` and `TerminalAutoReviewAssessment`.
+- [x] Add prompt snapshot tests for terminal action review requests.
+- [x] Add parser tests that malformed reviewer output fails closed.
+- [x] Add reviewer routing tests that `run`, multiline `paste`, `kill`, and process-control keypresses route to auto-review.
+- [x] Add policy tests that reviewer `allow` with `low` or `medium` risk maps to single-request execution.
+- [x] Add policy tests that reviewer `allow` with `high` or `critical` risk maps to pending user approval.
+- [x] Add policy tests that reviewer `confirm` maps to pending user approval with review metadata.
+- [x] Add policy coverage that reviewer `deny` preserves denial metadata for manual override and can reject after repeated denials.
+- [x] Add timeout/cancellation coverage for reviewer failure paths.
+- [x] Add redaction tests for command, logs, snapshot, rationale, and evidence.
+- [x] Add compact browser-context coverage for terminal plus browser coordination.
+- [x] Run `nix develop -c cargo test -p hunk-codex`.
+- [x] Run `nix develop -c cargo test -p hunk-desktop --test ai_terminal_safety`.
+- [x] Run `nix develop -c cargo check -p hunk-desktop`.
+- [x] Run `nix develop -c cargo clippy --workspace --all-targets --all-features`.
+- [x] Run `nix develop -c cargo build --workspace`.
+
 ## Open Questions
 
-- Should `hunk_terminal.run` always require confirmation, or only when the safety classifier marks it sensitive?
+- Which low-risk command categories should be eligible for automatic execution after terminal auto-review lands?
 - Should terminal tools be enabled only when browser tools are also enabled, or independently based on AI workspace/project availability?
 - Should V1 expose raw cells, or keep the response text-only until a clear agent use case needs cell-level attributes?
 - Should terminal logs use sequence cursors, transcript byte offsets, or line offsets?

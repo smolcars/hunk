@@ -705,6 +705,8 @@ impl DiffViewer {
             ai_browser_surface_viewport: None,
             ai_pending_browser_approvals: Vec::new(),
             ai_pending_terminal_approvals: Vec::new(),
+            ai_pending_terminal_reviews: BTreeMap::new(),
+            ai_terminal_auto_review_denials_by_thread: BTreeMap::new(),
             ai_browser_focus_handle: cx.focus_handle(),
             ai_browser_surface_focused: false,
             ai_browser_pending_context_menu_position: None,

@@ -709,6 +709,16 @@ impl DiffViewer {
             },
             cx,
         ) {
+            self.ai_cancel_pending_terminal_reviews_for_thread(
+                Some(thread_id.as_str()),
+                "The embedded terminal review was cancelled because the turn was interrupted.",
+            );
+            self.ai_cancel_pending_terminal_approvals_for_thread(
+                Some(thread_id.as_str()),
+                "The embedded terminal confirmation was cancelled because the turn was interrupted.",
+            );
+            self.ai_terminal_auto_review_denials_by_thread
+                .remove(thread_id.as_str());
             self.ai_interrupt_restore_queued_thread_ids
                 .insert(thread_id);
             self.set_current_ai_composer_status("Interrupted", cx);

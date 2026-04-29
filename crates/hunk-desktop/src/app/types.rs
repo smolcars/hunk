@@ -368,12 +368,42 @@ struct AiPendingBrowserApproval {
     response_tx: std::sync::mpsc::Sender<hunk_codex::protocol::DynamicToolCallResponse>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiPendingTerminalApprovalStatus {
+    NeedsUserConfirmation,
+    AutoReviewDenied,
+    AutoReviewTimedOut,
+    AutoReviewFailed,
+}
+
+impl AiPendingTerminalApprovalStatus {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::NeedsUserConfirmation => "Needs user confirmation",
+            Self::AutoReviewDenied => "Auto-review denied",
+            Self::AutoReviewTimedOut => "Auto-review timed out",
+            Self::AutoReviewFailed => "Auto-review failed closed",
+        }
+    }
+}
+
 struct AiPendingTerminalApproval {
     request_id: String,
     params: hunk_codex::protocol::DynamicToolCallParams,
-    kind: crate::app::ai_terminal_dynamic_tools::SensitiveTerminalAction,
+    status: AiPendingTerminalApprovalStatus,
+    risk_level: crate::app::ai_terminal_dynamic_tools::TerminalRiskLevel,
+    user_authorization: crate::app::ai_terminal_dynamic_tools::TerminalUserAuthorization,
+    outcome: crate::app::ai_terminal_dynamic_tools::TerminalAutoReviewOutcome,
     summary: String,
+    rationale: String,
+    evidence: Vec<String>,
     response_tx: std::sync::mpsc::Sender<hunk_codex::protocol::DynamicToolCallResponse>,
+}
+
+struct AiPendingTerminalReview {
+    params: hunk_codex::protocol::DynamicToolCallParams,
+    response_tx: std::sync::mpsc::Sender<hunk_codex::protocol::DynamicToolCallResponse>,
+    _task: Task<()>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

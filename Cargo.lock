@@ -7734,6 +7734,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-user-notifications",
  "rust-embed",
+ "serde",
  "serde_json",
  "tempfile",
  "time",

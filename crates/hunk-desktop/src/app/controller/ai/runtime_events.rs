@@ -141,13 +141,15 @@ impl DiffViewer {
             );
             let _ = pending.response_tx.send(response);
         }
-        for pending in self.ai_pending_terminal_approvals.drain(..) {
-            let response = crate::app::ai_terminal_dynamic_tools::terminal_unavailable_response(
-                &pending.params,
-                "The embedded terminal confirmation was cancelled because the AI runtime stopped.",
-            );
-            let _ = pending.response_tx.send(response);
-        }
+        self.ai_cancel_pending_terminal_reviews_for_thread(
+            None,
+            "The embedded terminal review was cancelled because the AI runtime stopped.",
+        );
+        self.ai_cancel_pending_terminal_approvals_for_thread(
+            None,
+            "The embedded terminal confirmation was cancelled because the AI runtime stopped.",
+        );
+        self.ai_terminal_auto_review_denials_by_thread.clear();
         self.ai_pending_user_input_answers.clear();
         self.ai_in_progress_turn_started_at.clear();
         self.ai_composer_activity_elapsed_second = None;

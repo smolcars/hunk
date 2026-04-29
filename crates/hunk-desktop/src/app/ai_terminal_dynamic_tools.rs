@@ -5,8 +5,10 @@ use hunk_terminal::{TerminalCellSnapshot, TerminalScreenSnapshot};
 use serde_json::json;
 
 pub(crate) use super::ai_terminal_safety::{
-    SensitiveTerminalAction, TerminalToolSafetyMode, classify_terminal_request,
-    redact_terminal_tool_text, terminal_dynamic_tool_confirmation,
+    TerminalAutoReviewLogEntry, TerminalAutoReviewOutcome, TerminalPlatform, TerminalRiskLevel,
+    TerminalSafetyContext, TerminalShellKind, TerminalToolConfirmation, TerminalToolPreflight,
+    TerminalToolRejection, TerminalToolSafetyMode, TerminalUserAuthorization,
+    redact_terminal_tool_text, terminal_dynamic_tool_preflight,
 };
 use super::{AiTerminalSessionState, AiTerminalSessionStatus, TerminalTabId, TerminalTabState};
 
@@ -91,7 +93,7 @@ pub(super) fn terminal_no_shell_session_response(
 
 pub(super) fn terminal_confirmation_required_response(
     params: &DynamicToolCallParams,
-    kind: SensitiveTerminalAction,
+    confirmation: &TerminalToolConfirmation,
 ) -> DynamicToolCallResponse {
     json_error_response(json!({
         "error": "terminalConfirmationRequired",
@@ -99,7 +101,34 @@ pub(super) fn terminal_confirmation_required_response(
         "tool": params.tool,
         "threadId": params.thread_id,
         "turnId": params.turn_id,
-        "sensitiveAction": format!("{kind:?}"),
+        "risk": terminal_risk_level_value(confirmation.risk_level),
+        "riskLevel": terminal_risk_level_value(confirmation.risk_level),
+        "userAuthorization": terminal_user_authorization_value(confirmation.user_authorization),
+        "outcome": terminal_review_outcome_value(confirmation.outcome),
+        "summary": confirmation.summary,
+        "rationale": confirmation.rationale,
+        "evidence": confirmation.evidence,
+        "sensitiveAction": terminal_risk_level_value(confirmation.risk_level),
+    }))
+}
+
+pub(super) fn terminal_safety_rejected_response(
+    params: &DynamicToolCallParams,
+    rejection: &TerminalToolRejection,
+) -> DynamicToolCallResponse {
+    json_error_response(json!({
+        "error": "terminalActionRejected",
+        "message": "This terminal action was rejected by safety policy.",
+        "tool": params.tool,
+        "threadId": params.thread_id,
+        "turnId": params.turn_id,
+        "risk": terminal_risk_level_value(rejection.risk_level),
+        "riskLevel": terminal_risk_level_value(rejection.risk_level),
+        "userAuthorization": terminal_user_authorization_value(rejection.user_authorization),
+        "outcome": terminal_review_outcome_value(rejection.outcome),
+        "summary": rejection.summary,
+        "rationale": rejection.rationale,
+        "evidence": rejection.evidence,
     }))
 }
 
@@ -245,6 +274,23 @@ fn terminal_error_response(
     }))
 }
 
+fn terminal_risk_level_value(risk_level: TerminalRiskLevel) -> serde_json::Value {
+    serde_json::to_value(risk_level)
+        .unwrap_or_else(|_| json!(format!("{:?}", risk_level).to_ascii_lowercase()))
+}
+
+fn terminal_user_authorization_value(
+    user_authorization: TerminalUserAuthorization,
+) -> serde_json::Value {
+    serde_json::to_value(user_authorization)
+        .unwrap_or_else(|_| json!(format!("{:?}", user_authorization).to_ascii_lowercase()))
+}
+
+fn terminal_review_outcome_value(outcome: TerminalAutoReviewOutcome) -> serde_json::Value {
+    serde_json::to_value(outcome)
+        .unwrap_or_else(|_| json!(format!("{:?}", outcome).to_ascii_lowercase()))
+}
+
 fn json_error_response(value: serde_json::Value) -> DynamicToolCallResponse {
     json_response(value, false)
 }
@@ -285,7 +331,7 @@ fn terminal_tabs_value(tabs: &[TerminalTabState]) -> serde_json::Value {
     )
 }
 
-fn terminal_visible_text(screen: &TerminalScreenSnapshot) -> Vec<String> {
+pub(crate) fn terminal_visible_text(screen: &TerminalScreenSnapshot) -> Vec<String> {
     terminal_screen_grid(screen)
         .into_iter()
         .map(|line| line.into_iter().collect::<String>().trim_end().to_string())
@@ -394,7 +440,7 @@ fn terminal_log_entries(
     entries
 }
 
-fn terminal_status_label(status: AiTerminalSessionStatus) -> &'static str {
+pub(crate) fn terminal_status_label(status: AiTerminalSessionStatus) -> &'static str {
     match status {
         AiTerminalSessionStatus::Idle => "idle",
         AiTerminalSessionStatus::Running => "running",
@@ -489,6 +535,28 @@ mod tests {
         let text = response_text(&response);
         assert!(!text.contains("api_key=abc"), "unexpected response: {text}");
         assert!(text.contains("[redacted]"), "unexpected response: {text}");
+    }
+
+    #[test]
+    fn terminal_confirmation_response_includes_review_metadata() {
+        let response = terminal_confirmation_required_response(
+            &terminal_params("run"),
+            &TerminalToolConfirmation {
+                risk_level: TerminalRiskLevel::High,
+                user_authorization: TerminalUserAuthorization::Unknown,
+                outcome: TerminalAutoReviewOutcome::Confirm,
+                summary: "Run command".to_string(),
+                rationale: "Needs human confirmation.".to_string(),
+                evidence: vec!["high blast radius".to_string()],
+            },
+        );
+
+        let value: serde_json::Value =
+            serde_json::from_str(response_text(&response).as_str()).expect("json response");
+        assert_eq!(value["riskLevel"], "high");
+        assert_eq!(value["userAuthorization"], "unknown");
+        assert_eq!(value["outcome"], "confirm");
+        assert_eq!(value["rationale"], "Needs human confirmation.");
     }
 
     fn terminal_params(tool: &str) -> DynamicToolCallParams {
