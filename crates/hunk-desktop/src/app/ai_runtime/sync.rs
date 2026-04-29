@@ -557,10 +557,11 @@ impl AiWorkerRuntime {
                         params.turn_id.as_str(),
                         Instant::now(),
                     );
-                    let response = if hunk_codex::browser_tools::is_browser_dynamic_tool_call(
+                    let response = match dynamic_tool_route(
                         params.namespace.as_deref(),
                         params.tool.as_str(),
                     ) {
+                        DynamicToolRoute::Browser => {
                         tracing::debug!(
                             thread_id = %params.thread_id,
                             turn_id = %params.turn_id,
@@ -569,7 +570,18 @@ impl AiWorkerRuntime {
                             "routing browser dynamic tool through embedded browser UI bridge"
                         );
                         self.execute_browser_dynamic_tool_via_ui(event_tx, params.clone())
-                    } else {
+                    }
+                        DynamicToolRoute::Terminal => {
+                        tracing::debug!(
+                            thread_id = %params.thread_id,
+                            turn_id = %params.turn_id,
+                            call_id = %params.call_id,
+                            tool = %params.tool,
+                            "routing terminal dynamic tool through embedded terminal UI bridge"
+                        );
+                        self.execute_terminal_dynamic_tool_via_ui(event_tx, params.clone())
+                    }
+                        DynamicToolRoute::Workspace => {
                         tracing::debug!(
                             thread_id = %params.thread_id,
                             turn_id = %params.turn_id,
@@ -579,6 +591,7 @@ impl AiWorkerRuntime {
                         );
                         self.dynamic_tool_executor
                             .execute(self.service.cwd(), &params)
+                    }
                     };
                     self.session.respond_typed(request_id, &response)?;
                     changed = true;
@@ -619,6 +632,36 @@ impl AiWorkerRuntime {
             crate::app::ai_dynamic_tools::browser_unavailable_response(
                 &params,
                 "The embedded browser UI bridge did not respond before the request timed out.",
+            )
+        })
+    }
+
+    fn execute_terminal_dynamic_tool_via_ui(
+        &mut self,
+        event_tx: &Sender<AiWorkerEvent>,
+        params: DynamicToolCallParams,
+    ) -> DynamicToolCallResponse {
+        let (response_tx, response_rx) = std::sync::mpsc::channel();
+        if event_tx
+            .send(AiWorkerEvent::new(
+                self.workspace_key.clone(),
+                AiWorkerEventPayload::TerminalToolCall {
+                    params: params.clone(),
+                    response_tx,
+                },
+            ))
+            .is_err()
+        {
+            return crate::app::ai_terminal_dynamic_tools::terminal_unavailable_response(
+                &params,
+                "The embedded terminal UI bridge is not connected.",
+            );
+        }
+
+        response_rx.recv_timeout(self.request_timeout).unwrap_or_else(|_| {
+            crate::app::ai_terminal_dynamic_tools::terminal_unavailable_response(
+                &params,
+                "The embedded terminal UI bridge did not respond before the request timed out.",
             )
         })
     }
@@ -943,6 +986,23 @@ struct NotificationRefreshFlags {
     refresh_account: bool,
     refresh_rate_limits: bool,
     refresh_skills: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DynamicToolRoute {
+    Browser,
+    Terminal,
+    Workspace,
+}
+
+fn dynamic_tool_route(namespace: Option<&str>, tool: &str) -> DynamicToolRoute {
+    if hunk_codex::browser_tools::is_browser_dynamic_tool_call(namespace, tool) {
+        DynamicToolRoute::Browser
+    } else if hunk_codex::terminal_tools::is_terminal_dynamic_tool_call(namespace, tool) {
+        DynamicToolRoute::Terminal
+    } else {
+        DynamicToolRoute::Workspace
+    }
 }
 
 fn notification_refresh_flags(notifications: &[ServerNotification]) -> NotificationRefreshFlags {

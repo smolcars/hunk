@@ -65,6 +65,7 @@ use hunk_codex::state::TurnStatus as StateTurnStatus;
 use hunk_codex::threads::RolloutFallbackItem;
 use hunk_codex::threads::RolloutFallbackTurn;
 use hunk_codex::threads::ThreadService;
+use hunk_codex::terminal_tools::apply_terminal_thread_start_context;
 
 use crate::app::ai_dynamic_tools::AiDynamicToolExecutor;
 use crate::app::ai_paths::default_codex_home_path;
@@ -180,6 +181,10 @@ pub enum AiWorkerEventPayload {
         params: DynamicToolCallParams,
         response_tx: Sender<DynamicToolCallResponse>,
     },
+    TerminalToolCall {
+        params: DynamicToolCallParams,
+        response_tx: Sender<DynamicToolCallResponse>,
+    },
     Reconnecting(String),
     Status(String),
     Error(String),
@@ -265,6 +270,7 @@ struct AiWorkerRuntime {
     request_timeout: Duration,
     mad_max_mode: bool,
     browser_tools_enabled: bool,
+    terminal_tools_enabled: bool,
     account: Option<Account>,
     requires_openai_auth: bool,
     pending_chatgpt_login_id: Option<String>,
@@ -342,7 +348,14 @@ impl AiWorkerRuntime {
                 if self.browser_tools_enabled {
                     apply_browser_thread_start_context(&mut params);
                 }
-                trace_thread_start_browser_context(self.browser_tools_enabled, &params);
+                if self.terminal_tools_enabled {
+                    apply_terminal_thread_start_context(&mut params);
+                }
+                trace_thread_start_dynamic_tool_context(
+                    self.browser_tools_enabled,
+                    self.terminal_tools_enabled,
+                    &params,
+                );
                 let response =
                     self.service
                         .start_thread(&mut self.session, params, self.request_timeout)?;

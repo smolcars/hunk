@@ -72,6 +72,33 @@ fn ai_workspace_browser_tool_action_label(
     }
 }
 
+fn ai_workspace_terminal_tool_action_label(
+    namespace: Option<&str>,
+    tool: &str,
+) -> Option<&'static str> {
+    if !hunk_codex::terminal_tools::is_terminal_dynamic_tool_call(namespace, tool) {
+        return None;
+    }
+
+    match tool {
+        hunk_codex::terminal_tools::TERMINAL_OPEN_TOOL => Some("Open terminal"),
+        hunk_codex::terminal_tools::TERMINAL_TABS_TOOL => Some("List tabs"),
+        hunk_codex::terminal_tools::TERMINAL_NEW_TAB_TOOL => Some("New tab"),
+        hunk_codex::terminal_tools::TERMINAL_SELECT_TAB_TOOL => Some("Select tab"),
+        hunk_codex::terminal_tools::TERMINAL_CLOSE_TAB_TOOL => Some("Close tab"),
+        hunk_codex::terminal_tools::TERMINAL_SNAPSHOT_TOOL => Some("Snapshot"),
+        hunk_codex::terminal_tools::TERMINAL_LOGS_TOOL => Some("Logs"),
+        hunk_codex::terminal_tools::TERMINAL_RUN_TOOL => Some("Run"),
+        hunk_codex::terminal_tools::TERMINAL_TYPE_TOOL => Some("Type"),
+        hunk_codex::terminal_tools::TERMINAL_PASTE_TOOL => Some("Paste"),
+        hunk_codex::terminal_tools::TERMINAL_PRESS_TOOL => Some("Press"),
+        hunk_codex::terminal_tools::TERMINAL_SCROLL_TOOL => Some("Scroll"),
+        hunk_codex::terminal_tools::TERMINAL_RESIZE_TOOL => Some("Resize"),
+        hunk_codex::terminal_tools::TERMINAL_KILL_TOOL => Some("Stop process"),
+        _ => None,
+    }
+}
+
 pub(crate) fn ai_workspace_item_status_label(
     status: hunk_codex::state::ItemStatus,
 ) -> &'static str {
@@ -211,6 +238,14 @@ fn ai_workspace_tool_compact_preview_text(
                 &arguments,
                 content_items.as_deref(),
             )
+            .or_else(|| {
+                ai_workspace_terminal_tool_compact_summary(
+                    namespace.as_deref(),
+                    tool.as_str(),
+                    &arguments,
+                    content_items.as_deref(),
+                )
+            })
             .unwrap_or(tool),
         ),
         Some(hunk_codex::protocol::ThreadItem::CollabAgentToolCall {
@@ -242,11 +277,20 @@ pub(crate) fn ai_workspace_tool_header_title(item: &hunk_codex::state::ItemSumma
     if let Some(hunk_codex::protocol::ThreadItem::DynamicToolCall {
         namespace, tool, ..
     }) = ai_workspace_timeline_item_thread_item(item)
-        && hunk_codex::browser_tools::is_browser_dynamic_tool_call(
+        && (hunk_codex::browser_tools::is_browser_dynamic_tool_call(
             namespace.as_deref(),
             tool.as_str(),
-        )
+        ) || hunk_codex::terminal_tools::is_terminal_dynamic_tool_call(
+            namespace.as_deref(),
+            tool.as_str(),
+        ))
     {
+        if hunk_codex::terminal_tools::is_terminal_dynamic_tool_call(
+            namespace.as_deref(),
+            tool.as_str(),
+        ) {
+            return "Terminal".to_string();
+        }
         return "Browser".to_string();
     }
 
@@ -332,6 +376,64 @@ fn ai_workspace_browser_tool_compact_summary(
     Some(summary)
 }
 
+fn ai_workspace_terminal_tool_compact_summary(
+    namespace: Option<&str>,
+    tool: &str,
+    arguments: &serde_json::Value,
+    content_items: Option<&[hunk_codex::protocol::DynamicToolCallOutputContentItem]>,
+) -> Option<String> {
+    let action = ai_workspace_terminal_tool_action_label(namespace, tool)?;
+    if let Some(confirmation) = ai_workspace_terminal_confirmation_summary(content_items) {
+        return Some(confirmation);
+    }
+
+    let summary = match tool {
+        hunk_codex::terminal_tools::TERMINAL_RUN_TOOL => arguments
+            .get("command")
+            .and_then(|value| value.as_str())
+            .map(|command| format!("{action} {}", compact_terminal_argument(command)))
+            .unwrap_or_else(|| action.to_string()),
+        hunk_codex::terminal_tools::TERMINAL_TYPE_TOOL
+        | hunk_codex::terminal_tools::TERMINAL_PASTE_TOOL => arguments
+            .get("text")
+            .and_then(|value| value.as_str())
+            .map(|text| format!("{action} {} chars", text.chars().count()))
+            .unwrap_or_else(|| action.to_string()),
+        hunk_codex::terminal_tools::TERMINAL_PRESS_TOOL => arguments
+            .get("keys")
+            .and_then(|value| value.as_str())
+            .map(|keys| format!("{action} {keys}"))
+            .unwrap_or_else(|| action.to_string()),
+        hunk_codex::terminal_tools::TERMINAL_SCROLL_TOOL => arguments
+            .get("lines")
+            .and_then(|value| value.as_i64())
+            .map(|lines| format!("{action} {lines} lines"))
+            .unwrap_or_else(|| action.to_string()),
+        hunk_codex::terminal_tools::TERMINAL_RESIZE_TOOL => {
+            let rows = arguments.get("rows").and_then(|value| value.as_u64());
+            let cols = arguments.get("cols").and_then(|value| value.as_u64());
+            match (rows, cols) {
+                (Some(rows), Some(cols)) => format!("{action} {rows}x{cols}"),
+                _ => action.to_string(),
+            }
+        }
+        hunk_codex::terminal_tools::TERMINAL_SELECT_TAB_TOOL
+        | hunk_codex::terminal_tools::TERMINAL_CLOSE_TAB_TOOL => arguments
+            .get("tabId")
+            .and_then(|value| value.as_u64())
+            .map(|tab_id| format!("{action} {tab_id}"))
+            .unwrap_or_else(|| action.to_string()),
+        hunk_codex::terminal_tools::TERMINAL_OPEN_TOOL
+        | hunk_codex::terminal_tools::TERMINAL_TABS_TOOL
+        | hunk_codex::terminal_tools::TERMINAL_NEW_TAB_TOOL
+        | hunk_codex::terminal_tools::TERMINAL_SNAPSHOT_TOOL
+        | hunk_codex::terminal_tools::TERMINAL_LOGS_TOOL
+        | hunk_codex::terminal_tools::TERMINAL_KILL_TOOL => action.to_string(),
+        _ => return None,
+    };
+    Some(summary)
+}
+
 fn ai_workspace_browser_confirmation_summary(
     content_items: Option<&[hunk_codex::protocol::DynamicToolCallOutputContentItem]>,
 ) -> Option<String> {
@@ -353,6 +455,39 @@ fn ai_workspace_browser_confirmation_summary(
             .unwrap_or("action");
         Some(format!("Confirmation required: {sensitive_action}"))
     })
+}
+
+fn ai_workspace_terminal_confirmation_summary(
+    content_items: Option<&[hunk_codex::protocol::DynamicToolCallOutputContentItem]>,
+) -> Option<String> {
+    let items = content_items?;
+    items.iter().find_map(|item| {
+        let hunk_codex::protocol::DynamicToolCallOutputContentItem::InputText { text } = item
+        else {
+            return None;
+        };
+        let value = serde_json::from_str::<serde_json::Value>(text).ok()?;
+        if value.get("error").and_then(|value| value.as_str())
+            != Some("terminalConfirmationRequired")
+        {
+            return None;
+        }
+        let sensitive_action = value
+            .get("sensitiveAction")
+            .and_then(|value| value.as_str())
+            .unwrap_or("action");
+        Some(format!("Confirmation required: {sensitive_action}"))
+    })
+}
+
+fn compact_terminal_argument(value: &str) -> String {
+    const MAX_CHARS: usize = 80;
+    let mut compact = value.trim().replace(['\r', '\n'], " ");
+    if compact.chars().count() > MAX_CHARS {
+        compact = compact.chars().take(MAX_CHARS).collect::<String>();
+        compact.push_str("...");
+    }
+    compact
 }
 
 fn ai_workspace_diff_summary_push_file(
@@ -683,9 +818,36 @@ mod tests {
         arguments: serde_json::Value,
         content_items: Option<Vec<hunk_codex::protocol::DynamicToolCallOutputContentItem>>,
     ) -> hunk_codex::state::ItemSummary {
+        dynamic_tool_item(
+            Some(hunk_codex::browser_tools::BROWSER_TOOL_NAMESPACE.to_string()),
+            tool,
+            arguments,
+            content_items,
+        )
+    }
+
+    fn terminal_tool_item(
+        tool: &str,
+        arguments: serde_json::Value,
+        content_items: Option<Vec<hunk_codex::protocol::DynamicToolCallOutputContentItem>>,
+    ) -> hunk_codex::state::ItemSummary {
+        dynamic_tool_item(
+            Some(hunk_codex::terminal_tools::TERMINAL_TOOL_NAMESPACE.to_string()),
+            tool,
+            arguments,
+            content_items,
+        )
+    }
+
+    fn dynamic_tool_item(
+        namespace: Option<String>,
+        tool: &str,
+        arguments: serde_json::Value,
+        content_items: Option<Vec<hunk_codex::protocol::DynamicToolCallOutputContentItem>>,
+    ) -> hunk_codex::state::ItemSummary {
         let thread_item = hunk_codex::protocol::ThreadItem::DynamicToolCall {
             id: "call-1".to_string(),
-            namespace: Some(hunk_codex::browser_tools::BROWSER_TOOL_NAMESPACE.to_string()),
+            namespace,
             tool: tool.to_string(),
             arguments,
             status: hunk_codex::protocol::DynamicToolCallStatus::Completed,
@@ -753,6 +915,53 @@ mod tests {
         assert_eq!(
             ai_workspace_tool_compact_summary(&item, ""),
             Some("Confirmation required: ExternalProtocol".to_string())
+        );
+    }
+
+    #[test]
+    fn terminal_dynamic_tool_rows_use_terminal_title() {
+        let item = terminal_tool_item(
+            hunk_codex::terminal_tools::TERMINAL_SNAPSHOT_TOOL,
+            serde_json::json!({}),
+            None,
+        );
+
+        assert_eq!(ai_workspace_tool_header_title(&item), "Terminal");
+    }
+
+    #[test]
+    fn terminal_run_tool_rows_summarize_command() {
+        let item = terminal_tool_item(
+            hunk_codex::terminal_tools::TERMINAL_RUN_TOOL,
+            serde_json::json!({ "command": "npm run dev" }),
+            None,
+        );
+
+        assert_eq!(
+            ai_workspace_tool_compact_summary(&item, ""),
+            Some("Run npm run dev".to_string())
+        );
+    }
+
+    #[test]
+    fn terminal_confirmation_tool_rows_summarize_required_confirmation() {
+        let item = terminal_tool_item(
+            hunk_codex::terminal_tools::TERMINAL_KILL_TOOL,
+            serde_json::json!({}),
+            Some(vec![
+                hunk_codex::protocol::DynamicToolCallOutputContentItem::InputText {
+                    text: serde_json::json!({
+                        "error": "terminalConfirmationRequired",
+                        "sensitiveAction": "KillProcess"
+                    })
+                    .to_string(),
+                },
+            ]),
+        );
+
+        assert_eq!(
+            ai_workspace_tool_compact_summary(&item, ""),
+            Some("Confirmation required: KillProcess".to_string())
         );
     }
 }

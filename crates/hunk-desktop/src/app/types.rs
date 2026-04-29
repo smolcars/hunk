@@ -368,6 +368,14 @@ struct AiPendingBrowserApproval {
     response_tx: std::sync::mpsc::Sender<hunk_codex::protocol::DynamicToolCallResponse>,
 }
 
+struct AiPendingTerminalApproval {
+    request_id: String,
+    params: hunk_codex::protocol::DynamicToolCallParams,
+    kind: crate::app::ai_terminal_dynamic_tools::SensitiveTerminalAction,
+    summary: String,
+    response_tx: std::sync::mpsc::Sender<hunk_codex::protocol::DynamicToolCallResponse>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AiInlineReviewLoadedState {
     thread_id: String,

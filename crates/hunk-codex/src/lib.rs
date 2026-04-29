@@ -8,6 +8,7 @@ pub mod protocol;
 pub mod rpc;
 pub mod state;
 pub mod structured_generation;
+pub mod terminal_tools;
 pub mod threads;
 pub mod tools;
 

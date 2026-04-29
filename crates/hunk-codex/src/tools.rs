@@ -8,6 +8,7 @@ use crate::browser_tools::is_browser_dynamic_tool_call;
 use crate::protocol::DynamicToolCallOutputContentItem;
 use crate::protocol::DynamicToolCallParams;
 use crate::protocol::DynamicToolCallResponse;
+use crate::terminal_tools::is_terminal_dynamic_tool_call;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -52,6 +53,12 @@ impl DynamicToolRegistry {
             if is_browser_dynamic_tool_call(params.namespace.as_deref(), params.tool.as_str()) {
                 return error_response(format!(
                     "browser dynamic tool '{}' is registered but no embedded browser executor is connected yet",
+                    params.tool
+                ));
+            }
+            if is_terminal_dynamic_tool_call(params.namespace.as_deref(), params.tool.as_str()) {
+                return error_response(format!(
+                    "terminal dynamic tool '{}' is registered but no embedded terminal executor is connected yet",
                     params.tool
                 ));
             }

@@ -1058,6 +1058,20 @@ impl DiffViewer {
                         Some("Embedded browser tool response receiver disconnected.".to_string());
                 }
             }
+            AiWorkerEventPayload::TerminalToolCall {
+                params,
+                response_tx,
+            } => {
+                let response =
+                    crate::app::ai_terminal_dynamic_tools::terminal_unavailable_response(
+                        &params,
+                        "The embedded terminal is only available in the visible AI workspace.",
+                    );
+                if response_tx.send(response).is_err() {
+                    state.status_message =
+                        Some("Embedded terminal tool response receiver disconnected.".to_string());
+                }
+            }
         });
         if clear_desktop_notification_state {
             self.clear_ai_desktop_notification_state(Some(workspace_key));

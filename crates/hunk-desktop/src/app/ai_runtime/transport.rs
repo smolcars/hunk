@@ -8,6 +8,7 @@ pub struct AiWorkerStartConfig {
     pub mad_max_mode: bool,
     pub include_hidden_models: bool,
     pub browser_tools_enabled: bool,
+    pub terminal_tools_enabled: bool,
 }
 
 impl AiWorkerStartConfig {
@@ -26,6 +27,7 @@ impl AiWorkerStartConfig {
             mad_max_mode: false,
             include_hidden_models: true,
             browser_tools_enabled: false,
+            terminal_tools_enabled: false,
         }
     }
 
@@ -71,5 +73,16 @@ mod transport_tests {
         );
 
         assert!(!config.browser_tools_enabled);
+    }
+
+    #[test]
+    fn worker_start_config_disables_terminal_tools_by_default() {
+        let config = AiWorkerStartConfig::new(
+            std::path::PathBuf::from("/repo/worktrees/task-a"),
+            std::path::PathBuf::from("/bin/codex"),
+            std::path::PathBuf::from("/tmp/codex-home"),
+        );
+
+        assert!(!config.terminal_tools_enabled);
     }
 }

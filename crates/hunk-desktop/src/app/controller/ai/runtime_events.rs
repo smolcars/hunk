@@ -141,6 +141,13 @@ impl DiffViewer {
             );
             let _ = pending.response_tx.send(response);
         }
+        for pending in self.ai_pending_terminal_approvals.drain(..) {
+            let response = crate::app::ai_terminal_dynamic_tools::terminal_unavailable_response(
+                &pending.params,
+                "The embedded terminal confirmation was cancelled because the AI runtime stopped.",
+            );
+            let _ = pending.response_tx.send(response);
+        }
         self.ai_pending_user_input_answers.clear();
         self.ai_in_progress_turn_started_at.clear();
         self.ai_composer_activity_elapsed_second = None;
@@ -237,6 +244,13 @@ impl DiffViewer {
             } => {
                 invalidate_visible_frame = false;
                 self.ai_handle_browser_dynamic_tool_call(params, response_tx, cx);
+            }
+            AiWorkerEventPayload::TerminalToolCall {
+                params,
+                response_tx,
+            } => {
+                invalidate_visible_frame = false;
+                self.ai_handle_terminal_dynamic_tool_call(params, response_tx, cx);
             }
             AiWorkerEventPayload::Reconnecting(message) => {
                 self.ai_connection_state = AiConnectionState::Reconnecting;

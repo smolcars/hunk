@@ -79,6 +79,7 @@ impl DiffViewer {
         start_config.include_hidden_models = self.ai_include_hidden_models;
         start_config.browser_tools_enabled =
             self.ai_browser_runtime.status() == hunk_browser::BrowserRuntimeStatus::Ready;
+        start_config.terminal_tools_enabled = self.current_ai_workspace_kind().shows_terminal();
         let starting_status_message = start_config.starting_status_message();
 
         let worker = spawn_ai_worker(start_config, command_rx, event_tx);

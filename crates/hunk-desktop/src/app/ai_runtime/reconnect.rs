@@ -228,6 +228,7 @@ impl AiWorkerRuntime {
         replacement_config.mad_max_mode = self.mad_max_mode;
         replacement_config.include_hidden_models = self.include_hidden_models;
         replacement_config.browser_tools_enabled = self.browser_tools_enabled;
+        replacement_config.terminal_tools_enabled = self.terminal_tools_enabled;
 
         let dynamic_tool_executor = self.dynamic_tool_executor.clone();
         let pending_approvals = self.pending_approvals.clone();
@@ -240,6 +241,7 @@ impl AiWorkerRuntime {
         replacement.mad_max_mode = self.mad_max_mode;
         replacement.include_hidden_models = self.include_hidden_models;
         replacement.browser_tools_enabled = self.browser_tools_enabled;
+        replacement.terminal_tools_enabled = self.terminal_tools_enabled;
         replacement.pending_approvals = pending_approvals;
         replacement.pending_user_inputs = pending_user_inputs;
         replacement.next_approval_sequence = next_approval_sequence;

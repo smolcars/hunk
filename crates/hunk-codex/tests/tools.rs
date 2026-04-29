@@ -41,6 +41,24 @@ fn browser_tool_returns_structured_error_until_executor_is_connected() {
 }
 
 #[test]
+fn terminal_tool_returns_structured_error_until_executor_is_connected() {
+    let temp = tempdir().expect("temp dir should be created");
+    let registry = DynamicToolRegistry::new();
+    let mut params = dynamic_tool_params(
+        hunk_codex::terminal_tools::TERMINAL_SNAPSHOT_TOOL,
+        serde_json::json!({}),
+    );
+    params.namespace = Some(hunk_codex::terminal_tools::TERMINAL_TOOL_NAMESPACE.to_string());
+    let response = registry.execute(temp.path(), &params);
+
+    assert!(!response.success);
+    assert!(
+        response_text(&response).contains("no embedded terminal executor is connected"),
+        "unexpected response: {response:?}"
+    );
+}
+
+#[test]
 fn list_directory_rejects_parent_path_traversal() {
     let temp = tempdir().expect("temp dir should be created");
     let registry = DynamicToolRegistry::new();

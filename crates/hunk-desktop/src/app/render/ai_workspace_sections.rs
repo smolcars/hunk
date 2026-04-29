@@ -1496,6 +1496,111 @@ impl DiffViewer {
                         })),
                 )
             })
+            .when(!self.ai_pending_terminal_approvals.is_empty(), |this| {
+                this.child(
+                    v_flex()
+                        .w_full()
+                        .gap_1()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(cx.theme().warning)
+                        .bg(hunk_opacity(cx.theme().warning, is_dark, 0.14, 0.08))
+                        .p_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_semibold()
+                                .text_color(cx.theme().warning)
+                                .child("Pending terminal approvals"),
+                        )
+                        .children(self.ai_pending_terminal_approvals.iter().map(|approval| {
+                            let approve_request_id = approval.request_id.clone();
+                            let decline_request_id = approval.request_id.clone();
+                            let view = view.clone();
+                            v_flex()
+                                .w_full()
+                                .gap_1()
+                                .rounded(px(8.0))
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .bg(cx.theme().background)
+                                .p_2()
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap_2()
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .font_semibold()
+                                                .child("Terminal Action Approval"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .font_family(cx.theme().mono_font_family.clone())
+                                                .child(approval.request_id.clone()),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .whitespace_normal()
+                                        .child(format!("{:?}: {}", approval.kind, approval.summary)),
+                                )
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .items_center()
+                                        .gap_1()
+                                        .child({
+                                            let view = view.clone();
+                                            Button::new(format!(
+                                                "ai-terminal-approval-accept-{}",
+                                                approval.request_id
+                                            ))
+                                            .compact()
+                                            .primary()
+                                            .with_size(gpui_component::Size::Small)
+                                            .label("Accept")
+                                            .on_click(move |_, _, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_resolve_pending_terminal_approval_action(
+                                                        approve_request_id.clone(),
+                                                        AiApprovalDecision::Accept,
+                                                        cx,
+                                                    );
+                                                });
+                                            })
+                                        })
+                                        .child({
+                                            let view = view.clone();
+                                            Button::new(format!(
+                                                "ai-terminal-approval-decline-{}",
+                                                approval.request_id
+                                            ))
+                                            .compact()
+                                            .outline()
+                                            .with_size(gpui_component::Size::Small)
+                                            .label("Decline")
+                                            .on_click(move |_, _, cx| {
+                                                view.update(cx, |this, cx| {
+                                                    this.ai_resolve_pending_terminal_approval_action(
+                                                        decline_request_id.clone(),
+                                                        AiApprovalDecision::Decline,
+                                                        cx,
+                                                    );
+                                                });
+                                            })
+                                        }),
+                                )
+                        })),
+                )
+            })
             .when(!state.pending_user_inputs.is_empty(), |this| {
                 this.child(render_ai_pending_user_inputs_panel(
                     &state.pending_user_inputs,

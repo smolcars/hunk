@@ -121,7 +121,11 @@ fn apply_thread_start_policy(mad_max_mode: bool, params: &mut ThreadStartParams)
     }
 }
 
-fn trace_thread_start_browser_context(browser_tools_enabled: bool, params: &ThreadStartParams) {
+fn trace_thread_start_dynamic_tool_context(
+    browser_tools_enabled: bool,
+    terminal_tools_enabled: bool,
+    params: &ThreadStartParams,
+) {
     let browser_tool_names = params
         .dynamic_tools
         .as_deref()
@@ -138,16 +142,35 @@ fn trace_thread_start_browser_context(browser_tools_enabled: bool, params: &Thre
             None => tool.name.clone(),
         })
         .collect::<Vec<_>>();
+    let terminal_tool_names = params
+        .dynamic_tools
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter(|tool| {
+            hunk_codex::terminal_tools::is_terminal_dynamic_tool_call(
+                tool.namespace.as_deref(),
+                tool.name.as_str(),
+            )
+        })
+        .map(|tool| match tool.namespace.as_deref() {
+            Some(namespace) => format!("{namespace}.{}", tool.name),
+            None => tool.name.clone(),
+        })
+        .collect::<Vec<_>>();
     tracing::debug!(
         browser_tools_enabled,
+        terminal_tools_enabled,
         dynamic_tool_count = params.dynamic_tools.as_ref().map_or(0, Vec::len),
         browser_tool_count = browser_tool_names.len(),
         browser_tool_names = ?browser_tool_names,
+        terminal_tool_count = terminal_tool_names.len(),
+        terminal_tool_names = ?terminal_tool_names,
         developer_instructions_bytes = params
             .developer_instructions
             .as_deref()
             .map_or(0, str::len),
-        "starting AI thread with browser dynamic tool context"
+        "starting AI thread with Hunk dynamic tool context"
     );
 }
 

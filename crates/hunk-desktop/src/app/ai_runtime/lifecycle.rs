@@ -90,6 +90,7 @@ impl AiWorkerRuntime {
             request_timeout: config.request_timeout,
             mad_max_mode: config.mad_max_mode,
             browser_tools_enabled: config.browser_tools_enabled,
+            terminal_tools_enabled: config.terminal_tools_enabled,
             account: None,
             requires_openai_auth: false,
             pending_chatgpt_login_id: None,

@@ -36,12 +36,15 @@ mod ai_tests {
     use super::apply_login_completed_state;
     use super::apply_thread_start_policy;
     use super::apply_browser_thread_start_context;
+    use super::apply_terminal_thread_start_context;
     use super::apply_thread_start_session_overrides;
     use super::apply_turn_start_policy;
     use super::collaboration_mode_for_turn;
     use super::command_can_retry_after_reconnect;
     use super::dispatch_ai_worker_result;
+    use super::dynamic_tool_route;
     use super::reconnect_backoff;
+    use super::DynamicToolRoute;
     use super::is_transient_rollout_load_error;
     use super::is_missing_thread_rollout_error;
     use super::map_command_approval_decision;
@@ -119,6 +122,50 @@ mod ai_tests {
                 .developer_instructions
                 .as_deref()
                 .is_some_and(|instructions| instructions.contains("hunk_browser.snapshot"))
+        );
+    }
+
+    #[test]
+    fn terminal_thread_start_context_adds_terminal_tools_when_enabled() {
+        let mut params = ThreadStartParams::default();
+        apply_terminal_thread_start_context(&mut params);
+
+        let tools = params
+            .dynamic_tools
+            .as_ref()
+            .expect("terminal tools should be present");
+        assert!(tools.iter().any(|tool| {
+            tool.namespace.as_deref()
+                == Some(hunk_codex::terminal_tools::TERMINAL_TOOL_NAMESPACE)
+                && tool.name == hunk_codex::terminal_tools::TERMINAL_SNAPSHOT_TOOL
+        }));
+        assert!(
+            params
+                .developer_instructions
+                .as_deref()
+                .is_some_and(|instructions| instructions.contains("hunk_terminal.snapshot"))
+        );
+    }
+
+    #[test]
+    fn dynamic_tool_route_classifies_terminal_tools_for_ui_bridge() {
+        assert_eq!(
+            dynamic_tool_route(
+                Some(hunk_codex::terminal_tools::TERMINAL_TOOL_NAMESPACE),
+                hunk_codex::terminal_tools::TERMINAL_SNAPSHOT_TOOL,
+            ),
+            DynamicToolRoute::Terminal
+        );
+        assert_eq!(
+            dynamic_tool_route(
+                Some(hunk_codex::browser_tools::BROWSER_TOOL_NAMESPACE),
+                hunk_codex::browser_tools::BROWSER_SNAPSHOT_TOOL,
+            ),
+            DynamicToolRoute::Browser
+        );
+        assert_eq!(
+            dynamic_tool_route(None, "hunk.list_directory"),
+            DynamicToolRoute::Workspace
         );
     }
 
