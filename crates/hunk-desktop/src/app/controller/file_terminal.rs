@@ -1398,6 +1398,7 @@ impl DiffViewer {
             TerminalEvent::Exit { .. } => {
                 let runtime_key = terminal_runtime_tab_key(project_key, tab_id);
                 self.files_hidden_terminal_runtimes.remove(runtime_key.as_str());
+                self.files_remove_hidden_terminal_tab_after_exit(project_key, tab_id);
             }
             TerminalEvent::Failed(message) => {
                 let state = self
@@ -1412,6 +1413,31 @@ impl DiffViewer {
                     format!("[terminal error] {message}\n"),
                 );
             }
+        }
+    }
+
+    fn files_remove_hidden_terminal_tab_after_exit(
+        &mut self,
+        project_key: &str,
+        tab_id: TerminalTabId,
+    ) {
+        let Some(state) = self.files_terminal_states_by_project.get_mut(project_key) else {
+            return;
+        };
+
+        state.tabs.retain(|tab| tab.id != tab_id);
+        if state.tabs.is_empty() {
+            state.open = false;
+            state.active_tab_id = 1;
+            state.next_tab_id = 2;
+            state.tabs = default_terminal_tabs();
+            return;
+        }
+
+        if state.active_tab_id == tab_id
+            || !state.tabs.iter().any(|tab| tab.id == state.active_tab_id)
+        {
+            state.active_tab_id = state.tabs.first().map(|tab| tab.id).unwrap_or(1);
         }
     }
 
