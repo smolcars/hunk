@@ -237,6 +237,10 @@ actions!(
         SwitchToGitView,
         SwitchToAiView,
         AiToggleTerminalDrawer,
+        TerminalNewTab,
+        TerminalCloseTab,
+        TerminalNextTab,
+        TerminalPreviousTab,
         AiTerminalSendCtrlC,
         AiTerminalSendCtrlA,
         AiTerminalSendTab,
@@ -568,6 +572,31 @@ fn bind_keyboard_shortcuts(cx: &mut App, shortcuts: &KeyboardShortcuts) {
             Some(WorkspaceViewMode::GitWorkspace.shortcut_context()),
         )
     }));
+    for context in ["AiTerminal", "FilesTerminal"] {
+        bindings.extend(shortcuts.toggle_ai_terminal_drawer.iter().map(|shortcut| {
+            KeyBinding::new(shortcut.as_str(), AiToggleTerminalDrawer, Some(context))
+        }));
+        bindings.extend(
+            shortcuts
+                .terminal_new_tab
+                .iter()
+                .map(|shortcut| KeyBinding::new(shortcut.as_str(), TerminalNewTab, Some(context))),
+        );
+        bindings.extend(
+            shortcuts.terminal_close_tab.iter().map(|shortcut| {
+                KeyBinding::new(shortcut.as_str(), TerminalCloseTab, Some(context))
+            }),
+        );
+        bindings.extend(
+            shortcuts
+                .terminal_next_tab
+                .iter()
+                .map(|shortcut| KeyBinding::new(shortcut.as_str(), TerminalNextTab, Some(context))),
+        );
+        bindings.extend(shortcuts.terminal_previous_tab.iter().map(|shortcut| {
+            KeyBinding::new(shortcut.as_str(), TerminalPreviousTab, Some(context))
+        }));
+    }
     bindings.push(KeyBinding::new(
         "ctrl-c",
         AiTerminalSendCtrlC,
@@ -1582,6 +1611,9 @@ struct DiffViewer {
     ai_terminal_states_by_thread: BTreeMap<String, AiThreadTerminalState>,
     ai_hidden_terminal_runtimes: BTreeMap<String, AiHiddenTerminalRuntimeHandle>,
     ai_terminal_open: bool,
+    ai_terminal_active_tab_id: TerminalTabId,
+    ai_terminal_next_tab_id: TerminalTabId,
+    ai_terminal_tabs: Vec<TerminalTabState>,
     ai_terminal_follow_output: bool,
     ai_terminal_height_px: f32,
     ai_terminal_input_draft: String,
@@ -1607,6 +1639,9 @@ struct DiffViewer {
     files_terminal_states_by_project: BTreeMap<String, FilesProjectTerminalState>,
     files_hidden_terminal_runtimes: BTreeMap<String, FilesHiddenTerminalRuntimeHandle>,
     files_terminal_open: bool,
+    files_terminal_active_tab_id: TerminalTabId,
+    files_terminal_next_tab_id: TerminalTabId,
+    files_terminal_tabs: Vec<TerminalTabState>,
     files_terminal_follow_output: bool,
     files_terminal_height_px: f32,
     files_terminal_session: AiTerminalSessionState,

@@ -571,10 +571,11 @@ impl DiffViewer {
             mad_max_mode: self.ai_mad_max_mode,
             draft_workspace_root_override: self.ai_draft_workspace_root_override.clone(),
             terminal_open: self.ai_terminal_open,
-            terminal_follow_output: self.ai_terminal_follow_output,
+            terminal_active_tab_id: self.ai_terminal_active_tab_id,
+            terminal_next_tab_id: self.ai_terminal_next_tab_id,
+            terminal_tabs: self.ai_visible_terminal_tabs_snapshot(),
             terminal_height_px: self.ai_terminal_height_px,
             terminal_input_draft: self.ai_terminal_input_draft.clone(),
-            terminal_session: self.ai_terminal_session.clone(),
         }
     }
 
@@ -643,10 +644,12 @@ impl DiffViewer {
         self.ai_mad_max_mode = state.mad_max_mode;
         self.ai_draft_workspace_root_override = state.draft_workspace_root_override;
         self.ai_terminal_open = state.terminal_open;
-        self.ai_terminal_follow_output = state.terminal_follow_output;
+        self.ai_terminal_active_tab_id = state.terminal_active_tab_id;
+        self.ai_terminal_next_tab_id = state.terminal_next_tab_id;
+        self.ai_terminal_tabs = state.terminal_tabs;
+        self.ai_apply_visible_terminal_tab();
         self.ai_terminal_height_px = state.terminal_height_px;
         self.ai_terminal_input_draft = state.terminal_input_draft;
-        self.ai_terminal_session = state.terminal_session;
         self.invalidate_ai_visible_frame_state_with_reason("workspace");
         self.ai_text_selection = None;
         self.ai_text_selection_drag_pointer = None;

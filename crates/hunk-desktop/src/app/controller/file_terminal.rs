@@ -6,18 +6,19 @@ impl DiffViewer {
     fn files_capture_visible_terminal_state(&self) -> FilesProjectTerminalState {
         FilesProjectTerminalState {
             open: self.files_terminal_open,
-            follow_output: self.files_terminal_follow_output,
-            session: self.files_terminal_session.clone(),
-            pending_input: self.files_terminal_pending_input.clone(),
+            active_tab_id: self.files_terminal_active_tab_id,
+            next_tab_id: self.files_terminal_next_tab_id,
+            tabs: self.files_visible_terminal_tabs_snapshot(),
             restore_target: self.files_terminal_restore_target,
         }
     }
 
     fn files_apply_visible_terminal_state(&mut self, state: FilesProjectTerminalState) {
         self.files_terminal_open = state.open;
-        self.files_terminal_follow_output = state.follow_output;
-        self.files_terminal_session = state.session;
-        self.files_terminal_pending_input = state.pending_input;
+        self.files_terminal_active_tab_id = state.active_tab_id;
+        self.files_terminal_next_tab_id = state.next_tab_id;
+        self.files_terminal_tabs = state.tabs;
+        self.files_apply_visible_terminal_tab();
         self.files_terminal_restore_target = state.restore_target;
         self.files_terminal_surface_focused = false;
         self.files_terminal_cursor_blink_generation =
@@ -29,6 +30,77 @@ impl DiffViewer {
             self.files_terminal_cursor_output_generation.saturating_add(1);
         self.files_terminal_cursor_output_suppressed = false;
         self.files_terminal_cursor_output_task = Task::ready(());
+    }
+
+    pub(super) fn files_visible_terminal_tabs_snapshot(&self) -> Vec<TerminalTabState> {
+        let mut tabs = self.files_terminal_tabs.clone();
+        if let Some(tab) = tabs
+            .iter_mut()
+            .find(|tab| tab.id == self.files_terminal_active_tab_id)
+        {
+            tab.follow_output = self.files_terminal_follow_output;
+            tab.session = self.files_terminal_session.clone();
+            tab.pending_input = self.files_terminal_pending_input.clone();
+        } else {
+            tabs.push(TerminalTabState {
+                id: self.files_terminal_active_tab_id,
+                title: format!("Shell {}", self.files_terminal_active_tab_id),
+                follow_output: self.files_terminal_follow_output,
+                session: self.files_terminal_session.clone(),
+                pending_input: self.files_terminal_pending_input.clone(),
+            });
+            tabs.sort_by_key(|tab| tab.id);
+        }
+        tabs
+    }
+
+    fn files_save_visible_terminal_tab(&mut self) {
+        let active_tab_id = self.files_terminal_active_tab_id;
+        if let Some(tab) = self
+            .files_terminal_tabs
+            .iter_mut()
+            .find(|tab| tab.id == active_tab_id)
+        {
+            tab.follow_output = self.files_terminal_follow_output;
+            tab.session = self.files_terminal_session.clone();
+            tab.pending_input = self.files_terminal_pending_input.clone();
+            return;
+        }
+
+        self.files_terminal_tabs.push(TerminalTabState {
+            id: active_tab_id,
+            title: format!("Shell {active_tab_id}"),
+            follow_output: self.files_terminal_follow_output,
+            session: self.files_terminal_session.clone(),
+            pending_input: self.files_terminal_pending_input.clone(),
+        });
+        self.files_terminal_tabs.sort_by_key(|tab| tab.id);
+    }
+
+    fn files_apply_visible_terminal_tab(&mut self) {
+        if self.files_terminal_tabs.is_empty() {
+            self.files_terminal_tabs = default_terminal_tabs();
+            self.files_terminal_active_tab_id = 1;
+            self.files_terminal_next_tab_id = 2;
+        }
+        if !self
+            .files_terminal_tabs
+            .iter()
+            .any(|tab| tab.id == self.files_terminal_active_tab_id)
+            && let Some(first_tab) = self.files_terminal_tabs.first()
+        {
+            self.files_terminal_active_tab_id = first_tab.id;
+        }
+
+        let tab = self
+            .files_terminal_tabs
+            .iter()
+            .find(|tab| tab.id == self.files_terminal_active_tab_id)
+            .cloned()
+            .unwrap_or_default();
+        self.files_terminal_follow_output = tab.follow_output;
+        self.files_terminal_session = tab.session;
+        self.files_terminal_pending_input = tab.pending_input;
         self.files_terminal_grid_size = self
             .files_terminal_session
             .screen
@@ -52,17 +124,31 @@ impl DiffViewer {
     }
 
     fn files_park_visible_terminal_runtime_for_project(&mut self, project_key: Option<&str>) {
+        let Some(project_key) = project_key else {
+            return;
+        };
+        let tab_id = self
+            .files_terminal_runtime
+            .as_ref()
+            .map(|runtime| runtime.tab_id)
+            .unwrap_or(self.files_terminal_active_tab_id);
+        let runtime_key = terminal_runtime_tab_key(project_key, tab_id);
         park_visible_terminal_runtime(
-            project_key,
+            Some(runtime_key.as_str()),
             &mut self.files_terminal_runtime,
             &mut self.files_terminal_event_task,
             &mut self.files_hidden_terminal_runtimes,
         );
     }
 
-    fn files_promote_hidden_terminal_runtime_for_project(&mut self, project_key: &str) -> bool {
+    fn files_promote_hidden_terminal_runtime_for_project(
+        &mut self,
+        project_key: &str,
+        tab_id: TerminalTabId,
+    ) -> bool {
+        let runtime_key = terminal_runtime_tab_key(project_key, tab_id);
         promote_hidden_terminal_runtime(
-            project_key,
+            runtime_key.as_str(),
             &mut self.files_terminal_runtime,
             &mut self.files_terminal_event_task,
             &mut self.files_hidden_terminal_runtimes,
@@ -89,7 +175,10 @@ impl DiffViewer {
         self.files_restore_visible_terminal_state_for_project(next_terminal_owner_key.as_deref());
 
         if let Some(project_key) = next_terminal_owner_key.as_deref() {
-            if !self.files_promote_hidden_terminal_runtime_for_project(project_key)
+            if !self.files_promote_hidden_terminal_runtime_for_project(
+                project_key,
+                self.files_terminal_active_tab_id,
+            )
                 && self.files_terminal_open
             {
                 self.ensure_files_terminal_session(cx);
@@ -212,16 +301,27 @@ impl DiffViewer {
         self.defer_root_focus(cx);
     }
 
-    fn files_terminal_runtime_is_current(&self, project_key: &str, generation: usize) -> bool {
+    fn files_terminal_runtime_is_current(
+        &self,
+        project_key: &str,
+        tab_id: TerminalTabId,
+        generation: usize,
+    ) -> bool {
         if self.files_terminal_runtime.as_ref().is_some_and(|runtime| {
-            runtime.project_key == project_key && runtime.generation == generation
+            runtime.project_key == project_key
+                && runtime.tab_id == tab_id
+                && runtime.generation == generation
         }) {
             return true;
         }
 
         self.files_hidden_terminal_runtimes
-            .get(project_key)
-            .is_some_and(|hidden| hidden.runtime.generation == generation)
+            .values()
+            .any(|hidden| {
+                hidden.runtime.project_key == project_key
+                    && hidden.runtime.tab_id == tab_id
+                    && hidden.runtime.generation == generation
+            })
     }
 
     fn next_files_terminal_runtime_generation(&mut self) -> usize {
@@ -269,7 +369,14 @@ impl DiffViewer {
             .as_ref()
             .map(|runtime| runtime.project_key.clone())
         {
-            if active_runtime_project_key == project_key {
+            let active_runtime_tab_id = self
+                .files_terminal_runtime
+                .as_ref()
+                .map(|runtime| runtime.tab_id)
+                .unwrap_or(self.files_terminal_active_tab_id);
+            if active_runtime_project_key == project_key
+                && active_runtime_tab_id == self.files_terminal_active_tab_id
+            {
                 return;
             }
 
@@ -277,7 +384,10 @@ impl DiffViewer {
                 active_runtime_project_key.as_str(),
             ));
         }
-        if self.files_promote_hidden_terminal_runtime_for_project(project_key.as_str()) {
+        if self.files_promote_hidden_terminal_runtime_for_project(
+            project_key.as_str(),
+            self.files_terminal_active_tab_id,
+        ) {
             return;
         }
         if self.files_terminal_session.screen.is_some() {
@@ -324,13 +434,19 @@ impl DiffViewer {
     ) {
         let project_key = project_root.to_string_lossy().to_string();
         self.files_terminal_states_by_project.remove(project_key.as_str());
-        if let Some(hidden) = self.files_hidden_terminal_runtimes.remove(project_key.as_str())
-            && let Err(error) = hidden.runtime.handle.kill()
-        {
-            error!(
-                "failed to stop hidden Files terminal runtime for project {project_key} during {reason}: {error:#}"
-            );
+        let mut retained_hidden_runtimes = BTreeMap::new();
+        for (runtime_key, hidden) in std::mem::take(&mut self.files_hidden_terminal_runtimes) {
+            if hidden.runtime.project_key != project_key {
+                retained_hidden_runtimes.insert(runtime_key, hidden);
+                continue;
+            }
+            if let Err(error) = hidden.runtime.handle.kill() {
+                error!(
+                    "failed to stop hidden Files terminal runtime for project {project_key} during {reason}: {error:#}"
+                );
+            }
         }
+        self.files_hidden_terminal_runtimes = retained_hidden_runtimes;
     }
 
     pub(super) fn files_toggle_terminal_drawer_action(
@@ -339,6 +455,156 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         self.toggle_files_terminal_drawer(Some(window), cx);
+    }
+
+    pub(super) fn files_new_terminal_tab_action(
+        &mut self,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_key) = self.current_files_terminal_owner_key() else {
+            return;
+        };
+        if !self.files_terminal_open {
+            self.capture_files_terminal_restore_target(window.as_deref(), cx);
+        }
+        self.files_save_visible_terminal_tab();
+        self.files_park_visible_terminal_runtime_for_project(Some(project_key.as_str()));
+        let tab_id = self.files_terminal_next_tab_id.max(1);
+        self.files_terminal_next_tab_id = tab_id.saturating_add(1);
+        self.files_terminal_tabs.push(TerminalTabState::new(tab_id));
+        self.files_terminal_tabs.sort_by_key(|tab| tab.id);
+        self.files_terminal_active_tab_id = tab_id;
+        self.files_apply_visible_terminal_tab();
+        self.files_terminal_set_open(true, cx);
+        self.ensure_files_terminal_session(cx);
+        self.defer_files_terminal_interaction_focus(cx);
+        cx.notify();
+    }
+
+    fn files_select_relative_terminal_tab(
+        &mut self,
+        delta: isize,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.files_terminal_tabs.len() < 2 {
+            return;
+        }
+        let Some(project_key) = self.current_files_terminal_owner_key() else {
+            return;
+        };
+        if !self.files_terminal_open {
+            self.capture_files_terminal_restore_target(window.as_deref(), cx);
+        }
+        self.files_save_visible_terminal_tab();
+        self.files_park_visible_terminal_runtime_for_project(Some(project_key.as_str()));
+        let tabs = self.files_terminal_tabs.clone();
+        let current_index = tabs
+            .iter()
+            .position(|tab| tab.id == self.files_terminal_active_tab_id)
+            .unwrap_or(0);
+        let next_index =
+            (current_index as isize + delta).rem_euclid(tabs.len() as isize) as usize;
+        self.files_terminal_active_tab_id = tabs[next_index].id;
+        self.files_apply_visible_terminal_tab();
+        if self.files_terminal_open
+            && !self.files_promote_hidden_terminal_runtime_for_project(
+                project_key.as_str(),
+                self.files_terminal_active_tab_id,
+            )
+        {
+            self.ensure_files_terminal_session(cx);
+        }
+        self.defer_files_terminal_interaction_focus(cx);
+        cx.notify();
+    }
+
+    pub(super) fn files_select_terminal_tab(
+        &mut self,
+        tab_id: TerminalTabId,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.files_terminal_active_tab_id == tab_id {
+            self.defer_files_terminal_interaction_focus(cx);
+            return;
+        }
+        if !self.files_terminal_tabs.iter().any(|tab| tab.id == tab_id) {
+            return;
+        }
+        let Some(project_key) = self.current_files_terminal_owner_key() else {
+            return;
+        };
+        if !self.files_terminal_open {
+            self.capture_files_terminal_restore_target(window.as_deref(), cx);
+        }
+        self.files_save_visible_terminal_tab();
+        self.files_park_visible_terminal_runtime_for_project(Some(project_key.as_str()));
+        self.files_terminal_active_tab_id = tab_id;
+        self.files_apply_visible_terminal_tab();
+        if self.files_terminal_open
+            && !self.files_promote_hidden_terminal_runtime_for_project(
+                project_key.as_str(),
+                self.files_terminal_active_tab_id,
+            )
+        {
+            self.ensure_files_terminal_session(cx);
+        }
+        self.defer_files_terminal_interaction_focus(cx);
+        cx.notify();
+    }
+
+    fn files_close_terminal_tab_action(
+        &mut self,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_key) = self.current_files_terminal_owner_key() else {
+            return;
+        };
+        if !self.files_terminal_open {
+            self.capture_files_terminal_restore_target(window.as_deref(), cx);
+        }
+        let closed_tab_id = self.files_terminal_active_tab_id;
+        if self.files_terminal_runtime.as_ref().is_some_and(|runtime| {
+            runtime.project_key == project_key && runtime.tab_id == closed_tab_id
+        }) {
+            self.stop_files_terminal_runtime("closing terminal tab");
+        } else {
+            let runtime_key = terminal_runtime_tab_key(project_key.as_str(), closed_tab_id);
+            if let Some(hidden) = self.files_hidden_terminal_runtimes.remove(runtime_key.as_str())
+                && let Err(error) = hidden.runtime.handle.kill()
+            {
+                error!("failed to stop hidden Files terminal tab during close: {error:#}");
+            }
+        }
+        self.files_terminal_tabs.retain(|tab| tab.id != closed_tab_id);
+        if self.files_terminal_tabs.is_empty() {
+            self.files_terminal_tabs = default_terminal_tabs();
+            self.files_terminal_active_tab_id = 1;
+            self.files_terminal_next_tab_id = 2;
+            self.files_apply_visible_terminal_tab();
+            self.files_terminal_set_open(false, cx);
+            return;
+        }
+
+        self.files_terminal_active_tab_id = self
+            .files_terminal_tabs
+            .first()
+            .map(|tab| tab.id)
+            .unwrap_or(1);
+        self.files_apply_visible_terminal_tab();
+        if self.files_terminal_open
+            && !self.files_promote_hidden_terminal_runtime_for_project(
+                project_key.as_str(),
+                self.files_terminal_active_tab_id,
+            )
+        {
+            self.ensure_files_terminal_session(cx);
+        }
+        self.defer_files_terminal_interaction_focus(cx);
+        cx.notify();
     }
 
     pub(super) fn files_clear_terminal_session_action(&mut self, cx: &mut Context<Self>) {
@@ -911,12 +1177,18 @@ impl DiffViewer {
         project_key: String,
         cx: &mut Context<Self>,
     ) {
+        let tab_id = self.files_terminal_active_tab_id;
         if let Some(active_runtime_project_key) = self
             .files_terminal_runtime
             .as_ref()
             .map(|runtime| runtime.project_key.clone())
         {
-            if active_runtime_project_key == project_key {
+            let active_runtime_tab_id = self
+                .files_terminal_runtime
+                .as_ref()
+                .map(|runtime| runtime.tab_id)
+                .unwrap_or(tab_id);
+            if active_runtime_project_key == project_key && active_runtime_tab_id == tab_id {
                 self.stop_files_terminal_runtime("starting default terminal shell");
             } else {
                 self.files_park_visible_terminal_runtime_for_project(Some(
@@ -950,10 +1222,11 @@ impl DiffViewer {
                 let generation = self.next_files_terminal_runtime_generation();
                 self.files_terminal_runtime = Some(FilesTerminalRuntimeHandle {
                     project_key: project_key.clone(),
+                    tab_id,
                     handle,
                     generation,
                 });
-                self.start_files_terminal_event_listener(event_rx, project_key, generation, cx);
+                self.start_files_terminal_event_listener(event_rx, project_key, tab_id, generation, cx);
                 self.defer_files_terminal_interaction_focus(cx);
             }
             Err(error) => {
@@ -979,6 +1252,7 @@ impl DiffViewer {
         &mut self,
         event_rx: std::sync::mpsc::Receiver<TerminalEvent>,
         project_key: String,
+        tab_id: TerminalTabId,
         generation: usize,
         cx: &mut Context<Self>,
     ) {
@@ -999,32 +1273,37 @@ impl DiffViewer {
                 };
                 let mut listener_is_current = true;
                 this.update(cx, |this, cx| {
-                    if !this.files_terminal_runtime_is_current(project_key.as_str(), generation) {
+                    if !this.files_terminal_runtime_is_current(project_key.as_str(), tab_id, generation) {
                         listener_is_current = false;
                         return;
                     }
                     for event in buffered_events {
-                        let visible_project_key = this
+                        let visible_project_tab_matches = this
                             .files_terminal_runtime
                             .as_ref()
-                            .map(|runtime| runtime.project_key.as_str());
-                        if visible_project_key == Some(project_key.as_str()) {
+                            .is_some_and(|runtime| {
+                                runtime.project_key == project_key && runtime.tab_id == tab_id
+                            });
+                        if visible_project_tab_matches {
                             this.apply_files_terminal_event(event, cx);
                         } else {
-                            this.apply_hidden_files_terminal_event(project_key.as_str(), event);
+                            this.apply_hidden_files_terminal_event(project_key.as_str(), tab_id, event);
                         }
                     }
                     if event_stream_disconnected
-                        && this.files_terminal_runtime_is_current(project_key.as_str(), generation)
+                        && this.files_terminal_runtime_is_current(project_key.as_str(), tab_id, generation)
                     {
                         if this
                             .files_terminal_runtime
                             .as_ref()
-                            .is_some_and(|runtime| runtime.project_key == project_key)
+                            .is_some_and(|runtime| {
+                                runtime.project_key == project_key && runtime.tab_id == tab_id
+                            })
                         {
                             this.files_terminal_runtime = None;
                         } else {
-                            this.files_hidden_terminal_runtimes.remove(project_key.as_str());
+                            let runtime_key = terminal_runtime_tab_key(project_key.as_str(), tab_id);
+                            this.files_hidden_terminal_runtimes.remove(runtime_key.as_str());
                         }
                     }
                     cx.notify();
@@ -1083,20 +1362,25 @@ impl DiffViewer {
         }
     }
 
-    fn apply_hidden_files_terminal_event(&mut self, project_key: &str, event: TerminalEvent) {
+    fn apply_hidden_files_terminal_event(
+        &mut self,
+        project_key: &str,
+        tab_id: TerminalTabId,
+        event: TerminalEvent,
+    ) {
         match event {
             TerminalEvent::Output(output) => {
                 let sanitized = sanitize_ai_terminal_output(output.as_slice());
                 if sanitized.is_empty() {
                     return;
                 }
+                let state = self
+                    .files_terminal_states_by_project
+                    .entry(project_key.to_string())
+                    .or_default();
+                let tab = terminal_tab_state_mut(&mut state.tabs, tab_id);
                 append_ai_terminal_transcript(
-                    &mut self
-                        .files_terminal_states_by_project
-                        .entry(project_key.to_string())
-                        .or_default()
-                        .session
-                        .transcript,
+                    &mut tab.session.transcript,
                     sanitized,
                 );
             }
@@ -1105,27 +1389,55 @@ impl DiffViewer {
                     .files_terminal_states_by_project
                     .entry(project_key.to_string())
                     .or_default();
-                state.follow_output = screen.display_offset == 0;
-                state.session.screen = Some(screen);
-                state.session.status = AiTerminalSessionStatus::Running;
-                self.flush_hidden_files_terminal_pending_input(project_key);
+                let tab = terminal_tab_state_mut(&mut state.tabs, tab_id);
+                tab.follow_output = screen.display_offset == 0;
+                tab.session.screen = Some(screen);
+                tab.session.status = AiTerminalSessionStatus::Running;
+                self.flush_hidden_files_terminal_pending_input(project_key, tab_id);
             }
             TerminalEvent::Exit { .. } => {
-                self.files_hidden_terminal_runtimes.remove(project_key);
-                self.files_terminal_states_by_project.remove(project_key);
+                let runtime_key = terminal_runtime_tab_key(project_key, tab_id);
+                self.files_hidden_terminal_runtimes.remove(runtime_key.as_str());
+                self.files_remove_hidden_terminal_tab_after_exit(project_key, tab_id);
             }
             TerminalEvent::Failed(message) => {
                 let state = self
                     .files_terminal_states_by_project
                     .entry(project_key.to_string())
                     .or_default();
-                state.session.status = AiTerminalSessionStatus::Failed;
-                state.session.status_message = Some(message.clone());
+                let tab = terminal_tab_state_mut(&mut state.tabs, tab_id);
+                tab.session.status = AiTerminalSessionStatus::Failed;
+                tab.session.status_message = Some(message.clone());
                 append_ai_terminal_transcript(
-                    &mut state.session.transcript,
+                    &mut tab.session.transcript,
                     format!("[terminal error] {message}\n"),
                 );
             }
+        }
+    }
+
+    fn files_remove_hidden_terminal_tab_after_exit(
+        &mut self,
+        project_key: &str,
+        tab_id: TerminalTabId,
+    ) {
+        let Some(state) = self.files_terminal_states_by_project.get_mut(project_key) else {
+            return;
+        };
+
+        state.tabs.retain(|tab| tab.id != tab_id);
+        if state.tabs.is_empty() {
+            state.open = false;
+            state.active_tab_id = 1;
+            state.next_tab_id = 2;
+            state.tabs = default_terminal_tabs();
+            return;
+        }
+
+        if state.active_tab_id == tab_id
+            || !state.tabs.iter().any(|tab| tab.id == state.active_tab_id)
+        {
+            state.active_tab_id = state.tabs.first().map(|tab| tab.id).unwrap_or(1);
         }
     }
 
@@ -1156,11 +1468,17 @@ impl DiffViewer {
         cx.notify();
     }
 
-    fn flush_hidden_files_terminal_pending_input(&mut self, project_key: &str) {
+    fn flush_hidden_files_terminal_pending_input(&mut self, project_key: &str, tab_id: TerminalTabId) {
         let input = self
             .files_terminal_states_by_project
             .get_mut(project_key)
-            .and_then(|state| state.pending_input.take());
+            .and_then(|state| {
+                state
+                    .tabs
+                    .iter_mut()
+                    .find(|tab| tab.id == tab_id)
+                    .and_then(|tab| tab.pending_input.take())
+            });
         let Some(mut input) = input else {
             return;
         };
@@ -1169,11 +1487,14 @@ impl DiffViewer {
             input.push('\n');
         }
 
-        let Some(hidden) = self.files_hidden_terminal_runtimes.get(project_key) else {
-            self.files_terminal_states_by_project
+        let runtime_key = terminal_runtime_tab_key(project_key, tab_id);
+        let Some(hidden) = self.files_hidden_terminal_runtimes.get(runtime_key.as_str()) else {
+            let state = self
+                .files_terminal_states_by_project
                 .entry(project_key.to_string())
-                .or_default()
-                .pending_input = Some(input.trim_end_matches('\n').to_string());
+                .or_default();
+            terminal_tab_state_mut(&mut state.tabs, tab_id).pending_input =
+                Some(input.trim_end_matches('\n').to_string());
             return;
         };
 
@@ -1182,19 +1503,46 @@ impl DiffViewer {
                 .files_terminal_states_by_project
                 .entry(project_key.to_string())
                 .or_default();
-            state.pending_input = Some(input.trim_end_matches('\n').to_string());
-            state.session.status = AiTerminalSessionStatus::Failed;
-            state.session.status_message = Some(error.to_string());
+            let tab = terminal_tab_state_mut(&mut state.tabs, tab_id);
+            tab.pending_input = Some(input.trim_end_matches('\n').to_string());
+            tab.session.status = AiTerminalSessionStatus::Failed;
+            tab.session.status_message = Some(error.to_string());
         }
     }
 
     fn files_close_terminal_after_exit(&mut self, cx: &mut Context<Self>) {
+        if self.files_terminal_tabs.len() > 1 {
+            let closed_tab_id = self.files_terminal_active_tab_id;
+            self.files_terminal_tabs.retain(|tab| tab.id != closed_tab_id);
+            self.files_terminal_active_tab_id = self
+                .files_terminal_tabs
+                .first()
+                .map(|tab| tab.id)
+                .unwrap_or(1);
+            self.files_apply_visible_terminal_tab();
+            if let Some(project_key) = self.current_files_terminal_owner_key()
+                && self.files_terminal_open
+                && !self.files_promote_hidden_terminal_runtime_for_project(
+                    project_key.as_str(),
+                    self.files_terminal_active_tab_id,
+                )
+            {
+                self.ensure_files_terminal_session(cx);
+            }
+            self.files_sync_terminal_cursor_blink(cx);
+            self.defer_files_terminal_interaction_focus(cx);
+            cx.notify();
+            return;
+        }
         self.files_terminal_open = false;
         self.files_terminal_surface_focused = false;
         self.files_terminal_cursor_blink_visible = true;
         self.files_terminal_follow_output = true;
         self.files_terminal_pending_input = None;
         self.files_terminal_session = AiTerminalSessionState::default();
+        self.files_terminal_tabs = default_terminal_tabs();
+        self.files_terminal_active_tab_id = 1;
+        self.files_terminal_next_tab_id = 2;
         self.files_terminal_restore_target = FilesTerminalRestoreTarget::default();
         self.files_terminal_grid_size = None;
         self.files_clear_terminal_cursor_output_suppression(cx);

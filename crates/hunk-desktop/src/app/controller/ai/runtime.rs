@@ -968,10 +968,11 @@ impl DiffViewer {
             mad_max_mode: current_state.mad_max_mode,
             draft_workspace_root_override: current_state.draft_workspace_root_override.clone(),
             terminal_open: current_state.terminal_open,
-            terminal_follow_output: current_state.terminal_follow_output,
+            terminal_active_tab_id: current_state.terminal_active_tab_id,
+            terminal_next_tab_id: current_state.terminal_next_tab_id,
+            terminal_tabs: current_state.terminal_tabs.clone(),
             terminal_height_px: current_state.terminal_height_px,
             terminal_input_draft: current_state.terminal_input_draft.clone(),
-            terminal_session: current_state.terminal_session.clone(),
         }
     }
 

@@ -417,21 +417,94 @@ struct AiTerminalSessionState {
     status_message: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
-struct AiThreadTerminalState {
-    open: bool,
+type TerminalTabId = usize;
+
+#[derive(Debug, Clone)]
+struct TerminalTabState {
+    id: TerminalTabId,
+    title: String,
     follow_output: bool,
     session: AiTerminalSessionState,
     pending_input: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+impl TerminalTabState {
+    fn new(id: TerminalTabId) -> Self {
+        Self {
+            id,
+            title: format!("Shell {id}"),
+            follow_output: true,
+            session: AiTerminalSessionState::default(),
+            pending_input: None,
+        }
+    }
+}
+
+impl Default for TerminalTabState {
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
+fn default_terminal_tabs() -> Vec<TerminalTabState> {
+    vec![TerminalTabState::default()]
+}
+
+fn terminal_tab_state_mut(
+    tabs: &mut Vec<TerminalTabState>,
+    tab_id: TerminalTabId,
+) -> &mut TerminalTabState {
+    if let Some(index) = tabs.iter().position(|tab| tab.id == tab_id) {
+        return &mut tabs[index];
+    }
+
+    tabs.push(TerminalTabState::new(tab_id));
+    tabs.sort_by_key(|tab| tab.id);
+    let index = tabs
+        .iter()
+        .position(|tab| tab.id == tab_id)
+        .unwrap_or_else(|| tabs.len().saturating_sub(1));
+    &mut tabs[index]
+}
+
+#[derive(Debug, Clone)]
+struct AiThreadTerminalState {
+    open: bool,
+    active_tab_id: TerminalTabId,
+    next_tab_id: TerminalTabId,
+    tabs: Vec<TerminalTabState>,
+}
+
+impl Default for AiThreadTerminalState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            active_tab_id: 1,
+            next_tab_id: 2,
+            tabs: default_terminal_tabs(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct FilesProjectTerminalState {
     open: bool,
-    follow_output: bool,
-    session: AiTerminalSessionState,
-    pending_input: Option<String>,
+    active_tab_id: TerminalTabId,
+    next_tab_id: TerminalTabId,
+    tabs: Vec<TerminalTabState>,
     restore_target: FilesTerminalRestoreTarget,
+}
+
+impl Default for FilesProjectTerminalState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            active_tab_id: 1,
+            next_tab_id: 2,
+            tabs: default_terminal_tabs(),
+            restore_target: FilesTerminalRestoreTarget::default(),
+        }
+    }
 }
 
 struct ParkedTerminalRuntimeHandle<R> {
@@ -724,10 +797,11 @@ struct AiWorkspaceState {
     mad_max_mode: bool,
     draft_workspace_root_override: Option<PathBuf>,
     terminal_open: bool,
-    terminal_follow_output: bool,
+    terminal_active_tab_id: TerminalTabId,
+    terminal_next_tab_id: TerminalTabId,
+    terminal_tabs: Vec<TerminalTabState>,
     terminal_height_px: f32,
     terminal_input_draft: String,
-    terminal_session: AiTerminalSessionState,
 }
 
 impl Default for AiWorkspaceState {
@@ -778,10 +852,11 @@ impl Default for AiWorkspaceState {
             mad_max_mode: false,
             draft_workspace_root_override: None,
             terminal_open: false,
-            terminal_follow_output: true,
+            terminal_active_tab_id: 1,
+            terminal_next_tab_id: 2,
+            terminal_tabs: default_terminal_tabs(),
             terminal_height_px: 220.0,
             terminal_input_draft: String::new(),
-            terminal_session: AiTerminalSessionState::default(),
         }
     }
 }
@@ -795,12 +870,14 @@ struct AiHiddenRuntimeHandle {
 
 struct AiTerminalRuntimeHandle {
     thread_id: String,
+    tab_id: TerminalTabId,
     handle: TerminalSessionHandle,
     generation: usize,
 }
 
 struct FilesTerminalRuntimeHandle {
     project_key: String,
+    tab_id: TerminalTabId,
     handle: TerminalSessionHandle,
     generation: usize,
 }
