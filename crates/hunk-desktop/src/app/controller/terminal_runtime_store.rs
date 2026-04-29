@@ -19,6 +19,10 @@ fn restore_visible_terminal_state<S: Clone + Default>(
         .unwrap_or_default()
 }
 
+fn terminal_runtime_tab_key(owner_key: &str, tab_id: TerminalTabId) -> String {
+    format!("{owner_key}\u{1f}{tab_id}")
+}
+
 fn park_visible_terminal_runtime<R>(
     owner_key: Option<&str>,
     visible_runtime: &mut Option<R>,
@@ -145,4 +149,5 @@ mod terminal_runtime_store_tests {
         ));
         assert_eq!(visible_runtime, None);
     }
+
 }

@@ -197,6 +197,10 @@ pub struct KeyboardShortcuts {
     pub switch_to_git_view: Vec<String>,
     pub switch_to_ai_view: Vec<String>,
     pub toggle_ai_terminal_drawer: Vec<String>,
+    pub terminal_new_tab: Vec<String>,
+    pub terminal_close_tab: Vec<String>,
+    pub terminal_next_tab: Vec<String>,
+    pub terminal_previous_tab: Vec<String>,
     pub open_project: Vec<String>,
     pub save_current_file: Vec<String>,
     pub next_editor_tab: Vec<String>,
@@ -229,6 +233,26 @@ impl Default for KeyboardShortcuts {
             switch_to_git_view: vec!["cmd-3".into(), "ctrl-3".into()],
             switch_to_ai_view: vec!["cmd-4".into(), "ctrl-4".into()],
             toggle_ai_terminal_drawer: vec!["cmd-j".into(), "ctrl-j".into()],
+            terminal_new_tab: if cfg!(target_os = "macos") {
+                vec!["cmd-t".into()]
+            } else {
+                vec!["ctrl-shift-t".into()]
+            },
+            terminal_close_tab: if cfg!(target_os = "macos") {
+                vec!["cmd-w".into()]
+            } else {
+                vec!["ctrl-shift-w".into()]
+            },
+            terminal_next_tab: if cfg!(target_os = "macos") {
+                vec!["cmd-}".into()]
+            } else {
+                vec!["ctrl-pagedown".into()]
+            },
+            terminal_previous_tab: if cfg!(target_os = "macos") {
+                vec!["cmd-{".into()]
+            } else {
+                vec!["ctrl-pageup".into()]
+            },
             open_project: vec!["cmd-shift-o".into(), "ctrl-shift-o".into()],
             save_current_file: vec!["cmd-s".into(), "ctrl-s".into()],
             next_editor_tab: if cfg!(target_os = "macos") {

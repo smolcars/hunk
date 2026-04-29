@@ -145,6 +145,9 @@ impl DiffViewer {
         }
         self.clear_recent_commits_cache();
         self.files_terminal_open = false;
+        self.files_terminal_active_tab_id = 1;
+        self.files_terminal_next_tab_id = 2;
+        self.files_terminal_tabs = default_terminal_tabs();
         self.files_terminal_follow_output = true;
         self.files_terminal_session = AiTerminalSessionState::default();
         self.files_terminal_restore_target = FilesTerminalRestoreTarget::default();

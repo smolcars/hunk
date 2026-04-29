@@ -9,6 +9,16 @@ impl DiffViewer {
         TerminalPanelState {
             kind: WorkspaceTerminalKind::Files,
             open: self.files_terminal_open,
+            active_tab_id: self.files_terminal_active_tab_id,
+            tabs: self
+                .files_visible_terminal_tabs_snapshot()
+                .into_iter()
+                .map(|tab| TerminalPanelTabState {
+                    id: tab.id,
+                    title: tab.title,
+                    status: tab.session.status,
+                })
+                .collect(),
             cwd_label: self
                 .files_terminal_session
                 .cwd

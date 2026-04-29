@@ -126,6 +126,106 @@ impl DiffViewer {
                         .child(
                             h_flex()
                                 .w_full()
+                                .h(px(30.0))
+                                .items_center()
+                                .gap_1()
+                                .px_2()
+                                .border_b_1()
+                                .border_color(hunk_opacity(shell_colors.border, is_dark, 0.82, 0.68))
+                                .bg(shell_colors.background)
+                                .children(state.tabs.iter().map(|tab| {
+                                    let view = view.clone();
+                                    let tab_id = tab.id;
+                                    let selected = tab_id == state.active_tab_id;
+                                    let dot_color = match tab.status {
+                                        AiTerminalSessionStatus::Idle => cx.theme().muted_foreground,
+                                        AiTerminalSessionStatus::Running => cx.theme().accent,
+                                        AiTerminalSessionStatus::Completed => cx.theme().success,
+                                        AiTerminalSessionStatus::Failed => cx.theme().danger,
+                                        AiTerminalSessionStatus::Stopped => cx.theme().warning,
+                                    };
+                                    h_flex()
+                                        .id(match kind {
+                                            WorkspaceTerminalKind::Ai => {
+                                                SharedString::from(format!("ai-terminal-tab-{tab_id}"))
+                                            }
+                                            WorkspaceTerminalKind::Files => {
+                                                SharedString::from(format!("files-terminal-tab-{tab_id}"))
+                                            }
+                                        })
+                                        .h(px(24.0))
+                                        .max_w(px(160.0))
+                                        .min_w(px(72.0))
+                                        .items_center()
+                                        .gap_1()
+                                        .px_2()
+                                        .rounded(px(6.0))
+                                        .bg(if selected {
+                                            hunk_opacity(cx.theme().accent, is_dark, 0.18, 0.12)
+                                        } else {
+                                            hunk_opacity(shell_colors.border, is_dark, 0.20, 0.16)
+                                        })
+                                        .border_1()
+                                        .border_color(if selected {
+                                            hunk_opacity(cx.theme().accent, is_dark, 0.54, 0.42)
+                                        } else {
+                                            hunk_opacity(shell_colors.border, is_dark, 0.52, 0.42)
+                                        })
+                                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                            view.update(cx, |this, cx| match kind {
+                                                WorkspaceTerminalKind::Ai => {
+                                                    this.ai_select_terminal_tab(tab_id, cx);
+                                                }
+                                                WorkspaceTerminalKind::Files => {
+                                                    this.files_select_terminal_tab(tab_id, None, cx);
+                                                }
+                                            });
+                                        })
+                                        .child(
+                                            div()
+                                                .size(px(6.0))
+                                                .rounded(px(999.0))
+                                                .bg(hunk_opacity(dot_color, is_dark, 0.94, 0.86)),
+                                        )
+                                        .child(
+                                            div()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_xs()
+                                                .text_color(if selected {
+                                                    cx.theme().foreground
+                                                } else {
+                                                    cx.theme().muted_foreground
+                                                })
+                                                .child(tab.title.clone()),
+                                        )
+                                        .into_any_element()
+                                }))
+                                .child({
+                                    let view = view.clone();
+                                    Button::new(match kind {
+                                        WorkspaceTerminalKind::Ai => "ai-terminal-new-tab",
+                                        WorkspaceTerminalKind::Files => "files-terminal-new-tab",
+                                    })
+                                    .compact()
+                                    .ghost()
+                                    .with_size(gpui_component::Size::Small)
+                                    .rounded(px(8.0))
+                                    .icon(Icon::new(IconName::Plus).size(px(13.0)))
+                                    .tooltip("New terminal tab")
+                                    .on_click(move |_, window, cx| {
+                                        view.update(cx, |this, cx| match kind {
+                                            WorkspaceTerminalKind::Ai => this.ai_new_terminal_tab_action(cx),
+                                            WorkspaceTerminalKind::Files => {
+                                                this.files_new_terminal_tab_action(Some(window), cx);
+                                            }
+                                        });
+                                    })
+                                }),
+                        )
+                        .child(
+                            h_flex()
+                                .w_full()
                                 .items_center()
                                 .justify_between()
                                 .gap_2()
@@ -295,8 +395,8 @@ impl DiffViewer {
                                 .min_h_0()
                                 .bg(chrome.background)
                                 .key_context(match kind {
-                                    WorkspaceTerminalKind::Ai => "AiTerminal AiWorkspace",
-                                    WorkspaceTerminalKind::Files => "FilesTerminal FilesWorkspace",
+                                    WorkspaceTerminalKind::Ai => "AiTerminal",
+                                    WorkspaceTerminalKind::Files => "FilesTerminal",
                                 })
                                 .track_focus(match kind {
                                     WorkspaceTerminalKind::Ai => &self.ai_terminal_focus_handle,

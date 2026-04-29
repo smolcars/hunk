@@ -50,6 +50,10 @@ fn validate_keyboard_shortcuts(shortcuts: &KeyboardShortcuts) -> Result<(), Stri
     validate_shortcut_list("Switch to Git View", &shortcuts.switch_to_git_view)?;
     validate_shortcut_list("Switch to AI View", &shortcuts.switch_to_ai_view)?;
     validate_shortcut_list("Toggle Terminal", &shortcuts.toggle_ai_terminal_drawer)?;
+    validate_shortcut_list("Terminal: New Tab", &shortcuts.terminal_new_tab)?;
+    validate_shortcut_list("Terminal: Close Tab", &shortcuts.terminal_close_tab)?;
+    validate_shortcut_list("Terminal: Next Tab", &shortcuts.terminal_next_tab)?;
+    validate_shortcut_list("Terminal: Previous Tab", &shortcuts.terminal_previous_tab)?;
     validate_shortcut_list("Open Project", &shortcuts.open_project)?;
     validate_shortcut_list("Save Current File", &shortcuts.save_current_file)?;
     validate_shortcut_list("Next Editor Tab", &shortcuts.next_editor_tab)?;
@@ -188,6 +192,30 @@ impl DiffViewer {
             toggle_ai_terminal_drawer: settings_shortcut_input(
                 &self.config.keyboard_shortcuts.toggle_ai_terminal_drawer,
                 "Comma-separated shortcuts, e.g. cmd-j, ctrl-j",
+                window,
+                cx,
+            ),
+            terminal_new_tab: settings_shortcut_input(
+                &self.config.keyboard_shortcuts.terminal_new_tab,
+                "Comma-separated shortcuts, e.g. cmd-t, ctrl-shift-t",
+                window,
+                cx,
+            ),
+            terminal_close_tab: settings_shortcut_input(
+                &self.config.keyboard_shortcuts.terminal_close_tab,
+                "Comma-separated shortcuts, e.g. cmd-w, ctrl-shift-w",
+                window,
+                cx,
+            ),
+            terminal_next_tab: settings_shortcut_input(
+                &self.config.keyboard_shortcuts.terminal_next_tab,
+                "Comma-separated shortcuts, e.g. cmd-}, ctrl-pagedown",
+                window,
+                cx,
+            ),
+            terminal_previous_tab: settings_shortcut_input(
+                &self.config.keyboard_shortcuts.terminal_previous_tab,
+                "Comma-separated shortcuts, e.g. cmd-{, ctrl-pageup",
                 window,
                 cx,
             ),
@@ -537,6 +565,16 @@ impl DiffViewer {
                 switch_to_ai_view: self.config.keyboard_shortcuts.switch_to_ai_view.clone(),
                 toggle_ai_terminal_drawer: read_shortcut_input(
                     &settings.shortcuts.toggle_ai_terminal_drawer,
+                    cx,
+                ),
+                terminal_new_tab: read_shortcut_input(&settings.shortcuts.terminal_new_tab, cx),
+                terminal_close_tab: read_shortcut_input(
+                    &settings.shortcuts.terminal_close_tab,
+                    cx,
+                ),
+                terminal_next_tab: read_shortcut_input(&settings.shortcuts.terminal_next_tab, cx),
+                terminal_previous_tab: read_shortcut_input(
+                    &settings.shortcuts.terminal_previous_tab,
                     cx,
                 ),
                 open_project: read_shortcut_input(&settings.shortcuts.open_project, cx),

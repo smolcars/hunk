@@ -168,20 +168,97 @@ impl DiffViewer {
         }
     }
 
-    fn ai_capture_visible_terminal_state(&self) -> AiThreadTerminalState {
-        AiThreadTerminalState {
-            open: self.ai_terminal_open,
+    pub(super) fn ai_visible_terminal_tabs_snapshot(&self) -> Vec<TerminalTabState> {
+        let mut tabs = self.ai_terminal_tabs.clone();
+        if let Some(tab) = tabs
+            .iter_mut()
+            .find(|tab| tab.id == self.ai_terminal_active_tab_id)
+        {
+            tab.follow_output = self.ai_terminal_follow_output;
+            tab.session = self.ai_terminal_session.clone();
+            tab.pending_input = self.ai_terminal_pending_input.clone();
+        } else {
+            tabs.push(TerminalTabState {
+                id: self.ai_terminal_active_tab_id,
+                title: format!("Shell {}", self.ai_terminal_active_tab_id),
+                follow_output: self.ai_terminal_follow_output,
+                session: self.ai_terminal_session.clone(),
+                pending_input: self.ai_terminal_pending_input.clone(),
+            });
+            tabs.sort_by_key(|tab| tab.id);
+        }
+        tabs
+    }
+
+    fn ai_save_visible_terminal_tab(&mut self) {
+        let active_tab_id = self.ai_terminal_active_tab_id;
+        if let Some(tab) = self
+            .ai_terminal_tabs
+            .iter_mut()
+            .find(|tab| tab.id == active_tab_id)
+        {
+            tab.follow_output = self.ai_terminal_follow_output;
+            tab.session = self.ai_terminal_session.clone();
+            tab.pending_input = self.ai_terminal_pending_input.clone();
+            return;
+        }
+
+        self.ai_terminal_tabs.push(TerminalTabState {
+            id: active_tab_id,
+            title: format!("Shell {active_tab_id}"),
             follow_output: self.ai_terminal_follow_output,
             session: self.ai_terminal_session.clone(),
             pending_input: self.ai_terminal_pending_input.clone(),
+        });
+        self.ai_terminal_tabs.sort_by_key(|tab| tab.id);
+    }
+
+    fn ai_apply_visible_terminal_tab(&mut self) {
+        if self.ai_terminal_tabs.is_empty() {
+            self.ai_terminal_tabs = default_terminal_tabs();
+            self.ai_terminal_active_tab_id = 1;
+            self.ai_terminal_next_tab_id = 2;
+        }
+        if !self
+            .ai_terminal_tabs
+            .iter()
+            .any(|tab| tab.id == self.ai_terminal_active_tab_id)
+            && let Some(first_tab) = self.ai_terminal_tabs.first()
+        {
+            self.ai_terminal_active_tab_id = first_tab.id;
+        }
+
+        let tab = self
+            .ai_terminal_tabs
+            .iter()
+            .find(|tab| tab.id == self.ai_terminal_active_tab_id)
+            .cloned()
+            .unwrap_or_default();
+        self.ai_terminal_follow_output = tab.follow_output;
+        self.ai_terminal_session = tab.session;
+        self.ai_terminal_pending_input = tab.pending_input;
+        self.ai_terminal_grid_size = self
+            .ai_terminal_session
+            .screen
+            .as_ref()
+            .map(|screen| (screen.rows, screen.cols));
+    }
+
+    fn ai_capture_visible_terminal_state(&self) -> AiThreadTerminalState {
+        AiThreadTerminalState {
+            open: self.ai_terminal_open,
+            active_tab_id: self.ai_terminal_active_tab_id,
+            next_tab_id: self.ai_terminal_next_tab_id,
+            tabs: self.ai_visible_terminal_tabs_snapshot(),
         }
     }
 
     fn ai_apply_visible_terminal_state(&mut self, state: AiThreadTerminalState) {
         self.ai_terminal_open = state.open;
-        self.ai_terminal_follow_output = state.follow_output;
-        self.ai_terminal_session = state.session;
-        self.ai_terminal_pending_input = state.pending_input;
+        self.ai_terminal_active_tab_id = state.active_tab_id;
+        self.ai_terminal_next_tab_id = state.next_tab_id;
+        self.ai_terminal_tabs = state.tabs;
+        self.ai_apply_visible_terminal_tab();
         self.ai_terminal_surface_focused = false;
         self.ai_terminal_cursor_blink_generation =
             self.ai_terminal_cursor_blink_generation.saturating_add(1);
@@ -192,11 +269,6 @@ impl DiffViewer {
             self.ai_terminal_cursor_output_generation.saturating_add(1);
         self.ai_terminal_cursor_output_suppressed = false;
         self.ai_terminal_cursor_output_task = Task::ready(());
-        self.ai_terminal_grid_size = self
-            .ai_terminal_session
-            .screen
-            .as_ref()
-            .map(|screen| (screen.rows, screen.cols));
     }
 
     fn ai_store_visible_terminal_state_for_thread(&mut self, thread_id: Option<&str>) {
@@ -226,17 +298,31 @@ impl DiffViewer {
     }
 
     fn ai_park_visible_terminal_runtime_for_thread(&mut self, thread_id: Option<&str>) {
+        let Some(thread_id) = thread_id else {
+            return;
+        };
+        let tab_id = self
+            .ai_terminal_runtime
+            .as_ref()
+            .map(|runtime| runtime.tab_id)
+            .unwrap_or(self.ai_terminal_active_tab_id);
+        let runtime_key = terminal_runtime_tab_key(thread_id, tab_id);
         park_visible_terminal_runtime(
-            thread_id,
+            Some(runtime_key.as_str()),
             &mut self.ai_terminal_runtime,
             &mut self.ai_terminal_event_task,
             &mut self.ai_hidden_terminal_runtimes,
         );
     }
 
-    fn ai_promote_hidden_terminal_runtime_for_thread(&mut self, thread_id: &str) -> bool {
+    fn ai_promote_hidden_terminal_runtime_for_thread(
+        &mut self,
+        thread_id: &str,
+        tab_id: TerminalTabId,
+    ) -> bool {
+        let runtime_key = terminal_runtime_tab_key(thread_id, tab_id);
         promote_hidden_terminal_runtime(
-            thread_id,
+            runtime_key.as_str(),
             &mut self.ai_terminal_runtime,
             &mut self.ai_terminal_event_task,
             &mut self.ai_hidden_terminal_runtimes,
@@ -271,7 +357,10 @@ impl DiffViewer {
         self.ai_restore_visible_terminal_state_for_thread(next_terminal_owner_thread_id.as_deref());
 
         if let Some(next_thread_id) = next_terminal_owner_thread_id.as_deref() {
-            if !self.ai_promote_hidden_terminal_runtime_for_thread(next_thread_id)
+            if !self.ai_promote_hidden_terminal_runtime_for_thread(
+                next_thread_id,
+                self.ai_terminal_active_tab_id,
+            )
                 && self.ai_terminal_open
             {
                 debug!(
@@ -309,11 +398,14 @@ impl DiffViewer {
             retained_thread_ids.insert(workspace_key);
         }
         retained_thread_ids.extend(self.ai_workspace_states.iter().filter_map(|(workspace_key, state)| {
+            let terminal_has_state = state
+                .terminal_tabs
+                .iter()
+                .any(|tab| tab.session.screen.is_some() || !tab.session.transcript.is_empty());
             let retain = state.new_thread_draft_active
                 || state.pending_new_thread_selection
                 || state.terminal_open
-                || state.terminal_session.screen.is_some()
-                || !state.terminal_session.transcript.is_empty();
+                || terminal_has_state;
             retain.then(|| workspace_key.clone())
         }));
 
@@ -340,9 +432,10 @@ impl DiffViewer {
             .retain(|thread_id, _| retained_thread_ids.contains(thread_id));
 
         let mut retained_hidden_runtimes = BTreeMap::new();
-        for (thread_id, hidden) in std::mem::take(&mut self.ai_hidden_terminal_runtimes) {
+        for (runtime_key, hidden) in std::mem::take(&mut self.ai_hidden_terminal_runtimes) {
+            let thread_id = hidden.runtime.thread_id.clone();
             if retained_thread_ids.contains(thread_id.as_str()) {
-                retained_hidden_runtimes.insert(thread_id, hidden);
+                retained_hidden_runtimes.insert(runtime_key, hidden);
                 continue;
             }
 
@@ -355,16 +448,27 @@ impl DiffViewer {
         self.ai_hidden_terminal_runtimes = retained_hidden_runtimes;
     }
 
-    fn ai_terminal_runtime_is_current(&self, thread_id: &str, generation: usize) -> bool {
+    fn ai_terminal_runtime_is_current(
+        &self,
+        thread_id: &str,
+        tab_id: TerminalTabId,
+        generation: usize,
+    ) -> bool {
         if self.ai_terminal_runtime.as_ref().is_some_and(|runtime| {
-            runtime.thread_id == thread_id && runtime.generation == generation
+            runtime.thread_id == thread_id
+                && runtime.tab_id == tab_id
+                && runtime.generation == generation
         }) {
             return true;
         }
 
         self.ai_hidden_terminal_runtimes
-            .get(thread_id)
-            .is_some_and(|hidden| hidden.runtime.generation == generation)
+            .values()
+            .any(|hidden| {
+                hidden.runtime.thread_id == thread_id
+                    && hidden.runtime.tab_id == tab_id
+                    && hidden.runtime.generation == generation
+            })
     }
 
     fn next_ai_terminal_runtime_generation(&mut self) -> usize {
@@ -423,6 +527,199 @@ impl DiffViewer {
         self.toggle_ai_terminal_drawer(cx);
     }
 
+    pub(super) fn workspace_terminal_new_tab_action(
+        &mut self,
+        _: &TerminalNewTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.workspace_view_mode {
+            WorkspaceViewMode::Ai => self.ai_new_terminal_tab_action(cx),
+            WorkspaceViewMode::Files
+            | WorkspaceViewMode::Diff
+            | WorkspaceViewMode::GitWorkspace => {
+                self.files_new_terminal_tab_action(Some(window), cx);
+            }
+        }
+    }
+
+    pub(super) fn workspace_terminal_close_tab_action(
+        &mut self,
+        _: &TerminalCloseTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.workspace_view_mode {
+            WorkspaceViewMode::Ai => self.ai_close_terminal_tab_action(cx),
+            WorkspaceViewMode::Files
+            | WorkspaceViewMode::Diff
+            | WorkspaceViewMode::GitWorkspace => {
+                self.files_close_terminal_tab_action(Some(window), cx);
+            }
+        }
+    }
+
+    pub(super) fn workspace_terminal_next_tab_action(
+        &mut self,
+        _: &TerminalNextTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.workspace_view_mode {
+            WorkspaceViewMode::Ai => self.ai_select_relative_terminal_tab(1, cx),
+            WorkspaceViewMode::Files
+            | WorkspaceViewMode::Diff
+            | WorkspaceViewMode::GitWorkspace => {
+                self.files_select_relative_terminal_tab(1, Some(window), cx);
+            }
+        }
+    }
+
+    pub(super) fn workspace_terminal_previous_tab_action(
+        &mut self,
+        _: &TerminalPreviousTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.workspace_view_mode {
+            WorkspaceViewMode::Ai => self.ai_select_relative_terminal_tab(-1, cx),
+            WorkspaceViewMode::Files
+            | WorkspaceViewMode::Diff
+            | WorkspaceViewMode::GitWorkspace => {
+                self.files_select_relative_terminal_tab(-1, Some(window), cx);
+            }
+        }
+    }
+
+    pub(super) fn ai_new_terminal_tab_action(&mut self, cx: &mut Context<Self>) {
+        if self.current_ai_workspace_kind() == AiWorkspaceKind::Chats {
+            self.set_current_ai_composer_status("Terminal is unavailable in Chats.", cx);
+            cx.notify();
+            return;
+        }
+        let Some(thread_id) = self.ai_current_terminal_owner_key() else {
+            self.ai_terminal_session.status_message =
+                Some("Select a thread before using the terminal.".to_string());
+            self.ai_terminal_set_open(true, cx);
+            cx.notify();
+            return;
+        };
+        self.ai_save_visible_terminal_tab();
+        self.ai_park_visible_terminal_runtime_for_thread(Some(thread_id.as_str()));
+        let tab_id = self.ai_terminal_next_tab_id.max(1);
+        self.ai_terminal_next_tab_id = tab_id.saturating_add(1);
+        self.ai_terminal_tabs.push(TerminalTabState::new(tab_id));
+        self.ai_terminal_tabs.sort_by_key(|tab| tab.id);
+        self.ai_terminal_active_tab_id = tab_id;
+        self.ai_apply_visible_terminal_tab();
+        self.ai_terminal_set_open(true, cx);
+        self.ensure_ai_terminal_session(cx);
+        self.defer_ai_terminal_interaction_focus(cx);
+        cx.notify();
+    }
+
+    fn ai_select_relative_terminal_tab(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if self.ai_terminal_tabs.len() < 2 {
+            return;
+        }
+        let Some(thread_id) = self.ai_current_terminal_owner_key() else {
+            return;
+        };
+        self.ai_save_visible_terminal_tab();
+        self.ai_park_visible_terminal_runtime_for_thread(Some(thread_id.as_str()));
+        let tabs = self.ai_terminal_tabs.clone();
+        let current_index = tabs
+            .iter()
+            .position(|tab| tab.id == self.ai_terminal_active_tab_id)
+            .unwrap_or(0);
+        let next_index =
+            (current_index as isize + delta).rem_euclid(tabs.len() as isize) as usize;
+        self.ai_terminal_active_tab_id = tabs[next_index].id;
+        self.ai_apply_visible_terminal_tab();
+        if self.ai_terminal_open
+            && !self.ai_promote_hidden_terminal_runtime_for_thread(
+                thread_id.as_str(),
+                self.ai_terminal_active_tab_id,
+            )
+        {
+            self.ensure_ai_terminal_session(cx);
+        }
+        self.defer_ai_terminal_interaction_focus(cx);
+        cx.notify();
+    }
+
+    pub(super) fn ai_select_terminal_tab(&mut self, tab_id: TerminalTabId, cx: &mut Context<Self>) {
+        if self.ai_terminal_active_tab_id == tab_id {
+            self.defer_ai_terminal_interaction_focus(cx);
+            return;
+        }
+        if !self.ai_terminal_tabs.iter().any(|tab| tab.id == tab_id) {
+            return;
+        }
+        let Some(thread_id) = self.ai_current_terminal_owner_key() else {
+            return;
+        };
+        self.ai_save_visible_terminal_tab();
+        self.ai_park_visible_terminal_runtime_for_thread(Some(thread_id.as_str()));
+        self.ai_terminal_active_tab_id = tab_id;
+        self.ai_apply_visible_terminal_tab();
+        if self.ai_terminal_open
+            && !self.ai_promote_hidden_terminal_runtime_for_thread(
+                thread_id.as_str(),
+                self.ai_terminal_active_tab_id,
+            )
+        {
+            self.ensure_ai_terminal_session(cx);
+        }
+        self.defer_ai_terminal_interaction_focus(cx);
+        cx.notify();
+    }
+
+    fn ai_close_terminal_tab_action(&mut self, cx: &mut Context<Self>) {
+        let Some(thread_id) = self.ai_current_terminal_owner_key() else {
+            return;
+        };
+        let closed_tab_id = self.ai_terminal_active_tab_id;
+        if self.ai_terminal_runtime.as_ref().is_some_and(|runtime| {
+            runtime.thread_id == thread_id && runtime.tab_id == closed_tab_id
+        }) {
+            self.stop_ai_terminal_runtime("closing terminal tab");
+        } else {
+            let runtime_key = terminal_runtime_tab_key(thread_id.as_str(), closed_tab_id);
+            if let Some(hidden) = self.ai_hidden_terminal_runtimes.remove(runtime_key.as_str())
+                && let Err(error) = hidden.runtime.handle.kill()
+            {
+                error!("failed to stop hidden AI terminal tab during close: {error:#}");
+            }
+        }
+        self.ai_terminal_tabs.retain(|tab| tab.id != closed_tab_id);
+        if self.ai_terminal_tabs.is_empty() {
+            self.ai_terminal_tabs = default_terminal_tabs();
+            self.ai_terminal_active_tab_id = 1;
+            self.ai_terminal_next_tab_id = 2;
+            self.ai_apply_visible_terminal_tab();
+            self.ai_terminal_set_open(false, cx);
+            return;
+        }
+
+        self.ai_terminal_active_tab_id = self
+            .ai_terminal_tabs
+            .first()
+            .map(|tab| tab.id)
+            .unwrap_or(1);
+        self.ai_apply_visible_terminal_tab();
+        if self.ai_terminal_open
+            && !self.ai_promote_hidden_terminal_runtime_for_thread(
+                thread_id.as_str(),
+                self.ai_terminal_active_tab_id,
+            )
+        {
+            self.ensure_ai_terminal_session(cx);
+        }
+        self.defer_ai_terminal_interaction_focus(cx);
+        cx.notify();
+    }
+
     pub(super) fn ai_clear_terminal_session_action(&mut self, cx: &mut Context<Self>) {
         if !self.ai_terminal_is_running() {
             self.stop_ai_terminal_runtime("clearing terminal session");
@@ -460,7 +757,14 @@ impl DiffViewer {
             .as_ref()
             .map(|runtime| runtime.thread_id.clone())
         {
-            if active_runtime_thread_id == thread_id {
+            let active_runtime_tab_id = self
+                .ai_terminal_runtime
+                .as_ref()
+                .map(|runtime| runtime.tab_id)
+                .unwrap_or(self.ai_terminal_active_tab_id);
+            if active_runtime_thread_id == thread_id
+                && active_runtime_tab_id == self.ai_terminal_active_tab_id
+            {
                 debug!(
                     thread_id,
                     "Skipping AI terminal start because the selected thread already owns a runtime"
@@ -1061,9 +1365,18 @@ impl DiffViewer {
         thread_id: String,
         cx: &mut Context<Self>,
     ) {
-        self.stop_ai_terminal_runtime("starting default terminal shell");
+        let tab_id = self.ai_terminal_active_tab_id;
+        if let Some(runtime) = self.ai_terminal_runtime.as_ref() {
+            if runtime.thread_id == thread_id && runtime.tab_id == tab_id {
+                self.stop_ai_terminal_runtime("starting default terminal shell");
+            } else {
+                let runtime_thread_id = runtime.thread_id.clone();
+                self.ai_park_visible_terminal_runtime_for_thread(Some(runtime_thread_id.as_str()));
+            }
+        }
         debug!(
             thread_id = thread_id.as_str(),
+            tab_id,
             cwd = %cwd.display(),
             pending_input = self.ai_terminal_pending_input.is_some(),
             "Starting AI terminal session"
@@ -1093,10 +1406,11 @@ impl DiffViewer {
                 let generation = self.next_ai_terminal_runtime_generation();
                 self.ai_terminal_runtime = Some(AiTerminalRuntimeHandle {
                     thread_id: thread_id.clone(),
+                    tab_id,
                     handle,
                     generation,
                 });
-                self.start_ai_terminal_event_listener(event_rx, thread_id, generation, cx);
+                self.start_ai_terminal_event_listener(event_rx, thread_id, tab_id, generation, cx);
                 self.defer_ai_terminal_interaction_focus(cx);
             }
             Err(error) => {
@@ -1121,6 +1435,7 @@ impl DiffViewer {
         &mut self,
         event_rx: std::sync::mpsc::Receiver<TerminalEvent>,
         thread_id: String,
+        tab_id: TerminalTabId,
         generation: usize,
         cx: &mut Context<Self>,
     ) {
@@ -1141,24 +1456,27 @@ impl DiffViewer {
                 };
                 let mut listener_is_current = true;
                 this.update(cx, |this, cx| {
-                    if !this.ai_terminal_runtime_is_current(thread_id.as_str(), generation) {
+                    if !this.ai_terminal_runtime_is_current(thread_id.as_str(), tab_id, generation) {
                         listener_is_current = false;
                         return;
                     }
                     for event in buffered_events {
-                        this.apply_ai_terminal_event_for_thread(thread_id.as_str(), event, cx);
+                        this.apply_ai_terminal_event_for_thread(thread_id.as_str(), tab_id, event, cx);
                     }
                     if event_stream_disconnected
-                        && this.ai_terminal_runtime_is_current(thread_id.as_str(), generation)
+                        && this.ai_terminal_runtime_is_current(thread_id.as_str(), tab_id, generation)
                     {
                         if this
                             .ai_terminal_runtime
                             .as_ref()
-                            .is_some_and(|runtime| runtime.thread_id == thread_id)
+                            .is_some_and(|runtime| {
+                                runtime.thread_id == thread_id && runtime.tab_id == tab_id
+                            })
                         {
                             this.ai_terminal_runtime = None;
                         } else {
-                            this.ai_hidden_terminal_runtimes.remove(thread_id.as_str());
+                            let runtime_key = terminal_runtime_tab_key(thread_id.as_str(), tab_id);
+                            this.ai_hidden_terminal_runtimes.remove(runtime_key.as_str());
                         }
                     }
                     cx.notify();
@@ -1173,15 +1491,18 @@ impl DiffViewer {
     fn apply_ai_terminal_event_for_thread(
         &mut self,
         thread_id: &str,
+        tab_id: TerminalTabId,
         event: TerminalEvent,
         cx: &mut Context<Self>,
     ) {
-        if self.ai_current_terminal_owner_key().as_deref() == Some(thread_id) {
+        if self.ai_current_terminal_owner_key().as_deref() == Some(thread_id)
+            && self.ai_terminal_active_tab_id == tab_id
+        {
             self.apply_ai_terminal_event(event, cx);
             return;
         }
 
-        self.apply_hidden_ai_terminal_event_for_thread(thread_id, event);
+        self.apply_hidden_ai_terminal_event_for_thread(thread_id, tab_id, event);
     }
 
     fn apply_ai_terminal_event(&mut self, event: TerminalEvent, cx: &mut Context<Self>) {
@@ -1258,7 +1579,12 @@ impl DiffViewer {
         cx.notify();
     }
 
-    fn apply_hidden_ai_terminal_event_for_thread(&mut self, thread_id: &str, event: TerminalEvent) {
+    fn apply_hidden_ai_terminal_event_for_thread(
+        &mut self,
+        thread_id: &str,
+        tab_id: TerminalTabId,
+        event: TerminalEvent,
+    ) {
         match event {
             TerminalEvent::Output(output) => {
                 let sanitized = sanitize_ai_terminal_output(output.as_slice());
@@ -1269,42 +1595,51 @@ impl DiffViewer {
                     .ai_terminal_states_by_thread
                     .entry(thread_id.to_string())
                     .or_default();
-                append_ai_terminal_transcript(&mut state.session.transcript, sanitized);
+                let tab = terminal_tab_state_mut(&mut state.tabs, tab_id);
+                append_ai_terminal_transcript(&mut tab.session.transcript, sanitized);
             }
             TerminalEvent::Screen(screen) => {
                 let state = self
                     .ai_terminal_states_by_thread
                     .entry(thread_id.to_string())
                     .or_default();
-                state.follow_output = screen.display_offset == 0;
-                state.session.screen = Some(screen);
-                state.session.status = AiTerminalSessionStatus::Running;
-                self.flush_hidden_ai_terminal_pending_input(thread_id);
+                let tab = terminal_tab_state_mut(&mut state.tabs, tab_id);
+                tab.follow_output = screen.display_offset == 0;
+                tab.session.screen = Some(screen);
+                tab.session.status = AiTerminalSessionStatus::Running;
+                self.flush_hidden_ai_terminal_pending_input(thread_id, tab_id);
             }
             TerminalEvent::Exit { .. } => {
-                self.ai_hidden_terminal_runtimes.remove(thread_id);
-                self.ai_terminal_states_by_thread.remove(thread_id);
+                let runtime_key = terminal_runtime_tab_key(thread_id, tab_id);
+                self.ai_hidden_terminal_runtimes.remove(runtime_key.as_str());
             }
             TerminalEvent::Failed(message) => {
                 let state = self
                     .ai_terminal_states_by_thread
                     .entry(thread_id.to_string())
                     .or_default();
-                state.session.status = AiTerminalSessionStatus::Failed;
-                state.session.status_message = Some(message.clone());
+                let tab = terminal_tab_state_mut(&mut state.tabs, tab_id);
+                tab.session.status = AiTerminalSessionStatus::Failed;
+                tab.session.status_message = Some(message.clone());
                 append_ai_terminal_transcript(
-                    &mut state.session.transcript,
+                    &mut tab.session.transcript,
                     format!("[terminal error] {message}\n"),
                 );
             }
         }
     }
 
-    fn flush_hidden_ai_terminal_pending_input(&mut self, thread_id: &str) {
+    fn flush_hidden_ai_terminal_pending_input(&mut self, thread_id: &str, tab_id: TerminalTabId) {
         let input = self
             .ai_terminal_states_by_thread
             .get_mut(thread_id)
-            .and_then(|state| state.pending_input.take());
+            .and_then(|state| {
+                state
+                    .tabs
+                    .iter_mut()
+                    .find(|tab| tab.id == tab_id)
+                    .and_then(|tab| tab.pending_input.take())
+            });
         let Some(mut input) = input else {
             return;
         };
@@ -1313,11 +1648,14 @@ impl DiffViewer {
             input.push('\n');
         }
 
-        let Some(hidden) = self.ai_hidden_terminal_runtimes.get(thread_id) else {
-            self.ai_terminal_states_by_thread
+        let runtime_key = terminal_runtime_tab_key(thread_id, tab_id);
+        let Some(hidden) = self.ai_hidden_terminal_runtimes.get(runtime_key.as_str()) else {
+            let state = self
+                .ai_terminal_states_by_thread
                 .entry(thread_id.to_string())
-                .or_default()
-                .pending_input = Some(input.trim_end_matches('\n').to_string());
+                .or_default();
+            terminal_tab_state_mut(&mut state.tabs, tab_id).pending_input =
+                Some(input.trim_end_matches('\n').to_string());
             return;
         };
 
@@ -1326,13 +1664,37 @@ impl DiffViewer {
                 .ai_terminal_states_by_thread
                 .entry(thread_id.to_string())
                 .or_default();
-            state.pending_input = Some(input.trim_end_matches('\n').to_string());
-            state.session.status = AiTerminalSessionStatus::Failed;
-            state.session.status_message = Some(error.to_string());
+            let tab = terminal_tab_state_mut(&mut state.tabs, tab_id);
+            tab.pending_input = Some(input.trim_end_matches('\n').to_string());
+            tab.session.status = AiTerminalSessionStatus::Failed;
+            tab.session.status_message = Some(error.to_string());
         }
     }
 
     fn ai_close_terminal_after_exit(&mut self, cx: &mut Context<Self>) {
+        if self.ai_terminal_tabs.len() > 1 {
+            let closed_tab_id = self.ai_terminal_active_tab_id;
+            self.ai_terminal_tabs.retain(|tab| tab.id != closed_tab_id);
+            self.ai_terminal_active_tab_id = self
+                .ai_terminal_tabs
+                .first()
+                .map(|tab| tab.id)
+                .unwrap_or(1);
+            self.ai_apply_visible_terminal_tab();
+            if let Some(thread_id) = self.ai_current_terminal_owner_key()
+                && self.ai_terminal_open
+                && !self.ai_promote_hidden_terminal_runtime_for_thread(
+                    thread_id.as_str(),
+                    self.ai_terminal_active_tab_id,
+                )
+            {
+                self.ensure_ai_terminal_session(cx);
+            }
+            self.ai_sync_terminal_cursor_blink(cx);
+            self.defer_ai_terminal_interaction_focus(cx);
+            cx.notify();
+            return;
+        }
         self.ai_terminal_open = false;
         self.ai_terminal_surface_focused = false;
         self.ai_terminal_cursor_blink_visible = true;
@@ -1340,6 +1702,9 @@ impl DiffViewer {
         self.ai_terminal_pending_input = None;
         self.ai_terminal_input_draft.clear();
         self.ai_terminal_session = AiTerminalSessionState::default();
+        self.ai_terminal_tabs = default_terminal_tabs();
+        self.ai_terminal_active_tab_id = 1;
+        self.ai_terminal_next_tab_id = 2;
         self.ai_terminal_grid_size = None;
         self.ai_clear_terminal_cursor_output_suppression(cx);
         self.ai_sync_terminal_cursor_blink(cx);

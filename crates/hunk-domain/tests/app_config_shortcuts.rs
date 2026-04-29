@@ -70,6 +70,41 @@ fn app_config_defaults_include_existing_keyboard_shortcuts() {
         config.keyboard_shortcuts.switch_to_ai_view,
         strings(&["cmd-4", "ctrl-4"])
     );
+    if cfg!(target_os = "macos") {
+        assert_eq!(
+            config.keyboard_shortcuts.terminal_new_tab,
+            strings(&["cmd-t"])
+        );
+        assert_eq!(
+            config.keyboard_shortcuts.terminal_close_tab,
+            strings(&["cmd-w"])
+        );
+        assert_eq!(
+            config.keyboard_shortcuts.terminal_next_tab,
+            strings(&["cmd-}"])
+        );
+        assert_eq!(
+            config.keyboard_shortcuts.terminal_previous_tab,
+            strings(&["cmd-{"])
+        );
+    } else {
+        assert_eq!(
+            config.keyboard_shortcuts.terminal_new_tab,
+            strings(&["ctrl-shift-t"])
+        );
+        assert_eq!(
+            config.keyboard_shortcuts.terminal_close_tab,
+            strings(&["ctrl-shift-w"])
+        );
+        assert_eq!(
+            config.keyboard_shortcuts.terminal_next_tab,
+            strings(&["ctrl-pagedown"])
+        );
+        assert_eq!(
+            config.keyboard_shortcuts.terminal_previous_tab,
+            strings(&["ctrl-pageup"])
+        );
+    }
     assert_eq!(
         config.keyboard_shortcuts.open_project,
         strings(&["cmd-shift-o", "ctrl-shift-o"])

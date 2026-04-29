@@ -7,6 +7,8 @@ const AI_USAGE_ROW_DETAILS_WIDTH: f32 = 134.0;
 struct TerminalPanelState {
     kind: WorkspaceTerminalKind,
     open: bool,
+    active_tab_id: TerminalTabId,
+    tabs: Vec<TerminalPanelTabState>,
     cwd_label: String,
     shell_label: String,
     status_message: Option<String>,
@@ -20,6 +22,13 @@ struct TerminalPanelState {
     has_last_command: bool,
     transcript: String,
     height_px: f32,
+}
+
+#[derive(Clone)]
+struct TerminalPanelTabState {
+    id: TerminalTabId,
+    title: String,
+    status: AiTerminalSessionStatus,
 }
 
 fn ai_terminal_shell_label(config: &AppConfig) -> String {
@@ -156,6 +165,16 @@ impl DiffViewer {
         let terminal_state = TerminalPanelState {
             kind: WorkspaceTerminalKind::Ai,
             open: self.ai_terminal_open,
+            active_tab_id: self.ai_terminal_active_tab_id,
+            tabs: self
+                .ai_visible_terminal_tabs_snapshot()
+                .into_iter()
+                .map(|tab| TerminalPanelTabState {
+                    id: tab.id,
+                    title: tab.title,
+                    status: tab.session.status,
+                })
+                .collect(),
             cwd_label: ai_view_state.terminal_cwd_label.clone(),
             shell_label: ai_terminal_shell_label(&self.config),
             status_message: self.ai_terminal_session.status_message.clone(),
