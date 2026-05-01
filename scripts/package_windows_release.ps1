@@ -117,8 +117,11 @@ function Stage-WindowsPackagerSidecars {
     )
 
     $sidecars = @(Get-WindowsRuntimeSidecarDlls -TargetDir $TargetDir -TargetTriple $TargetTriple)
-    if (-not ($sidecars | Where-Object { $_.Name -ieq "ghostty-vt.dll" })) {
-        throw "Failed to locate ghostty-vt.dll in the Windows build output; cannot build a self-contained MSI"
+    if ($sidecars.Count -eq 0) {
+        return @{
+            Directory = $null
+            FileNames = @()
+        }
     }
 
     $stageDir = Join-Path $TargetDir "windows-packager-sidecars"

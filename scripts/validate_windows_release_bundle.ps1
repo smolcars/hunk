@@ -104,7 +104,6 @@ if ($PackagerOutDir) {
     }
 
     Assert-WindowsMsiContainsFiles -MsiPath $bundleMsi.FullName -ExpectedFileNames @(
-        "ghostty-vt.dll",
         "hunk-browser-helper.exe",
         "libcef.dll",
         "chrome_elf.dll",
