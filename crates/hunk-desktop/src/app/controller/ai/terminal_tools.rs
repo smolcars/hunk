@@ -98,6 +98,23 @@ impl DiffViewer {
                     );
                     return;
                 }
+                if self.ai_mad_max_mode
+                    && matches!(
+                        fallback_risk_level,
+                        crate::app::ai_terminal_dynamic_tools::TerminalRiskLevel::Low
+                            | crate::app::ai_terminal_dynamic_tools::TerminalRiskLevel::Medium
+                    )
+                {
+                    let response = self.ai_execute_terminal_dynamic_tool_with_safety(
+                        &params,
+                        crate::app::ai_terminal_dynamic_tools::TerminalToolSafetyMode::AllowSensitiveOnce,
+                        cx,
+                    );
+                    self.ai_status_message =
+                        Some("Terminal action allowed by Full access mode.".to_string());
+                    self.ai_send_terminal_tool_response(response_tx, response, cx);
+                    return;
+                }
                 self.ai_start_terminal_auto_review(
                     params,
                     *request,

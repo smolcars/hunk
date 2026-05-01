@@ -399,7 +399,7 @@ Current implementation status: the first slices have replaced the heuristic comm
 - [x] Ensure an auto-approved terminal action executes only the exact reviewed request once.
 - [x] Ensure a user-approved terminal action bypasses only the exact pending request once.
 - [x] Keep terminal write execution centralized in the desktop controller so the reviewer and worker never own live terminal handles.
-- [x] Make auto-review configurable per approval mode so users can choose user-only approvals, auto-review, or strict confirmation.
+- [x] Make auto-review configurable per approval mode so users can choose user-only approvals, auto-review, strict confirmation, or Full access fast-path execution for low/medium-risk terminal writes.
 
 ### Approval UX
 

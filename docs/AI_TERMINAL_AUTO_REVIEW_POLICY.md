@@ -43,6 +43,8 @@ The desktop caller may run terminal review in one of three approval modes:
 - `user`: skip unattended terminal execution and require user confirmation for writes.
 - `strict`: require user confirmation for terminal writes and terminal UI mutations, while still allowing read-only inspection.
 
+When Hunk's existing Full access mode is enabled, the desktop may execute low- and medium-risk terminal writes without starting the reviewer. Prefilter denials and high/critical-risk actions still fail closed to rejection, review, or user confirmation.
+
 Risk guidance:
 
 - `low`: read-only or tightly bounded local actions with no meaningful persistent state change.
