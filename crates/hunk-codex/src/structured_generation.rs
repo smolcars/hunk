@@ -3,7 +3,6 @@ use std::time::{Duration, Instant};
 
 use crate::protocol::AskForApproval;
 use crate::protocol::JSONRPCErrorError;
-use crate::protocol::ReadOnlyAccess;
 use crate::protocol::ReasoningEffort;
 use crate::protocol::SandboxMode;
 use crate::protocol::SandboxPolicy;
@@ -103,10 +102,9 @@ fn generate_structured_output_with_client(
             approval_policy: Some(AskForApproval::Never),
             approvals_reviewer: None,
             sandbox_policy: Some(SandboxPolicy::ReadOnly {
-                access: ReadOnlyAccess::default(),
                 network_access: false,
             }),
-            permission_profile: None,
+            permissions: None,
             model: None,
             service_tier: None,
             effort: Some(request.reasoning_effort),

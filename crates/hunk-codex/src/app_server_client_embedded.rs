@@ -8,8 +8,8 @@ use crate::protocol::RequestId;
 use crate::protocol::SessionSource;
 use codex_app_server::in_process::InProcessServerEvent;
 use codex_arg0::Arg0DispatchPaths;
+use codex_config::LoaderOverrides;
 use codex_core::config::ConfigBuilder;
-use codex_core::config_loader::LoaderOverrides;
 use codex_exec_server::EnvironmentManager;
 use codex_exec_server::EnvironmentManagerArgs;
 use codex_exec_server::ExecServerRuntimePaths;
@@ -109,15 +109,16 @@ impl EmbeddedAppServerClient {
                 },
                 config: std::sync::Arc::new(config),
                 feedback: CodexFeedback::new(),
-                environment_manager: std::sync::Arc::new(EnvironmentManager::new(
-                    EnvironmentManagerArgs::from_env(
+                environment_manager: std::sync::Arc::new(
+                    EnvironmentManager::new(EnvironmentManagerArgs::new(
                         ExecServerRuntimePaths::from_optional_paths(
                             Some(args.codex_executable.clone()),
                             None,
                         )
                         .map_err(CodexIntegrationError::HostProcessIo)?,
-                    ),
-                )),
+                    ))
+                    .await,
+                ),
                 config_warnings,
                 session_source: SessionSource::Cli,
                 enable_codex_api_key_env: true,

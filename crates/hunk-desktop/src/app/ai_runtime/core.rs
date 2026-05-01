@@ -23,7 +23,6 @@ use hunk_codex::protocol::LoginAccountParams;
 use hunk_codex::protocol::LoginAccountResponse;
 use hunk_codex::protocol::Model;
 use hunk_codex::protocol::RateLimitSnapshot;
-use hunk_codex::protocol::ReadOnlyAccess;
 use hunk_codex::protocol::RequestId;
 use hunk_codex::protocol::ReviewStartParams;
 use hunk_codex::protocol::SkillMetadata;
@@ -465,7 +464,9 @@ impl AiWorkerRuntime {
             AiWorkerCommand::StartChatgptLogin => {
                 let response = self.service.login_account(
                     &mut self.session,
-                    LoginAccountParams::Chatgpt,
+                    LoginAccountParams::Chatgpt {
+                        codex_streamlined_login: false,
+                    },
                     self.request_timeout,
                 )?;
                 match response {

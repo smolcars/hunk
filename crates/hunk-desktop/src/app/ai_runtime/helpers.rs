@@ -168,7 +168,6 @@ fn non_mad_max_thread_sandbox_mode() -> SandboxMode {
 fn non_mad_max_turn_sandbox_policy() -> SandboxPolicy {
     SandboxPolicy::WorkspaceWrite {
         writable_roots: Vec::new(),
-        read_only_access: ReadOnlyAccess::FullAccess,
         network_access: false,
         exclude_tmpdir_env_var: false,
         exclude_slash_tmp: false,

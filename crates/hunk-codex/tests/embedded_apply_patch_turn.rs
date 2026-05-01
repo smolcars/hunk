@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use codex_core::config_loader::LoaderOverrides;
+use codex_config::LoaderOverrides;
 use hunk_codex::api::method;
 use hunk_codex::app_server_client::{
     AppServerClient, AppServerEvent, EmbeddedAppServerClient, EmbeddedAppServerClientStartArgs,
