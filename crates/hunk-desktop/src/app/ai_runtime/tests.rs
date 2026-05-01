@@ -123,6 +123,27 @@ mod ai_tests {
     }
 
     #[test]
+    fn android_thread_start_context_adds_android_tools() {
+        let mut params = ThreadStartParams::default();
+        hunk_codex::android_tools::apply_android_thread_start_context(&mut params);
+
+        let tools = params
+            .dynamic_tools
+            .as_ref()
+            .expect("Android tools should be present");
+        assert!(tools.iter().any(|tool| {
+            tool.namespace.as_deref() == Some(hunk_codex::android_tools::ANDROID_TOOL_NAMESPACE)
+                && tool.name == hunk_codex::android_tools::ANDROID_SNAPSHOT_TOOL
+        }));
+        assert!(
+            params
+                .developer_instructions
+                .as_deref()
+                .is_some_and(|instructions| instructions.contains("hunk_android.snapshot"))
+        );
+    }
+
+    #[test]
     fn pending_steer_with_state_baseline_uses_the_latest_refreshed_turn_sequence() {
         let mut state = AiState::default();
         let _ = state.apply_stream_event(StreamEvent {

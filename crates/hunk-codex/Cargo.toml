@@ -21,6 +21,7 @@ thiserror = "2.0"
 tokio = { version = "1.50", features = ["net", "rt", "rt-multi-thread", "sync", "time"] }
 tracing = "0.1"
 hunk-browser = { path = "../hunk-browser" }
+hunk-mobile = { path = "../hunk-mobile" }
 
 [dev-dependencies]
 tempfile = "3.23"
