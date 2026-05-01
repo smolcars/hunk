@@ -66,6 +66,7 @@ webbrowser = "1.2.1"
 hunk-domain = { path = "../hunk-domain" }
 hunk-browser = { path = "../hunk-browser" }
 hunk-browser-helper = { path = "../hunk-browser-helper" }
+hunk-mobile = { path = "../hunk-mobile" }
 hunk-git = { path = "../hunk-git" }
 hunk-forge = { path = "../hunk-forge" }
 hunk-codex = { path = "../hunk-codex" }

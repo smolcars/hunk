@@ -7792,6 +7792,7 @@ dependencies = [
  "codex-protocol",
  "codex-utils-absolute-path",
  "hunk-browser",
+ "hunk-mobile",
  "serde",
  "serde_json",
  "tempfile",
@@ -7826,6 +7827,7 @@ dependencies = [
  "hunk-forge",
  "hunk-git",
  "hunk-language",
+ "hunk-mobile",
  "hunk-terminal",
  "hunk-text",
  "hunk-updater",
@@ -7923,6 +7925,15 @@ dependencies = [
  "tree-sitter-toml-ng",
  "tree-sitter-typescript",
  "tree-sitter-yaml",
+]
+
+[[package]]
+name = "hunk-mobile"
+version = "0.1.0"
+dependencies = [
+ "roxmltree",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
