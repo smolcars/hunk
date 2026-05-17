@@ -4,6 +4,18 @@ struct DiffColumnLayout {
     right_panel_width: Pixels,
 }
 
+#[derive(Clone, Copy)]
+struct DiffHorizontalContentWidths {
+    left: Pixels,
+    right: Pixels,
+}
+
+#[derive(Clone, Copy)]
+enum DiffHorizontalSide {
+    Left,
+    Right,
+}
+
 #[derive(Clone)]
 struct DiffSplitDrag(EntityId);
 
@@ -207,6 +219,143 @@ impl DiffViewer {
             left_panel_width,
             right_panel_width: total_width - left_panel_width,
         })
+    }
+
+    fn review_diff_horizontal_content_widths(&self) -> DiffHorizontalContentWidths {
+        let (left_columns, right_columns) = self
+            .active_review_workspace_session()
+            .map(|session| session.max_code_display_columns(4))
+            .unwrap_or_default();
+        DiffHorizontalContentWidths {
+            left: px(left_columns as f32 * DIFF_MONO_CHAR_WIDTH),
+            right: px(right_columns as f32 * DIFF_MONO_CHAR_WIDTH),
+        }
+    }
+
+    fn diff_horizontal_offsets(&self) -> (Pixels, Pixels) {
+        (
+            self.review_surface
+                .diff_left_horizontal_scroll_handle
+                .offset()
+                .x,
+            self.review_surface
+                .diff_right_horizontal_scroll_handle
+                .offset()
+                .x,
+        )
+    }
+
+    fn clamp_review_diff_horizontal_scroll_offsets(
+        &self,
+        layout: DiffColumnLayout,
+        content_widths: DiffHorizontalContentWidths,
+    ) {
+        let left_viewport_width = diff_code_viewport_width(
+            layout.left_panel_width,
+            self.review_surface.diff_left_line_number_width,
+        );
+        let right_viewport_width = diff_code_viewport_width(
+            layout.right_panel_width,
+            self.review_surface.diff_right_line_number_width,
+        );
+        clamp_scroll_handle_x(
+            &self.review_surface.diff_left_horizontal_scroll_handle,
+            (content_widths.left - left_viewport_width).max(Pixels::ZERO),
+        );
+        clamp_scroll_handle_x(
+            &self.review_surface.diff_right_horizontal_scroll_handle,
+            (content_widths.right - right_viewport_width).max(Pixels::ZERO),
+        );
+    }
+
+    fn render_review_diff_horizontal_scrollbars(
+        &self,
+        layout: DiffColumnLayout,
+        content_widths: DiffHorizontalContentWidths,
+    ) -> AnyElement {
+        let scrollbar_size = px(DIFF_SCROLLBAR_SIZE);
+        let left_gutter = review_workspace_code_cell_gutter_width(
+            self.review_surface.diff_left_line_number_width,
+        );
+        let right_gutter = review_workspace_code_cell_gutter_width(
+            self.review_surface.diff_right_line_number_width,
+        );
+        let left_viewport_width =
+            diff_code_viewport_width(layout.left_panel_width, self.review_surface.diff_left_line_number_width);
+        let right_viewport_width =
+            diff_code_viewport_width(layout.right_panel_width, self.review_surface.diff_right_line_number_width);
+
+        div()
+            .absolute()
+            .left_0()
+            .right(px(DIFF_SCROLLBAR_RIGHT_INSET + DIFF_SCROLLBAR_SIZE))
+            .bottom(px(DIFF_BOTTOM_SAFE_INSET))
+            .h(scrollbar_size)
+            .child(render_diff_horizontal_scrollbar(
+                "review-left-horizontal-scroll",
+                &self.review_surface.diff_left_horizontal_scroll_handle,
+                left_gutter,
+                left_viewport_width,
+                content_widths.left,
+            ))
+            .child(render_diff_horizontal_scrollbar(
+                "review-right-horizontal-scroll",
+                &self.review_surface.diff_right_horizontal_scroll_handle,
+                layout.left_panel_width + right_gutter,
+                right_viewport_width,
+                content_widths.right,
+            ))
+            .into_any_element()
+    }
+
+    fn on_review_diff_horizontal_scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(layout) = self.diff_column_layout() else {
+            return false;
+        };
+        let Some(delta_x) = diff_horizontal_wheel_delta(event) else {
+            return false;
+        };
+        let Some(bounds) = self.review_surface.diff_split_bounds else {
+            return false;
+        };
+        let local_x = event.position.x - bounds.left();
+        let side = if local_x < layout.left_panel_width {
+            DiffHorizontalSide::Left
+        } else {
+            DiffHorizontalSide::Right
+        };
+        let content_widths = self.review_diff_horizontal_content_widths();
+        let handled = match side {
+            DiffHorizontalSide::Left => scroll_diff_handle_x(
+                &self.review_surface.diff_left_horizontal_scroll_handle,
+                delta_x,
+                (content_widths.left
+                    - diff_code_viewport_width(
+                        layout.left_panel_width,
+                        self.review_surface.diff_left_line_number_width,
+                    ))
+                .max(Pixels::ZERO),
+            ),
+            DiffHorizontalSide::Right => scroll_diff_handle_x(
+                &self.review_surface.diff_right_horizontal_scroll_handle,
+                delta_x,
+                (content_widths.right
+                    - diff_code_viewport_width(
+                        layout.right_panel_width,
+                        self.review_surface.diff_right_line_number_width,
+                    ))
+                .max(Pixels::ZERO),
+            ),
+        };
+        if handled {
+            self.last_scroll_activity_at = Instant::now();
+            cx.notify();
+        }
+        handled
     }
 
     fn clamp_diff_split_ratio(&self, total_width: Pixels, candidate_ratio: f32) -> f32 {
@@ -515,5 +664,79 @@ impl DiffViewer {
                     ),
             )
             .into_any_element()
+    }
+}
+
+fn diff_code_viewport_width(panel_width: Pixels, line_number_width: f32) -> Pixels {
+    (panel_width - review_workspace_code_cell_gutter_width(line_number_width) - px(8.0))
+        .max(Pixels::ZERO)
+}
+
+fn render_diff_horizontal_scrollbar(
+    id: &'static str,
+    handle: &ScrollHandle,
+    left: Pixels,
+    viewport_width: Pixels,
+    content_width: Pixels,
+) -> AnyElement {
+    if viewport_width <= px(1.0) || content_width <= viewport_width {
+        return Empty.into_any_element();
+    }
+
+    div()
+        .absolute()
+        .left(left)
+        .bottom_0()
+        .w(viewport_width)
+        .h(px(DIFF_SCROLLBAR_SIZE))
+        .child(
+            div()
+                .id(id)
+                .absolute()
+                .size_full()
+                .overflow_x_scroll()
+                .track_scroll(handle)
+                .child(div().h(px(1.0)).w(content_width)),
+        )
+        .child(
+            div()
+                .absolute()
+                .size_full()
+                .child(Scrollbar::horizontal(handle).scrollbar_show(ScrollbarShow::Always)),
+        )
+        .into_any_element()
+}
+
+fn diff_horizontal_wheel_delta(event: &ScrollWheelEvent) -> Option<Pixels> {
+    let delta = event.delta.pixel_delta(px(16.0));
+    let delta_x = if event.modifiers.shift && delta.x.abs() < delta.y.abs() {
+        delta.y
+    } else {
+        delta.x
+    };
+    (delta_x.abs() >= px(0.5)).then_some(delta_x)
+}
+
+fn scroll_diff_handle_x(handle: &ScrollHandle, delta_x: Pixels, max_scroll: Pixels) -> bool {
+    if max_scroll <= Pixels::ZERO {
+        clamp_scroll_handle_x(handle, Pixels::ZERO);
+        return false;
+    }
+
+    let current = handle.offset();
+    let next_x = (current.x + delta_x).clamp(-max_scroll, Pixels::ZERO);
+    if (next_x - current.x).abs() < px(0.5) {
+        return false;
+    }
+
+    handle.set_offset(point(next_x, current.y));
+    true
+}
+
+fn clamp_scroll_handle_x(handle: &ScrollHandle, max_scroll: Pixels) {
+    let current = handle.offset();
+    let next_x = current.x.clamp(-max_scroll, Pixels::ZERO);
+    if (next_x - current.x).abs() >= px(0.5) || current.y != Pixels::ZERO {
+        handle.set_offset(point(next_x, px(0.0)));
     }
 }

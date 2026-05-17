@@ -1214,6 +1214,8 @@ struct ReviewWorkspaceSurfaceState {
     selection_anchor_row: Option<usize>,
     selection_head_row: Option<usize>,
     diff_scroll_handle: ScrollHandle,
+    diff_left_horizontal_scroll_handle: ScrollHandle,
+    diff_right_horizontal_scroll_handle: ScrollHandle,
     diff_split_ratio: f32,
     diff_split_bounds: Option<Bounds<Pixels>>,
     diff_left_line_number_width: f32,
@@ -1388,6 +1390,8 @@ impl ReviewWorkspaceSurfaceState {
             selection_anchor_row: None,
             selection_head_row: None,
             diff_scroll_handle: ScrollHandle::default(),
+            diff_left_horizontal_scroll_handle: ScrollHandle::default(),
+            diff_right_horizontal_scroll_handle: ScrollHandle::default(),
             diff_split_ratio: 0.5,
             diff_split_bounds: None,
             diff_left_line_number_width: crate::app::data::line_number_column_width(
@@ -1419,6 +1423,13 @@ impl ReviewWorkspaceSurfaceState {
         self.selection_head_row = None;
     }
 
+    fn reset_horizontal_scroll(&mut self) {
+        self.diff_left_horizontal_scroll_handle
+            .set_offset(point(px(0.), px(0.)));
+        self.diff_right_horizontal_scroll_handle
+            .set_offset(point(px(0.), px(0.)));
+    }
+
     fn workspace_owner(&self) -> Option<&ReviewWorkspaceSurfaceOwner> {
         self.workspace_owner.as_ref()
     }
@@ -1430,6 +1441,7 @@ impl ReviewWorkspaceSurfaceState {
 
 struct AiInlineReviewSurfaceState {
     diff_scroll_handle: ScrollHandle,
+    diff_horizontal_scroll_handle: ScrollHandle,
     last_diff_scroll_offset: Option<Point<Pixels>>,
     geometry: Option<ai_inline_review::AiInlineReviewDisplayGeometry>,
 }
@@ -1438,6 +1450,7 @@ impl AiInlineReviewSurfaceState {
     fn new() -> Self {
         Self {
             diff_scroll_handle: ScrollHandle::default(),
+            diff_horizontal_scroll_handle: ScrollHandle::default(),
             last_diff_scroll_offset: None,
             geometry: None,
         }
@@ -1451,6 +1464,8 @@ impl AiInlineReviewSurfaceState {
         self.last_diff_scroll_offset = None;
         self.geometry = None;
         self.diff_scroll_handle.set_offset(point(px(0.), px(0.)));
+        self.diff_horizontal_scroll_handle
+            .set_offset(point(px(0.), px(0.)));
     }
 }
 

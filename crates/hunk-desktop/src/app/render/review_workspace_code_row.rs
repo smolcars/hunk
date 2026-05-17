@@ -6,12 +6,14 @@ struct DiffCellRenderSpec {
     cell_kind: DiffCellKind,
     peer_kind: DiffCellKind,
     panel_width: Option<Pixels>,
+    horizontal_offset: Pixels,
 }
 
 #[derive(Clone)]
 struct ReviewWorkspaceCodeRowCellPaint {
     panel_width: Option<gpui::Pixels>,
     line_number_width: f32,
+    horizontal_offset: gpui::Pixels,
     background: gpui::Hsla,
     gutter_background: gpui::Hsla,
     gutter_divider: gpui::Hsla,
@@ -103,7 +105,7 @@ fn paint_review_workspace_code_cell(
     let padding_x = px(8.0);
     let gutter_padding_x = px(8.0);
     let marker_width = px(DIFF_MARKER_GUTTER_WIDTH);
-    let gutter_width = px(cell.line_number_width) + marker_width + px(16.0);
+    let gutter_width = review_workspace_code_cell_gutter_width(cell.line_number_width);
 
     window.paint_quad(gpui::fill(bounds, cell.background));
     let gutter_bounds = Bounds {
@@ -227,13 +229,22 @@ fn paint_review_workspace_code_cell(
         &text_runs,
     );
     let text_origin_x = gutter_bounds.origin.x + gutter_bounds.size.width + padding_x;
-    crate::app::native_files_editor::paint::paint_editor_line(
-        window,
-        cx,
-        &text_shape,
-        point(text_origin_x, text_origin_y),
-        line_height,
-    );
+    let text_mask_bounds = Bounds {
+        origin: point(text_origin_x, bounds.origin.y),
+        size: gpui::size(
+            (bounds.right() - text_origin_x).max(Pixels::ZERO),
+            bounds.size.height,
+        ),
+    };
+    window.with_content_mask(Some(ContentMask { bounds: text_mask_bounds }), |window| {
+        crate::app::native_files_editor::paint::paint_editor_line(
+            window,
+            cx,
+            &text_shape,
+            point(text_origin_x + cell.horizontal_offset, text_origin_y),
+            line_height,
+        );
+    });
 }
 
 fn paint_review_workspace_meta_row(
@@ -407,6 +418,7 @@ fn build_review_workspace_code_row_cell_paint(
     ReviewWorkspaceCodeRowCellPaint {
         panel_width: spec.panel_width,
         line_number_width,
+        horizontal_offset: spec.horizontal_offset,
         background,
         gutter_background,
         gutter_divider: chrome.gutter_divider,
@@ -419,6 +431,10 @@ fn build_review_workspace_code_row_cell_paint(
         syntax_spans,
         changed_ranges,
     }
+}
+
+fn review_workspace_code_cell_gutter_width(line_number_width: f32) -> Pixels {
+    px(line_number_width) + px(DIFF_MARKER_GUTTER_WIDTH) + px(16.0)
 }
 
 fn build_review_workspace_meta_row_paint(

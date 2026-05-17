@@ -589,6 +589,28 @@ impl ReviewWorkspaceSession {
         (max_left_digits, max_right_digits)
     }
 
+    pub(crate) fn max_code_display_columns(&self, tab_width: usize) -> (usize, usize) {
+        let mut max_left_columns = 0usize;
+        let mut max_right_columns = 0usize;
+        let tab_width = tab_width.max(1);
+
+        for row in &self.rows {
+            if row.kind != DiffRowKind::Code {
+                continue;
+            }
+            max_left_columns = max_left_columns.max(review_display_column_count(
+                row.left.text.as_str(),
+                tab_width,
+            ));
+            max_right_columns = max_right_columns.max(review_display_column_count(
+                row.right.text.as_str(),
+                tab_width,
+            ));
+        }
+
+        (max_left_columns, max_right_columns)
+    }
+
     pub(crate) fn visible_file_header_row(&self, row: usize) -> Option<usize> {
         self.file_ranges
             .iter()
@@ -1902,6 +1924,18 @@ fn prioritized_prefetch_row_indices_for_rows(
 
 fn review_decimal_digits(value: u32) -> u32 {
     if value == 0 { 1 } else { value.ilog10() + 1 }
+}
+
+fn review_display_column_count(text: &str, tab_width: usize) -> usize {
+    let mut columns = 0usize;
+    for ch in text.chars() {
+        if ch == '\t' {
+            columns = ((columns / tab_width) + 1) * tab_width;
+        } else {
+            columns = columns.saturating_add(1);
+        }
+    }
+    columns
 }
 
 fn surface_code_row_count_for_hunk(hunk: &DiffHunk) -> usize {

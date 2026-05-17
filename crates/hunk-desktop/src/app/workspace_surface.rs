@@ -35,6 +35,8 @@ pub(crate) struct ProjectedWorkspaceSurfaceElement {
     pub(crate) selected_row_range: Option<(usize, usize)>,
     pub(crate) left_panel_width: Option<Pixels>,
     pub(crate) right_panel_width: Option<Pixels>,
+    pub(crate) left_horizontal_offset: Pixels,
+    pub(crate) right_horizontal_offset: Pixels,
     pub(crate) left_line_number_width: f32,
     pub(crate) right_line_number_width: f32,
     pub(crate) center_divider: gpui::Hsla,
@@ -111,6 +113,8 @@ impl Element for ProjectedWorkspaceSurfaceElement {
         let paint_style = crate::app::render::ReviewWorkspaceViewportPaintStyle {
             left_panel_width: self.left_panel_width,
             right_panel_width: self.right_panel_width,
+            left_horizontal_offset: self.left_horizontal_offset,
+            right_horizontal_offset: self.right_horizontal_offset,
             left_line_number_width: self.left_line_number_width,
             right_line_number_width: self.right_line_number_width,
             center_divider: self.center_divider,

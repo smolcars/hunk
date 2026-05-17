@@ -8,6 +8,7 @@ const AI_INLINE_REVIEW_TEXT_LEFT_PADDING_PX: f32 = 12.0;
 pub(crate) struct AiInlineReviewSurfaceElement {
     snapshot: Rc<crate::app::ai_inline_review::AiInlineReviewSurfaceSnapshot>,
     viewport_origin_px: usize,
+    horizontal_offset: Pixels,
     mono_font_family: SharedString,
     ui_font_family: SharedString,
     old_line_number_width: f32,
@@ -86,6 +87,7 @@ impl Element for AiInlineReviewSurfaceElement {
                     cx,
                     row_bounds,
                     row,
+                    self.horizontal_offset,
                     self.old_line_number_width,
                     self.new_line_number_width,
                     self.mono_font_family.clone(),
@@ -224,6 +226,10 @@ impl DiffViewer {
     fn render_ai_inline_review_surface(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let snapshot = self.current_ai_inline_review_surface_snapshot();
         let scroll_handle = self.ai_inline_review_surface.diff_scroll_handle.clone();
+        let horizontal_scroll_handle = self
+            .ai_inline_review_surface
+            .diff_horizontal_scroll_handle
+            .clone();
         let scrollbar_size = px(AI_INLINE_REVIEW_SCROLLBAR_SIZE);
         let (old_digits, new_digits) = self
             .active_review_workspace_session()
@@ -231,6 +237,28 @@ impl DiffViewer {
             .unwrap_or((DIFF_LINE_NUMBER_MIN_DIGITS, DIFF_LINE_NUMBER_MIN_DIGITS));
         let old_line_number_width = crate::app::data::line_number_column_width(old_digits);
         let new_line_number_width = crate::app::data::line_number_column_width(new_digits);
+        let gutter_width =
+            ai_inline_review_code_gutter_width(old_line_number_width, new_line_number_width);
+        let viewport_width = self
+            .ai_inline_review_surface
+            .diff_scroll_handle
+            .bounds()
+            .size
+            .width
+            .max(Pixels::ZERO);
+        let code_viewport_width =
+            (viewport_width - gutter_width - px(AI_INLINE_REVIEW_TEXT_LEFT_PADDING_PX))
+                .max(Pixels::ZERO);
+        let content_width = self.ai_inline_review_horizontal_content_width();
+        clamp_scroll_handle_x(
+            &self.ai_inline_review_surface.diff_horizontal_scroll_handle,
+            (content_width - code_viewport_width).max(Pixels::ZERO),
+        );
+        let horizontal_offset = self
+            .ai_inline_review_surface
+            .diff_horizontal_scroll_handle
+            .offset()
+            .x;
 
         if let Some(snapshot) = snapshot {
             return div()
@@ -242,6 +270,11 @@ impl DiffViewer {
                         .size_full()
                         .track_scroll(&scroll_handle)
                         .overflow_y_scroll()
+                        .on_scroll_wheel(cx.listener(|this, event, _, cx| {
+                            if this.on_ai_inline_review_horizontal_scroll_wheel(event, cx) {
+                                cx.stop_propagation();
+                            }
+                        }))
                         .child(
                             div()
                                 .relative()
@@ -263,6 +296,7 @@ impl DiffViewer {
                                                             snapshot.clone(),
                                                         ),
                                                         viewport_origin_px: range.start,
+                                                        horizontal_offset,
                                                         mono_font_family: cx
                                                             .theme()
                                                             .mono_font_family
@@ -293,10 +327,66 @@ impl DiffViewer {
                                 .scrollbar_show(ScrollbarShow::Always),
                         ),
                 )
+                .child(render_diff_horizontal_scrollbar(
+                    "ai-inline-review-horizontal-scroll",
+                    &horizontal_scroll_handle,
+                    gutter_width + px(AI_INLINE_REVIEW_TEXT_LEFT_PADDING_PX),
+                    code_viewport_width,
+                    content_width,
+                ))
                 .into_any_element();
         }
 
         self.render_ai_inline_review_status_surface(cx)
+    }
+
+    fn ai_inline_review_horizontal_content_width(&self) -> Pixels {
+        let (left_columns, right_columns) = self
+            .active_review_workspace_session()
+            .map(|session| session.max_code_display_columns(4))
+            .unwrap_or_default();
+        px(left_columns.max(right_columns) as f32 * DIFF_MONO_CHAR_WIDTH)
+    }
+
+    fn on_ai_inline_review_horizontal_scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(delta_x) = diff_horizontal_wheel_delta(event) else {
+            return false;
+        };
+        let (old_digits, new_digits) = self
+            .active_review_workspace_session()
+            .map(|session| session.line_number_digit_widths())
+            .unwrap_or((DIFF_LINE_NUMBER_MIN_DIGITS, DIFF_LINE_NUMBER_MIN_DIGITS));
+        let old_line_number_width = crate::app::data::line_number_column_width(old_digits);
+        let new_line_number_width = crate::app::data::line_number_column_width(new_digits);
+        let gutter_width =
+            ai_inline_review_code_gutter_width(old_line_number_width, new_line_number_width);
+        let viewport_width = self
+            .ai_inline_review_surface
+            .diff_scroll_handle
+            .bounds()
+            .size
+            .width
+            .max(Pixels::ZERO);
+        let code_viewport_width =
+            (viewport_width - gutter_width - px(AI_INLINE_REVIEW_TEXT_LEFT_PADDING_PX))
+                .max(Pixels::ZERO);
+        let max_scroll =
+            (self.ai_inline_review_horizontal_content_width() - code_viewport_width)
+                .max(Pixels::ZERO);
+        let handled = scroll_diff_handle_x(
+            &self.ai_inline_review_surface.diff_horizontal_scroll_handle,
+            delta_x,
+            max_scroll,
+        );
+        if handled {
+            self.last_scroll_activity_at = Instant::now();
+            cx.notify();
+        }
+        handled
     }
 }
 
@@ -306,6 +396,7 @@ fn paint_ai_inline_review_row(
     cx: &mut App,
     bounds: Bounds<Pixels>,
     row: &crate::app::ai_inline_review::AiInlineReviewViewportRow,
+    horizontal_offset: Pixels,
     old_line_number_width: f32,
     new_line_number_width: f32,
     mono_font_family: SharedString,
@@ -332,6 +423,7 @@ fn paint_ai_inline_review_row(
                 bounds,
                 row.stable_id,
                 lines,
+                horizontal_offset,
                 old_line_number_width,
                 new_line_number_width,
                 mono_font_family,
@@ -522,6 +614,7 @@ fn paint_ai_inline_review_code_row(
     bounds: Bounds<Pixels>,
     stable_id: u64,
     lines: &[crate::app::ai_inline_review::AiInlineReviewCodeLine],
+    horizontal_offset: Pixels,
     old_line_number_width: f32,
     new_line_number_width: f32,
     mono_font_family: SharedString,
@@ -547,6 +640,7 @@ fn paint_ai_inline_review_code_row(
             line_bounds,
             stable_id.saturating_add(line_ix as u64),
             line,
+            horizontal_offset,
             old_line_number_width,
             new_line_number_width,
             mono_font_family.clone(),
@@ -561,6 +655,7 @@ fn paint_ai_inline_review_code_line(
     bounds: Bounds<Pixels>,
     stable_id: u64,
     line: &crate::app::ai_inline_review::AiInlineReviewCodeLine,
+    horizontal_offset: Pixels,
     old_line_number_width: f32,
     new_line_number_width: f32,
     mono_font_family: SharedString,
@@ -591,10 +686,8 @@ fn paint_ai_inline_review_code_line(
             " ",
         ),
     };
-    let gutter_width = px(old_line_number_width)
-        + px(new_line_number_width)
-        + px(AI_INLINE_REVIEW_LINE_NUMBER_GAP_PX * 2.0 + AI_INLINE_REVIEW_MARKER_WIDTH_PX)
-        + px(24.0);
+    let gutter_width =
+        ai_inline_review_code_gutter_width(old_line_number_width, new_line_number_width);
 
     window.paint_quad(fill(bounds, background));
     let gutter_bounds = Bounds {
@@ -684,13 +777,33 @@ fn paint_ai_inline_review_code_line(
     );
     let text = if line.text.is_empty() { " ".to_string() } else { line.text.clone() };
     let text_shape = shape_editor_line(window, text.clone().into(), font_size, &text_runs);
-    paint_editor_line(
-        window,
-        cx,
-        &text_shape,
-        point(bounds.origin.x + gutter_width + px(AI_INLINE_REVIEW_TEXT_LEFT_PADDING_PX), text_y),
-        line_height,
-    );
+    let text_origin_x = bounds.origin.x + gutter_width + px(AI_INLINE_REVIEW_TEXT_LEFT_PADDING_PX);
+    let text_mask_bounds = Bounds {
+        origin: point(text_origin_x, bounds.origin.y),
+        size: size(
+            (bounds.right() - text_origin_x).max(Pixels::ZERO),
+            bounds.size.height,
+        ),
+    };
+    window.with_content_mask(Some(ContentMask { bounds: text_mask_bounds }), |window| {
+        paint_editor_line(
+            window,
+            cx,
+            &text_shape,
+            point(text_origin_x + horizontal_offset, text_y),
+            line_height,
+        );
+    });
+}
+
+fn ai_inline_review_code_gutter_width(
+    old_line_number_width: f32,
+    new_line_number_width: f32,
+) -> Pixels {
+    px(old_line_number_width)
+        + px(new_line_number_width)
+        + px(AI_INLINE_REVIEW_LINE_NUMBER_GAP_PX * 2.0 + AI_INLINE_REVIEW_MARKER_WIDTH_PX)
+        + px(24.0)
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -1573,6 +1573,30 @@ fn review_workspace_session_exposes_header_and_line_number_helpers() {
 }
 
 #[test]
+fn review_workspace_session_reports_max_code_display_columns_per_side() {
+    let patch = "\
+@@ -1,2 +1,2 @@
+-short
++right\twide
+-left side is longer
++tiny
+";
+    let snapshot = CompareSnapshot {
+        files: vec![changed_file("src/main.rs", FileStatus::Modified)],
+        file_line_stats: BTreeMap::new(),
+        overall_line_stats: LineStats::default(),
+        patches_by_path: BTreeMap::from([("src/main.rs".to_string(), patch.to_string())]),
+    };
+    let rows = parse_patch_side_by_side(patch);
+    let stream = review_stream_for_rows(&rows, "src/main.rs", FileStatus::Modified);
+    let session = ReviewWorkspaceSession::from_compare_snapshot(&snapshot, &BTreeSet::new())
+        .expect("workspace session should build")
+        .with_render_stream(&stream);
+
+    assert_eq!(session.max_code_display_columns(4), (19, 12));
+}
+
+#[test]
 fn review_workspace_session_can_attach_render_rows() {
     let patch = "\
 @@ -1,2 +1,2 @@

@@ -314,6 +314,7 @@ impl DiffViewer {
         self.recompute_diff_layout();
         self.review_surface.clear_workspace_surface_snapshot();
         self.review_surface.last_prefetched_visible_row_range = None;
+        self.review_surface.reset_horizontal_scroll();
         self.ai_inline_review_surface.clear_runtime_state();
     }
 
@@ -325,6 +326,7 @@ impl DiffViewer {
         self.recompute_diff_layout();
         self.review_surface.clear_workspace_surface_snapshot();
         self.review_surface.last_prefetched_visible_row_range = None;
+        self.review_surface.reset_horizontal_scroll();
         self.ai_inline_review_surface.clear_runtime_state();
     }
 

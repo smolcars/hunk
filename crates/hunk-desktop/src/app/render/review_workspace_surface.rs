@@ -53,6 +53,10 @@ impl DiffViewer {
         let search_match_count = self.active_editor_search_match_count();
         let review_surface_snapshot = self.current_or_fresh_review_surface_snapshot();
         let layout = self.diff_column_layout();
+        let horizontal_content_widths = self.review_diff_horizontal_content_widths();
+        if let Some(layout) = layout {
+            self.clamp_review_diff_horizontal_scroll_offsets(layout, horizontal_content_widths);
+        }
         let scroller = if let Some(surface) = review_surface_snapshot.as_ref() {
             self.render_review_workspace_viewport_scroller(surface, cx)
         } else {
@@ -146,9 +150,15 @@ impl DiffViewer {
                                                 div()
                                                     .size_full()
                                                     .on_scroll_wheel(
-                                                        cx.listener(
-                                                            Self::on_diff_list_scroll_wheel,
-                                                        ),
+                                                        cx.listener(|this, event, window, cx| {
+                                                            if this
+                                                                .on_review_diff_horizontal_scroll_wheel(event, cx)
+                                                            {
+                                                                cx.stop_propagation();
+                                                                return;
+                                                            }
+                                                            this.on_diff_list_scroll_wheel(event, window, cx);
+                                                        }),
                                                     )
                                                     .child(scroller),
                                             )
@@ -179,6 +189,10 @@ impl DiffViewer {
                             )
                             .when_some(layout, |this, layout| {
                                 this.child(self.render_diff_split_handle(layout, cx))
+                                    .child(self.render_review_diff_horizontal_scrollbars(
+                                        layout,
+                                        horizontal_content_widths,
+                                    ))
                             }),
                     ),
             )
@@ -292,6 +306,7 @@ impl DiffViewer {
             .unwrap_or_default();
         let layout = self.diff_column_layout();
         let chrome = hunk_diff_chrome(cx.theme(), cx.theme().mode.is_dark());
+        let (left_horizontal_offset, right_horizontal_offset) = self.diff_horizontal_offsets();
         let sticky_file_can_view = surface.sticky_file_header.as_ref().is_some_and(|header| {
             self.can_open_file_in_files_workspace(header.path.as_str(), header.status)
         });
@@ -312,6 +327,8 @@ impl DiffViewer {
                         selected_row_range: self.selected_row_range(),
                         left_panel_width: layout.map(|layout| layout.left_panel_width),
                         right_panel_width: layout.map(|layout| layout.right_panel_width),
+                        left_horizontal_offset,
+                        right_horizontal_offset,
                         left_line_number_width: self.review_surface.diff_left_line_number_width,
                         right_line_number_width: self.review_surface.diff_right_line_number_width,
                         center_divider: chrome.center_divider,

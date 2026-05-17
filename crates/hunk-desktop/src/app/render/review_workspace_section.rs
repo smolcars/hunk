@@ -9,6 +9,8 @@ pub(crate) struct ReviewWorkspaceCommentAffordanceLayout {
 pub(crate) struct ReviewWorkspaceViewportPaintStyle {
     pub(crate) left_panel_width: Option<Pixels>,
     pub(crate) right_panel_width: Option<Pixels>,
+    pub(crate) left_horizontal_offset: Pixels,
+    pub(crate) right_horizontal_offset: Pixels,
     pub(crate) left_line_number_width: f32,
     pub(crate) right_line_number_width: f32,
     pub(crate) center_divider: gpui::Hsla,
@@ -63,6 +65,7 @@ pub(crate) fn paint_review_workspace_viewport_row(
                     cell_kind: viewport_row.left_cell_kind,
                     peer_kind: viewport_row.right_cell_kind,
                     panel_width: style.left_panel_width,
+                    horizontal_offset: style.left_horizontal_offset,
                 },
                 viewport_row,
             );
@@ -77,6 +80,7 @@ pub(crate) fn paint_review_workspace_viewport_row(
                     cell_kind: viewport_row.right_cell_kind,
                     peer_kind: viewport_row.left_cell_kind,
                     panel_width: style.right_panel_width,
+                    horizontal_offset: style.right_horizontal_offset,
                 },
                 viewport_row,
             );
