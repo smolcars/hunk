@@ -253,7 +253,7 @@ impl AndroidRuntime {
         device_id: Option<&MobileDeviceId>,
         apk_path: &Path,
     ) -> Result<String, MobileError> {
-        let tools = self.require_tools()?;
+        let tools = self.require_tools()?.clone();
         let serial = self.resolve_device(thread_id, device_id)?;
         let apk_path = apk_path.to_string_lossy().to_string();
         let output = run_command(
@@ -276,7 +276,7 @@ impl AndroidRuntime {
         package: &str,
         activity: Option<&str>,
     ) -> Result<String, MobileError> {
-        let tools = self.require_tools()?;
+        let tools = self.require_tools()?.clone();
         let serial = self.resolve_device(thread_id, device_id)?;
         let output = if let Some(activity) = activity {
             let component = format!("{package}/{activity}");
@@ -481,7 +481,7 @@ impl AndroidRuntime {
         device_id: Option<&MobileDeviceId>,
         max_lines: usize,
     ) -> Result<Vec<String>, MobileError> {
-        let tools = self.require_tools()?;
+        let tools = self.require_tools()?.clone();
         let serial = self.resolve_device(thread_id, device_id)?;
         let output = run_command(&tools.adb, ["-s", serial.as_str(), "logcat", "-d"])?;
         let lines = output

@@ -40,23 +40,20 @@ pub fn redact_mobile_tool_text(text: &str) -> String {
 }
 
 fn looks_like_secret(text: &str) -> bool {
-    let trimmed = text.trim();
-    trimmed.len() >= 12 && !trimmed.contains(char::is_whitespace)
+    text.split_whitespace().any(looks_like_secret_token)
 }
 
 fn looks_like_secret_token(token: &str) -> bool {
     let trimmed = token.trim_matches(|value: char| !value.is_ascii_alphanumeric() && value != '_');
-    if trimmed.len() < 12 {
-        return false;
-    }
-
     let lower = trimmed.to_ascii_lowercase();
-    lower.starts_with("sk-")
-        || lower.starts_with("ghp_")
-        || lower.starts_with("xoxb-")
-        || lower.contains("password=")
+
+    lower.contains("password=")
         || lower.contains("token=")
         || lower.contains("secret=")
         || lower.contains("api_key=")
         || lower.contains("apikey=")
+        || (trimmed.len() >= 12
+            && (lower.starts_with("sk-")
+                || lower.starts_with("ghp_")
+                || lower.starts_with("xoxb-")))
 }

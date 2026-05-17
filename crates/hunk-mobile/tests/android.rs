@@ -137,3 +137,28 @@ fn android_safety_prompts_for_likely_secret_text() {
         hunk_mobile::MobileSafetyDecision::Allow
     ));
 }
+
+#[test]
+fn android_safety_allows_normal_emulator_typing() {
+    for text in [
+        "test-user-123456@example.test",
+        "random-looking-value-1234567890",
+        "correct horse battery staple",
+        "0000",
+    ] {
+        let action = AndroidAction::Type {
+            snapshot_epoch: None,
+            index: None,
+            text: text.to_string(),
+            clear: false,
+        };
+
+        assert!(
+            matches!(
+                classify_android_action(&action),
+                hunk_mobile::MobileSafetyDecision::Allow
+            ),
+            "text should be allowed: {text}"
+        );
+    }
+}

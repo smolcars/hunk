@@ -1,19 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MobileViewport {
     pub width: u32,
     pub height: u32,
-}
-
-impl Default for MobileViewport {
-    fn default() -> Self {
-        Self {
-            width: 0,
-            height: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

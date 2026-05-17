@@ -429,69 +429,71 @@ Exit criteria:
 
 ### Phase 1: `hunk-mobile` Core Types
 
-- [ ] Add `crates/hunk-mobile`.
-- [ ] Add mobile device/session/snapshot/action/frame types.
-- [ ] Add Android UI Automator XML parser.
-- [ ] Add bounds parser for `[x1,y1][x2,y2]`.
-- [ ] Add snapshot element indexing.
-- [ ] Add stale snapshot validation.
-- [ ] Add screenshot frame metadata type.
-- [ ] Add safety classification and redaction helpers.
-- [ ] Add crate-level parser and safety tests.
+- [x] Add `crates/hunk-mobile`.
+- [x] Add mobile device/session/snapshot/action/frame types.
+- [x] Add Android UI Automator XML parser.
+- [x] Add bounds parser for `[x1,y1][x2,y2]`.
+- [x] Add snapshot element indexing.
+- [x] Add stale snapshot validation.
+- [x] Add screenshot frame metadata type.
+- [x] Add safety classification and redaction helpers.
+- [x] Add crate-level parser and safety tests.
 
 Exit criteria:
 
-- [ ] Android snapshots are represented in Hunk-owned types without needing a live emulator.
+- [x] Android snapshots are represented in Hunk-owned types without needing a live emulator.
 
 ### Phase 2: Android SDK Backend
 
-- [ ] Add Android SDK tool discovery.
-- [ ] Add structured command runner using explicit argv.
-- [ ] Add AVD listing.
-- [ ] Add running emulator listing.
-- [ ] Add emulator startup and boot polling.
-- [ ] Add active device selection.
-- [ ] Add APK install.
-- [ ] Add package/activity launch.
-- [ ] Add UI snapshot capture.
-- [ ] Add screenshot capture.
-- [ ] Add tap/type/swipe/keyevent actions.
-- [ ] Add bounded logcat capture.
-- [ ] Add structured backend errors.
-- [ ] Add backend tests using fake command output.
+- [x] Add Android SDK tool discovery.
+- [x] Add structured command runner using explicit argv.
+- [x] Add AVD listing.
+- [x] Add running emulator listing.
+- [x] Add emulator startup and boot polling.
+- [x] Add active device selection.
+- [x] Add APK install.
+- [x] Add package/activity launch.
+- [x] Add UI snapshot capture.
+- [x] Add screenshot capture.
+- [x] Add tap/type/swipe/keyevent actions.
+- [x] Add bounded logcat capture.
+- [x] Add structured backend errors.
+- [x] Add backend tests using fake command output.
 
 Exit criteria:
 
-- [ ] The backend can control a running emulator from Rust with structured results and no shell-string execution.
+- [x] The backend can control a running emulator from Rust with structured results and no shell-string execution.
 
 ### Phase 3: Dynamic Android Tools
 
-- [ ] Add `hunk-codex/src/android_tools.rs`.
-- [ ] Register `hunk_android` tool specs in Android-enabled AI threads.
-- [ ] Add Android developer instructions.
-- [ ] Add typed dynamic tool request parsing.
-- [ ] Add dynamic tool response helpers.
-- [ ] Add missing-SDK and missing-device responses.
-- [ ] Add screenshot image output support.
-- [ ] Add tests for schemas, parsing, and response shapes.
+- [x] Add `hunk-codex/src/android_tools.rs`.
+- [x] Register `hunk_android` tool specs in Android-enabled AI threads.
+- [x] Add Android developer instructions.
+- [x] Add typed dynamic tool request parsing.
+- [x] Add dynamic tool response helpers.
+- [x] Add missing-SDK and missing-device responses.
+- [x] Add screenshot image output support.
+- [x] Add tests for schemas, parsing, and executor routing.
 
 Exit criteria:
 
-- [ ] The model can call Android dynamic tools through the Codex protocol without desktop UI coupling.
+- [x] The model can call Android dynamic tools through the Codex protocol without desktop UI coupling.
 
 ### Phase 4: Desktop Executor Bridge
 
-- [ ] Extend `AiDynamicToolExecutor` to include Android tools alongside workspace and browser tools.
-- [ ] Keep browser tool routing unchanged.
-- [ ] Add Android runtime ownership to the AI worker or visible workspace bridge.
-- [ ] Decide whether v1 Android calls must route through visible GPUI state or can run directly in the worker.
-- [ ] Add pending confirmation support for sensitive Android actions.
+- [x] Extend `AiDynamicToolExecutor` to include Android tools alongside workspace and browser tools.
+- [x] Keep browser tool routing unchanged.
+- [x] Add Android runtime ownership to the AI worker or visible workspace bridge.
+- [x] Decide whether v1 Android calls must route through visible GPUI state or can run directly in the worker.
+- [x] Add confirmation-required rejection for sensitive Android actions.
+- [ ] Add user approval UI for confirmed sensitive Android actions.
 - [ ] Add compact Android tool rows to AI timeline projection.
-- [ ] Add tests for routing and confirmation-required behavior.
+- [x] Add tests for routing.
+- [ ] Add desktop tests for confirmed Android sensitive-action execution.
 
 Exit criteria:
 
-- [ ] AI Android tool calls execute from an AI thread and return structured results to the model.
+- [x] AI Android tool calls execute from an AI thread and return structured results to the model.
 
 ### Phase 5: GPUI Mobile Screenshot Pane
 
@@ -540,13 +542,13 @@ Exit criteria:
 
 ## Recommended First Implementation Order
 
-1. Add `crates/hunk-mobile` with Android snapshot types and XML parsing.
-2. Add Android SDK discovery and fake-command-output tests.
-3. Implement snapshot and screenshot capture against a selected running emulator.
-4. Add `hunk_android.devices`, `hunk_android.select_device`, `hunk_android.snapshot`, and `hunk_android.screenshot`.
-5. Add tap, press, swipe, and simple type tools.
-6. Add install and launch tools.
-7. Add logcat tool.
+1. [x] Add `crates/hunk-mobile` with Android snapshot types and XML parsing.
+2. [x] Add Android SDK discovery and fake-command-output tests.
+3. [x] Implement snapshot and screenshot capture against a selected running emulator.
+4. [x] Add `hunk_android.devices`, `hunk_android.select_device`, `hunk_android.snapshot`, and `hunk_android.screenshot`.
+5. [x] Add tap, press, swipe, and simple type tools.
+6. [x] Add install and launch tools.
+7. [x] Add logcat tool.
 8. Add desktop confirmation routing and timeline rows.
 9. Add the GPUI screenshot pane.
 10. Revisit gRPC for a live embedded surface.

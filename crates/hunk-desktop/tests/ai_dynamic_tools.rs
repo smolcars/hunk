@@ -1,6 +1,7 @@
 use std::fs;
 
 use hunk_browser::{BrowserFrame, BrowserRuntime};
+use hunk_codex::android_tools::{ANDROID_DEVICES_TOOL, ANDROID_TOOL_NAMESPACE};
 use hunk_codex::browser_tools::{
     BROWSER_BACK_TOOL, BROWSER_CLICK_TOOL, BROWSER_CONSOLE_TOOL, BROWSER_FORWARD_TOOL,
     BROWSER_NAVIGATE_TOOL, BROWSER_NEW_TAB_TOOL, BROWSER_RELOAD_TOOL, BROWSER_SCREENSHOT_TOOL,
@@ -92,6 +93,22 @@ fn unsupported_non_browser_tool_still_returns_workspace_error() {
 
     assert!(!response.success);
     assert!(response_text(&response).contains("unsupported dynamic tool"));
+}
+
+#[test]
+fn android_tool_calls_route_to_android_executor() {
+    let temp = tempdir().expect("temp dir should be created");
+    let mut executor = AiDynamicToolExecutor::new();
+
+    let response = executor.execute(
+        temp.path(),
+        &android_tool_params(ANDROID_DEVICES_TOOL, serde_json::json!({})),
+    );
+
+    let json = response_json(&response);
+    assert_eq!(json["tool"], ANDROID_DEVICES_TOOL);
+    assert_eq!(json["threadId"], "thread-1");
+    assert_ne!(json["error"], "unsupported dynamic tool");
 }
 
 #[test]
@@ -446,6 +463,12 @@ fn dynamic_tool_params(tool: &str, arguments: serde_json::Value) -> DynamicToolC
 fn browser_tool_params(tool: &str, arguments: serde_json::Value) -> DynamicToolCallParams {
     let mut params = dynamic_tool_params(tool, arguments);
     params.namespace = Some(BROWSER_TOOL_NAMESPACE.to_string());
+    params
+}
+
+fn android_tool_params(tool: &str, arguments: serde_json::Value) -> DynamicToolCallParams {
+    let mut params = dynamic_tool_params(tool, arguments);
+    params.namespace = Some(ANDROID_TOOL_NAMESPACE.to_string());
     params
 }
 

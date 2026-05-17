@@ -99,3 +99,42 @@ fn ai_workspace_hit_test_ignores_gutter_clicks_outside_block_bounds() {
         "clicking empty gutter space should not hit the bubble"
     );
 }
+
+#[test]
+fn ai_workspace_hit_test_returns_empty_line_text_hits() {
+    let (block, layout) = viewport_block(
+        test_block(
+            "row-1",
+            AiWorkspaceBlockKind::Message,
+            AiWorkspaceBlockRole::Assistant,
+            "Assistant",
+            "alpha\n\nomega",
+            false,
+        ),
+        16,
+        800,
+    );
+    let snapshot = AiWorkspaceSurfaceSnapshot {
+        selection_scope_id: "thread-1".to_string(),
+        selection_surfaces: Arc::<[AiTextSelectionSurfaceSpec]>::from([]),
+        scroll_top_px: 0,
+        viewport_height_px: 400,
+        viewport: AiWorkspaceViewportSnapshot {
+            total_surface_height_px: 16 + layout.height_px + 16,
+            visible_pixel_range: Some(0..400),
+            visible_blocks: vec![block],
+        },
+    };
+    let bounds = Bounds {
+        origin: point(Pixels::ZERO, Pixels::ZERO),
+        size: size(px(800.0), px(400.0)),
+    };
+
+    let hit = ai_workspace_hit_test(&snapshot, point(px(48.0), px(72.0)), bounds, None)
+        .expect("expected blank preview line to hit the block");
+    let text_hit = hit
+        .text_hit
+        .expect("expected blank preview line to produce a selectable text hit");
+
+    assert_eq!(text_hit.index, "alpha\n".len());
+}
