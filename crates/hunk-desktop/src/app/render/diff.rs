@@ -702,7 +702,11 @@ fn render_diff_horizontal_scrollbar(
             div()
                 .absolute()
                 .size_full()
-                .child(Scrollbar::horizontal(handle).scrollbar_show(ScrollbarShow::Always)),
+                .child(
+                    Scrollbar::horizontal(handle)
+                        .id((id, 0usize))
+                        .scrollbar_show(ScrollbarShow::Always),
+                ),
         )
         .into_any_element()
 }

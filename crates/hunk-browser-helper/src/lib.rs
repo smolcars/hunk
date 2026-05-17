@@ -37,6 +37,8 @@ pub fn run() -> i32 {
 fn execute_cef_subprocess() -> Result<i32, String> {
     use cef::{api_hash, args::Args, execute_process, sys};
 
+    ignore_terminal_interrupt_signal()?;
+
     #[cfg(target_os = "macos")]
     let _loader = load_macos_cef_framework()?;
 
@@ -49,6 +51,23 @@ fn execute_cef_subprocess() -> Result<i32, String> {
     } else {
         Err("CEF subprocess dispatch failed".to_string())
     }
+}
+
+#[cfg(all(feature = "cef-subprocess", unix))]
+fn ignore_terminal_interrupt_signal() -> Result<(), String> {
+    let previous = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+    if previous == libc::SIG_ERR {
+        return Err(format!(
+            "failed to ignore SIGINT in CEF subprocess: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "cef-subprocess", not(unix)))]
+fn ignore_terminal_interrupt_signal() -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(all(feature = "cef-subprocess", target_os = "macos"))]
