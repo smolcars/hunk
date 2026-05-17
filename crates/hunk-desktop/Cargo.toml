@@ -1,6 +1,6 @@
 [package]
 name = "hunk-desktop"
-version = "0.0.9"
+version = "0.0.10"
 license.workspace = true
 edition = "2024"
 authors = ["Nitesh Balusu"]
@@ -66,6 +66,7 @@ webbrowser = "1.2.1"
 hunk-domain = { path = "../hunk-domain" }
 hunk-browser = { path = "../hunk-browser" }
 hunk-browser-helper = { path = "../hunk-browser-helper" }
+hunk-mobile = { path = "../hunk-mobile" }
 hunk-git = { path = "../hunk-git" }
 hunk-forge = { path = "../hunk-forge" }
 hunk-codex = { path = "../hunk-codex" }

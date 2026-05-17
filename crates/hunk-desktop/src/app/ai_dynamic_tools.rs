@@ -14,10 +14,16 @@ use hunk_codex::tools::DynamicToolRegistry;
 use image::ImageEncoder as _;
 use serde_json::json;
 
+#[path = "ai_android_tools.rs"]
+mod ai_android_tools;
+
+use ai_android_tools::AiAndroidDynamicToolExecutor;
+
 #[derive(Debug, Clone)]
 pub(crate) struct AiDynamicToolExecutor {
     workspace_tools: DynamicToolRegistry,
     browser_tools: AiBrowserDynamicToolExecutor,
+    android_tools: AiAndroidDynamicToolExecutor,
 }
 
 impl Default for AiDynamicToolExecutor {
@@ -31,6 +37,7 @@ impl AiDynamicToolExecutor {
         Self {
             workspace_tools: DynamicToolRegistry::new(),
             browser_tools: AiBrowserDynamicToolExecutor::disabled(),
+            android_tools: AiAndroidDynamicToolExecutor::new(),
         }
     }
 
@@ -38,6 +45,7 @@ impl AiDynamicToolExecutor {
         Self {
             workspace_tools: DynamicToolRegistry::new(),
             browser_tools: AiBrowserDynamicToolExecutor::state_only(),
+            android_tools: AiAndroidDynamicToolExecutor::new(),
         }
     }
 
@@ -49,6 +57,7 @@ impl AiDynamicToolExecutor {
             browser_tools: AiBrowserDynamicToolExecutor {
                 runtime: Some(runtime),
             },
+            android_tools: AiAndroidDynamicToolExecutor::new(),
         }
     }
 
@@ -62,6 +71,13 @@ impl AiDynamicToolExecutor {
             params.tool.as_str(),
         ) {
             return self.browser_tools.execute(params);
+        }
+
+        if hunk_codex::android_tools::is_android_dynamic_tool_call(
+            params.namespace.as_deref(),
+            params.tool.as_str(),
+        ) {
+            return self.android_tools.execute(cwd, params);
         }
 
         self.workspace_tools.execute(cwd, params)

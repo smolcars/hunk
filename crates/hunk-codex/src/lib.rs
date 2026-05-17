@@ -1,3 +1,4 @@
+pub mod android_tools;
 pub mod api;
 pub mod app_server_client;
 pub mod browser_tools;

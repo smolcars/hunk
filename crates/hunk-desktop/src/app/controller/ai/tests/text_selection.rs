@@ -153,6 +153,21 @@
     }
 
     #[test]
+    fn ai_text_selection_clamps_empty_surface_indices() {
+        let mut selection = AiTextSelection::new(
+            "row".to_string(),
+            ai_selection_surfaces([("surface", "", "")]).as_slice(),
+            "surface",
+            1,
+        );
+        selection.set_head_for_surface("surface", 1);
+
+        assert_eq!(selection.range(), 0..0);
+        assert_eq!(selection.selected_text(), None);
+        assert_eq!(selection.range_for_surface("surface"), None);
+    }
+
+    #[test]
     fn ai_workspace_selection_surfaces_join_title_and_preview_with_newline() {
         let block = ai_workspace_session::AiWorkspaceBlock {
             id: "row-1".to_string(),

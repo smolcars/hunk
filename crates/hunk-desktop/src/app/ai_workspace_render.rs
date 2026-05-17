@@ -676,7 +676,9 @@ fn ai_workspace_text_hit(
         return None;
     };
     let relative_x = (position.x - render_layout.text_origin_x).max(Pixels::ZERO);
-    let line_local_index = if let Some(text_shaper) = text_shaper.as_mut() {
+    let line_local_index = if line.text.is_empty() {
+        0
+    } else if let Some(text_shaper) = text_shaper.as_mut() {
         let shape = ai_workspace_shape_line(
             text_shaper.window,
             text_shaper.cx,
@@ -911,6 +913,10 @@ fn ai_workspace_text_runs_for_line(
     font: Font,
     theme: &gpui_component::Theme,
 ) -> Vec<TextRun> {
+    if line.text.is_empty() {
+        return Vec::new();
+    }
+
     if !line.syntax_spans.is_empty() {
         let mut runs = Vec::new();
         let mut cursor = 0usize;

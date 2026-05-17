@@ -160,6 +160,18 @@ jobs:
         with:
           clean: false
 
+      - name: Disable stale local Nix cache configuration
+        if: runner.os == 'macOS'
+        run: |
+          {
+            echo "NIX_CONFIG<<EOF"
+            echo "post-build-hook ="
+            echo "extra-substituters ="
+            echo "substituters = https://cache.nixos.org/"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+        shell: bash
+
       - name: Install stable Rust
         if: runner.os != 'macOS'
         uses: dtolnay/rust-toolchain@stable

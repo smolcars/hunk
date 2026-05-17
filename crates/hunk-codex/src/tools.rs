@@ -4,6 +4,7 @@ use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::android_tools::is_android_dynamic_tool_call;
 use crate::browser_tools::is_browser_dynamic_tool_call;
 use crate::protocol::DynamicToolCallOutputContentItem;
 use crate::protocol::DynamicToolCallParams;
@@ -52,6 +53,12 @@ impl DynamicToolRegistry {
             if is_browser_dynamic_tool_call(params.namespace.as_deref(), params.tool.as_str()) {
                 return error_response(format!(
                     "browser dynamic tool '{}' is registered but no embedded browser executor is connected yet",
+                    params.tool
+                ));
+            }
+            if is_android_dynamic_tool_call(params.namespace.as_deref(), params.tool.as_str()) {
+                return error_response(format!(
+                    "Android dynamic tool '{}' is registered but no Android executor is connected yet",
                     params.tool
                 ));
             }

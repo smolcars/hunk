@@ -54,6 +54,7 @@ use hunk_codex::app_server_client::AppServerEvent;
 use hunk_codex::app_server_client::AppServerClient;
 use hunk_codex::app_server_client::EmbeddedAppServerClient;
 use hunk_codex::app_server_client::EmbeddedAppServerClientStartArgs;
+use hunk_codex::android_tools::apply_android_thread_start_context;
 use hunk_codex::browser_tools::apply_browser_thread_start_context;
 use hunk_codex::errors::CodexIntegrationError;
 use hunk_codex::state::AiState;
@@ -338,6 +339,7 @@ impl AiWorkerRuntime {
                 };
                 apply_thread_start_policy(self.mad_max_mode, &mut params);
                 apply_thread_start_session_overrides(&session_overrides, &mut params);
+                apply_android_thread_start_context(&mut params);
                 if self.browser_tools_enabled {
                     apply_browser_thread_start_context(&mut params);
                 }
