@@ -6,10 +6,7 @@ use hunk_codex::android_tools::{AndroidDynamicToolRequest, parse_android_dynamic
 use hunk_codex::protocol::{
     DynamicToolCallOutputContentItem, DynamicToolCallParams, DynamicToolCallResponse,
 };
-use hunk_mobile::{
-    AndroidAction, AndroidRuntime, MobileSafetyDecision, classify_android_action,
-    redact_mobile_tool_text,
-};
+use hunk_mobile::{AndroidAction, AndroidRuntime, redact_mobile_tool_text};
 use serde_json::json;
 
 #[derive(Debug, Clone)]
@@ -68,6 +65,7 @@ fn execute_android_dynamic_tool_with_runtime(
             wait_for_boot,
             timeout_seconds,
         } => match runtime.start_avd(
+            params.thread_id.as_str(),
             avd_name.as_str(),
             wait_for_boot,
             timeout_seconds.map(std::time::Duration::from_secs),
@@ -79,6 +77,7 @@ fn execute_android_dynamic_tool_with_runtime(
                 "turnId": params.turn_id,
                 "avdName": avd_name,
                 "waitForBoot": wait_for_boot,
+                "deviceId": inventory.started_device_id.clone(),
                 "inventory": inventory,
                 "message": "Android emulator start was requested.",
             })),
@@ -218,16 +217,6 @@ fn execute_android_dynamic_tool_with_runtime(
             Err(error) => android_tool_error_response(params, "androidLogsFailed", error),
         },
         AndroidDynamicToolRequest::Action { device_id, action } => {
-            if let MobileSafetyDecision::Prompt(kind) = classify_android_action(&action) {
-                return json_error_response(json!({
-                    "error": "androidConfirmationRequired",
-                    "message": "This Android action requires user confirmation before it can run.",
-                    "tool": params.tool,
-                    "threadId": params.thread_id,
-                    "turnId": params.turn_id,
-                    "sensitiveAction": format!("{kind:?}"),
-                }));
-            }
             match runtime.apply_action(params.thread_id.as_str(), device_id.as_ref(), &action) {
                 Ok(()) => json_success_response(json!({
                     "ok": true,

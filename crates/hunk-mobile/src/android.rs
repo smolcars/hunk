@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -31,6 +31,7 @@ pub struct AndroidDeviceInventory {
     pub tools: AndroidToolsStatus,
     pub devices: Vec<AndroidDeviceSummary>,
     pub avds: Vec<AndroidAvdSummary>,
+    pub started_device_id: Option<MobileDeviceId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,16 +214,19 @@ impl AndroidRuntime {
             },
             devices,
             avds,
+            started_device_id: None,
         })
     }
 
     pub fn start_avd(
         &mut self,
+        thread_id: &str,
         avd_name: &str,
         wait_for_boot: bool,
         timeout: Option<Duration>,
     ) -> Result<AndroidDeviceInventory, MobileError> {
-        let tools = self.require_tools()?;
+        let before_serials = running_emulator_serials(self.devices()?.devices.as_slice());
+        let tools = self.require_tools()?.clone();
         let emulator = tools
             .emulator
             .as_ref()
@@ -240,11 +244,23 @@ impl AndroidRuntime {
                 message: error.to_string(),
             })?;
 
-        if wait_for_boot {
-            self.wait_for_any_emulator_boot(timeout.unwrap_or(DEFAULT_BOOT_TIMEOUT))?;
+        let started_device_id = if wait_for_boot {
+            Some(self.wait_for_started_emulator_boot(
+                avd_name,
+                &before_serials,
+                timeout.unwrap_or(DEFAULT_BOOT_TIMEOUT),
+            )?)
+        } else {
+            None
+        };
+
+        if let Some(device_id) = started_device_id.as_ref() {
+            self.select_device(thread_id, device_id.clone());
         }
 
-        self.devices()
+        let mut inventory = self.devices()?;
+        inventory.started_device_id = started_device_id;
+        Ok(inventory)
     }
 
     pub fn install_apk(
@@ -483,12 +499,13 @@ impl AndroidRuntime {
     ) -> Result<Vec<String>, MobileError> {
         let tools = self.require_tools()?.clone();
         let serial = self.resolve_device(thread_id, device_id)?;
-        let output = run_command(&tools.adb, ["-s", serial.as_str(), "logcat", "-d"])?;
+        let capped_lines = max_lines.max(1);
+        let output = run_command(&tools.adb, android_logcat_args(&serial, capped_lines))?;
         let lines = output
             .stdout
             .lines()
             .rev()
-            .take(max_lines.max(1))
+            .take(capped_lines)
             .map(str::to_string)
             .collect::<Vec<_>>()
             .into_iter()
@@ -533,14 +550,19 @@ impl AndroidRuntime {
         Ok(device_id)
     }
 
-    fn wait_for_any_emulator_boot(&mut self, timeout: Duration) -> Result<(), MobileError> {
+    fn wait_for_started_emulator_boot(
+        &mut self,
+        avd_name: &str,
+        before_serials: &BTreeSet<MobileDeviceId>,
+        timeout: Duration,
+    ) -> Result<MobileDeviceId, MobileError> {
         let started_at = Instant::now();
         while started_at.elapsed() < timeout {
             let Some(device) = self
                 .devices()?
                 .devices
                 .into_iter()
-                .find(AndroidDeviceSummary::is_online_emulator)
+                .find(|device| is_new_online_emulator(device, before_serials))
             else {
                 thread::sleep(Duration::from_millis(500));
                 continue;
@@ -557,14 +579,14 @@ impl AndroidRuntime {
                 ],
             )?;
             if output.stdout.trim() == "1" {
-                return Ok(());
+                return Ok(device.serial);
             }
             thread::sleep(Duration::from_millis(500));
         }
         Err(MobileError::AndroidToolFailed {
             tool: "emulator".to_string(),
             message: format!(
-                "emulator did not finish booting within {}s",
+                "emulator '{avd_name}' did not finish booting within {}s",
                 timeout.as_secs()
             ),
         })
@@ -616,6 +638,45 @@ pub fn parse_adb_devices(output: &str) -> Vec<AndroidDeviceSummary> {
             })
         })
         .collect()
+}
+
+fn running_emulator_serials(devices: &[AndroidDeviceSummary]) -> BTreeSet<MobileDeviceId> {
+    devices
+        .iter()
+        .filter(|device| device.is_emulator)
+        .map(|device| device.serial.clone())
+        .collect()
+}
+
+fn is_new_online_emulator(
+    device: &AndroidDeviceSummary,
+    before_serials: &BTreeSet<MobileDeviceId>,
+) -> bool {
+    device.is_online_emulator() && !before_serials.contains(&device.serial)
+}
+
+#[doc(hidden)]
+pub fn started_online_emulator_serial(
+    devices: &[AndroidDeviceSummary],
+    before_serials: &[MobileDeviceId],
+) -> Option<MobileDeviceId> {
+    let before_serials = before_serials.iter().cloned().collect::<BTreeSet<_>>();
+    devices
+        .iter()
+        .find(|device| is_new_online_emulator(device, &before_serials))
+        .map(|device| device.serial.clone())
+}
+
+#[doc(hidden)]
+pub fn android_logcat_args(serial: &MobileDeviceId, max_lines: usize) -> Vec<String> {
+    vec![
+        "-s".to_string(),
+        serial.as_str().to_string(),
+        "logcat".to_string(),
+        "-d".to_string(),
+        "-t".to_string(),
+        max_lines.max(1).to_string(),
+    ]
 }
 
 pub fn parse_avd_list(output: &str) -> Vec<AndroidAvdSummary> {
@@ -712,6 +773,8 @@ pub enum AndroidInputTextError {
     Newline,
     #[error("text input contains unsupported control character")]
     ControlCharacter,
+    #[error("text input cannot contain literal percent signs")]
+    Percent,
 }
 
 pub fn parse_android_input_text(text: &str) -> Result<AndroidInputText, MobileError> {
@@ -726,6 +789,11 @@ pub fn parse_android_input_text(text: &str) -> Result<AndroidInputText, MobileEr
             character if character.is_control() => {
                 return Err(MobileError::UnsupportedTextInput(
                     AndroidInputTextError::ControlCharacter.to_string(),
+                ));
+            }
+            '%' => {
+                return Err(MobileError::UnsupportedTextInput(
+                    AndroidInputTextError::Percent.to_string(),
                 ));
             }
             ' ' => encoded.push_str("%s"),

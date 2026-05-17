@@ -25,8 +25,7 @@ Use the tools in the hunk_android namespace directly. Do not use Appium, Maestro
 Use hunk_android.devices before assuming an emulator is available.
 Use hunk_android.snapshot before tapping, typing, or swiping by UI element. The snapshot returns a snapshotEpoch and indexed visible elements; pass that same snapshotEpoch and element index to hunk_android.tap or hunk_android.type.
 Use hunk_android.screenshot when visual verification is needed.
-Use hunk_android.logs when the user asks for Android logs, Logcat, crashes, or runtime debugging output.
-If an Android action reports that confirmation is required, stop and wait for the user decision before continuing."#;
+Use hunk_android.logs when the user asks for Android logs, Logcat, crashes, or runtime debugging output."#;
 
 pub fn android_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
     vec![

@@ -1,7 +1,8 @@
 use hunk_mobile::{
-    AndroidAction, AndroidKey, AndroidTapTarget, MobileError, MobileSession, MobileSessionId,
-    classify_android_action, parse_adb_devices, parse_android_input_text, parse_avd_list,
-    parse_ui_automator_snapshot,
+    AndroidAction, AndroidKey, AndroidTapTarget, MobileDeviceId, MobileError, MobileSession,
+    MobileSessionId, android_logcat_args, classify_android_action, parse_adb_devices,
+    parse_android_input_text, parse_avd_list, parse_ui_automator_snapshot,
+    started_online_emulator_serial,
 };
 
 #[test]
@@ -98,6 +99,46 @@ fn android_input_text_encoder_handles_simple_shell_sensitive_text() {
 
     assert_eq!(encoded, "hello%sworld%s\\&%sok");
     assert!(parse_android_input_text("line\nbreak").is_err());
+    assert!(parse_android_input_text("100% sure").is_err());
+    assert!(parse_android_input_text("already%20encoded").is_err());
+}
+
+#[test]
+fn logcat_args_apply_line_cap_before_dumping() {
+    assert_eq!(
+        android_logcat_args(&MobileDeviceId::new("emulator-5556"), 200),
+        vec!["-s", "emulator-5556", "logcat", "-d", "-t", "200"]
+    );
+    assert_eq!(
+        android_logcat_args(&MobileDeviceId::new("emulator-5556"), 0),
+        vec!["-s", "emulator-5556", "logcat", "-d", "-t", "1"]
+    );
+}
+
+#[test]
+fn started_emulator_selection_ignores_existing_online_emulators() {
+    let devices = parse_adb_devices(
+        r#"List of devices attached
+emulator-5554 device product:sdk_gphone64_arm64 model:old device:emu64a transport_id:1
+emulator-5556 offline product:sdk_gphone64_arm64 model:new device:emu64a transport_id:2
+emulator-5558 device product:sdk_gphone64_arm64 model:newer device:emu64a transport_id:3
+"#,
+    );
+
+    assert_eq!(
+        started_online_emulator_serial(&devices, &[MobileDeviceId::new("emulator-5554")]),
+        Some(MobileDeviceId::new("emulator-5558"))
+    );
+    assert_eq!(
+        started_online_emulator_serial(
+            &devices,
+            &[
+                MobileDeviceId::new("emulator-5554"),
+                MobileDeviceId::new("emulator-5558"),
+            ],
+        ),
+        None
+    );
 }
 
 #[test]

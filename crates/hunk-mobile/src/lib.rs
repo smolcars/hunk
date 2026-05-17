@@ -7,8 +7,9 @@ mod snapshot;
 pub use android::{
     AndroidAction, AndroidAvdSummary, AndroidDeviceInventory, AndroidDeviceSummary,
     AndroidInputTextError, AndroidKey, AndroidRuntime, AndroidRuntimeConfig, AndroidTapTarget,
-    AndroidToolPaths, AndroidToolStatus, AndroidToolsStatus, find_android_tools, parse_adb_devices,
-    parse_android_input_text, parse_avd_list, parse_ui_automator_snapshot,
+    AndroidToolPaths, AndroidToolStatus, AndroidToolsStatus, android_logcat_args,
+    find_android_tools, parse_adb_devices, parse_android_input_text, parse_avd_list,
+    parse_ui_automator_snapshot, started_online_emulator_serial,
 };
 pub use frame::{MobileFrame, MobileFrameError, MobileFrameMetadata};
 pub use safety::{
