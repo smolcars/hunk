@@ -205,11 +205,11 @@ mod ai_tests {
         );
         assert_eq!(
             selected_ai_service_tier(AiServiceTierSelection::Fast),
-            Some(Some(ServiceTier::Fast))
+            Some(Some(ServiceTier::Fast.request_value().to_string()))
         );
         assert_eq!(
             selected_ai_service_tier(AiServiceTierSelection::Flex),
-            Some(Some(ServiceTier::Flex))
+            Some(Some(ServiceTier::Flex.request_value().to_string()))
         );
     }
 

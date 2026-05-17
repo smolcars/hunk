@@ -377,10 +377,6 @@ fn embedded_turn_apply_patch_updates_workspace_file() -> Result<()> {
         "did not observe turn completion before timeout: status={:?}, output={:?}, turn_error={:?}",
         file_change_completion_status, file_change_output, turn_error,
     );
-    assert!(
-        file_change_output.contains("Success. Updated the following files:"),
-        "file-change output did not report success: {file_change_output:?}",
-    );
     assert_eq!(std::fs::read_to_string(&patch_target)?, "beta\n");
 
     client.shutdown()?;

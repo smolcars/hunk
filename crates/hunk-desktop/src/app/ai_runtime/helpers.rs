@@ -184,11 +184,11 @@ fn apply_thread_start_session_overrides(
 
 fn selected_ai_service_tier(
     selection: AiServiceTierSelection,
-) -> Option<Option<ServiceTier>> {
+) -> Option<Option<String>> {
     Some(match selection {
         AiServiceTierSelection::Standard => None,
-        AiServiceTierSelection::Fast => Some(ServiceTier::Fast),
-        AiServiceTierSelection::Flex => Some(ServiceTier::Flex),
+        AiServiceTierSelection::Fast => Some(ServiceTier::Fast.request_value().to_string()),
+        AiServiceTierSelection::Flex => Some(ServiceTier::Flex.request_value().to_string()),
     })
 }
 
