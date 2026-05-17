@@ -293,7 +293,6 @@ impl ThreadService {
         let params = SkillsListParams {
             cwds: vec![self.cwd.clone()],
             force_reload,
-            per_cwd_extra_user_roots: None,
         };
         self.request_with_notifications(session, api::method::SKILLS_LIST, Some(&params), timeout)
     }

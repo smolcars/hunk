@@ -128,6 +128,7 @@ impl InProcessClientStartArgs {
             thread_config_loader: Arc::new(NoopThreadConfigLoader),
             feedback: self.feedback,
             log_db: None,
+            state_db: None,
             environment_manager: self.environment_manager,
             config_warnings: self.config_warnings,
             session_source: self.session_source,
